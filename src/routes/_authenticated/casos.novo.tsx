@@ -8,6 +8,7 @@ import { ArrowLeft, Loader2 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { ClientOnly } from "@/components/client-only";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -247,6 +248,13 @@ function NovoCasoPage() {
         </Button>
       </div>
 
+      <ClientOnly
+        fallback={
+          <div className="flex h-96 items-center justify-center">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        }
+      >
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
           {/* Seção 1 */}
@@ -444,6 +452,7 @@ function NovoCasoPage() {
           </div>
         </form>
       </Form>
+      </ClientOnly>
     </div>
   );
 }
