@@ -211,6 +211,7 @@ function NovoCasoPage() {
         ? values.parceiro_id || null
         : usuario.id;
 
+      // 1) Insere cliente (com senha em texto puro temporariamente — ver TODO.md)
       const { data: clienteInsert, error: clienteErr } = await supabase
         .from("clientes")
         .insert({
@@ -251,6 +252,7 @@ function NovoCasoPage() {
         throw clienteErr;
       }
 
+      // 2) Insere caso
       const { data: casoInsert, error: casoErr } = await supabase
         .from("casos")
         .insert({
@@ -266,12 +268,13 @@ function NovoCasoPage() {
 
       if (casoErr) throw casoErr;
 
+      // 3) Upload de documentos (se houver)
       const docsToUpload = docs.filter((d) => d.file !== null);
       if (docsToUpload.length > 0) {
         for (const doc of docsToUpload) {
           if (!doc.file) continue;
-          const fileName = \`\${Date.now()}_\${sanitizeFileName(doc.file.name)}\`;
-          const storagePath = \`\${casoInsert!.id}/\${fileName}\`;
+          const fileName = `${Date.now()}_${sanitizeFileName(doc.file.name)}`;
+          const storagePath = `${casoInsert!.id}/${fileName}`;
 
           const { error: uploadErr } = await supabase.storage
             .from("documentos")
@@ -282,7 +285,7 @@ function NovoCasoPage() {
 
           if (uploadErr) {
             console.error("Falha no upload de", doc.file.name, uploadErr);
-            toast.error(\`Falha ao enviar \${doc.file.name}: \${uploadErr.message}\`);
+            toast.error(`Falha ao enviar ${doc.file.name}: ${uploadErr.message}`);
             continue;
           }
 
@@ -297,7 +300,7 @@ function NovoCasoPage() {
 
           if (docInsertErr) {
             console.error("Falha ao registrar documento", docInsertErr);
-            toast.error(\`Falha ao registrar \${doc.file.name}: \${docInsertErr.message}\`);
+            toast.error(`Falha ao registrar ${doc.file.name}: ${docInsertErr.message}`);
           }
         }
       }
@@ -341,131 +344,227 @@ function NovoCasoPage() {
       >
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          {/* Seção 1: Dados do cliente */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Dados do cliente</CardTitle>
               <CardDescription>Informações pessoais do segurado.</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 sm:grid-cols-2">
-              <FormField control={form.control} name="nome" render={({ field }) => (
-                <FormItem className="sm:col-span-2">
-                  <FormLabel>Nome completo *</FormLabel>
-                  <FormControl><Input placeholder="Nome do cliente" {...field} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={form.control} name="cpf" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>CPF *</FormLabel>
-                  <FormControl>
-                    <Input placeholder="000.000.000-00" inputMode="numeric" value={field.value}
-                      onChange={(e) => field.onChange(maskCPF(e.target.value))} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={form.control} name="data_nascimento" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Data de nascimento *</FormLabel>
-                  <FormControl><Input type="date" {...field} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={form.control} name="telefone" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Telefone *</FormLabel>
-                  <FormControl>
-                    <Input placeholder="(00) 00000-0000" inputMode="tel" value={field.value}
-                      onChange={(e) => field.onChange(maskTelefone(e.target.value))} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={form.control} name="email" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>E-mail</FormLabel>
-                  <FormControl><Input type="email" placeholder="email@exemplo.com" {...field} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={form.control} name="senha_meu_inss" render={({ field }) => (
-                <FormItem className="sm:col-span-2">
-                  <FormLabel>Senha MEU INSS</FormLabel>
-                  <FormControl>
-                    <div className="relative">
-                      <Input type={showPwd ? "text" : "password"} placeholder="Senha do portal MEU INSS"
-                        autoComplete="off" {...field} />
-                      <button type="button" onClick={() => setShowPwd((v) => !v)}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                        aria-label={showPwd ? "Ocultar senha" : "Mostrar senha"}>
-                        {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </button>
-                    </div>
-                  </FormControl>
-                  <p className="text-xs text-muted-foreground">
-                    Aviso temporário: armazenada em texto puro durante a fase de testes. Será criptografada antes do uso em produção.
-                  </p>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={form.control} name="observacoes_cliente" render={({ field }) => (
-                <FormItem className="sm:col-span-2">
-                  <FormLabel>Observações sobre o cliente</FormLabel>
-                  <FormControl><Textarea rows={3} placeholder="Notas opcionais..." {...field} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
+              <FormField
+                control={form.control}
+                name="nome"
+                render={({ field }) => (
+                  <FormItem className="sm:col-span-2">
+                    <FormLabel>Nome completo *</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Nome do cliente" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="cpf"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>CPF *</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="000.000.000-00"
+                        inputMode="numeric"
+                        value={field.value}
+                        onChange={(e) => field.onChange(maskCPF(e.target.value))}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="data_nascimento"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Data de nascimento *</FormLabel>
+                    <FormControl>
+                      <Input type="date" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="telefone"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Telefone *</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="(00) 00000-0000"
+                        inputMode="tel"
+                        value={field.value}
+                        onChange={(e) => field.onChange(maskTelefone(e.target.value))}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>E-mail</FormLabel>
+                    <FormControl>
+                      <Input type="email" placeholder="email@exemplo.com" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="senha_meu_inss"
+                render={({ field }) => (
+                  <FormItem className="sm:col-span-2">
+                    <FormLabel>Senha MEU INSS</FormLabel>
+                    <FormControl>
+                      <div className="relative">
+                        <Input
+                          type={showPwd ? "text" : "password"}
+                          placeholder="Senha do portal MEU INSS"
+                          autoComplete="off"
+                          {...field}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPwd((v) => !v)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          aria-label={showPwd ? "Ocultar senha" : "Mostrar senha"}
+                        >
+                          {showPwd ? (
+                            <EyeOff className="h-4 w-4" />
+                          ) : (
+                            <Eye className="h-4 w-4" />
+                          )}
+                        </button>
+                      </div>
+                    </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      Aviso temporário: armazenada em texto puro durante a fase de testes. Será criptografada antes do uso em produção.
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="observacoes_cliente"
+                render={({ field }) => (
+                  <FormItem className="sm:col-span-2">
+                    <FormLabel>Observações sobre o cliente</FormLabel>
+                    <FormControl>
+                      <Textarea rows={3} placeholder="Notas opcionais..." {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
             </CardContent>
           </Card>
 
+          {/* Seção 2: Dados do caso */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Dados do caso</CardTitle>
               <CardDescription>Tipo de benefício e responsáveis.</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 sm:grid-cols-2">
-              <FormField control={form.control} name="tipo_beneficio" render={({ field }) => (
-                <FormItem className={isInterno ? "" : "sm:col-span-2"}>
-                  <FormLabel>Tipo de benefício *</FormLabel>
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <FormControl><SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger></FormControl>
-                    <SelectContent>
-                      {TIPOS_BENEFICIO.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              {isInterno && (
-                <FormField control={form.control} name="parceiro_id" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Parceiro indicador</FormLabel>
+              <FormField
+                control={form.control}
+                name="tipo_beneficio"
+                render={({ field }) => (
+                  <FormItem className={isInterno ? "" : "sm:col-span-2"}>
+                    <FormLabel>Tipo de benefício *</FormLabel>
                     <Select value={field.value} onValueChange={field.onChange}>
-                      <FormControl><SelectTrigger><SelectValue placeholder="Nenhum (caso direto)" /></SelectTrigger></FormControl>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione" />
+                        </SelectTrigger>
+                      </FormControl>
                       <SelectContent>
-                        {parceiros.length === 0 ? (
-                          <div className="px-2 py-1.5 text-sm text-muted-foreground">Nenhum parceiro cadastrado</div>
-                        ) : parceiros.map((p) => <SelectItem key={p.id} value={p.id}>{p.nome ?? p.email ?? p.id}</SelectItem>)}
+                        {TIPOS_BENEFICIO.map((t) => (
+                          <SelectItem key={t} value={t}>
+                            {t}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                     <FormMessage />
                   </FormItem>
-                )} />
+                )}
+              />
+
+              {isInterno && (
+                <FormField
+                  control={form.control}
+                  name="parceiro_id"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Parceiro indicador</FormLabel>
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Nenhum (caso direto)" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {parceiros.length === 0 ? (
+                            <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                              Nenhum parceiro cadastrado
+                            </div>
+                          ) : (
+                            parceiros.map((p) => (
+                              <SelectItem key={p.id} value={p.id}>
+                                {p.nome ?? p.email ?? p.id}
+                              </SelectItem>
+                            ))
+                          )}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               )}
-              <FormField control={form.control} name="observacoes_caso" render={({ field }) => (
-                <FormItem className="sm:col-span-2">
-                  <FormLabel>Observações iniciais sobre o caso</FormLabel>
-                  <FormControl><Textarea rows={4} placeholder="Contexto, urgência, documentos já recebidos..." {...field} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
+
+              <FormField
+                control={form.control}
+                name="observacoes_caso"
+                render={({ field }) => (
+                  <FormItem className="sm:col-span-2">
+                    <FormLabel>Observações iniciais sobre o caso</FormLabel>
+                    <FormControl>
+                      <Textarea rows={4} placeholder="Contexto, urgência, documentos já recebidos..." {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
             </CardContent>
           </Card>
 
+          {/* Seção 3: Documentos */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Documentos</CardTitle>
-              <CardDescription>Anexe documentos que já tem em mãos. Pode adicionar mais depois no caso.</CardDescription>
+              <CardDescription>
+                Anexe documentos que já tem em mãos. Pode adicionar mais depois no caso.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               {docs.length === 0 ? (
@@ -473,11 +572,17 @@ function NovoCasoPage() {
               ) : (
                 <div className="space-y-3">
                   {docs.map((d) => (
-                    <div key={d.id} className="grid grid-cols-1 sm:grid-cols-[1fr_180px_auto] gap-2 items-end p-3 border rounded-md bg-muted/30">
+                    <div
+                      key={d.id}
+                      className="grid grid-cols-1 sm:grid-cols-[1fr_180px_auto] gap-2 items-end p-3 border rounded-md bg-muted/30"
+                    >
                       <div>
                         <Label className="text-xs">Arquivo</Label>
-                        <Input type="file" accept="application/pdf,image/jpeg,image/png,image/jpg"
-                          onChange={(e) => updateDocFile(d.id, e.target.files?.[0] ?? null)} />
+                        <Input
+                          type="file"
+                          accept="application/pdf,image/jpeg,image/png,image/jpg"
+                          onChange={(e) => updateDocFile(d.id, e.target.files?.[0] ?? null)}
+                        />
                         {d.file && (
                           <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
                             <FileText className="h-3 w-3" />
@@ -487,14 +592,29 @@ function NovoCasoPage() {
                       </div>
                       <div>
                         <Label className="text-xs">Tipo</Label>
-                        <Select value={d.tipo} onValueChange={(v) => updateDocTipo(d.id, v as TipoDocumento)}>
-                          <SelectTrigger><SelectValue /></SelectTrigger>
+                        <Select
+                          value={d.tipo}
+                          onValueChange={(v) => updateDocTipo(d.id, v as TipoDocumento)}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
                           <SelectContent>
-                            {TIPOS_DOCUMENTO.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                            {TIPOS_DOCUMENTO.map((t) => (
+                              <SelectItem key={t.value} value={t.value}>
+                                {t.label}
+                              </SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                       </div>
-                      <Button type="button" variant="ghost" size="icon" onClick={() => removeDoc(d.id)} aria-label="Remover documento">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => removeDoc(d.id)}
+                        aria-label="Remover documento"
+                      >
                         <X className="h-4 w-4" />
                       </Button>
                     </div>
@@ -509,7 +629,14 @@ function NovoCasoPage() {
           </Card>
 
           <div className="flex items-center justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => navigate({ to: "/" })} disabled={submitting}>Cancelar</Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => navigate({ to: "/" })}
+              disabled={submitting}
+            >
+              Cancelar
+            </Button>
             <Button type="submit" disabled={submitting}>
               {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Cadastrar caso
