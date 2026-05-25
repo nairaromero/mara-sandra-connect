@@ -56,7 +56,12 @@ export interface FileRouteTypes {
   fullPaths: '/' | '/login' | '/casos/novo'
   fileRoutesByTo: FileRoutesByTo
   to: '/login' | '/' | '/casos/novo'
-  id: '__root__' | '/_authenticated' | '/login' | '/_authenticated/' | '/_authenticated/casos/novo'
+  id:
+    | '__root__'
+    | '/_authenticated'
+    | '/login'
+    | '/_authenticated/'
+    | '/_authenticated/casos/novo'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
