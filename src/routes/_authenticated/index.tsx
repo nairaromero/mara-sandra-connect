@@ -15,7 +15,7 @@ interface CasoRow {
   id: string;
   tipo_beneficio: string | null;
   status: string | null;
-  criado_em: string | null;
+  created_at: string | null;
   cliente_id: string | null;
   parceiro_id: string | null;
   clientes?: { nome: string | null } | null;
@@ -23,19 +23,18 @@ interface CasoRow {
 }
 
 const STATUS_VARIANT: Record<string, { label: string; className: string }> = {
-  exito: { label: "Êxito", className: "bg-success text-success-foreground hover:bg-success" },
-  deferido: { label: "Deferido", className: "bg-success text-success-foreground hover:bg-success" },
+  aguardando_documentos: { label: "Aguardando documentos", className: "bg-warning text-warning-foreground hover:bg-warning" },
+  em_analise: { label: "Em análise", className: "bg-info text-info-foreground hover:bg-info" },
+  em_revisao: { label: "Em revisão", className: "bg-warning text-warning-foreground hover:bg-warning" },
   em_andamento: { label: "Em andamento", className: "bg-info text-info-foreground hover:bg-info" },
-  andamento: { label: "Em andamento", className: "bg-info text-info-foreground hover:bg-info" },
-  aguardando_revisao: { label: "Aguardando revisão", className: "bg-warning text-warning-foreground hover:bg-warning" },
-  pendente: { label: "Pendente", className: "bg-warning text-warning-foreground hover:bg-warning" },
-  indeferido: { label: "Indeferido", className: "bg-destructive text-destructive-foreground hover:bg-destructive" },
+  concluido_exito: { label: "Concluído com êxito", className: "bg-success text-success-foreground hover:bg-success" },
+  concluido_sem_exito: { label: "Concluído sem êxito", className: "bg-destructive text-destructive-foreground hover:bg-destructive" },
+  arquivado: { label: "Arquivado", className: "bg-secondary text-secondary-foreground hover:bg-secondary" },
 };
 
 function StatusBadge({ status }: { status: string | null }) {
   if (!status) return <Badge variant="outline">—</Badge>;
-  const key = status.toLowerCase().replace(/\s+/g, "_");
-  const cfg = STATUS_VARIANT[key];
+  const cfg = STATUS_VARIANT[status];
   if (cfg) return <Badge className={cfg.className}>{cfg.label}</Badge>;
   return <Badge variant="secondary">{status}</Badge>;
 }
@@ -84,7 +83,7 @@ function DashboardPage() {
   const [casos, setCasos] = useState<CasoRow[]>([]);
   const [metrics, setMetrics] = useState({
     total: 0,
-    andamento: 0,
+    andamento: 1,
     aguardandoRevisao: 0,
     exitosMes: 0,
     ativos: 0,
@@ -102,13 +101,12 @@ function DashboardPage() {
     if (!usuario) return;
     setLoading(true);
     try {
-      // RLS cuida do isolamento — não filtramos manualmente
       const casosQuery = supabase
         .from("casos")
         .select(
-          "id, tipo_beneficio, status, criado_em, cliente_id, parceiro_id, clientes(nome), parceiro:usuarios!casos_parceiro_id_fkey(nome)",
+          "id, tipo_beneficio, status, created_at, cliente_id, parceiro_id, clientes(nome), parceiro:usuarios!casos_parceiro_id_fkey(nome)",
         )
-        .order("criado_em", { ascending: false })
+        .order("created_at", { ascending: false })
         .limit(10);
 
       const { data: casosData, error: casosErr } = await casosQuery;
@@ -118,13 +116,13 @@ function DashboardPage() {
       if (usuario.tipo === "interno") {
         const [totalRes, andamentoRes, revisaoRes, exitosMesRes] = await Promise.all([
           supabase.from("casos").select("id", { count: "exact", head: true }),
-          supabase.from("casos").select("id", { count: "exact", head: true }).in("status", ["em_andamento", "andamento"]),
-          supabase.from("casos").select("id", { count: "exact", head: true }).in("status", ["aguardando_revisao", "pendente"]),
+          supabase.from("casos").select("id", { count: "exact", head: true }).eq("status", "em_andamento"),
+          supabase.from("casos").select("id", { count: "exact", head: true }).eq("status", "em_revisao"),
           supabase
             .from("casos")
             .select("id", { count: "exact", head: true })
-            .in("status", ["exito", "deferido"])
-            .gte("criado_em", startOfMonthISO()),
+            .eq("status", "concluido_exito")
+            .gte("created_at", startOfMonthISO()),
         ]);
         setMetrics((m) => ({
           ...m,
@@ -135,12 +133,12 @@ function DashboardPage() {
         }));
       } else {
         const [ativosRes, exitosAnoRes, repassesRes] = await Promise.all([
-          supabase.from("casos").select("id", { count: "exact", head: true }).in("status", ["em_andamento", "andamento", "aguardando_revisao", "pendente"]),
+          supabase.from("casos").select("id", { count: "exact", head: true }).in("status", ["em_andamento", "em_analise", "em_revisao", "aguardando_documentos"]),
           supabase
             .from("casos")
             .select("id", { count: "exact", head: true })
-            .in("status", ["exito", "deferido"])
-            .gte("criado_em", startOfYearISO()),
+            .eq("status", "concluido_exito")
+            .gte("created_at", startOfYearISO()),
           supabase.from("repasses").select("valor"),
         ]);
         const acumulado = (repassesRes.data ?? []).reduce(
@@ -237,7 +235,7 @@ function DashboardPage() {
                       <StatusBadge status={c.status} />
                     </TableCell>
                     <TableCell className="text-right text-muted-foreground">
-                      {formatDate(c.criado_em)}
+                      {formatDate(c.created_at)}
                     </TableCell>
                   </TableRow>
                 ))}
