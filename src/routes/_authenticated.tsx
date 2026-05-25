@@ -51,6 +51,12 @@ function AuthenticatedLayout() {
               </span>
             </div>
             <div className="flex items-center gap-3">
+              <Button size="sm" asChild>
+                <Link to="/casos/novo">
+                  <Plus className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Novo caso</span>
+                </Link>
+              </Button>
               {usuario?.tipo && (
                 <Badge variant={usuario.tipo === "interno" ? "default" : "secondary"} className="capitalize">
                   {usuario.tipo}
