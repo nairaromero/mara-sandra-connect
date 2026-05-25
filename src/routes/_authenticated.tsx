@@ -1,6 +1,6 @@
-import { createFileRoute, Outlet, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Outlet, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect } from "react";
-import { Loader2, LogOut } from "lucide-react";
+import { Loader2, LogOut, Plus } from "lucide-react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { useAuth } from "@/hooks/use-auth";
@@ -51,6 +51,12 @@ function AuthenticatedLayout() {
               </span>
             </div>
             <div className="flex items-center gap-3">
+              <Button size="sm" asChild>
+                <Link to="/casos/novo">
+                  <Plus className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Novo caso</span>
+                </Link>
+              </Button>
               {usuario?.tipo && (
                 <Badge variant={usuario.tipo === "interno" ? "default" : "secondary"} className="capitalize">
                   {usuario.tipo}
