@@ -22,9 +22,9 @@ Lista de pendências que precisam ser endereçadas antes do app ser usado com cl
 
 ## ALTO — Funcionalidades pendentes
 
-### 2. Tela de cadastro de parceiros
+### 2. Tela de cadastro de parceiros — ✅ FEITO
 
-Hoje, para adicionar um advogado parceiro, é preciso criar manualmente no Supabase Auth e inserir linha em `usuarios` com `tipo='parceiro'`. Criar tela `/parceiros/novo` acessível apenas a usuários internos.
+Tela `/parceiros` acessível apenas a usuários internos. Envia convite por magic link e a trigger `on_auth_user_created` popula automaticamente `public.usuarios` quando o parceiro define a senha.
 
 ### 3. Tela de detalhe do caso
 
