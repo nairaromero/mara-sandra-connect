@@ -77,16 +77,6 @@ const TIPOS_DOCUMENTO = [
 
 type TipoDocumento = (typeof TIPOS_DOCUMENTO)[number]["value"];
 
-const DOCUMENTOS_SUGERIDOS: TipoDocumento[] = [
-  "cnis",
-  "rg_cpf",
-  "comprovante_residencia",
-  "ctps",
-  "holerite",
-  "ppp",
-  "laudo_medico",
-];
-
 interface DocUpload {
   id: string;
   file: File | null;
@@ -129,7 +119,7 @@ function isValidCPF(cpf: string): boolean {
 function sanitizeFileName(name: string): string {
   return name
     .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
@@ -169,13 +159,7 @@ function NovoCasoPage() {
   const [parceiros, setParceiros] = useState<ParceiroOption[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [showPwd, setShowPwd] = useState(false);
-  const [docs, setDocs] = useState<DocUpload[]>(() =>
-    DOCUMENTOS_SUGERIDOS.map((tipo) => ({
-      id: crypto.randomUUID(),
-      file: null,
-      tipo,
-    })),
-  );
+  const [docs, setDocs] = useState<DocUpload[]>([]);
 
   const isInterno = usuario?.tipo === "interno";
 
