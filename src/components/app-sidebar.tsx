@@ -1,5 +1,13 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Briefcase, FileWarning, Wallet, MessagesSquare, Settings, Scale } from "lucide-react";
+import {
+  Briefcase,
+  FileWarning,
+  Wallet,
+  MessagesSquare,
+  Settings,
+  Scale,
+  Users,
+} from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -12,21 +20,37 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { useAuth } from "@/hooks/use-auth";
 
-const items = [
+const itemsBase = [
   { title: "Casos", url: "/", icon: Briefcase },
   { title: "Documentos pendentes", url: "/documentos", icon: FileWarning },
   { title: "Repasses", url: "/repasses", icon: Wallet },
   { title: "Conversas", url: "/conversas", icon: MessagesSquare },
+];
+
+const itemsInternos = [
+  { title: "Parceiros", url: "/parceiros", icon: Users },
+];
+
+const itemsFooter = [
   { title: "Configurações", url: "/configuracoes", icon: Settings },
 ];
 
 export function AppSidebar() {
   const { state } = useSidebar();
+  const { usuario } = useAuth();
+  const isInterno = usuario?.tipo === "interno";
   const collapsed = state === "collapsed";
   const currentPath = useRouterState({ select: (r) => r.location.pathname });
   const isActive = (path: string) =>
     path === "/" ? currentPath === "/" : currentPath.startsWith(path);
+
+  const items = [
+    ...itemsBase,
+    ...(isInterno ? itemsInternos : []),
+    ...itemsFooter,
+  ];
 
   return (
     <Sidebar collapsible="icon">
