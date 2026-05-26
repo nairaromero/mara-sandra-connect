@@ -52,18 +52,40 @@ const TIPOS_BENEFICIO = [
 
 const TIPOS_DOCUMENTO = [
   { value: "cnis", label: "CNIS" },
-  { value: "ppp", label: "PPP" },
-  { value: "ctps", label: "CTPS" },
-  { value: "ctc", label: "CTC" },
   { value: "rg_cpf", label: "RG / CPF" },
   { value: "comprovante_residencia", label: "Comprovante de residência" },
+  { value: "ctps", label: "CTPS" },
+  { value: "holerite", label: "Holerite / contracheque" },
+  { value: "ppp", label: "PPP" },
   { value: "laudo_medico", label: "Laudo médico" },
+  { value: "ltcat", label: "LTCAT" },
+  { value: "atestado_medico", label: "Atestado médico" },
+  { value: "cat", label: "CAT (Comunicação de Acidente de Trabalho)" },
+  { value: "carne_gps", label: "Carnê de contribuição (GPS)" },
+  { value: "ctc", label: "CTC" },
+  { value: "carta_concessao_inss", label: "Carta de concessão / indeferimento INSS" },
+  { value: "hiscre", label: "HISCRE (Histórico de Créditos)" },
+  { value: "certidao_casamento", label: "Certidão de casamento" },
+  { value: "certidao_obito", label: "Certidão de óbito" },
+  { value: "certidao_nascimento", label: "Certidão de nascimento" },
+  { value: "declaracao_uniao_estavel", label: "Declaração de união estável" },
+  { value: "declaracao_atividade_rural", label: "Declaração de atividade rural" },
   { value: "procuracao", label: "Procuração" },
   { value: "contrato_honorarios", label: "Contrato de honorários" },
   { value: "outro", label: "Outro" },
 ] as const;
 
 type TipoDocumento = (typeof TIPOS_DOCUMENTO)[number]["value"];
+
+const DOCUMENTOS_SUGERIDOS: TipoDocumento[] = [
+  "cnis",
+  "rg_cpf",
+  "comprovante_residencia",
+  "ctps",
+  "holerite",
+  "ppp",
+  "laudo_medico",
+];
 
 interface DocUpload {
   id: string;
@@ -147,7 +169,13 @@ function NovoCasoPage() {
   const [parceiros, setParceiros] = useState<ParceiroOption[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [showPwd, setShowPwd] = useState(false);
-  const [docs, setDocs] = useState<DocUpload[]>([]);
+  const [docs, setDocs] = useState<DocUpload[]>(() =>
+    DOCUMENTOS_SUGERIDOS.map((tipo) => ({
+      id: crypto.randomUUID(),
+      file: null,
+      tipo,
+    })),
+  );
 
   const isInterno = usuario?.tipo === "interno";
 
