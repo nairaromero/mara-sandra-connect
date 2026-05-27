@@ -564,10 +564,12 @@ function CasoDetalhePage() {
                 <span>Analise</span>
               </TabsTrigger>
             )}
-            <TabsTrigger value="chat" className="flex items-center gap-1">
-              <MessageSquare className="h-4 w-4" />
-              <span>Chat</span>
-            </TabsTrigger>
+            {caso.parceiro_id && (
+              <TabsTrigger value="chat" className="flex items-center gap-1">
+                <MessageSquare className="h-4 w-4" />
+                <span>Chat</span>
+              </TabsTrigger>
+            )}
             <TabsTrigger value="repasses" className="flex items-center gap-1">
               <DollarSign className="h-4 w-4" />
               <span>Repasses</span>
@@ -584,6 +586,7 @@ function CasoDetalhePage() {
             <TabVisaoGeral
               caso={caso}
               cliente={cliente}
+              parceiro={parceiro}
               isInterno={isInterno}
             />
           </TabsContent>
@@ -593,6 +596,7 @@ function CasoDetalhePage() {
               casoId={casoId}
               andamentos={andamentos}
               isInterno={isInterno}
+              temParceiro={caso.parceiro_id !== null}
               usuarioId={usuario ? usuario.id : null}
               onChange={carregar}
             />
@@ -620,14 +624,16 @@ function CasoDetalhePage() {
             </TabsContent>
           )}
 
-          <TabsContent value="chat" className="mt-4">
-            <TabChat
-              casoId={casoId}
-              mensagens={mensagens}
-              setMensagens={setMensagens}
-              usuarioId={usuario ? usuario.id : null}
-            />
-          </TabsContent>
+          {caso.parceiro_id && (
+            <TabsContent value="chat" className="mt-4">
+              <TabChat
+                casoId={casoId}
+                mensagens={mensagens}
+                setMensagens={setMensagens}
+                usuarioId={usuario ? usuario.id : null}
+              />
+            </TabsContent>
+          )}
 
           <TabsContent value="repasses" className="mt-4">
             <TabRepasses
@@ -715,6 +721,16 @@ function CasoHeader(props: CasoHeaderProps) {
             <Badge variant="secondary">
               Status: {labelFromList(STATUS_CASO, caso.status)}
             </Badge>
+            {parceiro && (
+              <Badge className="bg-purple-600 hover:bg-purple-600 text-white">
+                Parceiro: {parceiro.nome || parceiro.email || "Sem nome"}
+              </Badge>
+            )}
+            {!parceiro && (
+              <Badge variant="outline" className="border-blue-500 text-blue-700">
+                Cliente interno
+              </Badge>
+            )}
             {isInterno && !editing && (
               <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
                 Editar
@@ -777,11 +793,6 @@ function CasoHeader(props: CasoHeaderProps) {
           </div>
         </CardContent>
       )}
-      {isInterno && parceiro && (
-        <CardContent className="pt-0 text-xs text-muted-foreground">
-          Parceiro indicador: {parceiro.nome || parceiro.email || parceiro.id}
-        </CardContent>
-      )}
     </Card>
   );
 }
@@ -793,11 +804,12 @@ function CasoHeader(props: CasoHeaderProps) {
 interface TabVisaoGeralProps {
   caso: Caso;
   cliente: Cliente;
+  parceiro: ParceiroLite | null;
   isInterno: boolean;
 }
 
 function TabVisaoGeral(props: TabVisaoGeralProps) {
-  const { caso, cliente, isInterno } = props;
+  const { caso, cliente, parceiro, isInterno } = props;
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <Card>
@@ -839,6 +851,14 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
           <Linha label="Tipo de beneficio" valor={caso.tipo_beneficio} />
+          <Linha
+            label="Parceiro"
+            valor={
+              parceiro
+                ? parceiro.nome || parceiro.email || "Parceiro sem nome"
+                : "Cliente interno do escritorio"
+            }
+          />
           <Linha label="Fase" valor={labelFromList(FASES_CASO, caso.fase)} />
           <Linha
             label="Status"
@@ -894,12 +914,13 @@ interface TabAndamentosProps {
   casoId: string;
   andamentos: Array<Andamento>;
   isInterno: boolean;
+  temParceiro: boolean;
   usuarioId: string | null;
   onChange: () => void;
 }
 
 function TabAndamentos(props: TabAndamentosProps) {
-  const { casoId, andamentos, isInterno, usuarioId, onChange } = props;
+  const { casoId, andamentos, isInterno, temParceiro, usuarioId, onChange } = props;
   const [titulo, setTitulo] = useState("");
   const [descricao, setDescricao] = useState("");
   const [visivelParceiro, setVisivelParceiro] = useState(true);
@@ -921,7 +942,7 @@ function TabAndamentos(props: TabAndamentosProps) {
         descricao: descricao.trim() || null,
         data_evento: new Date().toISOString(),
         criado_por: usuarioId,
-        visivel_parceiro: visivelParceiro,
+        visivel_parceiro: temParceiro ? visivelParceiro : false,
       });
       if (resp.error) throw resp.error;
       toast.success("Andamento adicionado");
@@ -981,18 +1002,20 @@ function TabAndamentos(props: TabAndamentosProps) {
                       onChange={(e) => setDescricao(e.target.value)}
                     />
                   </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      id="visivel-parceiro"
-                      type="checkbox"
-                      checked={visivelParceiro}
-                      onChange={(e) => setVisivelParceiro(e.target.checked)}
-                      className="h-4 w-4"
-                    />
-                    <Label htmlFor="visivel-parceiro" className="text-sm">
-                      Visivel para o parceiro indicador
-                    </Label>
-                  </div>
+                  {temParceiro && (
+                    <div className="flex items-center gap-2">
+                      <input
+                        id="visivel-parceiro"
+                        type="checkbox"
+                        checked={visivelParceiro}
+                        onChange={(e) => setVisivelParceiro(e.target.checked)}
+                        className="h-4 w-4"
+                      />
+                      <Label htmlFor="visivel-parceiro" className="text-sm">
+                        Visivel para o parceiro indicador
+                      </Label>
+                    </div>
+                  )}
                 </div>
                 <DialogFooter>
                   <Button
@@ -1033,13 +1056,13 @@ function TabAndamentos(props: TabAndamentosProps) {
                   <span className="text-xs text-muted-foreground">
                     {formatDateTime(a.data_evento || a.created_at)}
                   </span>
-                  {isInterno && a.visivel_parceiro && (
+                  {isInterno && temParceiro && a.visivel_parceiro && (
                     <Badge variant="secondary" className="text-xs">
                       <Eye className="h-3 w-3 mr-1" />
                       visivel parceiro
                     </Badge>
                   )}
-                  {isInterno && !a.visivel_parceiro && (
+                  {isInterno && temParceiro && !a.visivel_parceiro && (
                     <Badge variant="outline" className="text-xs">
                       <EyeOff className="h-3 w-3 mr-1" />
                       interno
@@ -2616,26 +2639,3 @@ function TabProcessos(props: TabProcessosProps) {
                 <li key={p.id} className="border rounded-md p-3">
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <div>
-                      <p className="text-sm font-medium">
-                        Processo: {p.numero_processo || "-"}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {p.vara ? p.vara + " - " : ""}
-                        {p.comarca ? p.comarca : ""}
-                        {p.uf ? "/" + p.uf : ""}
-                        {p.data_distribuicao
-                          ? " - Distribuido em " +
-                            formatDate(p.data_distribuicao)
-                          : ""}
-                      </p>
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
