@@ -614,73 +614,72 @@ function NovoCasoPage() {
                 />
 
                 {isInterno && (
-                  <>
-                    <FormField
-                      control={form.control}
-                      name="cliente_interno"
-                      render={({ field }) => (
-                        <FormItem className="sm:col-span-2 flex flex-row items-center gap-2 space-y-0 rounded-md border p-3 bg-muted/30">
-                          <FormControl>
-                            <input
-                              type="checkbox"
-                              checked={field.value === true}
-                              onChange={(e) => {
-                                field.onChange(e.target.checked);
-                                if (e.target.checked) {
-                                  form.setValue("parceiro_id", "");
-                                }
-                              }}
-                              className="h-4 w-4"
-                            />
-                          </FormControl>
-                          <div className="space-y-0.5 leading-none">
-                            <FormLabel className="text-sm cursor-pointer">
-                              Cliente interno do escritorio (sem parceiro indicador)
-                            </FormLabel>
-                            <p className="text-xs text-muted-foreground">
-                              Marque se o cliente veio direto ao escritorio,
-                              sem indicacao de parceiro captador.
-                            </p>
-                          </div>
-                        </FormItem>
-                      )}
-                    />
-                    {!clienteInternoWatch && (
-                      <FormField
-                        control={form.control}
-                        name="parceiro_id"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Parceiro indicador</FormLabel>
-                            <Select
-                              value={field.value}
-                              onValueChange={field.onChange}
-                            >
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Selecione o parceiro" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                {parceiros.length === 0 ? (
-                                  <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                                    Nenhum parceiro cadastrado
-                                  </div>
-                                ) : (
-                                  parceiros.map((p) => (
-                                    <SelectItem key={p.id} value={p.id}>
-                                      {p.nome || p.email || p.id}
-                                    </SelectItem>
-                                  ))
-                                )}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
+                  <FormField
+                    control={form.control}
+                    name="cliente_interno"
+                    render={({ field }) => (
+                      <FormItem className="sm:col-span-2 flex flex-row items-center gap-2 space-y-0 rounded-md border p-3 bg-muted/30">
+                        <FormControl>
+                          <input
+                            type="checkbox"
+                            checked={field.value === true}
+                            onChange={(e) => {
+                              field.onChange(e.target.checked);
+                              if (e.target.checked) {
+                                form.setValue("parceiro_id", "");
+                              }
+                            }}
+                            className="h-4 w-4"
+                          />
+                        </FormControl>
+                        <div className="space-y-0.5 leading-none">
+                          <FormLabel className="text-sm cursor-pointer">
+                            Cliente interno do escritorio (sem parceiro indicador)
+                          </FormLabel>
+                          <p className="text-xs text-muted-foreground">
+                            Marque se o cliente veio direto ao escritorio,
+                            sem indicacao de parceiro captador.
+                          </p>
+                        </div>
+                      </FormItem>
                     )}
-                  </>
+                  />
+                )}
+
+                {isInterno && !clienteInternoWatch && (
+                  <FormField
+                    control={form.control}
+                    name="parceiro_id"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Parceiro indicador</FormLabel>
+                        <Select
+                          value={field.value}
+                          onValueChange={field.onChange}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecione o parceiro" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {parceiros.length === 0 ? (
+                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                Nenhum parceiro cadastrado
+                              </div>
+                            ) : (
+                              parceiros.map((p) => (
+                                <SelectItem key={p.id} value={p.id}>
+                                  {p.nome || p.email || p.id}
+                                </SelectItem>
+                              ))
+                            )}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                 )}
 
                 <FormField
@@ -763,3 +762,50 @@ function NovoCasoPage() {
                                 </SelectItem>
                               ))}
                             </SelectContent>
+                          </Select>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeDoc(d.id)}
+                          aria-label="Remover documento"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={addDoc}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Adicionar documento
+                </Button>
+              </CardContent>
+            </Card>
+
+            <div className="flex items-center justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => navigate({ to: "/" })}
+                disabled={submitting}
+              >
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={submitting}>
+                {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Cadastrar caso
+              </Button>
+            </div>
+          </form>
+        </Form>
+      </ClientOnly>
+    </div>
+  );
+}
