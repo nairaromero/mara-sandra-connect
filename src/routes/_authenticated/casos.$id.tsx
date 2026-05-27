@@ -17,6 +17,9 @@ import {
   Activity,
   FileCheck,
   AlertCircle,
+  Trash2,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -1066,7 +1069,20 @@ function TabDocumentos(props: TabDocumentosProps) {
     ? documentos
     : documentos.filter((d) => d.visivel_parceiro === true);
 
-  const solicitacoesPendentes = solicitacoes.filter((s) => s.status === "pendente");
+  // Solicitacoes ordenadas: pendentes primeiro, depois atendidas, depois dispensadas
+  const ordemStatus: Record<string, number> = {
+    pendente: 0,
+    atendido: 1,
+    dispensado: 2,
+  };
+  const solicitacoesOrdenadas = solicitacoes.slice().sort((a, b) => {
+    const oa = ordemStatus[a.status] !== undefined ? ordemStatus[a.status] : 99;
+    const ob = ordemStatus[b.status] !== undefined ? ordemStatus[b.status] : 99;
+    if (oa !== ob) return oa - ob;
+    return b.created_at.localeCompare(a.created_at);
+  });
+
+  const totalPendentes = solicitacoes.filter((s) => s.status === "pendente").length;
 
   async function baixar(doc: Documento) {
     try {
@@ -1085,50 +1101,167 @@ function TabDocumentos(props: TabDocumentosProps) {
     }
   }
 
+  async function deletarDoc(d: Documento) {
+    const ok = window.confirm(
+      "Tem certeza que deseja deletar o documento '" + d.nome_arquivo + "'?\n\nEssa acao remove o arquivo do storage e o registro do banco, e nao pode ser desfeita.",
+    );
+    if (!ok) return;
+    try {
+      // 1) Remove arquivo do storage (best effort)
+      const storageResp = await supabase.storage
+        .from("documentos")
+        .remove([d.storage_path]);
+      if (storageResp.error) {
+        console.error("Erro ao remover do storage", storageResp.error);
+        // segue para deletar o registro mesmo assim
+      }
+      // 2) Remove registro
+      const delResp = await supabase.from("documentos").delete().eq("id", d.id);
+      if (delResp.error) throw delResp.error;
+      toast.success("Documento deletado");
+      onChange();
+    } catch (err) {
+      console.error(err);
+      const errObj = err as { message?: string };
+      toast.error(errObj.message || "Erro ao deletar documento");
+    }
+  }
+
+  async function atualizarStatusSolic(s: SolicitacaoDocumento, novoStatus: string) {
+    try {
+      const resp = await supabase
+        .from("solicitacoes_documento")
+        .update({ status: novoStatus })
+        .eq("id", s.id);
+      if (resp.error) throw resp.error;
+      toast.success("Solicitacao atualizada");
+      onChange();
+    } catch (err) {
+      console.error(err);
+      const errObj = err as { message?: string };
+      toast.error(errObj.message || "Erro ao atualizar solicitacao");
+    }
+  }
+
   return (
     <div className="space-y-4">
-      {solicitacoesPendentes.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 text-amber-500" />
-              Documentos solicitados
-            </CardTitle>
-            <CardDescription>
-              {isInterno
-                ? "Pedidos abertos pelo escritorio."
-                : "Documentos que o escritorio precisa que voce envie."}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ul className="space-y-2">
-              {solicitacoesPendentes.map((s) => (
-                <li
-                  key={s.id}
-                  className="flex items-center justify-between gap-2 border rounded-md p-3"
-                >
-                  <div>
-                    <p className="text-sm font-medium">
-                      {TIPOS_DOCUMENTO_LABEL[s.tipo] || s.tipo}
-                    </p>
-                    {s.descricao && (
-                      <p className="text-xs text-muted-foreground">
-                        {s.descricao}
-                      </p>
-                    )}
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Solicitado em {formatDate(s.created_at)}
-                    </p>
-                  </div>
-                  <Badge variant="outline">
-                    {STATUS_SOLICITACAO_LABEL[s.status] || s.status}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <CardTitle className="text-base flex items-center gap-2">
+                <ClipboardList className="h-4 w-4" />
+                Documentos solicitados
+                {totalPendentes > 0 && (
+                  <Badge variant="secondary" className="ml-1">
+                    {totalPendentes} pendente
+                    {totalPendentes > 1 ? "s" : ""}
                   </Badge>
-                </li>
-              ))}
+                )}
+              </CardTitle>
+              <CardDescription>
+                {isInterno
+                  ? "Historico de pedidos abertos pelo escritorio."
+                  : "Documentos que o escritorio precisa. Envie por 'Adicionar' abaixo."}
+              </CardDescription>
+            </div>
+            {isInterno && (
+              <SolicitarDocBotao
+                casoId={casoId}
+                usuarioId={usuarioId}
+                onChange={onChange}
+              />
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {solicitacoesOrdenadas.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-6">
+              Nenhuma solicitacao registrada.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {solicitacoesOrdenadas.map((s) => {
+                const isPendente = s.status === "pendente";
+                const isAtendido = s.status === "atendido";
+                const isDispensado = s.status === "dispensado";
+                return (
+                  <li
+                    key={s.id}
+                    className={
+                      "border rounded-md p-3 " +
+                      (isAtendido || isDispensado ? "bg-muted/30" : "")
+                    }
+                  >
+                    <div className="flex items-start justify-between gap-2 flex-wrap">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-medium">
+                            {TIPOS_DOCUMENTO_LABEL[s.tipo] || s.tipo}
+                          </p>
+                          {isPendente && (
+                            <Badge className="bg-amber-500 hover:bg-amber-500 text-white">
+                              Pendente
+                            </Badge>
+                          )}
+                          {isAtendido && (
+                            <Badge className="bg-green-600 hover:bg-green-600 text-white">
+                              <CheckCircle2 className="h-3 w-3 mr-1" />
+                              Atendido
+                            </Badge>
+                          )}
+                          {isDispensado && (
+                            <Badge variant="outline">
+                              <XCircle className="h-3 w-3 mr-1" />
+                              Dispensado
+                            </Badge>
+                          )}
+                        </div>
+                        {s.descricao && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {s.descricao}
+                          </p>
+                        )}
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Solicitado em {formatDate(s.created_at)}
+                        </p>
+                      </div>
+                      {isInterno && isPendente && (
+                        <div className="flex gap-1">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => atualizarStatusSolic(s, "atendido")}
+                          >
+                            <CheckCircle2 className="h-3 w-3 mr-1" />
+                            Atendido
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => atualizarStatusSolic(s, "dispensado")}
+                          >
+                            Dispensar
+                          </Button>
+                        </div>
+                      )}
+                      {isInterno && !isPendente && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => atualizarStatusSolic(s, "pendente")}
+                        >
+                          Reabrir
+                        </Button>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
-          </CardContent>
-        </Card>
-      )}
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -1167,20 +1300,35 @@ function TabDocumentos(props: TabDocumentosProps) {
                       </p>
                     </div>
                   </div>
-                  <Button size="sm" variant="outline" onClick={() => baixar(d)}>
-                    <Download className="h-4 w-4 mr-2" />
-                    Baixar
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="outline" onClick={() => baixar(d)}>
+                      <Download className="h-4 w-4 mr-2" />
+                      Baixar
+                    </Button>
+                    {isInterno && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => deletarDoc(d)}
+                        title="Deletar documento"
+                        aria-label="Deletar documento"
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>
           )}
+          {!isInterno && lista.length > 0 && (
+            <p className="text-xs text-muted-foreground mt-3">
+              Precisa que um documento seja removido? Avise o escritorio pelo
+              chat do caso.
+            </p>
+          )}
         </CardContent>
       </Card>
-
-      {isInterno && (
-        <SolicitarDocCard casoId={casoId} usuarioId={usuarioId} onChange={onChange} />
-      )}
     </div>
   );
 }
@@ -1298,7 +1446,7 @@ function UploadDoc(props: {
   );
 }
 
-function SolicitarDocCard(props: {
+function SolicitarDocBotao(props: {
   casoId: string;
   usuarioId: string | null;
   onChange: () => void;
@@ -1335,70 +1483,58 @@ function SolicitarDocCard(props: {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
+    <Dialog open={aberto} onOpenChange={setAberto}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline">
+          <Plus className="h-4 w-4 mr-2" />
+          Nova solicitacao
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Solicitar documento</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
           <div>
-            <CardTitle className="text-base">Solicitar documento</CardTitle>
-            <CardDescription>
-              Abra um pedido de documento que falta para o caso.
-            </CardDescription>
+            <Label className="text-xs">Tipo</Label>
+            <Select value={tipo} onValueChange={setTipo}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.keys(TIPOS_DOCUMENTO_LABEL).map((k) => (
+                  <SelectItem key={k} value={k}>
+                    {TIPOS_DOCUMENTO_LABEL[k]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          <Dialog open={aberto} onOpenChange={setAberto}>
-            <DialogTrigger asChild>
-              <Button size="sm" variant="outline">
-                <Plus className="h-4 w-4 mr-2" />
-                Nova solicitacao
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Solicitar documento</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-xs">Tipo</Label>
-                  <Select value={tipo} onValueChange={setTipo}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Object.keys(TIPOS_DOCUMENTO_LABEL).map((k) => (
-                        <SelectItem key={k} value={k}>
-                          {TIPOS_DOCUMENTO_LABEL[k]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label className="text-xs">Observacao</Label>
-                  <Textarea
-                    rows={3}
-                    placeholder="Detalhes sobre o documento necessario..."
-                    value={descricao}
-                    onChange={(e) => setDescricao(e.target.value)}
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button
-                  variant="ghost"
-                  onClick={() => setAberto(false)}
-                  disabled={enviando}
-                >
-                  Cancelar
-                </Button>
-                <Button onClick={criar} disabled={enviando}>
-                  {enviando && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
-                  Criar solicitacao
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+          <div>
+            <Label className="text-xs">Observacao</Label>
+            <Textarea
+              rows={3}
+              placeholder="Detalhes sobre o documento necessario..."
+              value={descricao}
+              onChange={(e) => setDescricao(e.target.value)}
+            />
+          </div>
         </div>
-      </CardHeader>
-    </Card>
+        <DialogFooter>
+          <Button
+            variant="ghost"
+            onClick={() => setAberto(false)}
+            disabled={enviando}
+          >
+            Cancelar
+          </Button>
+          <Button onClick={criar} disabled={enviando}>
+            {enviando && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
+            Criar solicitacao
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
