@@ -125,8 +125,11 @@ interface SolicitacaoDocumento {
   tipo: string;
   descricao: string | null;
   status: string;
+  origem: string;
+  documento_id: string | null;
   solicitado_por: string | null;
-  created_at: string;
+  data_solicitacao: string;
+  data_atendimento: string | null;
 }
 
 interface AnaliseTecnica {
@@ -256,6 +259,11 @@ const STATUS_SOLICITACAO_LABEL: Record<string, string> = {
   dispensado: "Dispensado",
 };
 
+const ORIGEM_SOLICITACAO_LABEL: Record<string, string> = {
+  interna: "Interna (escritorio)",
+  externa: "Externa (parceiro/cliente)",
+};
+
 // ===========================================================================
 // Helpers
 // ===========================================================================
@@ -334,6 +342,7 @@ function CasoDetalhePage() {
 
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
+  const jaCarregouRef = useRef(false);
 
   const [caso, setCaso] = useState<Caso | null>(null);
   const [cliente, setCliente] = useState<Cliente | null>(null);
@@ -350,7 +359,10 @@ function CasoDetalhePage() {
   >([]);
 
   const carregar = useCallback(async () => {
-    setLoading(true);
+    // So mostra loading global na primeira carga, depois recarregamentos sao silenciosos
+    if (!jaCarregouRef.current) {
+      setLoading(true);
+    }
     setErro(null);
     try {
       const casoResp = await supabase
@@ -407,7 +419,7 @@ function CasoDetalhePage() {
         .from("solicitacoes_documento")
         .select("*")
         .eq("caso_id", casoId)
-        .order("created_at", { ascending: false });
+        .order("data_solicitacao", { ascending: false });
       if (!solicResp.error) {
         setSolicitacoes((solicResp.data || []) as Array<SolicitacaoDocumento>);
       }
@@ -468,6 +480,7 @@ function CasoDetalhePage() {
       setErro(errObj.message || "Erro ao carregar o caso");
     } finally {
       setLoading(false);
+      jaCarregouRef.current = true;
     }
   }, [casoId, isInterno]);
 
@@ -1079,7 +1092,7 @@ function TabDocumentos(props: TabDocumentosProps) {
     const oa = ordemStatus[a.status] !== undefined ? ordemStatus[a.status] : 99;
     const ob = ordemStatus[b.status] !== undefined ? ordemStatus[b.status] : 99;
     if (oa !== ob) return oa - ob;
-    return b.created_at.localeCompare(a.created_at);
+    return b.data_solicitacao.localeCompare(a.data_solicitacao);
   });
 
   const totalPendentes = solicitacoes.filter((s) => s.status === "pendente").length;
@@ -1129,9 +1142,18 @@ function TabDocumentos(props: TabDocumentosProps) {
 
   async function atualizarStatusSolic(s: SolicitacaoDocumento, novoStatus: string) {
     try {
+      const update: {
+        status: string;
+        data_atendimento?: string | null;
+      } = { status: novoStatus };
+      if (novoStatus === "atendido") {
+        update.data_atendimento = new Date().toISOString();
+      } else if (novoStatus === "pendente") {
+        update.data_atendimento = null;
+      }
       const resp = await supabase
         .from("solicitacoes_documento")
-        .update({ status: novoStatus })
+        .update(update)
         .eq("id", s.id);
       if (resp.error) throw resp.error;
       toast.success("Solicitacao atualizada");
@@ -1216,6 +1238,16 @@ function TabDocumentos(props: TabDocumentosProps) {
                               Dispensado
                             </Badge>
                           )}
+                          <Badge
+                            variant="outline"
+                            className={
+                              s.origem === "interna"
+                                ? "border-blue-500 text-blue-700"
+                                : "border-purple-500 text-purple-700"
+                            }
+                          >
+                            {ORIGEM_SOLICITACAO_LABEL[s.origem] || s.origem}
+                          </Badge>
                         </div>
                         {s.descricao && (
                           <p className="text-xs text-muted-foreground mt-1">
@@ -1223,7 +1255,10 @@ function TabDocumentos(props: TabDocumentosProps) {
                           </p>
                         )}
                         <p className="text-xs text-muted-foreground mt-1">
-                          Solicitado em {formatDate(s.created_at)}
+                          Solicitado em {formatDate(s.data_solicitacao)}
+                          {s.data_atendimento
+                            ? " - Atendido em " + formatDate(s.data_atendimento)
+                            : ""}
                         </p>
                       </div>
                       {isInterno && isPendente && (
@@ -1455,6 +1490,7 @@ function SolicitarDocBotao(props: {
   const [aberto, setAberto] = useState(false);
   const [tipo, setTipo] = useState("cnis");
   const [descricao, setDescricao] = useState("");
+  const [origem, setOrigem] = useState("externa");
   const [enviando, setEnviando] = useState(false);
 
   async function criar() {
@@ -1466,11 +1502,13 @@ function SolicitarDocBotao(props: {
         tipo: tipo,
         descricao: descricao.trim() || null,
         status: "pendente",
+        origem: origem,
         solicitado_por: usuarioId,
       });
       if (resp.error) throw resp.error;
       toast.success("Solicitacao criada");
       setDescricao("");
+      setOrigem("externa");
       setAberto(false);
       onChange();
     } catch (err) {
@@ -1507,6 +1545,22 @@ function SolicitarDocBotao(props: {
                     {TIPOS_DOCUMENTO_LABEL[k]}
                   </SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-xs">Quem vai providenciar?</Label>
+            <Select value={origem} onValueChange={setOrigem}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="externa">
+                  Externa - parceiro ou cliente envia
+                </SelectItem>
+                <SelectItem value="interna">
+                  Interna - escritorio providencia
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
