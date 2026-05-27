@@ -79,7 +79,7 @@ interface ParceiroLite {
 interface Caso {
   id: string;
   cliente_id: string;
-  parceiro_id: string;
+  parceiro_id: string | null;
   tipo_beneficio: string;
   fase: string;
   status: string;
@@ -372,13 +372,17 @@ function CasoDetalhePage() {
       if (clienteResp.error) throw clienteResp.error;
       setCliente((clienteResp.data || null) as Cliente | null);
 
-      const parceiroResp = await supabase
-        .from("usuarios")
-        .select("id, nome, email")
-        .eq("id", casoData.parceiro_id)
-        .maybeSingle();
-      if (parceiroResp.error) throw parceiroResp.error;
-      setParceiro((parceiroResp.data || null) as ParceiroLite | null);
+      if (casoData.parceiro_id) {
+        const parceiroResp = await supabase
+          .from("usuarios")
+          .select("id, nome, email")
+          .eq("id", casoData.parceiro_id)
+          .maybeSingle();
+        if (parceiroResp.error) throw parceiroResp.error;
+        setParceiro((parceiroResp.data || null) as ParceiroLite | null);
+      } else {
+        setParceiro(null);
+      }
 
       const andamentosResp = await supabase
         .from("andamentos")
