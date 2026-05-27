@@ -126,6 +126,7 @@ interface SolicitacaoDocumento {
   descricao: string | null;
   status: string;
   origem: string;
+  comentario: string | null;
   documento_id: string | null;
   solicitado_por: string | null;
   data_solicitacao: string;
@@ -1078,6 +1079,14 @@ interface TabDocumentosProps {
 function TabDocumentos(props: TabDocumentosProps) {
   const { casoId, documentos, solicitacoes, isInterno, usuarioId, onChange } = props;
 
+  // Modal para coletar motivo (dispensa ou atendimento)
+  const [acaoAlvo, setAcaoAlvo] = useState<{
+    solic: SolicitacaoDocumento;
+    novoStatus: string;
+  } | null>(null);
+  const [comentarioModal, setComentarioModal] = useState("");
+  const [salvandoModal, setSalvandoModal] = useState(false);
+
   const lista = isInterno
     ? documentos
     : documentos.filter((d) => d.visivel_parceiro === true);
@@ -1140,16 +1149,24 @@ function TabDocumentos(props: TabDocumentosProps) {
     }
   }
 
-  async function atualizarStatusSolic(s: SolicitacaoDocumento, novoStatus: string) {
+  async function atualizarStatusSolic(
+    s: SolicitacaoDocumento,
+    novoStatus: string,
+    comentario?: string,
+  ) {
     try {
       const update: {
         status: string;
         data_atendimento?: string | null;
+        comentario?: string | null;
       } = { status: novoStatus };
       if (novoStatus === "atendido") {
         update.data_atendimento = new Date().toISOString();
       } else if (novoStatus === "pendente") {
         update.data_atendimento = null;
+      }
+      if (comentario !== undefined) {
+        update.comentario = comentario.trim() || null;
       }
       const resp = await supabase
         .from("solicitacoes_documento")
@@ -1165,8 +1182,102 @@ function TabDocumentos(props: TabDocumentosProps) {
     }
   }
 
+  function abrirAcaoModal(s: SolicitacaoDocumento, novoStatus: string) {
+    setAcaoAlvo({ solic: s, novoStatus: novoStatus });
+    setComentarioModal(s.comentario || "");
+  }
+
+  function fecharAcaoModal() {
+    setAcaoAlvo(null);
+    setComentarioModal("");
+    setSalvandoModal(false);
+  }
+
+  async function confirmarAcaoModal() {
+    if (!acaoAlvo) return;
+    setSalvandoModal(true);
+    try {
+      await atualizarStatusSolic(
+        acaoAlvo.solic,
+        acaoAlvo.novoStatus,
+        comentarioModal,
+      );
+    } finally {
+      setSalvandoModal(false);
+      setAcaoAlvo(null);
+      setComentarioModal("");
+    }
+  }
+
   return (
     <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-base">Documentos do caso</CardTitle>
+              <CardDescription>
+                Arquivos anexados a este caso.
+              </CardDescription>
+            </div>
+            <UploadDoc casoId={casoId} usuarioId={usuarioId} onChange={onChange} />
+          </div>
+        </CardHeader>
+        <CardContent>
+          {lista.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-6">
+              Nenhum documento anexado ainda.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {lista.map((d) => (
+                <li
+                  key={d.id}
+                  className="flex items-center justify-between gap-2 border rounded-md p-3"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <FileText className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">
+                        {d.nome_arquivo}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {TIPOS_DOCUMENTO_LABEL[d.tipo] || d.tipo} -{" "}
+                        {formatBytes(d.tamanho_bytes)} -{" "}
+                        {formatDate(d.created_at)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="outline" onClick={() => baixar(d)}>
+                      <Download className="h-4 w-4 mr-2" />
+                      Baixar
+                    </Button>
+                    {isInterno && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => deletarDoc(d)}
+                        title="Deletar documento"
+                        aria-label="Deletar documento"
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          {!isInterno && lista.length > 0 && (
+            <p className="text-xs text-muted-foreground mt-3">
+              Precisa que um documento seja removido? Avise o escritorio pelo
+              chat do caso.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between flex-wrap gap-2">
@@ -1260,13 +1371,27 @@ function TabDocumentos(props: TabDocumentosProps) {
                             ? " - Atendido em " + formatDate(s.data_atendimento)
                             : ""}
                         </p>
+                        {s.comentario && (
+                          <div className="mt-2 pt-2 border-t border-dashed">
+                            <p className="text-xs text-muted-foreground mb-1">
+                              {isAtendido
+                                ? "Observacao do atendimento"
+                                : isDispensado
+                                ? "Motivo da dispensa"
+                                : "Comentario"}
+                            </p>
+                            <p className="text-sm whitespace-pre-wrap italic">
+                              {s.comentario}
+                            </p>
+                          </div>
+                        )}
                       </div>
                       {isInterno && isPendente && (
                         <div className="flex gap-1">
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => atualizarStatusSolic(s, "atendido")}
+                            onClick={() => abrirAcaoModal(s, "atendido")}
                           >
                             <CheckCircle2 className="h-3 w-3 mr-1" />
                             Atendido
@@ -1274,7 +1399,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={() => atualizarStatusSolic(s, "dispensado")}
+                            onClick={() => abrirAcaoModal(s, "dispensado")}
                           >
                             Dispensar
                           </Button>
@@ -1298,72 +1423,61 @@ function TabDocumentos(props: TabDocumentosProps) {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
+      <Dialog
+        open={acaoAlvo !== null}
+        onOpenChange={(o) => {
+          if (!o) fecharAcaoModal();
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {acaoAlvo && acaoAlvo.novoStatus === "atendido"
+                ? "Marcar como atendido"
+                : "Dispensar solicitacao"}
+            </DialogTitle>
+            <DialogDescription>
+              {acaoAlvo && acaoAlvo.novoStatus === "atendido"
+                ? "Adicione uma observacao opcional (ex.: substituido pelo CNIS X)."
+                : "Informe o motivo da dispensa (recomendado)."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
             <div>
-              <CardTitle className="text-base">Documentos do caso</CardTitle>
-              <CardDescription>
-                Arquivos anexados a este caso.
-              </CardDescription>
+              <Label className="text-xs">
+                {acaoAlvo && acaoAlvo.novoStatus === "atendido"
+                  ? "Observacao"
+                  : "Motivo"}
+              </Label>
+              <Textarea
+                rows={4}
+                placeholder={
+                  acaoAlvo && acaoAlvo.novoStatus === "atendido"
+                    ? "Ex.: documento ja consta no CNIS"
+                    : "Ex.: cliente nao consegue obter; documento nao necessario para esse beneficio"
+                }
+                value={comentarioModal}
+                onChange={(e) => setComentarioModal(e.target.value)}
+              />
             </div>
-            <UploadDoc casoId={casoId} usuarioId={usuarioId} onChange={onChange} />
           </div>
-        </CardHeader>
-        <CardContent>
-          {lista.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">
-              Nenhum documento anexado ainda.
-            </p>
-          ) : (
-            <ul className="space-y-2">
-              {lista.map((d) => (
-                <li
-                  key={d.id}
-                  className="flex items-center justify-between gap-2 border rounded-md p-3"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <FileText className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">
-                        {d.nome_arquivo}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {TIPOS_DOCUMENTO_LABEL[d.tipo] || d.tipo} -{" "}
-                        {formatBytes(d.tamanho_bytes)} -{" "}
-                        {formatDate(d.created_at)}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button size="sm" variant="outline" onClick={() => baixar(d)}>
-                      <Download className="h-4 w-4 mr-2" />
-                      Baixar
-                    </Button>
-                    {isInterno && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => deletarDoc(d)}
-                        title="Deletar documento"
-                        aria-label="Deletar documento"
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-          {!isInterno && lista.length > 0 && (
-            <p className="text-xs text-muted-foreground mt-3">
-              Precisa que um documento seja removido? Avise o escritorio pelo
-              chat do caso.
-            </p>
-          )}
-        </CardContent>
-      </Card>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={fecharAcaoModal}
+              disabled={salvandoModal}
+            >
+              Cancelar
+            </Button>
+            <Button onClick={confirmarAcaoModal} disabled={salvandoModal}>
+              {salvandoModal && (
+                <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+              )}
+              Confirmar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
