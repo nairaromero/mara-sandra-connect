@@ -831,10 +831,10 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
             valor={formatDate(cliente.data_nascimento)}
           />
           {isInterno && (
-            <>
-              <Linha label="Telefone" valor={cliente.telefone || "-"} />
-              <Linha label="E-mail" valor={cliente.email || "-"} />
-            </>
+            <Linha label="Telefone" valor={cliente.telefone || "-"} />
+          )}
+          {isInterno && (
+            <Linha label="E-mail" valor={cliente.email || "-"} />
           )}
           {cliente.observacoes && (
             <div className="pt-2 border-t">
