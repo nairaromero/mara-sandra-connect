@@ -63,6 +63,12 @@ export const Route = createFileRoute("/_authenticated/casos/$id")({
 // Tipos (alinhados ao schema real)
 // ===========================================================================
 
+interface TagTI {
+  id: number;
+  name: string;
+  color: string;
+}
+
 interface Cliente {
   id: string;
   nome: string;
@@ -71,6 +77,8 @@ interface Cliente {
   telefone: string | null;
   email: string | null;
   observacoes: string | null;
+  tags: Array<TagTI> | null;
+  ti_customer_id: number | null;
 }
 
 interface ParceiroLite {
@@ -382,7 +390,9 @@ function CasoDetalhePage() {
 
       const clienteResp = await supabase
         .from("clientes")
-        .select("id, nome, cpf, data_nascimento, telefone, email, observacoes")
+        .select(
+          "id, nome, cpf, data_nascimento, telefone, email, observacoes, tags, ti_customer_id",
+        )
         .eq("id", casoData.cliente_id)
         .maybeSingle();
       if (clienteResp.error) throw clienteResp.error;
@@ -679,6 +689,7 @@ function CasoHeader(props: CasoHeaderProps) {
   const [fase, setFase] = useState(caso.fase);
   const [status, setStatus] = useState(caso.status);
   const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   async function salvar() {
     setSaving(true);
@@ -699,6 +710,40 @@ function CasoHeader(props: CasoHeaderProps) {
       setSaving(false);
     }
   }
+
+  async function syncTI() {
+    setSyncing(true);
+    try {
+      const resp = await supabase.functions.invoke("sync-ti-cliente", {
+        body: { cpf: cliente.cpf },
+      });
+      if (resp.error) throw resp.error;
+      const r = resp.data as {
+        achou_no_ti?: boolean;
+        atualizado?: boolean;
+        tags_aplicadas?: number;
+        motivo?: string;
+      };
+      if (!r.achou_no_ti) {
+        toast.error("Cliente nao encontrado no Tramitacao Inteligente");
+      } else if (r.atualizado) {
+        toast.success(
+          "Sincronizado com TI. " + (r.tags_aplicadas || 0) + " tags aplicadas.",
+        );
+        onChange();
+      } else {
+        toast.error(r.motivo || "Nao foi possivel sincronizar");
+      }
+    } catch (err) {
+      console.error(err);
+      const errObj = err as { message?: string };
+      toast.error(errObj.message || "Erro ao sincronizar com TI");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  const tags = (cliente.tags || []) as Array<TagTI>;
 
   const cpfFormatado = isInterno
     ? maskCPF(cliente.cpf)
@@ -731,9 +776,35 @@ function CasoHeader(props: CasoHeaderProps) {
                 Cliente interno
               </Badge>
             )}
+            {tags.map((t) => (
+              <Badge
+                key={t.id}
+                variant="outline"
+                style={{
+                  backgroundColor: t.color,
+                  borderColor: t.color,
+                  color: "#1f2937",
+                }}
+                title={"Tag do Tramitacao Inteligente"}
+              >
+                {t.name}
+              </Badge>
+            ))}
             {isInterno && !editing && (
               <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
                 Editar
+              </Button>
+            )}
+            {isInterno && !editing && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={syncTI}
+                disabled={syncing}
+                title="Sincronizar tags e dados com Tramitacao Inteligente"
+              >
+                {syncing && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
+                Sync TI
               </Button>
             )}
           </div>
