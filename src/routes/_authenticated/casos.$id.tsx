@@ -57,7 +57,7 @@ export const Route = createFileRoute("/_authenticated/casos/$id")({
 });
 
 // ===========================================================================
-// Tipos
+// Tipos (alinhados ao schema real)
 // ===========================================================================
 
 interface Cliente {
@@ -79,21 +79,27 @@ interface ParceiroLite {
 interface Caso {
   id: string;
   cliente_id: string;
-  parceiro_id: string | null;
+  parceiro_id: string;
   tipo_beneficio: string;
   fase: string;
   status: string;
+  rmi_estimada: number | null;
+  atrasados_estimados: number | null;
+  tramitacao_id: string | null;
   observacoes: string | null;
   created_at: string;
-  updated_at: string | null;
+  updated_at: string;
 }
 
 interface Andamento {
   id: string;
   caso_id: string;
   origem: string;
-  conteudo: string;
-  autor_id: string | null;
+  titulo: string | null;
+  descricao: string | null;
+  data_evento: string | null;
+  criado_por: string | null;
+  metadata: Record<string, unknown> | null;
   visivel_parceiro: boolean;
   created_at: string;
 }
@@ -124,17 +130,26 @@ interface AnaliseTecnica {
   id: string;
   caso_id: string;
   versao: number;
-  conteudo: string;
+  resultado_json: Record<string, unknown> | null;
+  beneficio_recomendado: string | null;
+  revisoes_aplicaveis: Array<string> | null;
+  rmi_estimada: number | null;
+  valor_estimado_acao: number | null;
+  modelo_ia: string | null;
+  tokens_input: number | null;
+  tokens_output: number | null;
+  custo_brl: number | null;
   resumo_parceiro: string | null;
-  autor_id: string | null;
+  criado_por: string | null;
   created_at: string;
 }
 
 interface Mensagem {
   id: string;
   caso_id: string;
-  autor_id: string;
-  conteudo: string;
+  remetente_id: string;
+  texto: string;
+  lida: boolean;
   created_at: string;
 }
 
@@ -151,9 +166,12 @@ interface Repasse {
 interface ProcessoAdmin {
   id: string;
   caso_id: string;
-  numero_protocolo: string | null;
-  status: string | null;
+  numero_requerimento: string | null;
   data_protocolo: string | null;
+  decisao: string | null;
+  data_decisao: string | null;
+  tramitacao_id: string | null;
+  ultima_sync: string | null;
   created_at: string;
 }
 
@@ -162,34 +180,33 @@ interface ProcessoJudicial {
   caso_id: string;
   numero_processo: string | null;
   vara: string | null;
-  status: string | null;
+  comarca: string | null;
+  uf: string | null;
   data_distribuicao: string | null;
+  legalmail_id: string | null;
+  ultima_sync: string | null;
   created_at: string;
 }
 
 // ===========================================================================
-// Constantes
+// Constantes (alinhadas aos enums reais)
 // ===========================================================================
 
 const FASES_CASO = [
   { value: "analise", label: "Em analise" },
-  { value: "documentacao", label: "Coleta de documentos" },
-  { value: "protocolo", label: "Aguardando protocolo" },
-  { value: "administrativo", label: "Fase administrativa" },
-  { value: "recurso_administrativo", label: "Recurso administrativo" },
-  { value: "judicial", label: "Fase judicial" },
-  { value: "concluido", label: "Concluido" },
-  { value: "arquivado", label: "Arquivado" },
+  { value: "admin", label: "Administrativo" },
+  { value: "judicial", label: "Judicial" },
+  { value: "finalizado", label: "Finalizado" },
 ];
 
 const STATUS_CASO = [
+  { value: "aguardando_documentos", label: "Aguardando documentos" },
   { value: "em_analise", label: "Em analise" },
-  { value: "ativo", label: "Ativo" },
-  { value: "aguardando_cliente", label: "Aguardando cliente" },
-  { value: "aguardando_inss", label: "Aguardando INSS" },
-  { value: "deferido", label: "Deferido" },
-  { value: "indeferido", label: "Indeferido" },
-  { value: "concluido", label: "Concluido" },
+  { value: "em_revisao", label: "Em revisao" },
+  { value: "em_andamento", label: "Em andamento" },
+  { value: "concluido_exito", label: "Concluido com exito" },
+  { value: "concluido_sem_exito", label: "Concluido sem exito" },
+  { value: "arquivado", label: "Arquivado" },
 ];
 
 const ORIGEM_LABEL: Record<string, string> = {
@@ -224,10 +241,16 @@ const TIPOS_DOCUMENTO_LABEL: Record<string, string> = {
   outro: "Outro",
 };
 
-const STATUS_REPASSE: Record<string, string> = {
-  pendente: "Pendente",
+const STATUS_REPASSE_LABEL: Record<string, string> = {
+  previsto: "Previsto",
+  a_pagar: "A pagar",
   pago: "Pago",
-  cancelado: "Cancelado",
+};
+
+const STATUS_SOLICITACAO_LABEL: Record<string, string> = {
+  pendente: "Pendente",
+  atendido: "Atendido",
+  dispensado: "Dispensado",
 };
 
 // ===========================================================================
@@ -319,7 +342,9 @@ function CasoDetalhePage() {
   const [mensagens, setMensagens] = useState<Array<Mensagem>>([]);
   const [repasses, setRepasses] = useState<Array<Repasse>>([]);
   const [processosAdmin, setProcessosAdmin] = useState<Array<ProcessoAdmin>>([]);
-  const [processosJudiciais, setProcessosJudiciais] = useState<Array<ProcessoJudicial>>([]);
+  const [processosJudiciais, setProcessosJudiciais] = useState<
+    Array<ProcessoJudicial>
+  >([]);
 
   const carregar = useCallback(async () => {
     setLoading(true);
@@ -347,23 +372,19 @@ function CasoDetalhePage() {
       if (clienteResp.error) throw clienteResp.error;
       setCliente((clienteResp.data || null) as Cliente | null);
 
-      if (casoData.parceiro_id) {
-        const parceiroResp = await supabase
-          .from("usuarios")
-          .select("id, nome, email")
-          .eq("id", casoData.parceiro_id)
-          .maybeSingle();
-        if (parceiroResp.error) throw parceiroResp.error;
-        setParceiro((parceiroResp.data || null) as ParceiroLite | null);
-      } else {
-        setParceiro(null);
-      }
+      const parceiroResp = await supabase
+        .from("usuarios")
+        .select("id, nome, email")
+        .eq("id", casoData.parceiro_id)
+        .maybeSingle();
+      if (parceiroResp.error) throw parceiroResp.error;
+      setParceiro((parceiroResp.data || null) as ParceiroLite | null);
 
       const andamentosResp = await supabase
         .from("andamentos")
         .select("*")
         .eq("caso_id", casoId)
-        .order("created_at", { ascending: false });
+        .order("data_evento", { ascending: false });
       if (andamentosResp.error) throw andamentosResp.error;
       setAndamentos((andamentosResp.data || []) as Array<Andamento>);
 
@@ -429,7 +450,9 @@ function CasoDetalhePage() {
           .eq("caso_id", casoId)
           .order("created_at", { ascending: false });
         if (!procJudResp.error) {
-          setProcessosJudiciais((procJudResp.data || []) as Array<ProcessoJudicial>);
+          setProcessosJudiciais(
+            (procJudResp.data || []) as Array<ProcessoJudicial>,
+          );
         }
       }
     } catch (err) {
@@ -650,7 +673,6 @@ function CasoHeader(props: CasoHeaderProps) {
     }
   }
 
-  const nomeCliente = cliente.nome;
   const cpfFormatado = isInterno
     ? maskCPF(cliente.cpf)
     : maskCPFParceiro(cliente.cpf);
@@ -660,7 +682,7 @@ function CasoHeader(props: CasoHeaderProps) {
       <CardHeader>
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
           <div>
-            <CardTitle className="text-xl">{nomeCliente}</CardTitle>
+            <CardTitle className="text-xl">{cliente.nome}</CardTitle>
             <CardDescription>
               CPF: {cpfFormatado} - {caso.tipo_beneficio}
             </CardDescription>
@@ -797,7 +819,19 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
         <CardContent className="space-y-2 text-sm">
           <Linha label="Tipo de beneficio" valor={caso.tipo_beneficio} />
           <Linha label="Fase" valor={labelFromList(FASES_CASO, caso.fase)} />
-          <Linha label="Status" valor={labelFromList(STATUS_CASO, caso.status)} />
+          <Linha
+            label="Status"
+            valor={labelFromList(STATUS_CASO, caso.status)}
+          />
+          {caso.rmi_estimada !== null && (
+            <Linha label="RMI estimada" valor={formatMoney(caso.rmi_estimada)} />
+          )}
+          {caso.atrasados_estimados !== null && (
+            <Linha
+              label="Atrasados estimados"
+              valor={formatMoney(caso.atrasados_estimados)}
+            />
+          )}
           <Linha
             label="Criado em"
             valor={formatDateTime(caso.created_at)}
@@ -845,7 +879,8 @@ interface TabAndamentosProps {
 
 function TabAndamentos(props: TabAndamentosProps) {
   const { casoId, andamentos, isInterno, usuarioId, onChange } = props;
-  const [novoConteudo, setNovoConteudo] = useState("");
+  const [titulo, setTitulo] = useState("");
+  const [descricao, setDescricao] = useState("");
   const [visivelParceiro, setVisivelParceiro] = useState(true);
   const [salvando, setSalvando] = useState(false);
   const [abrirNovo, setAbrirNovo] = useState(false);
@@ -855,19 +890,22 @@ function TabAndamentos(props: TabAndamentosProps) {
     : andamentos.filter((a) => a.visivel_parceiro === true);
 
   async function adicionar() {
-    if (!novoConteudo.trim() || !usuarioId) return;
+    if (!titulo.trim() || !usuarioId) return;
     setSalvando(true);
     try {
       const resp = await supabase.from("andamentos").insert({
         caso_id: casoId,
         origem: "interno",
-        conteudo: novoConteudo.trim(),
-        autor_id: usuarioId,
+        titulo: titulo.trim(),
+        descricao: descricao.trim() || null,
+        data_evento: new Date().toISOString(),
+        criado_por: usuarioId,
         visivel_parceiro: visivelParceiro,
       });
       if (resp.error) throw resp.error;
       toast.success("Andamento adicionado");
-      setNovoConteudo("");
+      setTitulo("");
+      setDescricao("");
       setAbrirNovo(false);
       onChange();
     } catch (err) {
@@ -906,12 +944,20 @@ function TabAndamentos(props: TabAndamentosProps) {
                 </DialogHeader>
                 <div className="space-y-3">
                   <div>
-                    <Label className="text-xs">Conteudo</Label>
+                    <Label className="text-xs">Titulo</Label>
+                    <Input
+                      placeholder="Ex.: Documentos recebidos"
+                      value={titulo}
+                      onChange={(e) => setTitulo(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Descricao (opcional)</Label>
                     <Textarea
                       rows={4}
-                      placeholder="Descreva a movimentacao..."
-                      value={novoConteudo}
-                      onChange={(e) => setNovoConteudo(e.target.value)}
+                      placeholder="Detalhe da movimentacao..."
+                      value={descricao}
+                      onChange={(e) => setDescricao(e.target.value)}
                     />
                   </div>
                   <div className="flex items-center gap-2">
@@ -964,7 +1010,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                     {ORIGEM_LABEL[a.origem] || a.origem}
                   </Badge>
                   <span className="text-xs text-muted-foreground">
-                    {formatDateTime(a.created_at)}
+                    {formatDateTime(a.data_evento || a.created_at)}
                   </span>
                   {isInterno && a.visivel_parceiro && (
                     <Badge variant="secondary" className="text-xs">
@@ -979,7 +1025,14 @@ function TabAndamentos(props: TabAndamentosProps) {
                     </Badge>
                   )}
                 </div>
-                <p className="text-sm mt-1 whitespace-pre-wrap">{a.conteudo}</p>
+                {a.titulo && (
+                  <p className="text-sm font-medium mt-1">{a.titulo}</p>
+                )}
+                {a.descricao && (
+                  <p className="text-sm mt-1 whitespace-pre-wrap text-muted-foreground">
+                    {a.descricao}
+                  </p>
+                )}
               </li>
             ))}
           </ul>
@@ -1009,9 +1062,7 @@ function TabDocumentos(props: TabDocumentosProps) {
     ? documentos
     : documentos.filter((d) => d.visivel_parceiro === true);
 
-  const solicitacoesPendentes = solicitacoes.filter(
-    (s) => s.status !== "recebido" && s.status !== "concluido",
-  );
+  const solicitacoesPendentes = solicitacoes.filter((s) => s.status === "pendente");
 
   async function baixar(doc: Documento) {
     try {
@@ -1065,7 +1116,9 @@ function TabDocumentos(props: TabDocumentosProps) {
                       Solicitado em {formatDate(s.created_at)}
                     </p>
                   </div>
-                  <Badge variant="outline">{s.status}</Badge>
+                  <Badge variant="outline">
+                    {STATUS_SOLICITACAO_LABEL[s.status] || s.status}
+                  </Badge>
                 </li>
               ))}
             </ul>
@@ -1359,27 +1412,43 @@ interface TabAnaliseTecnicaProps {
 function TabAnaliseTecnica(props: TabAnaliseTecnicaProps) {
   const { casoId, analises, usuarioId, onChange } = props;
   const [aberto, setAberto] = useState(false);
-  const [conteudo, setConteudo] = useState("");
+  const [beneficio, setBeneficio] = useState("");
+  const [rmi, setRmi] = useState("");
+  const [valorAcao, setValorAcao] = useState("");
+  const [observacoes, setObservacoes] = useState("");
   const [resumoParceiro, setResumoParceiro] = useState("");
   const [salvando, setSalvando] = useState(false);
 
   const proximaVersao =
-    analises.length > 0 ? Math.max.apply(null, analises.map((a) => a.versao)) + 1 : 1;
+    analises.length > 0
+      ? Math.max.apply(
+          null,
+          analises.map((a) => a.versao),
+        ) + 1
+      : 1;
 
   async function salvar() {
-    if (!conteudo.trim() || !usuarioId) return;
+    if (!beneficio.trim() || !usuarioId) return;
     setSalvando(true);
     try {
+      const rmiNum = rmi ? parseFloat(rmi.replace(",", ".")) : null;
+      const valorNum = valorAcao ? parseFloat(valorAcao.replace(",", ".")) : null;
       const resp = await supabase.from("analises_tecnicas").insert({
         caso_id: casoId,
         versao: proximaVersao,
-        conteudo: conteudo.trim(),
+        beneficio_recomendado: beneficio.trim(),
+        rmi_estimada: rmiNum,
+        valor_estimado_acao: valorNum,
+        resultado_json: { observacoes: observacoes.trim() || null },
         resumo_parceiro: resumoParceiro.trim() || null,
-        autor_id: usuarioId,
+        criado_por: usuarioId,
       });
       if (resp.error) throw resp.error;
       toast.success("Analise tecnica versao " + proximaVersao + " salva");
-      setConteudo("");
+      setBeneficio("");
+      setRmi("");
+      setValorAcao("");
+      setObservacoes("");
       setResumoParceiro("");
       setAberto(false);
       onChange();
@@ -1392,6 +1461,14 @@ function TabAnaliseTecnica(props: TabAnaliseTecnicaProps) {
     }
   }
 
+  function obsDaAnalise(a: AnaliseTecnica): string | null {
+    if (!a.resultado_json) return null;
+    const json = a.resultado_json;
+    const obs = json["observacoes"];
+    if (typeof obs === "string") return obs;
+    return null;
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -1399,7 +1476,7 @@ function TabAnaliseTecnica(props: TabAnaliseTecnicaProps) {
           <div>
             <CardTitle className="text-base">Analise tecnica</CardTitle>
             <CardDescription>
-              Historico versionado de analises do caso. Nao visivel ao parceiro.
+              Historico versionado. Nao visivel ao parceiro (exceto o resumo).
             </CardDescription>
           </div>
           <Dialog open={aberto} onOpenChange={setAberto}>
@@ -1411,16 +1488,50 @@ function TabAnaliseTecnica(props: TabAnaliseTecnicaProps) {
             </DialogTrigger>
             <DialogContent className="max-w-2xl">
               <DialogHeader>
-                <DialogTitle>Nova analise tecnica (versao {proximaVersao})</DialogTitle>
+                <DialogTitle>
+                  Nova analise tecnica (versao {proximaVersao})
+                </DialogTitle>
               </DialogHeader>
               <div className="space-y-3">
                 <div>
-                  <Label className="text-xs">Conteudo (interno)</Label>
+                  <Label className="text-xs">Beneficio recomendado *</Label>
+                  <Input
+                    placeholder="Ex.: Aposentadoria por tempo de contribuicao"
+                    value={beneficio}
+                    onChange={(e) => setBeneficio(e.target.value)}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs">RMI estimada (R$)</Label>
+                    <Input
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="0,00"
+                      value={rmi}
+                      onChange={(e) => setRmi(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">
+                      Valor estimado da acao (R$)
+                    </Label>
+                    <Input
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="0,00"
+                      value={valorAcao}
+                      onChange={(e) => setValorAcao(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs">Observacoes (interno)</Label>
                   <Textarea
-                    rows={10}
-                    placeholder="Analise tecnica completa, raciocinio juridico, calculos..."
-                    value={conteudo}
-                    onChange={(e) => setConteudo(e.target.value)}
+                    rows={6}
+                    placeholder="Raciocinio juridico, calculos, fundamentacao..."
+                    value={observacoes}
+                    onChange={(e) => setObservacoes(e.target.value)}
                   />
                 </div>
                 <div>
@@ -1429,7 +1540,7 @@ function TabAnaliseTecnica(props: TabAnaliseTecnicaProps) {
                   </Label>
                   <Textarea
                     rows={3}
-                    placeholder="Versao simplificada que pode ser exibida ao parceiro..."
+                    placeholder="Versao simplificada exibida ao parceiro..."
                     value={resumoParceiro}
                     onChange={(e) => setResumoParceiro(e.target.value)}
                   />
@@ -1459,27 +1570,63 @@ function TabAnaliseTecnica(props: TabAnaliseTecnicaProps) {
           </p>
         ) : (
           <div className="space-y-3">
-            {analises.map((a) => (
-              <div key={a.id} className="border rounded-md p-3">
-                <div className="flex items-center gap-2 mb-2 flex-wrap">
-                  <Badge>v{a.versao}</Badge>
-                  <span className="text-xs text-muted-foreground">
-                    {formatDateTime(a.created_at)}
-                  </span>
-                </div>
-                <p className="text-sm whitespace-pre-wrap">{a.conteudo}</p>
-                {a.resumo_parceiro && (
-                  <div className="mt-2 pt-2 border-t">
-                    <p className="text-xs text-muted-foreground mb-1">
-                      Resumo para o parceiro
-                    </p>
-                    <p className="text-sm whitespace-pre-wrap">
-                      {a.resumo_parceiro}
-                    </p>
+            {analises.map((a) => {
+              const obs = obsDaAnalise(a);
+              return (
+                <div key={a.id} className="border rounded-md p-3">
+                  <div className="flex items-center gap-2 mb-2 flex-wrap">
+                    <Badge>v{a.versao}</Badge>
+                    <span className="text-xs text-muted-foreground">
+                      {formatDateTime(a.created_at)}
+                    </span>
+                    {a.modelo_ia && (
+                      <Badge variant="outline" className="text-xs">
+                        IA: {a.modelo_ia}
+                      </Badge>
+                    )}
                   </div>
-                )}
-              </div>
-            ))}
+                  {a.beneficio_recomendado && (
+                    <p className="text-sm font-medium">
+                      {a.beneficio_recomendado}
+                    </p>
+                  )}
+                  <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
+                    {a.rmi_estimada !== null && (
+                      <div>
+                        <span className="text-muted-foreground">RMI: </span>
+                        <span>{formatMoney(a.rmi_estimada)}</span>
+                      </div>
+                    )}
+                    {a.valor_estimado_acao !== null && (
+                      <div>
+                        <span className="text-muted-foreground">
+                          Valor da acao:{" "}
+                        </span>
+                        <span>{formatMoney(a.valor_estimado_acao)}</span>
+                      </div>
+                    )}
+                  </div>
+                  {obs && (
+                    <div className="mt-2 pt-2 border-t">
+                      <p className="text-xs text-muted-foreground mb-1">
+                        Observacoes
+                      </p>
+                      <p className="text-sm whitespace-pre-wrap">{obs}</p>
+                    </div>
+                  )}
+                  {a.resumo_parceiro && (
+                    <div className="mt-2 pt-2 border-t">
+                      <p className="text-xs text-muted-foreground mb-1">
+                        Resumo para o parceiro
+                      </p>
+                      <p className="text-sm whitespace-pre-wrap">
+                        {a.resumo_parceiro}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </CardContent>
@@ -1536,8 +1683,9 @@ function TabChat(props: TabChatProps) {
     try {
       const resp = await supabase.from("mensagens").insert({
         caso_id: casoId,
-        autor_id: usuarioId,
-        conteudo: texto.trim(),
+        remetente_id: usuarioId,
+        texto: texto.trim(),
+        lida: false,
       });
       if (resp.error) throw resp.error;
       setTexto("");
@@ -1574,7 +1722,7 @@ function TabChat(props: TabChatProps) {
             </p>
           ) : (
             mensagens.map((m) => {
-              const eu = m.autor_id === usuarioId;
+              const eu = m.remetente_id === usuarioId;
               return (
                 <div
                   key={m.id}
@@ -1590,7 +1738,7 @@ function TabChat(props: TabChatProps) {
                         : "bg-background border")
                     }
                   >
-                    <p className="whitespace-pre-wrap">{m.conteudo}</p>
+                    <p className="whitespace-pre-wrap">{m.texto}</p>
                     <p
                       className={
                         "text-[10px] mt-1 " +
@@ -1650,6 +1798,7 @@ function TabRepasses(props: TabRepassesProps) {
   const { casoId, repasses, parceiroId, isInterno, onChange } = props;
   const [aberto, setAberto] = useState(false);
   const [valor, setValor] = useState("");
+  const [statusInicial, setStatusInicial] = useState("previsto");
   const [salvando, setSalvando] = useState(false);
 
   const lista = isInterno
@@ -1660,11 +1809,16 @@ function TabRepasses(props: TabRepassesProps) {
   const pago = lista
     .filter((r) => r.status === "pago")
     .reduce((acc, r) => acc + (r.valor || 0), 0);
-  const pendente = total - pago;
+  const aPagar = lista
+    .filter((r) => r.status === "a_pagar")
+    .reduce((acc, r) => acc + (r.valor || 0), 0);
+  const previsto = lista
+    .filter((r) => r.status === "previsto")
+    .reduce((acc, r) => acc + (r.valor || 0), 0);
 
   async function adicionar() {
     if (!parceiroId) {
-      toast.error("Caso sem parceiro indicador. Nao ha repasse a registrar.");
+      toast.error("Caso sem parceiro indicador.");
       return;
     }
     const valorNumero = parseFloat(valor.replace(",", "."));
@@ -1678,7 +1832,7 @@ function TabRepasses(props: TabRepassesProps) {
         caso_id: casoId,
         parceiro_id: parceiroId,
         valor: valorNumero,
-        status: "pendente",
+        status: statusInicial,
       });
       if (resp.error) throw resp.error;
       toast.success("Repasse registrado");
@@ -1694,17 +1848,20 @@ function TabRepasses(props: TabRepassesProps) {
     }
   }
 
-  async function marcarPago(r: Repasse) {
+  async function atualizarStatus(r: Repasse, novoStatus: string) {
     try {
+      const update: { status: string; data_pagamento?: string | null } = {
+        status: novoStatus,
+      };
+      if (novoStatus === "pago") {
+        update.data_pagamento = new Date().toISOString().slice(0, 10);
+      }
       const resp = await supabase
         .from("repasses")
-        .update({
-          status: "pago",
-          data_pagamento: new Date().toISOString().slice(0, 10),
-        })
+        .update(update)
         .eq("id", r.id);
       if (resp.error) throw resp.error;
-      toast.success("Repasse marcado como pago");
+      toast.success("Repasse atualizado");
       onChange();
     } catch (err) {
       console.error(err);
@@ -1746,6 +1903,22 @@ function TabRepasses(props: TabRepassesProps) {
                       onChange={(e) => setValor(e.target.value)}
                     />
                   </div>
+                  <div>
+                    <Label className="text-xs">Status inicial</Label>
+                    <Select
+                      value={statusInicial}
+                      onValueChange={setStatusInicial}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="previsto">Previsto</SelectItem>
+                        <SelectItem value="a_pagar">A pagar</SelectItem>
+                        <SelectItem value="pago">Pago</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
                 <DialogFooter>
                   <Button
@@ -1768,21 +1941,27 @@ function TabRepasses(props: TabRepassesProps) {
         </div>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-3 gap-3 mb-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
           <div className="border rounded-md p-3">
             <p className="text-xs text-muted-foreground">Total</p>
             <p className="text-base font-medium">{formatMoney(total)}</p>
           </div>
           <div className="border rounded-md p-3">
-            <p className="text-xs text-muted-foreground">Pago</p>
-            <p className="text-base font-medium text-green-700">
-              {formatMoney(pago)}
+            <p className="text-xs text-muted-foreground">Previsto</p>
+            <p className="text-base font-medium text-muted-foreground">
+              {formatMoney(previsto)}
             </p>
           </div>
           <div className="border rounded-md p-3">
-            <p className="text-xs text-muted-foreground">Pendente</p>
+            <p className="text-xs text-muted-foreground">A pagar</p>
             <p className="text-base font-medium text-amber-700">
-              {formatMoney(pendente)}
+              {formatMoney(aPagar)}
+            </p>
+          </div>
+          <div className="border rounded-md p-3">
+            <p className="text-xs text-muted-foreground">Pago</p>
+            <p className="text-base font-medium text-green-700">
+              {formatMoney(pago)}
             </p>
           </div>
         </div>
@@ -1796,7 +1975,7 @@ function TabRepasses(props: TabRepassesProps) {
             {lista.map((r) => (
               <li
                 key={r.id}
-                className="flex items-center justify-between gap-2 border rounded-md p-3"
+                className="flex items-center justify-between gap-2 border rounded-md p-3 flex-wrap"
               >
                 <div>
                   <p className="text-sm font-medium">
@@ -1813,16 +1992,22 @@ function TabRepasses(props: TabRepassesProps) {
                   <Badge
                     variant={r.status === "pago" ? "default" : "outline"}
                   >
-                    {STATUS_REPASSE[r.status] || r.status}
+                    {STATUS_REPASSE_LABEL[r.status] || r.status}
                   </Badge>
-                  {isInterno && r.status === "pendente" && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => marcarPago(r)}
+                  {isInterno && r.status !== "pago" && (
+                    <Select
+                      value={r.status}
+                      onValueChange={(v) => atualizarStatus(r, v)}
                     >
-                      Marcar pago
-                    </Button>
+                      <SelectTrigger className="h-8 w-32 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="previsto">Previsto</SelectItem>
+                        <SelectItem value="a_pagar">A pagar</SelectItem>
+                        <SelectItem value="pago">Pago</SelectItem>
+                      </SelectContent>
+                    </Select>
                   )}
                 </div>
               </li>
@@ -1847,16 +2032,19 @@ interface TabProcessosProps {
 
 function TabProcessos(props: TabProcessosProps) {
   const { casoId, processosAdmin, processosJudiciais, onChange } = props;
+
   const [abrirAdmin, setAbrirAdmin] = useState(false);
-  const [protocolo, setProtocolo] = useState("");
-  const [statusAdmin, setStatusAdmin] = useState("aguardando");
+  const [numReq, setNumReq] = useState("");
   const [dataProtocolo, setDataProtocolo] = useState("");
+  const [decisao, setDecisao] = useState("");
+  const [dataDecisao, setDataDecisao] = useState("");
   const [salvandoAdmin, setSalvandoAdmin] = useState(false);
 
   const [abrirJud, setAbrirJud] = useState(false);
   const [numProcesso, setNumProcesso] = useState("");
   const [vara, setVara] = useState("");
-  const [statusJud, setStatusJud] = useState("em_andamento");
+  const [comarca, setComarca] = useState("");
+  const [uf, setUf] = useState("");
   const [dataDist, setDataDist] = useState("");
   const [salvandoJud, setSalvandoJud] = useState(false);
 
@@ -1865,14 +2053,17 @@ function TabProcessos(props: TabProcessosProps) {
     try {
       const resp = await supabase.from("processos_admin").insert({
         caso_id: casoId,
-        numero_protocolo: protocolo.trim() || null,
-        status: statusAdmin,
+        numero_requerimento: numReq.trim() || null,
         data_protocolo: dataProtocolo || null,
+        decisao: decisao.trim() || null,
+        data_decisao: dataDecisao || null,
       });
       if (resp.error) throw resp.error;
       toast.success("Processo administrativo registrado");
-      setProtocolo("");
+      setNumReq("");
       setDataProtocolo("");
+      setDecisao("");
+      setDataDecisao("");
       setAbrirAdmin(false);
       onChange();
     } catch (err) {
@@ -1891,13 +2082,16 @@ function TabProcessos(props: TabProcessosProps) {
         caso_id: casoId,
         numero_processo: numProcesso.trim() || null,
         vara: vara.trim() || null,
-        status: statusJud,
+        comarca: comarca.trim() || null,
+        uf: uf.trim() || null,
         data_distribuicao: dataDist || null,
       });
       if (resp.error) throw resp.error;
       toast.success("Processo judicial registrado");
       setNumProcesso("");
       setVara("");
+      setComarca("");
+      setUf("");
       setDataDist("");
       setAbrirJud(false);
       onChange();
@@ -1916,9 +2110,11 @@ function TabProcessos(props: TabProcessosProps) {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-base">Processos administrativos</CardTitle>
+              <CardTitle className="text-base">
+                Processos administrativos
+              </CardTitle>
               <CardDescription>
-                Pedidos protocolados no INSS.
+                Requerimentos protocolados no INSS.
               </CardDescription>
             </div>
             <Dialog open={abrirAdmin} onOpenChange={setAbrirAdmin}>
@@ -1934,10 +2130,10 @@ function TabProcessos(props: TabProcessosProps) {
                 </DialogHeader>
                 <div className="space-y-3">
                   <div>
-                    <Label className="text-xs">Numero do protocolo</Label>
+                    <Label className="text-xs">Numero do requerimento</Label>
                     <Input
-                      value={protocolo}
-                      onChange={(e) => setProtocolo(e.target.value)}
+                      value={numReq}
+                      onChange={(e) => setNumReq(e.target.value)}
                       placeholder="0000000000000000"
                     />
                   </div>
@@ -1950,11 +2146,19 @@ function TabProcessos(props: TabProcessosProps) {
                     />
                   </div>
                   <div>
-                    <Label className="text-xs">Status</Label>
+                    <Label className="text-xs">Decisao (se houver)</Label>
                     <Input
-                      value={statusAdmin}
-                      onChange={(e) => setStatusAdmin(e.target.value)}
-                      placeholder="aguardando, em_exigencia, deferido, indeferido..."
+                      value={decisao}
+                      onChange={(e) => setDecisao(e.target.value)}
+                      placeholder="Ex.: deferido, indeferido, em exigencia..."
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Data da decisao</Label>
+                    <Input
+                      type="date"
+                      value={dataDecisao}
+                      onChange={(e) => setDataDecisao(e.target.value)}
                     />
                   </div>
                 </div>
@@ -1989,13 +2193,16 @@ function TabProcessos(props: TabProcessosProps) {
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <div>
                       <p className="text-sm font-medium">
-                        Protocolo: {p.numero_protocolo || "-"}
+                        Req.: {p.numero_requerimento || "-"}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         Protocolado em {formatDate(p.data_protocolo)}
+                        {p.data_decisao
+                          ? " - Decidido em " + formatDate(p.data_decisao)
+                          : ""}
                       </p>
                     </div>
-                    <Badge variant="outline">{p.status || "-"}</Badge>
+                    {p.decisao && <Badge variant="outline">{p.decisao}</Badge>}
                   </div>
                 </li>
               ))}
@@ -2034,12 +2241,33 @@ function TabProcessos(props: TabProcessosProps) {
                     />
                   </div>
                   <div>
-                    <Label className="text-xs">Vara/Juizo</Label>
+                    <Label className="text-xs">Vara</Label>
                     <Input
                       value={vara}
                       onChange={(e) => setVara(e.target.value)}
-                      placeholder="Ex.: 1a Vara Federal de ..."
+                      placeholder="Ex.: 1a Vara Federal"
                     />
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="col-span-2">
+                      <Label className="text-xs">Comarca</Label>
+                      <Input
+                        value={comarca}
+                        onChange={(e) => setComarca(e.target.value)}
+                        placeholder="Ex.: Sao Paulo"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">UF</Label>
+                      <Input
+                        value={uf}
+                        onChange={(e) =>
+                          setUf(e.target.value.toUpperCase().slice(0, 2))
+                        }
+                        placeholder="SP"
+                        maxLength={2}
+                      />
+                    </div>
                   </div>
                   <div>
                     <Label className="text-xs">Data da distribuicao</Label>
@@ -2047,14 +2275,6 @@ function TabProcessos(props: TabProcessosProps) {
                       type="date"
                       value={dataDist}
                       onChange={(e) => setDataDist(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Status</Label>
-                    <Input
-                      value={statusJud}
-                      onChange={(e) => setStatusJud(e.target.value)}
-                      placeholder="em_andamento, sentenciado, transitado..."
                     />
                   </div>
                 </div>
@@ -2093,10 +2313,14 @@ function TabProcessos(props: TabProcessosProps) {
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {p.vara ? p.vara + " - " : ""}
-                        Distribuido em {formatDate(p.data_distribuicao)}
+                        {p.comarca ? p.comarca : ""}
+                        {p.uf ? "/" + p.uf : ""}
+                        {p.data_distribuicao
+                          ? " - Distribuido em " +
+                            formatDate(p.data_distribuicao)
+                          : ""}
                       </p>
                     </div>
-                    <Badge variant="outline">{p.status || "-"}</Badge>
                   </div>
                 </li>
               ))}
