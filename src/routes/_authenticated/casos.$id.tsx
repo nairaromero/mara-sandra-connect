@@ -2639,3 +2639,26 @@ function TabProcessos(props: TabProcessosProps) {
                 <li key={p.id} className="border rounded-md p-3">
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <div>
+                      <p className="text-sm font-medium">
+                        Processo: {p.numero_processo || "-"}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {p.vara ? p.vara + " - " : ""}
+                        {p.comarca ? p.comarca : ""}
+                        {p.uf ? "/" + p.uf : ""}
+                        {p.data_distribuicao
+                          ? " - Distribuido em " +
+                            formatDate(p.data_distribuicao)
+                          : ""}
+                      </p>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
