@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
@@ -24,16 +24,16 @@ interface CasoRow {
 
 const STATUS_VARIANT: Record<string, { label: string; className: string }> = {
   aguardando_documentos: { label: "Aguardando documentos", className: "bg-warning text-warning-foreground hover:bg-warning" },
-  em_analise: { label: "Em análise", className: "bg-info text-info-foreground hover:bg-info" },
-  em_revisao: { label: "Em revisão", className: "bg-warning text-warning-foreground hover:bg-warning" },
+  em_analise: { label: "Em analise", className: "bg-info text-info-foreground hover:bg-info" },
+  em_revisao: { label: "Em revisao", className: "bg-warning text-warning-foreground hover:bg-warning" },
   em_andamento: { label: "Em andamento", className: "bg-info text-info-foreground hover:bg-info" },
-  concluido_exito: { label: "Concluído com êxito", className: "bg-success text-success-foreground hover:bg-success" },
-  concluido_sem_exito: { label: "Concluído sem êxito", className: "bg-destructive text-destructive-foreground hover:bg-destructive" },
+  concluido_exito: { label: "Concluido com exito", className: "bg-success text-success-foreground hover:bg-success" },
+  concluido_sem_exito: { label: "Concluido sem exito", className: "bg-destructive text-destructive-foreground hover:bg-destructive" },
   arquivado: { label: "Arquivado", className: "bg-secondary text-secondary-foreground hover:bg-secondary" },
 };
 
 function StatusBadge({ status }: { status: string | null }) {
-  if (!status) return <Badge variant="outline">—</Badge>;
+  if (!status) return <Badge variant="outline">-</Badge>;
   const cfg = STATUS_VARIANT[status];
   if (cfg) return <Badge className={cfg.className}>{cfg.label}</Badge>;
   return <Badge variant="secondary">{status}</Badge>;
@@ -65,11 +65,11 @@ function MetricCard({
 }
 
 function formatDate(iso: string | null) {
-  if (!iso) return "—";
+  if (!iso) return "-";
   try {
     return new Date(iso).toLocaleDateString("pt-BR");
   } catch {
-    return "—";
+    return "-";
   }
 }
 
@@ -79,6 +79,7 @@ function formatBRL(v: number) {
 
 function DashboardPage() {
   const { usuario } = useAuth();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [casos, setCasos] = useState<CasoRow[]>([]);
   const [metrics, setMetrics] = useState({
@@ -108,11 +109,9 @@ function DashboardPage() {
         )
         .order("created_at", { ascending: false })
         .limit(10);
-
       const { data: casosData, error: casosErr } = await casosQuery;
       if (casosErr) console.error(casosErr);
       setCasos((casosData as unknown as CasoRow[]) ?? []);
-
       if (usuario.tipo === "interno") {
         const [totalRes, andamentoRes, revisaoRes, exitosMesRes] = await Promise.all([
           supabase.from("casos").select("id", { count: "exact", head: true }),
@@ -157,6 +156,10 @@ function DashboardPage() {
     }
   }
 
+  function abrirCaso(id: string) {
+    navigate({ to: "/casos/$id", params: { id: id } });
+  }
+
   if (!usuario) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -171,26 +174,25 @@ function DashboardPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">
-          Olá, {usuario.nome ?? "advogado(a)"}
+          Ola, {usuario.nome ?? "advogado(a)"}
         </h1>
         <p className="text-sm text-muted-foreground">
           {isInterno
-            ? "Visão geral de todos os casos do escritório."
+            ? "Visao geral de todos os casos do escritorio."
             : "Acompanhe seus casos e repasses."}
         </p>
       </div>
-
       {isInterno ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <MetricCard title="Casos totais" value={metrics.total} icon={Briefcase} />
           <MetricCard title="Em andamento" value={metrics.andamento} icon={Clock} />
-          <MetricCard title="Aguardando revisão" value={metrics.aguardandoRevisao} icon={FileSearch} />
-          <MetricCard title="Êxitos no mês" value={metrics.exitosMes} icon={TrendingUp} />
+          <MetricCard title="Aguardando revisao" value={metrics.aguardandoRevisao} icon={FileSearch} />
+          <MetricCard title="Exitos no mes" value={metrics.exitosMes} icon={TrendingUp} />
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <MetricCard title="Casos ativos" value={metrics.ativos} icon={Briefcase} />
-          <MetricCard title="Êxitos no ano" value={metrics.exitosAno} icon={CheckCircle2} />
+          <MetricCard title="Exitos no ano" value={metrics.exitosAno} icon={CheckCircle2} />
           <MetricCard
             title="Repasse acumulado"
             value={formatBRL(metrics.repasseAcumulado)}
@@ -198,7 +200,6 @@ function DashboardPage() {
           />
         </div>
       )}
-
       <Card>
         <CardHeader>
           <CardTitle className="text-base">
@@ -220,17 +221,21 @@ function DashboardPage() {
                 <TableRow>
                   <TableHead>Cliente</TableHead>
                   {isInterno && <TableHead>Parceiro</TableHead>}
-                  <TableHead>Tipo de benefício</TableHead>
+                  <TableHead>Tipo de beneficio</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Criado em</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {casos.map((c) => (
-                  <TableRow key={c.id}>
-                    <TableCell className="font-medium">{c.clientes?.nome ?? "—"}</TableCell>
-                    {isInterno && <TableCell>{c.parceiro?.nome ?? "—"}</TableCell>}
-                    <TableCell>{c.tipo_beneficio ?? "—"}</TableCell>
+                  <TableRow
+                    key={c.id}
+                    className="cursor-pointer hover:bg-muted/50"
+                    onClick={() => abrirCaso(c.id)}
+                  >
+                    <TableCell className="font-medium">{c.clientes?.nome ?? "-"}</TableCell>
+                    {isInterno && <TableCell>{c.parceiro?.nome ?? "-"}</TableCell>}
+                    <TableCell>{c.tipo_beneficio ?? "-"}</TableCell>
                     <TableCell>
                       <StatusBadge status={c.status} />
                     </TableCell>
@@ -252,6 +257,7 @@ function startOfMonthISO() {
   const d = new Date();
   return new Date(d.getFullYear(), d.getMonth(), 1).toISOString();
 }
+
 function startOfYearISO() {
   const d = new Date();
   return new Date(d.getFullYear(), 0, 1).toISOString();
