@@ -714,7 +714,8 @@ function CasoHeader(props: CasoHeaderProps) {
   async function syncTI() {
     setSyncing(true);
     try {
-      const resp = await supabase.functions.invoke("sync-ti-cliente", {
+      // TODO: trocar para "sync-ti-cliente" quando renomear o slug no Supabase
+      const resp = await supabase.functions.invoke("hyper-action", {
         body: { cpf: cliente.cpf },
       });
       if (resp.error) throw resp.error;
