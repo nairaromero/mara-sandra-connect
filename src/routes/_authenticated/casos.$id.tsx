@@ -854,7 +854,12 @@ function CasoHeader(props: CasoHeaderProps) {
     }
   }
 
-  const tags = (cliente.tags || []) as Array<TagTI>;
+  const tagsTodas = (cliente.tags || []) as Array<TagTI>;
+  // Tags TI com formato "NOME/UF" sao internas (responsaveis do escritorio),
+  // ex.: LUCAS/MT, BEATRIZ/SP, MARA/MT. Esconder pro parceiro.
+  const tags = isInterno
+    ? tagsTodas
+    : tagsTodas.filter((t) => !/^[A-Za-z_]+\/[A-Z]{2}$/.test(t.name.trim()));
 
   const cpfFormatado = isInterno
     ? maskCPF(cliente.cpf)
