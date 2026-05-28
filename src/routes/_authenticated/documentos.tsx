@@ -9,6 +9,8 @@ import {
   Search,
   ExternalLink,
   AlertCircle,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -643,6 +645,10 @@ function GrupoCaso(props: GrupoCasoProps) {
   const { grupo, isInterno, onAtendido, onDispensar } = props;
   const { caso, solicitacoes } = grupo;
   const nomeCliente = caso.clientes ? caso.clientes.nome : "(cliente sem nome)";
+  const [cumpridosAberto, setCumpridosAberto] = useState(false);
+
+  const pendentes = solicitacoes.filter((s) => s.status === "pendente");
+  const cumpridos = solicitacoes.filter((s) => s.status !== "pendente");
 
   return (
     <Card>
@@ -665,18 +671,62 @@ function GrupoCaso(props: GrupoCasoProps) {
           </Button>
         </div>
       </CardHeader>
-      <CardContent>
-        <ul className="space-y-2">
-          {solicitacoes.map((s) => (
-            <SolicitacaoItem
-              key={s.id}
-              s={s}
-              isInterno={isInterno}
-              onAtendido={onAtendido}
-              onDispensar={onDispensar}
-            />
-          ))}
-        </ul>
+      <CardContent className="space-y-3">
+        {pendentes.length > 0 && (
+          <ul className="space-y-2">
+            {pendentes.map((s) => (
+              <SolicitacaoItem
+                key={s.id}
+                s={s}
+                isInterno={isInterno}
+                onAtendido={onAtendido}
+                onDispensar={onDispensar}
+              />
+            ))}
+          </ul>
+        )}
+        {pendentes.length === 0 && cumpridos.length > 0 && (
+          <p className="text-sm text-muted-foreground text-center py-3">
+            Nenhuma solicitacao pendente.
+          </p>
+        )}
+        {cumpridos.length > 0 && (
+          <div className="border rounded-md overflow-hidden border-dashed">
+            <button
+              type="button"
+              onClick={() => setCumpridosAberto(!cumpridosAberto)}
+              className="w-full flex items-center justify-between p-3 hover:bg-muted/50 transition-colors text-left"
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                {cumpridosAberto ? (
+                  <ChevronDown className="h-4 w-4 shrink-0" />
+                ) : (
+                  <ChevronRight className="h-4 w-4 shrink-0" />
+                )}
+                <span className="text-sm font-medium truncate">
+                  Solicitacoes cumpridas
+                </span>
+              </div>
+              <span className="text-xs text-muted-foreground shrink-0">
+                {cumpridos.length}{" "}
+                {cumpridos.length === 1 ? "solicitacao" : "solicitacoes"}
+              </span>
+            </button>
+            {cumpridosAberto && (
+              <ul className="space-y-2 p-3 border-t">
+                {cumpridos.map((s) => (
+                  <SolicitacaoItem
+                    key={s.id}
+                    s={s}
+                    isInterno={isInterno}
+                    onAtendido={onAtendido}
+                    onDispensar={onDispensar}
+                  />
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
       </CardContent>
     </Card>
   );

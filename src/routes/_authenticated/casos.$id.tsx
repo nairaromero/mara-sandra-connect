@@ -2382,6 +2382,8 @@ function TabDocumentos(props: TabDocumentosProps) {
   // Upload de arquivo no atendimento
   const [arquivoUpload, setArquivoUpload] = useState<File | null>(null);
   const [comAnexo, setComAnexo] = useState(false);
+  // Estado do accordion "Solicitacoes cumpridas"
+  const [cumpridasAberto, setCumpridasAberto] = useState(false);
 
   // Renomeia arquivo para o nome do tipo solicitado (ex.: CNIS.pdf)
   function nomearArquivo(tipoSolic: string, arquivoOriginal: File): string {
@@ -2684,128 +2686,183 @@ function TabDocumentos(props: TabDocumentosProps) {
           </div>
         </CardHeader>
         <CardContent>
-          {solicitacoesOrdenadas.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">
-              Nenhuma solicitacao registrada.
-            </p>
-          ) : (
-            <ul className="space-y-2">
-              {solicitacoesOrdenadas.map((s) => {
-                const isPendente = s.status === "pendente";
-                const isAtendido = s.status === "atendido";
-                const isDispensado = s.status === "dispensado";
-                return (
-                  <li
-                    key={s.id}
-                    className={
-                      "border rounded-md p-3 " +
-                      (isAtendido || isDispensado ? "bg-muted/30" : "")
-                    }
-                  >
-                    <div className="flex items-start justify-between gap-2 flex-wrap">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="text-sm font-medium">
-                            {TIPOS_DOCUMENTO_LABEL[s.tipo] || s.tipo}
-                          </p>
-                          {isPendente && (
-                            <Badge className="bg-amber-500 hover:bg-amber-500 text-white">
-                              Pendente
-                            </Badge>
-                          )}
-                          {isAtendido && (
-                            <Badge className="bg-green-600 hover:bg-green-600 text-white">
-                              <CheckCircle2 className="h-3 w-3 mr-1" />
-                              Atendido
-                            </Badge>
-                          )}
-                          {isDispensado && (
-                            <Badge variant="outline">
-                              <XCircle className="h-3 w-3 mr-1" />
-                              Dispensado
-                            </Badge>
-                          )}
-                          <Badge
-                            variant="outline"
-                            className={
-                              s.origem === "interna"
-                                ? "border-blue-500 text-blue-700"
-                                : "border-purple-500 text-purple-700"
-                            }
-                          >
-                            {ORIGEM_SOLICITACAO_LABEL[s.origem] || s.origem}
-                          </Badge>
-                        </div>
-                        {s.descricao && (
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {s.descricao}
-                          </p>
-                        )}
-                        <p className="text-xs text-muted-foreground mt-1">
-                          Solicitado em {formatDate(s.data_solicitacao)}
-                          {s.data_atendimento
-                            ? " - Atendido em " + formatDate(s.data_atendimento)
-                            : ""}
+          {(() => {
+            const pendentes = solicitacoesOrdenadas.filter(
+              (s) => s.status === "pendente",
+            );
+            const cumpridas = solicitacoesOrdenadas.filter(
+              (s) => s.status !== "pendente",
+            );
+
+            function renderSolicLi(s: SolicitacaoDocumento) {
+              const isPendente = s.status === "pendente";
+              const isAtendido = s.status === "atendido";
+              const isDispensado = s.status === "dispensado";
+              return (
+                <li
+                  key={s.id}
+                  className={
+                    "border rounded-md p-3 " +
+                    (isAtendido || isDispensado ? "bg-muted/30" : "")
+                  }
+                >
+                  <div className="flex items-start justify-between gap-2 flex-wrap">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-medium">
+                          {TIPOS_DOCUMENTO_LABEL[s.tipo] || s.tipo}
                         </p>
-                        {s.comentario && (
-                          <div className="mt-2 pt-2 border-t border-dashed">
-                            <p className="text-xs text-muted-foreground mb-1">
-                              {isAtendido
-                                ? "Observacao do atendimento"
-                                : isDispensado
-                                ? "Motivo da dispensa"
-                                : "Comentario"}
-                            </p>
-                            <p className="text-sm whitespace-pre-wrap italic">
-                              {s.comentario}
-                            </p>
-                          </div>
+                        {isPendente && (
+                          <Badge className="bg-amber-500 hover:bg-amber-500 text-white">
+                            Pendente
+                          </Badge>
                         )}
-                      </div>
-                      {isInterno && isPendente && (
-                        <div className="flex gap-1">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => abrirAcaoModal(s, "atendido")}
-                          >
+                        {isAtendido && (
+                          <Badge className="bg-green-600 hover:bg-green-600 text-white">
                             <CheckCircle2 className="h-3 w-3 mr-1" />
                             Atendido
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => abrirAcaoModal(s, "dispensado")}
-                          >
-                            Dispensar
-                          </Button>
+                          </Badge>
+                        )}
+                        {isDispensado && (
+                          <Badge variant="outline">
+                            <XCircle className="h-3 w-3 mr-1" />
+                            Dispensado
+                          </Badge>
+                        )}
+                        <Badge
+                          variant="outline"
+                          className={
+                            s.origem === "interna"
+                              ? "border-blue-500 text-blue-700"
+                              : "border-purple-500 text-purple-700"
+                          }
+                        >
+                          {ORIGEM_SOLICITACAO_LABEL[s.origem] || s.origem}
+                        </Badge>
+                      </div>
+                      {s.descricao && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {s.descricao}
+                        </p>
+                      )}
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Solicitado em {formatDate(s.data_solicitacao)}
+                        {s.data_atendimento
+                          ? " - Atendido em " + formatDate(s.data_atendimento)
+                          : ""}
+                      </p>
+                      {s.comentario && (
+                        <div className="mt-2 pt-2 border-t border-dashed">
+                          <p className="text-xs text-muted-foreground mb-1">
+                            {isAtendido
+                              ? "Observacao do atendimento"
+                              : isDispensado
+                                ? "Motivo da dispensa"
+                                : "Comentario"}
+                          </p>
+                          <p className="text-sm whitespace-pre-wrap italic">
+                            {s.comentario}
+                          </p>
                         </div>
                       )}
-                      {!isInterno && isPendente && (
+                    </div>
+                    {isInterno && isPendente && (
+                      <div className="flex gap-1">
                         <Button
                           size="sm"
                           variant="outline"
                           onClick={() => abrirAcaoModal(s, "atendido")}
                         >
                           <CheckCircle2 className="h-3 w-3 mr-1" />
-                          Cumprir
+                          Atendido
                         </Button>
-                      )}
-                      {isInterno && !isPendente && (
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={() => atualizarStatusSolic(s, "pendente")}
+                          onClick={() => abrirAcaoModal(s, "dispensado")}
                         >
-                          Reabrir
+                          Dispensar
                         </Button>
-                      )}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+                      </div>
+                    )}
+                    {!isInterno && isPendente && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => abrirAcaoModal(s, "atendido")}
+                      >
+                        <CheckCircle2 className="h-3 w-3 mr-1" />
+                        Cumprir
+                      </Button>
+                    )}
+                    {isInterno && !isPendente && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => atualizarStatusSolic(s, "pendente")}
+                      >
+                        Reabrir
+                      </Button>
+                    )}
+                  </div>
+                </li>
+              );
+            }
+
+            if (solicitacoesOrdenadas.length === 0) {
+              return (
+                <p className="text-sm text-muted-foreground text-center py-6">
+                  Nenhuma solicitacao registrada.
+                </p>
+              );
+            }
+
+            return (
+              <div className="space-y-3">
+                {pendentes.length > 0 && (
+                  <ul className="space-y-2">
+                    {pendentes.map(renderSolicLi)}
+                  </ul>
+                )}
+                {pendentes.length === 0 && cumpridas.length > 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-3">
+                    Nenhuma solicitacao pendente.
+                  </p>
+                )}
+                {cumpridas.length > 0 && (
+                  <div className="border rounded-md overflow-hidden border-dashed">
+                    <button
+                      type="button"
+                      onClick={() => setCumpridasAberto(!cumpridasAberto)}
+                      className="w-full flex items-center justify-between p-3 hover:bg-muted/50 transition-colors text-left"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        {cumpridasAberto ? (
+                          <ChevronDown className="h-4 w-4 shrink-0" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4 shrink-0" />
+                        )}
+                        <span className="text-sm font-medium truncate">
+                          Solicitacoes cumpridas
+                        </span>
+                      </div>
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        {cumpridas.length}{" "}
+                        {cumpridas.length === 1
+                          ? "solicitacao"
+                          : "solicitacoes"}
+                      </span>
+                    </button>
+                    {cumpridasAberto && (
+                      <ul className="space-y-2 p-3 border-t">
+                        {cumpridas.map(renderSolicLi)}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </CardContent>
       </Card>
 
