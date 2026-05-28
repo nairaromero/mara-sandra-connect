@@ -3066,16 +3066,33 @@ function SolicitarDocBotao(props: {
     if (!usuarioId) return;
     setEnviando(true);
     try {
-      const resp = await supabase.from("solicitacoes_documento").insert({
-        caso_id: casoId,
-        tipo: tipo,
-        descricao: descricao.trim() || null,
-        status: "pendente",
-        origem: origem,
-        solicitado_por: usuarioId,
-      });
+      const resp = await supabase
+        .from("solicitacoes_documento")
+        .insert({
+          caso_id: casoId,
+          tipo: tipo,
+          descricao: descricao.trim() || null,
+          status: "pendente",
+          origem: origem,
+          solicitado_por: usuarioId,
+        })
+        .select("id")
+        .single();
       if (resp.error) throw resp.error;
       toast.success("Solicitacao criada");
+
+      // Notifica parceiro por email (fire-and-forget; nao bloqueia UI).
+      // A edge function checa as regras (origem=externa, caso com parceiro)
+      // e silenciosamente nao envia se nao se aplicam.
+      if (resp.data) {
+        const solicId = (resp.data as { id: string }).id;
+        supabase.functions
+          .invoke("notify-solicitacao-doc", {
+            body: { solicitacao_id: solicId },
+          })
+          .catch((err) => console.error("notify-solicitacao-doc falhou", err));
+      }
+
       setDescricao("");
       setOrigem("externa");
       setAberto(false);
