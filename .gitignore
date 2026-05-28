@@ -21,6 +21,13 @@ src/routeTree.gen.ts
 .wrangler/
 .dev.vars
 
+# Claude Code harness (local, não vai pro repo)
+.claude/
+
+# Scripts de exploração com tokens hardcoded (não versionar)
+# Tokens antigos já foram rotacionados; manter ignorado evita repetir o vazamento.
+planning/explorers/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

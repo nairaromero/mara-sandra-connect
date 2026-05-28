@@ -1,6 +1,6 @@
-# Review mobile-first + componentes genéricos + tema
+# UI Design — Mobile-first + tema unificado + componentes genéricos
 
-Auditoria dos 6 arquivos `.tsx` criados nesta conversa, identificando: violações de mobile-first, código duplicado para extrair como componente genérico, e plano de tema unificado.
+> Auditoria das telas atuais e plano para padronizar UI. Para arquitetura geral, ver [ARQUITETURA.md](ARQUITETURA.md). Para checklist, ver [TODO.md](TODO.md).
 
 ---
 
@@ -203,7 +203,7 @@ Garante consistência mobile sem precisar lembrar de adicionar a cada uso.
 
 ---
 
-## 4. Plano de tema unificado — TODO
+## 4. Plano de tema unificado
 
 ### 4.1 Definir paleta semântica
 
@@ -220,18 +220,18 @@ Em vez de cores brutas (purple-600, amber-500), definir tokens **semânticos** q
 | `--ms-warning` | Atraso, atenção | orange-500 |
 | `--ms-archived` | Arquivado, inativo | slate-400 |
 
-### 4.2 Tasks de implementação (ordem)
+### 4.2 Tasks de implementação (T1-T10)
 
-- [ ] **T1**: Editar `src/index.css` (ou `globals.css`) adicionando CSS vars `--ms-*` em `:root` e dark equivalents em `.dark`
-- [ ] **T2**: Editar `tailwind.config.ts` mapeando as vars para utilities (`bg-pending`, `text-partner`, etc.)
-- [ ] **T3**: Criar `src/components/ui-app/` com os 7 componentes da seção 3
-- [ ] **T4**: Refatorar `casos.$id.tsx` para usar os genéricos (maior arquivo, ganho maior)
-- [ ] **T5**: Refatorar `dashboard_index.tsx`, `documentos.tsx`, `conversas.tsx`, `configuracoes.tsx`, `casos.novo.tsx`
-- [ ] **T6**: Substituir todos os `bg-amber-500`, `bg-green-600`, `text-blue-700`, hexs em `style={}` (tags do TI são exceção — vêm do TI direto) por tokens
-- [ ] **T7**: Aplicar regras mobile-first da seção 2 (Tabs scroll, table responsiva, dialogs com overflow)
-- [ ] **T8**: Adicionar `viewport`, `theme-color` e PWA manifest no `index.html` antecipando conversão para app
-- [ ] **T9**: Adicionar `prefer-color-scheme: dark` (opcional, mas barato de habilitar agora)
-- [ ] **T10**: Documentar o sistema em `README.md` ou `STYLE_GUIDE.md` do repo, fixar como guideline
+- **T1**: Editar `src/index.css` (ou `globals.css`) adicionando CSS vars `--ms-*` em `:root` e dark equivalents em `.dark`
+- **T2**: Editar `tailwind.config.ts` mapeando as vars para utilities (`bg-pending`, `text-partner`, etc.)
+- **T3**: Criar `src/components/ui-app/` com os 7 componentes da seção 3
+- **T4**: Refatorar `casos.$id.tsx` para usar os genéricos (maior arquivo, ganho maior)
+- **T5**: Refatorar `dashboard_index.tsx`, `documentos.tsx`, `conversas.tsx`, `configuracoes.tsx`, `casos.novo.tsx`
+- **T6**: Substituir todos os `bg-amber-500`, `bg-green-600`, `text-blue-700`, hexs em `style={}` (tags do TI são exceção — vêm do TI direto) por tokens
+- **T7**: Aplicar regras mobile-first da seção 2 (Tabs scroll, table responsiva, dialogs com overflow)
+- **T8**: Adicionar `viewport`, `theme-color` e PWA manifest no `index.html` antecipando conversão para app
+- **T9**: Adicionar `prefer-color-scheme: dark` (opcional, mas barato de habilitar agora)
+- **T10**: Documentar o sistema em `README.md` ou `STYLE_GUIDE.md` do repo, fixar como guideline
 
 ### 4.3 Exemplo de `globals.css` (referência)
 
@@ -287,7 +287,7 @@ Aí no JSX:
 
 ## 5. Ordem sugerida (passo a passo)
 
-Como você quer pequenos passos: faríamos nessa ordem, **um por sessão**:
+Como o estilo de trabalho é pequenos passos commitáveis, faríamos nessa ordem, **um por sessão**:
 
 1. **T1 + T2**: tokens em CSS + Tailwind (~15 min) — base de tudo
 2. **T3 (parcial)**: criar `<Spinner>` e `<EmptyState>` (mais simples, mais reutilizados)
@@ -300,7 +300,7 @@ Cada passo é commitável independente, sem quebrar nada.
 
 ---
 
-## 6. O que NÃO mudo nesta review
+## 6. Escopo NÃO coberto neste documento
 
 - Lógica de negócio (continua igual)
 - Schema do Supabase
@@ -309,14 +309,3 @@ Cada passo é commitável independente, sem quebrar nada.
 - Bibliotecas externas (shadcn, lucide, sonner, react-hook-form, zod)
 
 Só camada de apresentação + organização de componentes.
-
----
-
-## 7. Próximo movimento (decisão sua)
-
-Você quer que eu:
-- (a) Comece a executar **T1 + T2** agora (tokens + Tailwind config) e te entregue o diff
-- (b) Pause aqui pra revisar este documento e me dizer se concorda com a paleta da seção 4.1 (ou propõe outras cores)
-- (c) Pula o tema agora e foca em terminar a integração Legalmail primeiro (volta pro deploy do `check-legalmail-nome`)
-
-Recomendo (a) → setup do tema é base pra todo o resto.

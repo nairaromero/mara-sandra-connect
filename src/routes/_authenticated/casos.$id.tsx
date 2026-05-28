@@ -20,6 +20,10 @@ import {
   Trash2,
   CheckCircle2,
   XCircle,
+  Pencil,
+  Search,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -112,6 +116,8 @@ interface Andamento {
   criado_por: string | null;
   metadata: Record<string, unknown> | null;
   visivel_parceiro: boolean;
+  processo_admin_id: string | null;
+  processo_judicial_id: string | null;
   created_at: string;
 }
 
@@ -206,6 +212,22 @@ interface ProcessoJudicial {
 // ===========================================================================
 // Constantes (alinhadas aos enums reais)
 // ===========================================================================
+
+const TIPOS_BENEFICIO = [
+  "Aposentadoria por idade",
+  "Aposentadoria por tempo de contribuicao",
+  "Aposentadoria especial",
+  "Aposentadoria da PCD (LC 142/2013)",
+  "Aposentadoria por incapacidade permanente",
+  "Auxilio por incapacidade temporaria",
+  "Auxilio-acidente",
+  "Pensao por morte",
+  "Salario-maternidade",
+  "BPC/LOAS",
+  "Revisao da vida toda",
+  "Revisao de aposentadoria",
+  "Outro",
+];
 
 const FASES_CASO = [
   { value: "analise", label: "Em analise" },
@@ -356,6 +378,9 @@ function CasoDetalhePage() {
   const [caso, setCaso] = useState<Caso | null>(null);
   const [cliente, setCliente] = useState<Cliente | null>(null);
   const [parceiro, setParceiro] = useState<ParceiroLite | null>(null);
+  const [parceirosDisponiveis, setParceirosDisponiveis] = useState<
+    Array<ParceiroLite>
+  >([]);
   const [andamentos, setAndamentos] = useState<Array<Andamento>>([]);
   const [documentos, setDocumentos] = useState<Array<Documento>>([]);
   const [solicitacoes, setSolicitacoes] = useState<Array<SolicitacaoDocumento>>([]);
@@ -408,6 +433,20 @@ function CasoDetalhePage() {
         setParceiro((parceiroResp.data || null) as ParceiroLite | null);
       } else {
         setParceiro(null);
+      }
+
+      // Lista de parceiros disponiveis (para edicao do caso). So interno usa.
+      const parceirosResp = await supabase
+        .from("usuarios")
+        .select("id, nome, email")
+        .eq("tipo", "parceiro")
+        .order("nome", { ascending: true });
+      if (parceirosResp.error) {
+        console.error("erro listar parceiros", parceirosResp.error);
+      } else {
+        setParceirosDisponiveis(
+          (parceirosResp.data || []) as Array<ParceiroLite>,
+        );
       }
 
       const andamentosResp = await supabase
@@ -551,6 +590,8 @@ function CasoDetalhePage() {
           cliente={cliente}
           parceiro={parceiro}
           isInterno={isInterno}
+          usuarioId={usuario ? usuario.id : null}
+          processosJudiciais={processosJudiciais}
           onChange={carregar}
         />
 
@@ -597,7 +638,9 @@ function CasoDetalhePage() {
               caso={caso}
               cliente={cliente}
               parceiro={parceiro}
+              parceirosDisponiveis={parceirosDisponiveis}
               isInterno={isInterno}
+              onChange={carregar}
             />
           </TabsContent>
 
@@ -605,6 +648,8 @@ function CasoDetalhePage() {
             <TabAndamentos
               casoId={casoId}
               andamentos={andamentos}
+              processosAdmin={processosAdmin}
+              processosJudiciais={processosJudiciais}
               isInterno={isInterno}
               temParceiro={caso.parceiro_id !== null}
               usuarioId={usuario ? usuario.id : null}
@@ -659,6 +704,8 @@ function CasoDetalhePage() {
             <TabsContent value="processos" className="mt-4">
               <TabProcessos
                 casoId={casoId}
+                cliente={cliente}
+                usuarioId={usuario ? usuario.id : null}
                 processosAdmin={processosAdmin}
                 processosJudiciais={processosJudiciais}
                 onChange={carregar}
@@ -680,57 +727,51 @@ interface CasoHeaderProps {
   cliente: Cliente;
   parceiro: ParceiroLite | null;
   isInterno: boolean;
+  usuarioId: string | null;
+  processosJudiciais: Array<ProcessoJudicial>;
   onChange: () => void;
 }
 
 function CasoHeader(props: CasoHeaderProps) {
-  const { caso, cliente, parceiro, isInterno, onChange } = props;
-  const [editing, setEditing] = useState(false);
-  const [fase, setFase] = useState(caso.fase);
-  const [status, setStatus] = useState(caso.status);
-  const [saving, setSaving] = useState(false);
+  const { caso, cliente, isInterno, usuarioId, processosJudiciais, onChange } =
+    props;
   const [syncing, setSyncing] = useState(false);
-
-  async function salvar() {
-    setSaving(true);
-    try {
-      const resp = await supabase
-        .from("casos")
-        .update({ fase: fase, status: status })
-        .eq("id", caso.id);
-      if (resp.error) throw resp.error;
-      toast.success("Caso atualizado");
-      setEditing(false);
-      onChange();
-    } catch (err) {
-      console.error(err);
-      const errObj = err as { message?: string };
-      toast.error(errObj.message || "Erro ao atualizar caso");
-    } finally {
-      setSaving(false);
-    }
-  }
+  const [syncingLM, setSyncingLM] = useState(false);
 
   async function syncTI() {
     setSyncing(true);
     try {
-      // TODO: trocar para "sync-ti-cliente" quando renomear o slug no Supabase
-      const resp = await supabase.functions.invoke("hyper-action", {
-        body: { cpf: cliente.cpf },
+      const resp = await supabase.functions.invoke("sync-ti-cliente", {
+        body: { cpf: cliente.cpf, caso_id: caso.id, usuario_id: usuarioId },
       });
       if (resp.error) throw resp.error;
       const r = resp.data as {
         achou_no_ti?: boolean;
         atualizado?: boolean;
         tags_aplicadas?: number;
+        notas_importadas?: number;
+        notas_ja_existentes?: number;
         motivo?: string;
       };
       if (!r.achou_no_ti) {
         toast.error("Cliente nao encontrado no Tramitacao Inteligente");
       } else if (r.atualizado) {
-        toast.success(
-          "Sincronizado com TI. " + (r.tags_aplicadas || 0) + " tags aplicadas.",
-        );
+        const tags = r.tags_aplicadas || 0;
+        const notasNovas = r.notas_importadas || 0;
+        const notasJa = r.notas_ja_existentes || 0;
+        let msg =
+          "Sincronizado com TI. " + tags + " tag" + (tags === 1 ? "" : "s") +
+          " aplicada" + (tags === 1 ? "" : "s") + ".";
+        if (notasNovas > 0) {
+          msg += " " + notasNovas + " nota" + (notasNovas === 1 ? "" : "s") +
+            " do TI importada" + (notasNovas === 1 ? "" : "s") +
+            " como andamento" + (notasNovas === 1 ? "" : "s") + ".";
+        }
+        if (notasJa > 0) {
+          msg += " " + notasJa + " ja existia" + (notasJa === 1 ? "" : "m") +
+            " (dedup).";
+        }
+        toast.success(msg);
         onChange();
       } else {
         toast.error(r.motivo || "Nao foi possivel sincronizar");
@@ -741,6 +782,75 @@ function CasoHeader(props: CasoHeaderProps) {
       toast.error(errObj.message || "Erro ao sincronizar com TI");
     } finally {
       setSyncing(false);
+    }
+  }
+
+  async function syncLegalmail() {
+    // So processos judiciais que ja foram importados do Legalmail
+    // (tem legalmail_id populado) sao atualizados.
+    const procsComLM = processosJudiciais.filter((p) => !!p.legalmail_id);
+    if (procsComLM.length === 0) {
+      toast.error(
+        "Nenhum processo Legalmail vinculado a este caso. Use 'Buscar no Legalmail' na aba Processos primeiro.",
+      );
+      return;
+    }
+    const idprocessos = procsComLM
+      .map((p) => Number(p.legalmail_id))
+      .filter((n) => !isNaN(n));
+    if (idprocessos.length === 0) {
+      toast.error("Erro ao ler ids do Legalmail dos processos vinculados.");
+      return;
+    }
+    setSyncingLM(true);
+    try {
+      const resp = await supabase.functions.invoke("sync-legalmail-caso", {
+        body: {
+          caso_id: caso.id,
+          usuario_id: usuarioId,
+          idprocessos: idprocessos,
+        },
+      });
+      if (resp.error) throw resp.error;
+      const r = resp.data as {
+        processos_criados?: number;
+        processos_atualizados?: number;
+        movimentacoes_importadas?: number;
+        movimentacoes_ja_existentes?: number;
+        movimentacoes_ignoradas?: number;
+        erros?: Array<{ idprocesso: number; motivo: string }>;
+      };
+      const pa = r.processos_atualizados || 0;
+      const mi = r.movimentacoes_importadas || 0;
+      const mj = r.movimentacoes_ja_existentes || 0;
+      const mig = r.movimentacoes_ignoradas || 0;
+      let msg =
+        pa + " processo" + (pa === 1 ? "" : "s") + " atualizado" +
+        (pa === 1 ? "" : "s") + ". " +
+        mi + " movimentaca" + (mi === 1 ? "o" : "oes") + " nova" +
+        (mi === 1 ? "" : "s");
+      if (mj > 0) {
+        msg += " (" + mj + " ja existia" + (mj === 1 ? "" : "m") + ")";
+      }
+      if (mig > 0) {
+        msg += ". " + mig + " mov" + (mig === 1 ? "" : "s") +
+          " ignorada" + (mig === 1 ? "" : "s") + " pela whitelist";
+      }
+      msg += ".";
+      toast.success(msg);
+      if (r.erros && r.erros.length > 0) {
+        console.warn("erros no sync Legalmail:", r.erros);
+        toast.warning(
+          r.erros.length + " erro(s) durante sync. Ver console.",
+        );
+      }
+      onChange();
+    } catch (err) {
+      console.error(err);
+      const errObj = err as { message?: string };
+      toast.error(errObj.message || "Erro ao sincronizar com Legalmail");
+    } finally {
+      setSyncingLM(false);
     }
   }
 
@@ -761,22 +871,6 @@ function CasoHeader(props: CasoHeaderProps) {
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline">
-              Fase: {labelFromList(FASES_CASO, caso.fase)}
-            </Badge>
-            <Badge variant="secondary">
-              Status: {labelFromList(STATUS_CASO, caso.status)}
-            </Badge>
-            {parceiro && (
-              <Badge className="bg-purple-600 hover:bg-purple-600 text-white">
-                Parceiro: {parceiro.nome || parceiro.email || "Sem nome"}
-              </Badge>
-            )}
-            {!parceiro && (
-              <Badge variant="outline" className="border-blue-500 text-blue-700">
-                Cliente interno
-              </Badge>
-            )}
             {tags.map((t) => (
               <Badge
                 key={t.id}
@@ -791,12 +885,7 @@ function CasoHeader(props: CasoHeaderProps) {
                 {t.name}
               </Badge>
             ))}
-            {isInterno && !editing && (
-              <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
-                Editar
-              </Button>
-            )}
-            {isInterno && !editing && (
+            {isInterno && (
               <Button
                 size="sm"
                 variant="ghost"
@@ -808,63 +897,21 @@ function CasoHeader(props: CasoHeaderProps) {
                 Sync TI
               </Button>
             )}
+            {isInterno && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={syncLegalmail}
+                disabled={syncingLM}
+                title="Atualizar movimentacoes dos processos Legalmail vinculados"
+              >
+                {syncingLM && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
+                Sync Legal
+              </Button>
+            )}
           </div>
         </div>
       </CardHeader>
-      {editing && isInterno && (
-        <CardContent>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <Label className="text-xs">Fase</Label>
-              <Select value={fase} onValueChange={setFase}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {FASES_CASO.map((f) => (
-                    <SelectItem key={f.value} value={f.value}>
-                      {f.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-xs">Status</Label>
-              <Select value={status} onValueChange={setStatus}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {STATUS_CASO.map((s) => (
-                    <SelectItem key={s.value} value={s.value}>
-                      {s.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="flex gap-2 mt-3">
-            <Button size="sm" onClick={salvar} disabled={saving}>
-              {saving && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
-              Salvar
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setEditing(false);
-                setFase(caso.fase);
-                setStatus(caso.status);
-              }}
-              disabled={saving}
-            >
-              Cancelar
-            </Button>
-          </div>
-        </CardContent>
-      )}
     </Card>
   );
 }
@@ -877,16 +924,141 @@ interface TabVisaoGeralProps {
   caso: Caso;
   cliente: Cliente;
   parceiro: ParceiroLite | null;
+  parceirosDisponiveis: Array<ParceiroLite>;
   isInterno: boolean;
+  onChange: () => void;
 }
 
 function TabVisaoGeral(props: TabVisaoGeralProps) {
-  const { caso, cliente, parceiro, isInterno } = props;
+  const { caso, cliente, parceiro, parceirosDisponiveis, isInterno, onChange } =
+    props;
+
+  // ---- Dialog: Editar cliente ----
+  const [abrirEditCliente, setAbrirEditCliente] = useState(false);
+  const [clNome, setClNome] = useState("");
+  const [clDataNascimento, setClDataNascimento] = useState("");
+  const [clTelefone, setClTelefone] = useState("");
+  const [clEmail, setClEmail] = useState("");
+  const [clObservacoes, setClObservacoes] = useState("");
+  const [clSalvando, setClSalvando] = useState(false);
+
+  function abrirDialogCliente() {
+    setClNome(cliente.nome);
+    setClDataNascimento(cliente.data_nascimento || "");
+    setClTelefone(cliente.telefone || "");
+    setClEmail(cliente.email || "");
+    setClObservacoes(cliente.observacoes || "");
+    setAbrirEditCliente(true);
+  }
+
+  async function salvarCliente() {
+    if (!clNome.trim()) {
+      toast.error("Nome obrigatorio");
+      return;
+    }
+    setClSalvando(true);
+    try {
+      const resp = await supabase
+        .from("clientes")
+        .update({
+          nome: clNome.trim(),
+          data_nascimento: clDataNascimento || null,
+          telefone: clTelefone.trim() || null,
+          email: clEmail.trim() || null,
+          observacoes: clObservacoes.trim() || null,
+        })
+        .eq("id", cliente.id)
+        .select();
+      if (resp.error) throw resp.error;
+      if (!resp.data || resp.data.length === 0) {
+        toast.error("Atualizacao nao foi aplicada. Possivel bloqueio de RLS.");
+        return;
+      }
+      toast.success("Cliente atualizado");
+      setAbrirEditCliente(false);
+      onChange();
+    } catch (err) {
+      console.error(err);
+      const errObj = err as { message?: string };
+      toast.error(errObj.message || "Erro ao atualizar cliente");
+    } finally {
+      setClSalvando(false);
+    }
+  }
+
+  // ---- Dialog: Editar caso ----
+  const [abrirEditCaso, setAbrirEditCaso] = useState(false);
+  const [csTipoBeneficio, setCsTipoBeneficio] = useState("");
+  const [csInterno, setCsInterno] = useState(true);
+  const [csParceiroId, setCsParceiroId] = useState("");
+  const [csFase, setCsFase] = useState("");
+  const [csStatus, setCsStatus] = useState("");
+  const [csSalvando, setCsSalvando] = useState(false);
+
+  function abrirDialogCaso() {
+    setCsTipoBeneficio(caso.tipo_beneficio);
+    setCsInterno(caso.parceiro_id === null);
+    setCsParceiroId(caso.parceiro_id || "");
+    setCsFase(caso.fase);
+    setCsStatus(caso.status);
+    setAbrirEditCaso(true);
+  }
+
+  async function salvarCaso() {
+    if (!csTipoBeneficio) {
+      toast.error("Tipo de beneficio obrigatorio");
+      return;
+    }
+    if (!csInterno && !csParceiroId) {
+      toast.error("Selecione um parceiro indicador ou marque como cliente interno");
+      return;
+    }
+    setCsSalvando(true);
+    try {
+      const resp = await supabase
+        .from("casos")
+        .update({
+          tipo_beneficio: csTipoBeneficio,
+          parceiro_id: csInterno ? null : csParceiroId,
+          fase: csFase,
+          status: csStatus,
+        })
+        .eq("id", caso.id)
+        .select();
+      if (resp.error) throw resp.error;
+      if (!resp.data || resp.data.length === 0) {
+        toast.error("Atualizacao nao foi aplicada. Possivel bloqueio de RLS.");
+        return;
+      }
+      toast.success("Caso atualizado");
+      setAbrirEditCaso(false);
+      onChange();
+    } catch (err) {
+      console.error(err);
+      const errObj = err as { message?: string };
+      toast.error(errObj.message || "Erro ao atualizar caso");
+    } finally {
+      setCsSalvando(false);
+    }
+  }
+
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Dados do cliente</CardTitle>
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle className="text-base">Dados do cliente</CardTitle>
+            {isInterno && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={abrirDialogCliente}
+              >
+                <Pencil className="h-3.5 w-3.5 mr-1" />
+                Editar
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
           <Linha label="Nome" valor={cliente.nome} />
@@ -915,53 +1087,230 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
             </div>
           )}
         </CardContent>
+        {isInterno && (
+          <Dialog
+            open={abrirEditCliente}
+            onOpenChange={setAbrirEditCliente}
+          >
+            <DialogContent className="max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Editar cliente</DialogTitle>
+                <DialogDescription>
+                  CPF nao pode ser alterado (chave unica vinculada ao TI).
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs">Nome</Label>
+                  <Input
+                    value={clNome}
+                    onChange={(e) => setClNome(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">CPF</Label>
+                  <Input value={maskCPF(cliente.cpf)} disabled />
+                </div>
+                <div>
+                  <Label className="text-xs">Data de nascimento</Label>
+                  <Input
+                    type="date"
+                    value={clDataNascimento}
+                    onChange={(e) => setClDataNascimento(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Telefone</Label>
+                  <Input
+                    value={clTelefone}
+                    onChange={(e) => setClTelefone(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">E-mail</Label>
+                  <Input
+                    type="email"
+                    value={clEmail}
+                    onChange={(e) => setClEmail(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Observacoes</Label>
+                  <Textarea
+                    rows={3}
+                    value={clObservacoes}
+                    onChange={(e) => setClObservacoes(e.target.value)}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="ghost"
+                  onClick={() => setAbrirEditCliente(false)}
+                  disabled={clSalvando}
+                >
+                  Cancelar
+                </Button>
+                <Button onClick={salvarCliente} disabled={clSalvando}>
+                  {clSalvando && (
+                    <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                  )}
+                  Salvar
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Dados do caso</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2 text-sm">
-          <Linha label="Tipo de beneficio" valor={caso.tipo_beneficio} />
-          <Linha
-            label="Parceiro"
-            valor={
-              parceiro
-                ? parceiro.nome || parceiro.email || "Parceiro sem nome"
-                : "Cliente interno do escritorio"
-            }
-          />
-          <Linha label="Fase" valor={labelFromList(FASES_CASO, caso.fase)} />
-          <Linha
-            label="Status"
-            valor={labelFromList(STATUS_CASO, caso.status)}
-          />
-          {caso.rmi_estimada !== null && (
-            <Linha label="RMI estimada" valor={formatMoney(caso.rmi_estimada)} />
-          )}
-          {caso.atrasados_estimados !== null && (
-            <Linha
-              label="Atrasados estimados"
-              valor={formatMoney(caso.atrasados_estimados)}
-            />
-          )}
-          <Linha
-            label="Criado em"
-            valor={formatDateTime(caso.created_at)}
-          />
-          {caso.updated_at && (
-            <Linha
-              label="Atualizado em"
-              valor={formatDateTime(caso.updated_at)}
-            />
-          )}
-          {caso.observacoes && (
-            <div className="pt-2 border-t">
-              <p className="text-xs text-muted-foreground mb-1">Observacoes</p>
-              <p className="text-sm whitespace-pre-wrap">{caso.observacoes}</p>
-            </div>
+        <CardContent className="py-4 flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">Configuracoes do caso</p>
+            <p className="text-xs text-muted-foreground">
+              Tipo de beneficio, parceiro, fase e status (visíveis nas tags e
+              no header).
+            </p>
+          </div>
+          {isInterno && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={abrirDialogCaso}
+              className="shrink-0"
+            >
+              <Pencil className="h-3.5 w-3.5 mr-1" />
+              Editar
+            </Button>
           )}
         </CardContent>
+        {isInterno && (
+          <Dialog open={abrirEditCaso} onOpenChange={setAbrirEditCaso}>
+            <DialogContent className="max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Editar caso</DialogTitle>
+                <DialogDescription>
+                  Altere os dados do caso, parceiro indicador, fase, status e
+                  valores estimados.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs">Tipo de beneficio</Label>
+                  <Select
+                    value={csTipoBeneficio}
+                    onValueChange={setCsTipoBeneficio}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TIPOS_BENEFICIO.map((t) => (
+                        <SelectItem key={t} value={t}>
+                          {t}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="border-t pt-3 space-y-2">
+                  <div className="flex items-start gap-2">
+                    <input
+                      id="cs-interno"
+                      type="checkbox"
+                      checked={csInterno}
+                      onChange={(e) => {
+                        setCsInterno(e.target.checked);
+                        if (e.target.checked) setCsParceiroId("");
+                      }}
+                      className="h-4 w-4 mt-0.5"
+                    />
+                    <div>
+                      <Label htmlFor="cs-interno" className="text-sm">
+                        Cliente interno do escritorio (sem parceiro indicador)
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        Marque se nao ha advogado parceiro captando este caso.
+                      </p>
+                    </div>
+                  </div>
+                  {!csInterno && (
+                    <div>
+                      <Label className="text-xs">Parceiro indicador</Label>
+                      <Select
+                        value={csParceiroId}
+                        onValueChange={setCsParceiroId}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione um parceiro..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {parceirosDisponiveis.length === 0 && (
+                            <SelectItem value="__vazio__" disabled>
+                              Nenhum parceiro cadastrado
+                            </SelectItem>
+                          )}
+                          {parceirosDisponiveis.map((p) => (
+                            <SelectItem key={p.id} value={p.id}>
+                              {p.nome || p.email || "(sem nome)"}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-3 border-t pt-3">
+                  <div>
+                    <Label className="text-xs">Fase</Label>
+                    <Select value={csFase} onValueChange={setCsFase}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {FASES_CASO.map((f) => (
+                          <SelectItem key={f.value} value={f.value}>
+                            {f.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Status</Label>
+                    <Select value={csStatus} onValueChange={setCsStatus}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {STATUS_CASO.map((s) => (
+                          <SelectItem key={s.value} value={s.value}>
+                            {s.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="ghost"
+                  onClick={() => setAbrirEditCaso(false)}
+                  disabled={csSalvando}
+                >
+                  Cancelar
+                </Button>
+                <Button onClick={salvarCaso} disabled={csSalvando}>
+                  {csSalvando && (
+                    <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                  )}
+                  Salvar
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
       </Card>
     </div>
   );
@@ -985,19 +1334,285 @@ function Linha(props: { label: string; valor: string }) {
 interface TabAndamentosProps {
   casoId: string;
   andamentos: Array<Andamento>;
+  processosAdmin: Array<ProcessoAdmin>;
+  processosJudiciais: Array<ProcessoJudicial>;
   isInterno: boolean;
   temParceiro: boolean;
   usuarioId: string | null;
   onChange: () => void;
 }
 
+// Valor usado no Select de vinculo de processo.
+// Formato: "nenhum" | "admin:<uuid>" | "judicial:<uuid>"
+const PROCESSO_NENHUM = "nenhum";
+
 function TabAndamentos(props: TabAndamentosProps) {
-  const { casoId, andamentos, isInterno, temParceiro, usuarioId, onChange } = props;
+  const {
+    casoId,
+    andamentos,
+    processosAdmin,
+    processosJudiciais,
+    isInterno,
+    temParceiro,
+    usuarioId,
+    onChange,
+  } = props;
+  // States do dialog "Novo andamento"
+  // tipoDialogoNovo: null = fechado; "admin" ou "judicial" = aberto com tipo pre-definido
+  const [tipoDialogoNovo, setTipoDialogoNovo] = useState<
+    "admin" | "judicial" | null
+  >(null);
   const [titulo, setTitulo] = useState("");
   const [descricao, setDescricao] = useState("");
   const [visivelParceiro, setVisivelParceiro] = useState(true);
+  const [processoVinculo, setProcessoVinculo] = useState(PROCESSO_NENHUM);
   const [salvando, setSalvando] = useState(false);
-  const [abrirNovo, setAbrirNovo] = useState(false);
+
+  // States dos accordions (qual processo esta expandido em cada card)
+  const [expandidosAdmin, setExpandidosAdmin] = useState<Set<string>>(
+    new Set(),
+  );
+  const [expandidosJud, setExpandidosJud] = useState<Set<string>>(new Set());
+  // Accordions especiais "Sem processo" / "Sem vinculo" (1 unico bool cada)
+  const [abertoSemProcessoAdmin, setAbertoSemProcessoAdmin] = useState(false);
+  const [abertoSemVinculoGerais, setAbertoSemVinculoGerais] = useState(false);
+
+  // Multi-select para transferencia de andamentos sem vinculo
+  const [selecionadosSemProc, setSelecionadosSemProc] = useState<Set<string>>(
+    new Set(),
+  );
+  const [selecionadosGerais, setSelecionadosGerais] = useState<Set<string>>(
+    new Set(),
+  );
+  const [destinoTransfSemProc, setDestinoTransfSemProc] = useState("");
+  const [destinoTransfGerais, setDestinoTransfGerais] = useState("");
+  const [transferindo, setTransferindo] = useState(false);
+
+  function toggleAccordionAdmin(processoId: string) {
+    setExpandidosAdmin((prev) => {
+      const next = new Set(prev);
+      if (next.has(processoId)) next.delete(processoId);
+      else next.add(processoId);
+      return next;
+    });
+  }
+  function toggleAccordionJud(processoId: string) {
+    setExpandidosJud((prev) => {
+      const next = new Set(prev);
+      if (next.has(processoId)) next.delete(processoId);
+      else next.add(processoId);
+      return next;
+    });
+  }
+
+  function toggleSelecaoSemProc(id: string) {
+    setSelecionadosSemProc((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function toggleSelecaoGerais(id: string) {
+    setSelecionadosGerais((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  // Transfere andamentos selecionados para um processo destino.
+  // destino: "admin:<id>" ou "judicial:<id>"
+  async function transferirAndamentos(
+    ids: Set<string>,
+    destino: string,
+    onSuccess: () => void,
+  ) {
+    if (ids.size === 0) {
+      toast.error("Selecione ao menos um andamento");
+      return;
+    }
+    if (!destino) {
+      toast.error("Selecione um processo de destino");
+      return;
+    }
+    let processoAdminId: string | null = null;
+    let processoJudicialId: string | null = null;
+    if (destino.startsWith("admin:")) {
+      processoAdminId = destino.slice("admin:".length);
+    } else if (destino.startsWith("judicial:")) {
+      processoJudicialId = destino.slice("judicial:".length);
+    } else {
+      toast.error("Destino invalido");
+      return;
+    }
+    setTransferindo(true);
+    try {
+      const resp = await supabase
+        .from("andamentos")
+        .update({
+          processo_admin_id: processoAdminId,
+          processo_judicial_id: processoJudicialId,
+        })
+        .in("id", Array.from(ids))
+        .select();
+      if (resp.error) throw resp.error;
+      const n = resp.data?.length || 0;
+      if (n === 0) {
+        toast.error(
+          "Transferencia nao aplicada. Possivel bloqueio de permissao.",
+        );
+        return;
+      }
+      toast.success(
+        n + " andamento" + (n === 1 ? "" : "s") + " transferido" +
+          (n === 1 ? "" : "s") + ".",
+      );
+      onSuccess();
+      onChange();
+    } catch (err) {
+      console.error(err);
+      const errObj = err as { message?: string };
+      toast.error(errObj.message || "Erro ao transferir andamentos");
+    } finally {
+      setTransferindo(false);
+    }
+  }
+
+  // States do dialog "Editar andamento"
+  const [editando, setEditando] = useState<Andamento | null>(null);
+  const [editTitulo, setEditTitulo] = useState("");
+  const [editDescricao, setEditDescricao] = useState("");
+  const [editVisivelParceiro, setEditVisivelParceiro] = useState(true);
+  const [editProcessoVinculo, setEditProcessoVinculo] = useState(PROCESSO_NENHUM);
+  const [editSalvando, setEditSalvando] = useState(false);
+
+  const totalProcessos = processosAdmin.length + processosJudiciais.length;
+  const temProcessos = totalProcessos > 0;
+  const processoUnico = totalProcessos === 1;
+
+  // Quando o caso tem apenas 1 processo, retorna o valor do Select
+  // ("admin:<id>" ou "judicial:<id>") ja apontando pra ele.
+  function valorProcessoUnico(): string {
+    if (!processoUnico) return PROCESSO_NENHUM;
+    if (processosAdmin.length === 1) return "admin:" + processosAdmin[0].id;
+    return "judicial:" + processosJudiciais[0].id;
+  }
+
+  function descricaoProcesso(a: Andamento): string | null {
+    if (a.processo_admin_id) {
+      const p = processosAdmin.find((x) => x.id === a.processo_admin_id);
+      return "Admin: " + (p?.numero_requerimento || "(sem numero)");
+    }
+    if (a.processo_judicial_id) {
+      const p = processosJudiciais.find((x) => x.id === a.processo_judicial_id);
+      return "Judicial: " + (p?.numero_processo || "(sem numero)");
+    }
+    return null;
+  }
+
+  function abrirEdicao(a: Andamento) {
+    setEditando(a);
+    setEditTitulo(a.titulo || "");
+    setEditDescricao(a.descricao || "");
+    setEditVisivelParceiro(a.visivel_parceiro);
+    if (a.processo_admin_id) {
+      setEditProcessoVinculo("admin:" + a.processo_admin_id);
+    } else if (a.processo_judicial_id) {
+      setEditProcessoVinculo("judicial:" + a.processo_judicial_id);
+    } else if (processoUnico) {
+      // Caso tem 1 processo so e o andamento esta sem vinculo:
+      // ja deixa o unico processo pre-selecionado.
+      setEditProcessoVinculo(valorProcessoUnico());
+    } else {
+      setEditProcessoVinculo(PROCESSO_NENHUM);
+    }
+  }
+
+  function fecharEdicao() {
+    setEditando(null);
+  }
+
+  async function salvarEdicao() {
+    if (!editando) return;
+    if (!editTitulo.trim()) {
+      toast.error("Titulo obrigatorio");
+      return;
+    }
+    setEditSalvando(true);
+    try {
+      let processoAdminId: string | null = null;
+      let processoJudicialId: string | null = null;
+      if (editProcessoVinculo.startsWith("admin:")) {
+        processoAdminId = editProcessoVinculo.slice("admin:".length);
+      } else if (editProcessoVinculo.startsWith("judicial:")) {
+        processoJudicialId = editProcessoVinculo.slice("judicial:".length);
+      }
+      const resp = await supabase
+        .from("andamentos")
+        .update({
+          titulo: editTitulo.trim(),
+          descricao: editDescricao.trim() || null,
+          visivel_parceiro: temParceiro ? editVisivelParceiro : false,
+          processo_admin_id: processoAdminId,
+          processo_judicial_id: processoJudicialId,
+        })
+        .eq("id", editando.id)
+        .select();
+      if (resp.error) throw resp.error;
+      if (!resp.data || resp.data.length === 0) {
+        // RLS bloqueou silenciosamente (0 linhas atualizadas)
+        toast.error(
+          "Atualizacao nao foi aplicada. Possivel bloqueio de permissao. Avise o admin.",
+        );
+        return;
+      }
+      toast.success("Andamento atualizado");
+      fecharEdicao();
+      onChange();
+    } catch (err) {
+      console.error(err);
+      const errObj = err as { message?: string };
+      toast.error(errObj.message || "Erro ao atualizar andamento");
+    } finally {
+      setEditSalvando(false);
+    }
+  }
+
+  async function deletarAndamento(a: Andamento) {
+    const resumo = (a.titulo || a.descricao || "").slice(0, 60);
+    const ok = window.confirm(
+      "Tem certeza que deseja excluir este andamento?\n\n" +
+        (resumo ? '"' + resumo + '"\n\n' : "") +
+        "Essa acao nao pode ser desfeita.",
+    );
+    if (!ok) return;
+    try {
+      // .select() faz o Postgres retornar as linhas deletadas.
+      // Se vier vazio, e porque RLS impediu silenciosamente o DELETE.
+      const resp = await supabase
+        .from("andamentos")
+        .delete()
+        .eq("id", a.id)
+        .select();
+      if (resp.error) throw resp.error;
+      if (!resp.data || resp.data.length === 0) {
+        toast.error(
+          "Exclusao nao foi aplicada. Possivel bloqueio de permissao " +
+            "(andamento sem dono ou RLS). Tente fazer Sync TI novamente " +
+            "para corrigir o vinculo de criador.",
+        );
+        return;
+      }
+      toast.success("Andamento excluido");
+      onChange();
+    } catch (err) {
+      console.error(err);
+      const errObj = err as { message?: string };
+      toast.error(errObj.message || "Erro ao excluir andamento");
+    }
+  }
 
   const lista = isInterno
     ? andamentos
@@ -1007,6 +1622,15 @@ function TabAndamentos(props: TabAndamentosProps) {
     if (!titulo.trim() || !usuarioId) return;
     setSalvando(true);
     try {
+      // Interpreta processoVinculo: "nenhum" | "admin:<id>" | "judicial:<id>"
+      let processoAdminId: string | null = null;
+      let processoJudicialId: string | null = null;
+      if (processoVinculo.startsWith("admin:")) {
+        processoAdminId = processoVinculo.slice("admin:".length);
+      } else if (processoVinculo.startsWith("judicial:")) {
+        processoJudicialId = processoVinculo.slice("judicial:".length);
+      }
+
       const resp = await supabase.from("andamentos").insert({
         caso_id: casoId,
         origem: "interno",
@@ -1015,12 +1639,15 @@ function TabAndamentos(props: TabAndamentosProps) {
         data_evento: new Date().toISOString(),
         criado_por: usuarioId,
         visivel_parceiro: temParceiro ? visivelParceiro : false,
+        processo_admin_id: processoAdminId,
+        processo_judicial_id: processoJudicialId,
       });
       if (resp.error) throw resp.error;
       toast.success("Andamento adicionado");
       setTitulo("");
       setDescricao("");
-      setAbrirNovo(false);
+      setProcessoVinculo(PROCESSO_NENHUM);
+      setTipoDialogoNovo(null);
       onChange();
     } catch (err) {
       console.error(err);
@@ -1031,130 +1658,694 @@ function TabAndamentos(props: TabAndamentosProps) {
     }
   }
 
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="text-base">Andamentos</CardTitle>
-            <CardDescription>
-              Linha do tempo das movimentacoes do caso.
-            </CardDescription>
+  // Separar andamentos por destino:
+  //  - Admin: vinculados a processo administrativo
+  //  - Judicial: vinculados a processo judicial
+  //  - Notas TI sem vinculo: sub-secao "Sem processo" do card Admin (TI e
+  //    administrativo por natureza, mesmo sem processo cadastrado ainda)
+  //  - Manuais sem vinculo: card "Andamentos Gerais"
+  const andamentosAdmin = lista.filter((a) => a.processo_admin_id !== null);
+  const andamentosJud = lista.filter((a) => a.processo_judicial_id !== null);
+  const notasTISemVinculo = lista.filter(
+    (a) =>
+      a.origem === "tramitacao" &&
+      a.processo_admin_id === null &&
+      a.processo_judicial_id === null,
+  );
+  const andamentosManuaisSemVinculo = lista.filter(
+    (a) =>
+      a.origem !== "tramitacao" &&
+      a.processo_admin_id === null &&
+      a.processo_judicial_id === null,
+  );
+
+  // Abre o dialog "Novo andamento" pre-configurado para um tipo
+  function abrirNovoTipo(tipo: "admin" | "judicial") {
+    setTipoDialogoNovo(tipo);
+    setTitulo("");
+    setDescricao("");
+    setVisivelParceiro(true);
+    if (tipo === "admin") {
+      if (processosAdmin.length === 1) {
+        setProcessoVinculo("admin:" + processosAdmin[0].id);
+      } else {
+        setProcessoVinculo(PROCESSO_NENHUM);
+      }
+    } else {
+      if (processosJudiciais.length === 1) {
+        setProcessoVinculo("judicial:" + processosJudiciais[0].id);
+      } else {
+        setProcessoVinculo(PROCESSO_NENHUM);
+      }
+    }
+  }
+
+  // Helper: conteudo interno de um item de andamento (sem o <li> envoltorio).
+  // Usado pelo renderItemAndamento e tambem nas sub-secoes com checkbox.
+  function renderItemAndamentoInner(a: Andamento) {
+    return (
+      <div>
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
+            <Badge variant="outline" className="text-xs">
+              {ORIGEM_LABEL[a.origem] || a.origem}
+            </Badge>
+            <span className="text-xs text-muted-foreground">
+              {formatDateTime(a.data_evento || a.created_at)}
+            </span>
+            {isInterno && temParceiro && a.visivel_parceiro && (
+              <Badge variant="secondary" className="text-xs">
+                <Eye className="h-3 w-3 mr-1" />
+                visivel parceiro
+              </Badge>
+            )}
+            {isInterno && temParceiro && !a.visivel_parceiro && (
+              <Badge variant="outline" className="text-xs">
+                <EyeOff className="h-3 w-3 mr-1" />
+                interno
+              </Badge>
+            )}
           </div>
           {isInterno && (
-            <Dialog open={abrirNovo} onOpenChange={setAbrirNovo}>
-              <DialogTrigger asChild>
-                <Button size="sm">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Novo andamento
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Novo andamento</DialogTitle>
-                  <DialogDescription>
-                    Registre uma movimentacao manual no caso.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-3">
-                  <div>
-                    <Label className="text-xs">Titulo</Label>
-                    <Input
-                      placeholder="Ex.: Documentos recebidos"
-                      value={titulo}
-                      onChange={(e) => setTitulo(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Descricao (opcional)</Label>
-                    <Textarea
-                      rows={4}
-                      placeholder="Detalhe da movimentacao..."
-                      value={descricao}
-                      onChange={(e) => setDescricao(e.target.value)}
-                    />
-                  </div>
-                  {temParceiro && (
-                    <div className="flex items-center gap-2">
-                      <input
-                        id="visivel-parceiro"
-                        type="checkbox"
-                        checked={visivelParceiro}
-                        onChange={(e) => setVisivelParceiro(e.target.checked)}
-                        className="h-4 w-4"
-                      />
-                      <Label htmlFor="visivel-parceiro" className="text-sm">
-                        Visivel para o parceiro indicador
-                      </Label>
+            <div className="flex items-center gap-1 shrink-0">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 w-7 p-0"
+                title="Editar andamento"
+                onClick={() => abrirEdicao(a)}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                title="Excluir andamento"
+                onClick={() => deletarAndamento(a)}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          )}
+        </div>
+        {a.titulo && <p className="text-sm font-medium mt-1">{a.titulo}</p>}
+        {a.descricao && (
+          <p className="text-sm mt-1 whitespace-pre-wrap text-muted-foreground">
+            {a.descricao}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  // Helper: renderiza um item de andamento (usado nos accordions de processo)
+  function renderItemAndamento(a: Andamento) {
+    return (
+      <li key={a.id} className="border-l-2 border-muted pl-3 py-1">
+        {renderItemAndamentoInner(a)}
+      </li>
+    );
+  }
+
+  // Helper: renderiza um accordion de processo (header com chevron + lista de andamentos)
+  function renderAccordion(
+    label: string,
+    processoId: string,
+    ands: Array<Andamento>,
+    aberto: boolean,
+    onToggle: () => void,
+  ) {
+    return (
+      <div key={processoId} className="border rounded-md overflow-hidden">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="w-full flex items-center justify-between p-3 hover:bg-muted/50 transition-colors text-left"
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            {aberto ? (
+              <ChevronDown className="h-4 w-4 shrink-0" />
+            ) : (
+              <ChevronRight className="h-4 w-4 shrink-0" />
+            )}
+            <span className="text-sm font-medium truncate">{label}</span>
+          </div>
+          <span className="text-xs text-muted-foreground shrink-0">
+            {ands.length} andamento{ands.length === 1 ? "" : "s"}
+          </span>
+        </button>
+        {aberto && (
+          <div className="border-t p-3">
+            {ands.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-2">
+                Nenhum andamento registrado para este processo.
+              </p>
+            ) : (
+              <ul className="space-y-3">{ands.map(renderItemAndamento)}</ul>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Tipo do dialog atualmente aberto (pra filtrar select de processo)
+  const isAdminDialog = tipoDialogoNovo === "admin";
+  const isJudDialog = tipoDialogoNovo === "judicial";
+  const processosDoTipoDialog = isAdminDialog
+    ? processosAdmin
+    : isJudDialog
+      ? processosJudiciais
+      : [];
+  const mostrarSelectProcessoDialog =
+    tipoDialogoNovo !== null && processosDoTipoDialog.length >= 2;
+
+  return (
+    <div className="space-y-4">
+      {/* ---- Card Andamentos administrativos ---- */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <CardTitle className="text-base">
+                Andamentos Administrativos
+              </CardTitle>
+              <CardDescription>
+                Movimentacoes vinculadas a processos do INSS.
+              </CardDescription>
+            </div>
+            {isInterno && (
+              <Button
+                size="sm"
+                onClick={() => abrirNovoTipo("admin")}
+                disabled={processosAdmin.length === 0}
+                title={
+                  processosAdmin.length === 0
+                    ? "Cadastre um processo administrativo na aba Processos primeiro"
+                    : "Novo andamento administrativo"
+                }
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Novo
+              </Button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {processosAdmin.length === 0 && notasTISemVinculo.length === 0 && (
+            <p className="text-sm text-muted-foreground text-center py-6">
+              Nenhum processo administrativo cadastrado. Cadastre na aba
+              Processos para registrar andamentos.
+            </p>
+          )}
+          {(processosAdmin.length > 0 || notasTISemVinculo.length > 0) && (
+            <div className="space-y-2">
+              {/* Accordion por processo admin */}
+              {processosAdmin.map((p) => {
+                const ands = andamentosAdmin.filter(
+                  (a) => a.processo_admin_id === p.id,
+                );
+                const label =
+                  "Admin: " + (p.numero_requerimento || "(sem numero)");
+                return renderAccordion(
+                  label,
+                  p.id,
+                  ands,
+                  expandidosAdmin.has(p.id),
+                  () => toggleAccordionAdmin(p.id),
+                );
+              })}
+
+              {/* Sub-secao "Sem processo" para notas TI sem vinculo */}
+              {notasTISemVinculo.length > 0 && (
+                <div className="border rounded-md overflow-hidden border-dashed">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setAbertoSemProcessoAdmin(!abertoSemProcessoAdmin)
+                    }
+                    className="w-full flex items-center justify-between p-3 hover:bg-muted/50 transition-colors text-left"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      {abertoSemProcessoAdmin ? (
+                        <ChevronDown className="h-4 w-4 shrink-0" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 shrink-0" />
+                      )}
+                      <span className="text-sm font-medium truncate">
+                        Sem processo
+                      </span>
+                    </div>
+                    <span className="text-xs text-muted-foreground shrink-0">
+                      {notasTISemVinculo.length} andamento
+                      {notasTISemVinculo.length === 1 ? "" : "s"}
+                    </span>
+                  </button>
+                  {abertoSemProcessoAdmin && (
+                    <div className="border-t">
+                      {/* Barra de transferencia */}
+                      {isInterno && (
+                        <div className="bg-muted/30 p-3 border-b flex items-end gap-2 flex-wrap">
+                          <div className="flex-1 min-w-[200px]">
+                            <Label className="text-xs">
+                              Transferir selecionados para
+                            </Label>
+                            <Select
+                              value={destinoTransfSemProc}
+                              onValueChange={setDestinoTransfSemProc}
+                              disabled={processosAdmin.length === 0}
+                            >
+                              <SelectTrigger>
+                                <SelectValue
+                                  placeholder={
+                                    processosAdmin.length === 0
+                                      ? "Nenhum processo admin cadastrado"
+                                      : "Selecione um processo admin..."
+                                  }
+                                />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {processosAdmin.map((p) => (
+                                  <SelectItem
+                                    key={"a-" + p.id}
+                                    value={"admin:" + p.id}
+                                  >
+                                    Admin:{" "}
+                                    {p.numero_requerimento || "(sem numero)"}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <Button
+                            size="sm"
+                            onClick={() =>
+                              transferirAndamentos(
+                                selecionadosSemProc,
+                                destinoTransfSemProc,
+                                () => {
+                                  setSelecionadosSemProc(new Set());
+                                  setDestinoTransfSemProc("");
+                                },
+                              )
+                            }
+                            disabled={
+                              transferindo ||
+                              selecionadosSemProc.size === 0 ||
+                              !destinoTransfSemProc
+                            }
+                          >
+                            {transferindo && (
+                              <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                            )}
+                            Transferir ({selecionadosSemProc.size})
+                          </Button>
+                        </div>
+                      )}
+                      {/* Lista de andamentos com checkbox */}
+                      <ul className="space-y-3 p-3">
+                        {notasTISemVinculo.map((a) => (
+                          <li
+                            key={a.id}
+                            className="border-l-2 border-muted pl-3 py-1"
+                          >
+                            <div className="flex items-start gap-2">
+                              {isInterno && (
+                                <input
+                                  type="checkbox"
+                                  checked={selecionadosSemProc.has(a.id)}
+                                  onChange={() => toggleSelecaoSemProc(a.id)}
+                                  className="h-4 w-4 mt-1 shrink-0"
+                                />
+                              )}
+                              <div className="flex-1 min-w-0">
+                                {renderItemAndamentoInner(a)}
+                              </div>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   )}
                 </div>
-                <DialogFooter>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ---- Card Andamentos judiciais (so se ha processo judicial) ---- */}
+      {processosJudiciais.length > 0 && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <CardTitle className="text-base">
+                  Andamentos Judiciais
+                </CardTitle>
+                <CardDescription>
+                  Movimentacoes vinculadas a processos judiciais.
+                </CardDescription>
+              </div>
+              {isInterno && (
+                <Button
+                  size="sm"
+                  onClick={() => abrirNovoTipo("judicial")}
+                  title="Novo andamento judicial"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Novo
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {processosJudiciais.map((p) => {
+                const ands = andamentosJud.filter(
+                  (a) => a.processo_judicial_id === p.id,
+                );
+                const label =
+                  "Judicial: " + (p.numero_processo || "(sem numero)");
+                return renderAccordion(
+                  label,
+                  p.id,
+                  ands,
+                  expandidosJud.has(p.id),
+                  () => toggleAccordionJud(p.id),
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ---- Card Andamentos Gerais (manuais sem vinculo) ---- */}
+      {andamentosManuaisSemVinculo.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Andamentos Gerais</CardTitle>
+            <CardDescription>
+              Movimentacoes manuais sem vinculo a processo. Selecione e
+              transfira para um processo, ou edite individualmente pelo lapis.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {/* Barra de transferencia */}
+            {isInterno &&
+              (processosAdmin.length > 0 || processosJudiciais.length > 0) && (
+                <div className="bg-muted/30 p-3 border rounded-md mb-3 flex items-end gap-2 flex-wrap">
+                  <div className="flex-1 min-w-[200px]">
+                    <Label className="text-xs">
+                      Transferir selecionados para
+                    </Label>
+                    <Select
+                      value={destinoTransfGerais}
+                      onValueChange={setDestinoTransfGerais}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione um processo..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {processosAdmin.map((p) => (
+                          <SelectItem
+                            key={"a-" + p.id}
+                            value={"admin:" + p.id}
+                          >
+                            Admin:{" "}
+                            {p.numero_requerimento || "(sem numero)"}
+                          </SelectItem>
+                        ))}
+                        {processosJudiciais.map((p) => (
+                          <SelectItem
+                            key={"j-" + p.id}
+                            value={"judicial:" + p.id}
+                          >
+                            Judicial:{" "}
+                            {p.numero_processo || "(sem numero)"}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <Button
-                    variant="ghost"
-                    onClick={() => setAbrirNovo(false)}
-                    disabled={salvando}
+                    size="sm"
+                    onClick={() =>
+                      transferirAndamentos(
+                        selecionadosGerais,
+                        destinoTransfGerais,
+                        () => {
+                          setSelecionadosGerais(new Set());
+                          setDestinoTransfGerais("");
+                        },
+                      )
+                    }
+                    disabled={
+                      transferindo ||
+                      selecionadosGerais.size === 0 ||
+                      !destinoTransfGerais
+                    }
                   >
-                    Cancelar
-                  </Button>
-                  <Button onClick={adicionar} disabled={salvando}>
-                    {salvando && (
+                    {transferindo && (
                       <Loader2 className="h-3 w-3 mr-2 animate-spin" />
                     )}
-                    Adicionar
+                    Transferir ({selecionadosGerais.size})
                   </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent>
-        {lista.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-6">
-            Nenhum andamento registrado ainda.
-          </p>
-        ) : (
-          <ul className="space-y-3">
-            {lista.map((a) => (
-              <li
-                key={a.id}
-                className="border-l-2 border-muted pl-3 py-1"
-              >
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Badge variant="outline" className="text-xs">
-                    {ORIGEM_LABEL[a.origem] || a.origem}
-                  </Badge>
-                  <span className="text-xs text-muted-foreground">
-                    {formatDateTime(a.data_evento || a.created_at)}
-                  </span>
-                  {isInterno && temParceiro && a.visivel_parceiro && (
-                    <Badge variant="secondary" className="text-xs">
-                      <Eye className="h-3 w-3 mr-1" />
-                      visivel parceiro
-                    </Badge>
-                  )}
-                  {isInterno && temParceiro && !a.visivel_parceiro && (
-                    <Badge variant="outline" className="text-xs">
-                      <EyeOff className="h-3 w-3 mr-1" />
-                      interno
-                    </Badge>
-                  )}
                 </div>
-                {a.titulo && (
-                  <p className="text-sm font-medium mt-1">{a.titulo}</p>
+              )}
+            <ul className="space-y-3">
+              {andamentosManuaisSemVinculo.map((a) => (
+                <li
+                  key={a.id}
+                  className="border-l-2 border-muted pl-3 py-1"
+                >
+                  <div className="flex items-start gap-2">
+                    {isInterno && (
+                      <input
+                        type="checkbox"
+                        checked={selecionadosGerais.has(a.id)}
+                        onChange={() => toggleSelecaoGerais(a.id)}
+                        className="h-4 w-4 mt-1 shrink-0"
+                      />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      {renderItemAndamentoInner(a)}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ---- Dialog Novo andamento (unificado, controlado por tipoDialogoNovo) ---- */}
+      {isInterno && (
+        <Dialog
+          open={tipoDialogoNovo !== null}
+          onOpenChange={(open) => {
+            if (!open) setTipoDialogoNovo(null);
+          }}
+        >
+          <DialogContent className="max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>
+                Novo andamento{" "}
+                {isAdminDialog ? "administrativo" : isJudDialog ? "judicial" : ""}
+              </DialogTitle>
+              <DialogDescription>
+                Registre uma movimentacao manual no caso.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div>
+                <Label className="text-xs">Titulo</Label>
+                <Input
+                  placeholder="Ex.: Documentos recebidos"
+                  value={titulo}
+                  onChange={(e) => setTitulo(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Descricao (opcional)</Label>
+                <Textarea
+                  rows={4}
+                  placeholder="Detalhe da movimentacao..."
+                  value={descricao}
+                  onChange={(e) => setDescricao(e.target.value)}
+                />
+              </div>
+              {mostrarSelectProcessoDialog && (
+                <div>
+                  <Label className="text-xs">Processo</Label>
+                  <Select
+                    value={processoVinculo}
+                    onValueChange={setProcessoVinculo}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione o processo..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={PROCESSO_NENHUM}>
+                        Nenhum (sem vinculo)
+                      </SelectItem>
+                      {isAdminDialog &&
+                        processosAdmin.map((p) => (
+                          <SelectItem
+                            key={"a-" + p.id}
+                            value={"admin:" + p.id}
+                          >
+                            Admin: {p.numero_requerimento || "(sem numero)"}
+                          </SelectItem>
+                        ))}
+                      {isJudDialog &&
+                        processosJudiciais.map((p) => (
+                          <SelectItem
+                            key={"j-" + p.id}
+                            value={"judicial:" + p.id}
+                          >
+                            Judicial: {p.numero_processo || "(sem numero)"}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {temParceiro && (
+                <div className="flex items-center gap-2">
+                  <input
+                    id="visivel-parceiro"
+                    type="checkbox"
+                    checked={visivelParceiro}
+                    onChange={(e) => setVisivelParceiro(e.target.checked)}
+                    className="h-4 w-4"
+                  />
+                  <Label htmlFor="visivel-parceiro" className="text-sm">
+                    Visivel para o parceiro indicador
+                  </Label>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button
+                variant="ghost"
+                onClick={() => setTipoDialogoNovo(null)}
+                disabled={salvando}
+              >
+                Cancelar
+              </Button>
+              <Button onClick={adicionar} disabled={salvando}>
+                {salvando && (
+                  <Loader2 className="h-3 w-3 mr-2 animate-spin" />
                 )}
-                {a.descricao && (
-                  <p className="text-sm mt-1 whitespace-pre-wrap text-muted-foreground">
-                    {a.descricao}
-                  </p>
+                Adicionar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* ---- Dialog Editar andamento ---- */}
+      {isInterno && (
+        <Dialog
+          open={editando !== null}
+          onOpenChange={(open) => {
+            if (!open) fecharEdicao();
+          }}
+        >
+          <DialogContent className="max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Editar andamento</DialogTitle>
+              <DialogDescription>
+                Altere o conteudo, vinculacao com processo e visibilidade.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div>
+                <Label className="text-xs">Titulo</Label>
+                <Input
+                  value={editTitulo}
+                  onChange={(e) => setEditTitulo(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Descricao (opcional)</Label>
+                <Textarea
+                  rows={5}
+                  value={editDescricao}
+                  onChange={(e) => setEditDescricao(e.target.value)}
+                />
+              </div>
+              {temProcessos && !processoUnico && (
+                <div>
+                  <Label className="text-xs">Processo (opcional)</Label>
+                  <Select
+                    value={editProcessoVinculo}
+                    onValueChange={setEditProcessoVinculo}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Vincular a um processo..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={PROCESSO_NENHUM}>Nenhum</SelectItem>
+                      {processosAdmin.map((p) => (
+                        <SelectItem
+                          key={"a-" + p.id}
+                          value={"admin:" + p.id}
+                        >
+                          Admin: {p.numero_requerimento || "(sem numero)"}
+                        </SelectItem>
+                      ))}
+                      {processosJudiciais.map((p) => (
+                        <SelectItem
+                          key={"j-" + p.id}
+                          value={"judicial:" + p.id}
+                        >
+                          Judicial: {p.numero_processo || "(sem numero)"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {temParceiro && (
+                <div className="flex items-center gap-2">
+                  <input
+                    id="edit-visivel-parceiro"
+                    type="checkbox"
+                    checked={editVisivelParceiro}
+                    onChange={(e) => setEditVisivelParceiro(e.target.checked)}
+                    className="h-4 w-4"
+                  />
+                  <Label
+                    htmlFor="edit-visivel-parceiro"
+                    className="text-sm"
+                  >
+                    Visivel para o parceiro indicador
+                  </Label>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button
+                variant="ghost"
+                onClick={fecharEdicao}
+                disabled={editSalvando}
+              >
+                Cancelar
+              </Button>
+              <Button onClick={salvarEdicao} disabled={editSalvando}>
+                {editSalvando && (
+                  <Loader2 className="h-3 w-3 mr-2 animate-spin" />
                 )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </CardContent>
-    </Card>
+                Salvar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+    </div>
   );
 }
 
@@ -2428,13 +3619,27 @@ function TabRepasses(props: TabRepassesProps) {
 
 interface TabProcessosProps {
   casoId: string;
+  cliente: Cliente;
+  usuarioId: string | null;
   processosAdmin: Array<ProcessoAdmin>;
   processosJudiciais: Array<ProcessoJudicial>;
   onChange: () => void;
 }
 
+interface ResultadoBuscaLM {
+  score: number;
+  idprocessos: string | number;
+  numero_processo: string;
+  poloativo_nome: string;
+  tribunal: string | null;
+  juizo: string | null;
+  processo_tema: string | null;
+  inbox_atual: string | null;
+}
+
 function TabProcessos(props: TabProcessosProps) {
-  const { casoId, processosAdmin, processosJudiciais, onChange } = props;
+  const { casoId, cliente, usuarioId, processosAdmin, processosJudiciais, onChange } =
+    props;
 
   const [abrirAdmin, setAbrirAdmin] = useState(false);
   const [numReq, setNumReq] = useState("");
@@ -2450,6 +3655,125 @@ function TabProcessos(props: TabProcessosProps) {
   const [uf, setUf] = useState("");
   const [dataDist, setDataDist] = useState("");
   const [salvandoJud, setSalvandoJud] = useState(false);
+
+  // ---- Busca no Legalmail ----
+  const [abrirBuscaLM, setAbrirBuscaLM] = useState(false);
+  const [buscandoLM, setBuscandoLM] = useState(false);
+  const [resultadosLM, setResultadosLM] = useState<Array<ResultadoBuscaLM>>([]);
+  const [selecionadosLM, setSelecionadosLM] = useState<Set<string>>(
+    new Set(),
+  );
+  const [importandoLM, setImportandoLM] = useState(false);
+
+  async function buscarLegalmail() {
+    setBuscandoLM(true);
+    setResultadosLM([]);
+    setSelecionadosLM(new Set());
+    setAbrirBuscaLM(true);
+    try {
+      const resp = await supabase.functions.invoke("check-legalmail-nome", {
+        body: { nome: cliente.nome },
+      });
+      if (resp.error) throw resp.error;
+      const r = resp.data as {
+        processos_similares?: Array<ResultadoBuscaLM>;
+        error?: string;
+      };
+      if (r.error) {
+        toast.error("Erro do Legalmail: " + r.error);
+        return;
+      }
+      const lista = r.processos_similares || [];
+      setResultadosLM(lista);
+      if (lista.length === 0) {
+        toast.message("Nenhum processo similar encontrado no Legalmail.");
+      } else {
+        toast.success(
+          lista.length + " processo" + (lista.length === 1 ? "" : "s") +
+            " similar" + (lista.length === 1 ? "" : "es") + " encontrado" +
+            (lista.length === 1 ? "" : "s") + ".",
+        );
+      }
+    } catch (err) {
+      console.error(err);
+      const errObj = err as { message?: string };
+      toast.error(errObj.message || "Erro ao buscar no Legalmail");
+    } finally {
+      setBuscandoLM(false);
+    }
+  }
+
+  function toggleSelecionadoLM(idStr: string) {
+    setSelecionadosLM((prev) => {
+      const next = new Set(prev);
+      if (next.has(idStr)) {
+        next.delete(idStr);
+      } else {
+        next.add(idStr);
+      }
+      return next;
+    });
+  }
+
+  async function importarSelecionadosLM() {
+    if (selecionadosLM.size === 0) {
+      toast.error("Selecione ao menos um processo");
+      return;
+    }
+    setImportandoLM(true);
+    try {
+      const ids = Array.from(selecionadosLM).map((s) => Number(s));
+      const resp = await supabase.functions.invoke("sync-legalmail-caso", {
+        body: {
+          caso_id: casoId,
+          usuario_id: usuarioId,
+          idprocessos: ids,
+        },
+      });
+      if (resp.error) throw resp.error;
+      const r = resp.data as {
+        processos_criados?: number;
+        processos_atualizados?: number;
+        movimentacoes_importadas?: number;
+        movimentacoes_ja_existentes?: number;
+        movimentacoes_ignoradas?: number;
+        erros?: Array<{ idprocesso: number; motivo: string }>;
+      };
+      const pc = r.processos_criados || 0;
+      const pa = r.processos_atualizados || 0;
+      const mi = r.movimentacoes_importadas || 0;
+      const mj = r.movimentacoes_ja_existentes || 0;
+      const mig = r.movimentacoes_ignoradas || 0;
+      let msg = "Importado: ";
+      msg += pc + " novo" + (pc === 1 ? "" : "s") + ", ";
+      msg += pa + " atualizado" + (pa === 1 ? "" : "s") + ". ";
+      msg += mi + " movimentaca" + (mi === 1 ? "o" : "oes") + " importada" +
+        (mi === 1 ? "" : "s");
+      if (mj > 0) {
+        msg += " (" + mj + " ja existia" + (mj === 1 ? "" : "m") + ")";
+      }
+      if (mig > 0) {
+        msg += ". " + mig + " mov" + (mig === 1 ? "" : "s") +
+          " ignorada" + (mig === 1 ? "" : "s") + " pela whitelist";
+      }
+      msg += ".";
+      toast.success(msg);
+      if (r.erros && r.erros.length > 0) {
+        console.warn("erros no import legalmail:", r.erros);
+        toast.warning(r.erros.length + " erro(s) durante importacao. Ver console.");
+      }
+      setAbrirBuscaLM(false);
+      setResultadosLM([]);
+      setSelecionadosLM(new Set());
+      onChange();
+    } catch (err) {
+      console.error(err);
+      const errObj = err as { message?: string };
+      toast.error(errObj.message || "Erro ao importar do Legalmail");
+    } finally {
+      setImportandoLM(false);
+    }
+  }
 
   async function salvarAdmin() {
     setSalvandoAdmin(true);
@@ -2616,20 +3940,34 @@ function TabProcessos(props: TabProcessosProps) {
 
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
               <CardTitle className="text-base">Processos judiciais</CardTitle>
               <CardDescription>
                 Acoes ajuizadas relacionadas ao caso.
               </CardDescription>
             </div>
-            <Dialog open={abrirJud} onOpenChange={setAbrirJud}>
-              <DialogTrigger asChild>
-                <Button size="sm">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Novo
-                </Button>
-              </DialogTrigger>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={buscarLegalmail}
+                disabled={buscandoLM || !cliente.nome}
+                title="Buscar processos no Legalmail pelo nome do cliente"
+              >
+                {buscandoLM && (
+                  <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                )}
+                <Search className="h-4 w-4 mr-1" />
+                Buscar no Legalmail
+              </Button>
+              <Dialog open={abrirJud} onOpenChange={setAbrirJud}>
+                <DialogTrigger asChild>
+                  <Button size="sm">
+                    <Plus className="h-4 w-4 mr-2" />
+                    Novo
+                  </Button>
+                </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>Novo processo judicial</DialogTitle>
@@ -2697,7 +4035,8 @@ function TabProcessos(props: TabProcessosProps) {
                   </Button>
                 </DialogFooter>
               </DialogContent>
-            </Dialog>
+              </Dialog>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -2731,6 +4070,104 @@ function TabProcessos(props: TabProcessosProps) {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={abrirBuscaLM} onOpenChange={setAbrirBuscaLM}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Processos no Legalmail</DialogTitle>
+            <DialogDescription>
+              Resultados de busca por nome para "{cliente.nome}". Marque os que
+              quer importar.
+            </DialogDescription>
+          </DialogHeader>
+          {buscandoLM && (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-sm text-muted-foreground">
+                Buscando no Legalmail (pode demorar alguns segundos)...
+              </span>
+            </div>
+          )}
+          {!buscandoLM && resultadosLM.length === 0 && (
+            <p className="text-sm text-muted-foreground text-center py-8">
+              Nenhum processo similar encontrado.
+            </p>
+          )}
+          {!buscandoLM && resultadosLM.length > 0 && (
+            <ul className="space-y-2">
+              {resultadosLM.map((r) => {
+                const idStr = String(r.idprocessos);
+                const marcado = selecionadosLM.has(idStr);
+                return (
+                  <li
+                    key={idStr}
+                    className="border rounded-md p-3 flex items-start gap-3"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={marcado}
+                      onChange={() => toggleSelecionadoLM(idStr)}
+                      className="h-4 w-4 mt-0.5"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-medium">
+                          {r.numero_processo}
+                        </p>
+                        <Badge
+                          variant="outline"
+                          className="text-xs"
+                          title="Similaridade do nome"
+                        >
+                          score {(r.score * 100).toFixed(0)}%
+                        </Badge>
+                        {r.inbox_atual && (
+                          <Badge variant="secondary" className="text-xs">
+                            {r.inbox_atual}
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Polo ativo: {r.poloativo_nome}
+                      </p>
+                      {(r.juizo || r.tribunal) && (
+                        <p className="text-xs text-muted-foreground">
+                          {[r.juizo, r.tribunal].filter(Boolean).join(" - ")}
+                        </p>
+                      )}
+                      {r.processo_tema && (
+                        <p className="text-xs text-muted-foreground">
+                          Tema: {r.processo_tema}
+                        </p>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setAbrirBuscaLM(false)}
+              disabled={importandoLM}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={importarSelecionadosLM}
+              disabled={
+                importandoLM || buscandoLM || selecionadosLM.size === 0
+              }
+            >
+              {importandoLM && (
+                <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+              )}
+              Importar selecionados ({selecionadosLM.size})
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

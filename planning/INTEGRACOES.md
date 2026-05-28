@@ -1,6 +1,7 @@
 # Plano de integração — TI + Legalmail → Mara Sandra Connect
 
-Documento de planejamento. Não implementa nada ainda — serve para decidirmos o escopo, mapeamento e workflows.
+> Documento de implementação das integrações externas. Para arquitetura geral do app, ver [ARQUITETURA.md](ARQUITETURA.md).
+> Para checklist de tarefas, ver [TODO.md](TODO.md).
 
 ---
 
@@ -25,13 +26,15 @@ Rate limit: não documentado (parece tolerante)
 - `POST /clientes` — cria cliente
 - `POST /notas` — cria nota
 
+⚠️ **Decisão tomada (2026-05-27): NÃO usaremos os endpoints de escrita.** TI é fonte só de leitura. Ver decisão 1 abaixo.
+
 ---
 
 ### 1.2 Legalmail
 
 Base: `https://app.legalmail.com.br`
 Auth: `api_key` como query parameter (não header)
-Rate limit: **30 req/min**; bloqueio progressivo se violar 3x em 10min (10min → 30min → 1h → ... → 7 dias)
+Rate limit: **30 req/min**; bloqueio progressivo se violar 3× em 10min (10min → 30min → 1h → ... → 7 dias)
 
 | Endpoint | Funciona | O que entrega |
 |---|---|---|
@@ -67,7 +70,7 @@ titulo (ex.: "Sentença", "Despacho", "Manifestação")
 id (id interno do tribunal)
 data_movimentacao
 tipo (principal | secundária | ...)
-hash_documento (UUID — provavelmente serve para baixar o PDF da peça)
+hash_documento (UUID — provavelmente serve para baixar o PDF da peça, mas endpoint ainda não confirmado)
 ```
 
 ---
@@ -92,7 +95,7 @@ A entidade central do Mara Sandra Connect é o **caso** (`casos`). Cada caso pod
 | Tarefas (kanban) | TI (via Chrome) | — fora de escopo da API |
 | Processos judiciais (CNJ, partes, juízo) | Legalmail | `processos_judiciais` |
 | Movimentações judiciais | Legalmail | `andamentos` (origem=legalmail) |
-| Tudo do operacional jurídico interno | Mara Sandra Connect | TI (notas) opcional |
+| Tudo do operacional jurídico interno | Mara Sandra Connect | — (não escreve em TI) |
 
 ---
 
@@ -107,9 +110,10 @@ A entidade central do Mara Sandra Connect é o **caso** (`casos`). Cada caso pod
 | `birthdate` | `data_nascimento` | |
 | `phone_mobile` | `telefone` | |
 | `email` | `email` | |
-| `id` | `ti_customer_id` (nova coluna) | Cache de ligação rápida |
+| `id` | `ti_customer_id` (já existe coluna) | Cache de ligação rápida |
+| `tags` | `tags` (jsonb, já existe coluna) | Tags coloridas do TI |
 
-**Decisão necessária:** quem ganha em caso de conflito? Recomendo:
+**Regra de conflito (decidida):**
 - Se cliente novo no TI → cria no Mara Sandra Connect
 - Se já existe (mesmo CPF) → atualiza só campos vazios (não sobrescreve dado que escritório já preencheu)
 
@@ -125,6 +129,8 @@ A entidade central do Mara Sandra Connect é o **caso** (`casos`). Cada caso pod
 | — | `visivel_parceiro` | sempre `false` (notas TI são internas) |
 | `id` (TI) | `metadata.ti_nota_id` | Para deduplicação em re-syncs |
 
+**Atribuição ao caso:** se cliente tem múltiplos casos ativos, deixar `caso_id=NULL` (nota fica "do cliente", não de um caso específico) e o interno vincula manualmente na tela do caso.
+
 ### 3.3 Legalmail lawsuit → `processos_judiciais`
 
 | Legalmail | Supabase | Observação |
@@ -139,10 +145,10 @@ A entidade central do Mara Sandra Connect é o **caso** (`casos`). Cada caso pod
 | `last_import` | `ultima_sync` | Já existe coluna |
 | `processo_tema` | `metadata.tema` ou similar | Sem coluna dedicada hoje |
 
-**Decisão necessária:** como linkar processo ao caso? Sugestão:
+**Regra de match (decidida):**
 - Match por `poloativo_nome` ≈ `clientes.nome` (fuzzy)
-- Se ambíguo, deixar `caso_id = NULL` e a Naira liga manualmente na tela do caso
-- Talvez criar uma tela "Processos órfãos para vincular"
+- Se ambíguo ou sem match → `caso_id = NULL` e processo fica órfão
+- Naira liga manualmente na tela "Processos órfãos para vincular" (a criar)
 
 ### 3.4 Legalmail case-files → `andamentos`
 
@@ -155,13 +161,13 @@ A entidade central do Mara Sandra Connect é o **caso** (`casos`). Cada caso pod
 | — | `caso_id` | derivado do processo judicial vinculado |
 | — | `visivel_parceiro` | `true` por default (mov. processual interessa ao parceiro) |
 | `idmovimentacoes` | `metadata.legalmail_mov_id` | Deduplicação |
-| `hash_documento` | `metadata.hash_documento` | Para baixar o PDF depois |
+| `hash_documento` | `metadata.hash_documento` | Para baixar o PDF depois (endpoint não confirmado) |
 
 ---
 
 ## 4. Workflows n8n propostos
 
-Quatro workflows independentes, todos rodando no nairavian-n8n.de.
+Quatro workflows independentes, todos rodando no `nairavian-n8n.de`.
 
 ### Workflow 1 — `ti-sync-clientes` (diário, manhã)
 
@@ -185,11 +191,9 @@ Custo: ~16 requests (763 clientes / 50 por página).
 3. Para cada nota:
    - Se nota.created_at < last_synced → ignora
    - SELECT cliente local pelo cliente.id do TI
-   - Se cliente encontrado → INSERT andamento (origem='tramitacao', caso_id=caso ativo do cliente)
+   - Se cliente encontrado → INSERT andamento (origem='tramitacao', caso_id=NULL — interno decide vincular)
 4. UPDATE sync_log SET last_synced_at = NOW()
 ```
-
-**Decisão:** se cliente tem múltiplos casos ativos, qual recebe a nota? Sugestão: deixar `caso_id=NULL` (nota "do cliente") + interno decide na tela.
 
 ### Workflow 3 — `legalmail-sync-processos` (a cada 4h)
 
@@ -202,6 +206,7 @@ Custo: ~16 requests (763 clientes / 50 por página).
    - Se existe e last_import mudou → UPDATE + marcar para sync de movs
 3. Tentar match automático por poloativo_nome ≈ clientes.nome
    - Se match único e claro → preencher caso_id
+   - Se ambíguo (2+ matches) → órfão (caso_id NULL)
 ```
 
 ### Workflow 4 — `legalmail-sync-movs` (a cada 4h, após workflow 3)
@@ -222,51 +227,53 @@ Custo: ~16 requests (763 clientes / 50 por página).
 
 ---
 
-## 5. Decisões pendentes que preciso da Naira
+## 5. Decisões aplicadas (confirmadas em 2026-05-27)
 
-### 5.1 Fluxo bidirecional?
+### 5.1 Fluxo bidirecional? — NÃO
+TI é fonte só de leitura. App **não escreve** em TI (nem clientes nem notas). Já está refletido na decisão 6.4 de [ARQUITETURA.md](ARQUITETURA.md).
 
-Você quer que o Mara Sandra Connect também **escreva** no TI?
-- Quando cadastra novo cliente no app → cria no TI?
-- Quando adiciona andamento interno → vira nota no TI?
-- Ou só leitura (TI continua sendo a fonte e o app só consome)?
+### 5.2 Match cliente ↔ processo Legalmail ambíguo — NÃO VINCULAR
+Quando `poloativo_nome` tem múltiplos matches em `clientes.nome`, deixa o processo **órfão** (`caso_id = NULL`). Criar tela "Processos órfãos para vincular" onde Naira faz a ligação manual.
 
-### 5.2 Match cliente ↔ processo Legalmail
+### 5.3 Período histórico na primeira sincronização — 5 CLIENTES + TUDO DELES
+Primeira sync de teste: pegar os **5 clientes mais recentes do TI** e importar **tudo deles**:
+- Os 5 clientes (cadastro completo, tags, ti_customer_id)
+- Notas do TI desses clientes
+- Processos do Legalmail cujo `poloativo_nome` bate com nome desses clientes
+- Movimentações desses processos
 
-Quando vier processo novo do Legalmail e o `poloativo_nome` for ambíguo (ex.: "MARIA DA SILVA" — temos 5 Marias), o que fazer?
-- (a) Não vincular automaticamente, esperar Naira ligar manualmente
-- (b) Sempre vincular pelo primeiro match exato e deixar Naira corrigir
-- (c) Match por CPF se o Legalmail trouxer (precisa verificar — não vi CPF no schema)
+Esse escopo reduzido permite testar todo o fluxo end-to-end (TI clientes + TI notas + Legalmail processos + Legalmail movs + match fuzzy) sem custar muito rate limit. Depois que validar, abre pra todos os 763 clientes.
 
-### 5.3 Período histórico
+### 5.4 Notificações de movimentação nova — EMAIL + BADGE IN-APP
+Quando vier movimentação nova do Legalmail (sentença, despacho, etc.):
+- Email automático para interno **e** parceiro do caso
+- Badge in-app (contador no sidebar, dot no caso)
 
-Na primeira sincronização, importar:
-- (a) Tudo histórico (789 notas + 763 clientes + N processos + suas movs)
-- (b) Só dos últimos N meses
-- (c) Só clientes; notas/processos só a partir de hoje
+**Dependência:** email precisa de Resend ou SMTP custom, que depende de domínio próprio. **Domínio `marasandraconnect.com` registrado em 2026-05-28.** Falta configurar DNS no Cloudflare + setup Resend.
 
-### 5.4 Notificações
+### 5.5 Documentos do Legalmail — DECIDIR DEPOIS
+Não decidido — antes precisa **pesquisar/testar o endpoint de download** com `hash_documento`. Já tentamos vários paths no `explorers/explorer_legalmail_v2.py` e todos retornaram 404. Próximos passos:
+- Procurar na doc OpenAPI oficial (`https://app.legalmail.com.br/api/docs`) por endpoint que aceite `hash_documento`
+- Se não tiver na doc, abrir issue/contato com Legalmail
+- Só depois decidir se baixa auto ou sob demanda
 
-Quando chega movimentação nova do Legalmail (ex.: sentença), você quer:
-- Email automático para você?
-- Notificação dentro do app (badge)?
-- Nada — você abre o app e vê?
-
-### 5.5 Documentos do Legalmail
-
-Cada movimentação tem `hash_documento`. Provavelmente existe endpoint para baixar o PDF da peça (não testamos ainda). Você quer:
-- Baixar e armazenar no Supabase Storage automaticamente?
-- Só guardar o hash e baixar sob demanda quando clicar?
+Por enquanto, o hash fica em `metadata.hash_documento` para uso futuro.
 
 ---
 
-## 6. Próximos passos sugeridos
+## 6. Próximos passos sugeridos (na ordem)
 
-1. **Responder as decisões pendentes (seção 5)**
-2. **Adicionar colunas auxiliares no schema** (`clientes.ti_customer_id`, `processos_judiciais.ultima_sync_movs`, etc.) via migration
-3. **Construir workflow 1** (sync de clientes) no n8n — é o mais simples e zero risco. Testa, valida.
-4. **Workflow 3** (processos Legalmail) — também só leitura
-5. **Workflow 2** (notas TI) — precisa pensar bem onde anexar (caso_id null vs caso ativo)
-6. **Workflow 4** (movs Legalmail) — depende do 3 ter rodado
+1. **Deploy `check-legalmail-nome`** (código pronto em [edge-functions/check-legalmail-nome.ts](edge-functions/check-legalmail-nome.ts))
+2. **Integrar checks (TI + Legalmail) no `/casos/novo`** quando parceiro está logado
+3. **Adicionar coluna auxiliar** `processos_judiciais.ultima_sync_movs` (a `clientes.ti_customer_id` e `clientes.tags` já existem)
+4. **Tabela `sync_log`** (uma linha por source: `ti_clientes`, `ti_notas`, `legalmail_processos`, `legalmail_movs` — armazena `last_synced_at`)
+5. **Construir Workflow 1** (`ti-sync-clientes`) no n8n, mas filtrado para os 5 clientes mais recentes para teste
+6. **Construir Workflow 3** (`legalmail-sync-processos`) só com os processos dos 5 clientes do passo 5
+7. **Construir Workflow 2** (`ti-sync-notas`) restrito aos 5 clientes
+8. **Construir Workflow 4** (`legalmail-sync-movs`) dos processos do passo 6
+9. **Validar end-to-end** com a Naira: dados em `clientes`, `andamentos` (TI + Legalmail), `processos_judiciais`
+10. **Abrir escopo** para os 763 clientes / 789 notas / N processos
+11. **Pesquisar endpoint de download** do Legalmail e decidir item 5.5
+12. **Implementar badge in-app** de movimentação nova (email só depois do domínio)
 
-Cada workflow vira uma sessão dedicada de implementação.
+Cada workflow vira uma sessão dedicada de implementação. Ver [TODO.md](TODO.md) para o checklist completo.
