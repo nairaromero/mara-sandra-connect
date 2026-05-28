@@ -2379,6 +2379,22 @@ function TabDocumentos(props: TabDocumentosProps) {
   } | null>(null);
   const [comentarioModal, setComentarioModal] = useState("");
   const [salvandoModal, setSalvandoModal] = useState(false);
+  // Upload de arquivo no atendimento
+  const [arquivoUpload, setArquivoUpload] = useState<File | null>(null);
+  const [comAnexo, setComAnexo] = useState(false);
+
+  // Renomeia arquivo para o nome do tipo solicitado (ex.: CNIS.pdf)
+  function nomearArquivo(tipoSolic: string, arquivoOriginal: File): string {
+    const ext = arquivoOriginal.name.includes(".")
+      ? arquivoOriginal.name.split(".").pop() || "pdf"
+      : "pdf";
+    const label = TIPOS_DOCUMENTO_LABEL[tipoSolic] || tipoSolic;
+    const labelSanit = label
+      .replace(/[\/\\?*:|"<>]/g, "_")
+      .replace(/\s+/g, "_")
+      .trim();
+    return labelSanit + "." + ext.toLowerCase();
+  }
 
   const lista = isInterno
     ? documentos
@@ -2478,27 +2494,94 @@ function TabDocumentos(props: TabDocumentosProps) {
   function abrirAcaoModal(s: SolicitacaoDocumento, novoStatus: string) {
     setAcaoAlvo({ solic: s, novoStatus: novoStatus });
     setComentarioModal(s.comentario || "");
+    setArquivoUpload(null);
+    // Parceiro SEMPRE cumpre com arquivo. Interno por default sem.
+    setComAnexo(!isInterno && novoStatus === "atendido");
   }
 
   function fecharAcaoModal() {
     setAcaoAlvo(null);
     setComentarioModal("");
     setSalvandoModal(false);
+    setArquivoUpload(null);
+    setComAnexo(false);
   }
 
   async function confirmarAcaoModal() {
     if (!acaoAlvo) return;
+    if (acaoAlvo.novoStatus === "atendido" && comAnexo && !arquivoUpload) {
+      toast.error("Selecione um arquivo para anexar");
+      return;
+    }
     setSalvandoModal(true);
     try {
-      await atualizarStatusSolic(
-        acaoAlvo.solic,
-        acaoAlvo.novoStatus,
-        comentarioModal,
+      let documentoId: string | null = null;
+
+      // Upload + criacao de documento (se houver arquivo)
+      if (
+        acaoAlvo.novoStatus === "atendido" &&
+        comAnexo &&
+        arquivoUpload &&
+        usuarioId
+      ) {
+        const nomeArq = nomearArquivo(acaoAlvo.solic.tipo, arquivoUpload);
+        const path = casoId + "/" + nomeArq;
+        const upResp = await supabase.storage
+          .from("documentos")
+          .upload(path, arquivoUpload, { upsert: true });
+        if (upResp.error) throw upResp.error;
+        const docInsert = await supabase
+          .from("documentos")
+          .insert({
+            caso_id: casoId,
+            tipo: acaoAlvo.solic.tipo,
+            nome_arquivo: nomeArq,
+            storage_path: path,
+            tamanho_bytes: arquivoUpload.size,
+            uploaded_by: usuarioId,
+            visivel_parceiro: true,
+          })
+          .select("id")
+          .single();
+        if (docInsert.error) throw docInsert.error;
+        documentoId = (docInsert.data as { id: string }).id;
+      }
+
+      // Atualiza solicitacao
+      const update: {
+        status: string;
+        data_atendimento?: string | null;
+        comentario?: string | null;
+        documento_id?: string | null;
+      } = { status: acaoAlvo.novoStatus };
+      if (acaoAlvo.novoStatus === "atendido") {
+        update.data_atendimento = new Date().toISOString();
+      }
+      update.comentario = comentarioModal.trim() || null;
+      if (documentoId) {
+        update.documento_id = documentoId;
+      }
+      const resp = await supabase
+        .from("solicitacoes_documento")
+        .update(update)
+        .eq("id", acaoAlvo.solic.id);
+      if (resp.error) throw resp.error;
+      toast.success(
+        documentoId
+          ? "Solicitacao cumprida e documento anexado"
+          : "Solicitacao atualizada",
       );
+      onChange();
+    } catch (err) {
+      console.error(err);
+      const errObj = err as { message?: string };
+      toast.error(errObj.message || "Erro ao atualizar solicitacao");
     } finally {
       setSalvandoModal(false);
       setAcaoAlvo(null);
       setComentarioModal("");
+      setArquivoUpload(null);
+      setComAnexo(false);
     }
   }
 
@@ -2698,6 +2781,16 @@ function TabDocumentos(props: TabDocumentosProps) {
                           </Button>
                         </div>
                       )}
+                      {!isInterno && isPendente && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => abrirAcaoModal(s, "atendido")}
+                        >
+                          <CheckCircle2 className="h-3 w-3 mr-1" />
+                          Cumprir
+                        </Button>
+                      )}
                       {isInterno && !isPendente && (
                         <Button
                           size="sm"
@@ -2722,28 +2815,97 @@ function TabDocumentos(props: TabDocumentosProps) {
           if (!o) fecharAcaoModal();
         }}
       >
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {acaoAlvo && acaoAlvo.novoStatus === "atendido"
-                ? "Marcar como atendido"
+                ? isInterno
+                  ? "Marcar como atendido"
+                  : "Cumprir solicitacao"
                 : "Dispensar solicitacao"}
             </DialogTitle>
             <DialogDescription>
               {acaoAlvo && acaoAlvo.novoStatus === "atendido"
-                ? "Adicione uma observacao opcional (ex.: substituido pelo CNIS X)."
+                ? isInterno
+                  ? "Marque sem arquivo (recebeu pessoalmente) ou anexe o documento."
+                  : "Anexe o documento solicitado. Sera renomeado automaticamente."
                 : "Informe o motivo da dispensa (recomendado)."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
+            {/* Radio "como atender" - so para interno + atendido */}
+            {isInterno &&
+              acaoAlvo &&
+              acaoAlvo.novoStatus === "atendido" && (
+                <div className="space-y-2">
+                  <Label className="text-xs">Como atender</Label>
+                  <div className="flex flex-col gap-2">
+                    <label className="flex items-start gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="comAnexoCaso"
+                        checked={!comAnexo}
+                        onChange={() => {
+                          setComAnexo(false);
+                          setArquivoUpload(null);
+                        }}
+                        className="h-4 w-4 mt-0.5"
+                      />
+                      <span className="text-sm">
+                        Sem arquivo (recebi pessoalmente)
+                      </span>
+                    </label>
+                    <label className="flex items-start gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="comAnexoCaso"
+                        checked={comAnexo}
+                        onChange={() => setComAnexo(true)}
+                        className="h-4 w-4 mt-0.5"
+                      />
+                      <span className="text-sm">
+                        Anexar arquivo (sera renomeado para o tipo solicitado)
+                      </span>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+            {/* File input */}
+            {acaoAlvo &&
+              acaoAlvo.novoStatus === "atendido" &&
+              comAnexo && (
+                <div>
+                  <Label className="text-xs">
+                    Arquivo {!isInterno && "(obrigatorio)"}
+                  </Label>
+                  <input
+                    type="file"
+                    onChange={(e) =>
+                      setArquivoUpload(e.target.files?.[0] || null)
+                    }
+                    className="block w-full text-sm border rounded-md p-2"
+                    accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
+                  />
+                  {arquivoUpload && acaoAlvo && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Sera salvo como:{" "}
+                      <code className="bg-muted px-1 rounded">
+                        {nomearArquivo(acaoAlvo.solic.tipo, arquivoUpload)}
+                      </code>
+                    </p>
+                  )}
+                </div>
+              )}
+
             <div>
               <Label className="text-xs">
                 {acaoAlvo && acaoAlvo.novoStatus === "atendido"
-                  ? "Observacao"
+                  ? "Observacao (opcional)"
                   : "Motivo"}
               </Label>
               <Textarea
-                rows={4}
+                rows={3}
                 placeholder={
                   acaoAlvo && acaoAlvo.novoStatus === "atendido"
                     ? "Ex.: documento ja consta no CNIS"
