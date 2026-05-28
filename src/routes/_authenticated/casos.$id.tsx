@@ -29,6 +29,7 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import { ClientOnly } from "@/components/client-only";
+import { DocTypeCombobox } from "@/components/doc-type-combobox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -125,6 +126,7 @@ interface Documento {
   id: string;
   caso_id: string;
   tipo: string;
+  tipo_personalizado: string | null;
   nome_arquivo: string;
   storage_path: string;
   tamanho_bytes: number | null;
@@ -2620,7 +2622,10 @@ function TabDocumentos(props: TabDocumentosProps) {
                         {d.nome_arquivo}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {TIPOS_DOCUMENTO_LABEL[d.tipo] || d.tipo} -{" "}
+                        {d.tipo === "outro" && d.tipo_personalizado
+                          ? d.tipo_personalizado
+                          : TIPOS_DOCUMENTO_LABEL[d.tipo] || d.tipo}{" "}
+                        -{" "}
                         {formatBytes(d.tamanho_bytes)} -{" "}
                         {formatDate(d.created_at)}
                       </p>
@@ -2994,6 +2999,13 @@ function TabDocumentos(props: TabDocumentosProps) {
   );
 }
 
+interface ArquivoComTipo {
+  id: string; // id local para o React key
+  arquivo: File;
+  tipo: string;
+  tipoPersonalizado: string;
+}
+
 function UploadDoc(props: {
   casoId: string;
   usuarioId: string | null;
@@ -3001,86 +3013,220 @@ function UploadDoc(props: {
 }) {
   const { casoId, usuarioId, onChange } = props;
   const [aberto, setAberto] = useState(false);
-  const [arquivo, setArquivo] = useState<File | null>(null);
-  const [tipo, setTipo] = useState("cnis");
+  const [itens, setItens] = useState<Array<ArquivoComTipo>>([]);
   const [visivelParceiro, setVisivelParceiro] = useState(true);
   const [enviando, setEnviando] = useState(false);
 
-  async function enviar() {
-    if (!arquivo || !usuarioId) return;
-    setEnviando(true);
-    try {
-      const fileName = Date.now() + "_" + sanitizeFileName(arquivo.name);
-      const storagePath = casoId + "/" + fileName;
-      const uploadResp = await supabase.storage
-        .from("documentos")
-        .upload(storagePath, arquivo, { cacheControl: "3600", upsert: false });
-      if (uploadResp.error) throw uploadResp.error;
+  // Lista de tipos para o Combobox (deriva da tabela TIPOS_DOCUMENTO_LABEL)
+  const tiposOptions = Object.keys(TIPOS_DOCUMENTO_LABEL).map((k) => ({
+    value: k,
+    label: TIPOS_DOCUMENTO_LABEL[k],
+  }));
 
-      const insertResp = await supabase.from("documentos").insert({
-        caso_id: casoId,
-        tipo: tipo,
-        nome_arquivo: arquivo.name,
-        storage_path: storagePath,
-        tamanho_bytes: arquivo.size,
-        uploaded_by: usuarioId,
-        visivel_parceiro: visivelParceiro,
+  function adicionarArquivos(files: FileList | null) {
+    if (!files) return;
+    const novos: Array<ArquivoComTipo> = [];
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      novos.push({
+        id: Date.now() + "-" + i + "-" + Math.random().toString(36).slice(2, 8),
+        arquivo: f,
+        tipo: "",
+        tipoPersonalizado: "",
       });
-      if (insertResp.error) throw insertResp.error;
+    }
+    setItens((prev) => [...prev, ...novos]);
+  }
 
-      toast.success("Documento adicionado");
-      setArquivo(null);
-      setAberto(false);
-      onChange();
-    } catch (err) {
-      console.error(err);
-      const errObj = err as { message?: string };
-      toast.error(errObj.message || "Erro ao enviar documento");
+  function removerItem(id: string) {
+    setItens((prev) => prev.filter((it) => it.id !== id));
+  }
+
+  function atualizarTipo(id: string, novoTipo: string) {
+    setItens((prev) =>
+      prev.map((it) =>
+        it.id === id
+          ? { ...it, tipo: novoTipo, tipoPersonalizado: "" }
+          : it,
+      ),
+    );
+  }
+
+  function atualizarPersonalizado(id: string, texto: string) {
+    setItens((prev) =>
+      prev.map((it) =>
+        it.id === id ? { ...it, tipoPersonalizado: texto } : it,
+      ),
+    );
+  }
+
+  function fechar() {
+    setAberto(false);
+    setItens([]);
+    setEnviando(false);
+  }
+
+  // Cada item precisa ter tipo selecionado.
+  // Se tipo === "outro", precisa tambem ter tipoPersonalizado preenchido.
+  const todosValidos =
+    itens.length > 0 &&
+    itens.every(
+      (it) =>
+        it.tipo &&
+        (it.tipo !== "outro" || it.tipoPersonalizado.trim().length > 0),
+    );
+
+  async function enviarTodos() {
+    if (!usuarioId || !todosValidos) return;
+    setEnviando(true);
+    let okCount = 0;
+    let errCount = 0;
+    try {
+      for (const it of itens) {
+        try {
+          const fileName = Date.now() + "_" +
+            sanitizeFileName(it.arquivo.name);
+          const storagePath = casoId + "/" + fileName;
+          const uploadResp = await supabase.storage
+            .from("documentos")
+            .upload(storagePath, it.arquivo, {
+              cacheControl: "3600",
+              upsert: false,
+            });
+          if (uploadResp.error) throw uploadResp.error;
+
+          const insertResp = await supabase.from("documentos").insert({
+            caso_id: casoId,
+            tipo: it.tipo,
+            tipo_personalizado: it.tipo === "outro"
+              ? it.tipoPersonalizado.trim()
+              : null,
+            nome_arquivo: it.arquivo.name,
+            storage_path: storagePath,
+            tamanho_bytes: it.arquivo.size,
+            uploaded_by: usuarioId,
+            visivel_parceiro: visivelParceiro,
+          });
+          if (insertResp.error) throw insertResp.error;
+          okCount++;
+        } catch (errInner) {
+          console.error("erro upload de", it.arquivo.name, errInner);
+          errCount++;
+        }
+      }
+      if (okCount > 0) {
+        toast.success(
+          okCount + " documento" + (okCount === 1 ? "" : "s") +
+            " adicionado" + (okCount === 1 ? "" : "s"),
+        );
+      }
+      if (errCount > 0) {
+        toast.error(
+          errCount + " arquivo" + (errCount === 1 ? "" : "s") +
+            " falharam. Ver console.",
+        );
+      }
+      if (okCount > 0) {
+        onChange();
+        fechar();
+      }
     } finally {
       setEnviando(false);
     }
   }
 
   return (
-    <Dialog open={aberto} onOpenChange={setAberto}>
+    <Dialog
+      open={aberto}
+      onOpenChange={(o) => (o ? setAberto(true) : fechar())}
+    >
       <DialogTrigger asChild>
         <Button size="sm">
           <Plus className="h-4 w-4 mr-2" />
           Adicionar
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Adicionar documento</DialogTitle>
+          <DialogTitle>Adicionar documentos</DialogTitle>
+          <DialogDescription>
+            Selecione um ou vários arquivos. Cada um precisa de um tipo. Se
+            escolher &quot;Outro&quot;, informe o nome do documento.
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div>
-            <Label className="text-xs">Arquivo</Label>
+            <Label className="text-xs">Adicionar arquivos</Label>
             <Input
               type="file"
-              accept="application/pdf,image/jpeg,image/png,image/jpg"
+              multiple
+              accept="application/pdf,image/jpeg,image/png,image/jpg,.doc,.docx,.xls,.xlsx"
               onChange={(e) => {
-                const files = e.target.files;
-                setArquivo(files && files.length > 0 ? files[0] : null);
+                adicionarArquivos(e.target.files);
+                // limpa o input para permitir adicionar o mesmo arquivo de novo
+                e.target.value = "";
               }}
             />
           </div>
-          <div>
-            <Label className="text-xs">Tipo</Label>
-            <Select value={tipo} onValueChange={setTipo}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.keys(TIPOS_DOCUMENTO_LABEL).map((k) => (
-                  <SelectItem key={k} value={k}>
-                    {TIPOS_DOCUMENTO_LABEL[k]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-center gap-2">
+
+          {itens.length === 0 && (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              Nenhum arquivo selecionado.
+            </p>
+          )}
+
+          {itens.length > 0 && (
+            <ul className="space-y-3">
+              {itens.map((it) => (
+                <li key={it.id} className="border rounded-md p-3 space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">
+                        {it.arquivo.name}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatBytes(it.arquivo.size)}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                      onClick={() => removerItem(it.id)}
+                      title="Remover este arquivo"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Tipo</Label>
+                    <DocTypeCombobox
+                      options={tiposOptions}
+                      value={it.tipo}
+                      onChange={(v) => atualizarTipo(it.id, v)}
+                      placeholder="Selecione ou busque o tipo..."
+                    />
+                  </div>
+                  {it.tipo === "outro" && (
+                    <div>
+                      <Label className="text-xs">
+                        Nome do documento (obrigatório)
+                      </Label>
+                      <Input
+                        placeholder="Ex.: Cartão do INSS, Decisão do MS..."
+                        value={it.tipoPersonalizado}
+                        onChange={(e) =>
+                          atualizarPersonalizado(it.id, e.target.value)
+                        }
+                      />
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="flex items-center gap-2 pt-2">
             <input
               id="doc-visivel-parceiro"
               type="checkbox"
@@ -3089,17 +3235,17 @@ function UploadDoc(props: {
               className="h-4 w-4"
             />
             <Label htmlFor="doc-visivel-parceiro" className="text-sm">
-              Visivel para o parceiro indicador
+              Visíveis para o parceiro indicador
             </Label>
           </div>
         </div>
         <DialogFooter>
-          <Button variant="ghost" onClick={() => setAberto(false)} disabled={enviando}>
+          <Button variant="ghost" onClick={fechar} disabled={enviando}>
             Cancelar
           </Button>
-          <Button onClick={enviar} disabled={!arquivo || enviando}>
+          <Button onClick={enviarTodos} disabled={!todosValidos || enviando}>
             {enviando && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
-            Enviar
+            Enviar ({itens.length})
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -3114,21 +3260,36 @@ function SolicitarDocBotao(props: {
 }) {
   const { casoId, usuarioId, onChange } = props;
   const [aberto, setAberto] = useState(false);
-  const [tipo, setTipo] = useState("cnis");
+  const [tipo, setTipo] = useState("");
+  const [tipoPersonalizado, setTipoPersonalizado] = useState("");
   const [descricao, setDescricao] = useState("");
   const [origem, setOrigem] = useState("externa");
   const [enviando, setEnviando] = useState(false);
 
+  const tiposOptions = Object.keys(TIPOS_DOCUMENTO_LABEL).map((k) => ({
+    value: k,
+    label: TIPOS_DOCUMENTO_LABEL[k],
+  }));
+
+  const valido =
+    !!tipo &&
+    (tipo !== "outro" || tipoPersonalizado.trim().length > 0);
+
   async function criar() {
-    if (!usuarioId) return;
+    if (!usuarioId || !valido) return;
     setEnviando(true);
     try {
+      // Se tipo=outro, usa o nome customizado como prefixo da descricao
+      // (a tabela solicitacoes_documento nao tem coluna tipo_personalizado).
+      const descricaoFinal = tipo === "outro" && tipoPersonalizado.trim()
+        ? "[" + tipoPersonalizado.trim() + "] " + (descricao.trim() || "")
+        : descricao.trim() || null;
       const resp = await supabase
         .from("solicitacoes_documento")
         .insert({
           caso_id: casoId,
           tipo: tipo,
-          descricao: descricao.trim() || null,
+          descricao: descricaoFinal || null,
           status: "pendente",
           origem: origem,
           solicitado_por: usuarioId,
@@ -3150,6 +3311,8 @@ function SolicitarDocBotao(props: {
           .catch((err) => console.error("notify-solicitacao-doc falhou", err));
       }
 
+      setTipo("");
+      setTipoPersonalizado("");
       setDescricao("");
       setOrigem("externa");
       setAberto(false);
@@ -3177,20 +3340,26 @@ function SolicitarDocBotao(props: {
         </DialogHeader>
         <div className="space-y-3">
           <div>
-            <Label className="text-xs">Tipo</Label>
-            <Select value={tipo} onValueChange={setTipo}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.keys(TIPOS_DOCUMENTO_LABEL).map((k) => (
-                  <SelectItem key={k} value={k}>
-                    {TIPOS_DOCUMENTO_LABEL[k]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label className="text-xs">Tipo de documento</Label>
+            <DocTypeCombobox
+              options={tiposOptions}
+              value={tipo}
+              onChange={setTipo}
+              placeholder="Selecione ou busque o tipo..."
+            />
           </div>
+          {tipo === "outro" && (
+            <div>
+              <Label className="text-xs">
+                Nome do documento (obrigatório)
+              </Label>
+              <Input
+                placeholder="Ex.: Cartão do INSS, Decisão do MS..."
+                value={tipoPersonalizado}
+                onChange={(e) => setTipoPersonalizado(e.target.value)}
+              />
+            </div>
+          )}
           <div>
             <Label className="text-xs">Quem vai providenciar?</Label>
             <Select value={origem} onValueChange={setOrigem}>
@@ -3208,10 +3377,10 @@ function SolicitarDocBotao(props: {
             </Select>
           </div>
           <div>
-            <Label className="text-xs">Observacao</Label>
+            <Label className="text-xs">Observação</Label>
             <Textarea
               rows={3}
-              placeholder="Detalhes sobre o documento necessario..."
+              placeholder="Detalhes sobre o documento necessário..."
               value={descricao}
               onChange={(e) => setDescricao(e.target.value)}
             />
@@ -3225,9 +3394,9 @@ function SolicitarDocBotao(props: {
           >
             Cancelar
           </Button>
-          <Button onClick={criar} disabled={enviando}>
+          <Button onClick={criar} disabled={enviando || !valido}>
             {enviando && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
-            Criar solicitacao
+            Criar solicitação
           </Button>
         </DialogFooter>
       </DialogContent>

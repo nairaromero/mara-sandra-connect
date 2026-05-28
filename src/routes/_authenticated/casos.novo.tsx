@@ -22,6 +22,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import { DocTypeCombobox } from "@/components/doc-type-combobox";
 import {
   Select,
   SelectContent,
@@ -81,6 +82,7 @@ interface DocUpload {
   id: string;
   file: File | null;
   tipo: TipoDocumento;
+  tipoPersonalizado: string;
 }
 
 // Helpers de mascara e validacao
@@ -218,10 +220,29 @@ function NovoCasoPage() {
     })();
   }, [isInterno]);
 
-  function addDoc() {
+  function addDocsFromFiles(files: FileList | null) {
+    if (!files) return;
+    const novos: Array<DocUpload> = [];
+    for (let i = 0; i < files.length; i++) {
+      novos.push({
+        id: crypto.randomUUID(),
+        file: files[i],
+        tipo: "",
+        tipoPersonalizado: "",
+      });
+    }
+    setDocs((prev) => [...prev, ...novos]);
+  }
+
+  function addDocVazio() {
     setDocs((prev) => [
       ...prev,
-      { id: crypto.randomUUID(), file: null, tipo: "cnis" },
+      {
+        id: crypto.randomUUID(),
+        file: null,
+        tipo: "",
+        tipoPersonalizado: "",
+      },
     ]);
   }
 
@@ -234,7 +255,19 @@ function NovoCasoPage() {
   }
 
   function updateDocTipo(id: string, tipo: TipoDocumento) {
-    setDocs((prev) => prev.map((d) => (d.id === id ? { ...d, tipo } : d)));
+    setDocs((prev) =>
+      prev.map((d) =>
+        d.id === id ? { ...d, tipo, tipoPersonalizado: "" } : d,
+      ),
+    );
+  }
+
+  function updateDocPersonalizado(id: string, texto: string) {
+    setDocs((prev) =>
+      prev.map((d) =>
+        d.id === id ? { ...d, tipoPersonalizado: texto } : d,
+      ),
+    );
   }
 
   async function onSubmit(values: FormValues) {
@@ -365,6 +398,9 @@ function NovoCasoPage() {
           const docInsertResp = await supabase.from("documentos").insert({
             caso_id: casoId,
             tipo: doc.tipo,
+            tipo_personalizado: doc.tipo === "outro"
+              ? doc.tipoPersonalizado.trim() || null
+              : null,
             nome_arquivo: doc.file.name,
             storage_path: storagePath,
             tamanho_bytes: doc.file.size,
@@ -714,6 +750,18 @@ function NovoCasoPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
+                <div>
+                  <Label className="text-xs">Adicionar arquivos</Label>
+                  <Input
+                    type="file"
+                    multiple
+                    accept="application/pdf,image/jpeg,image/png,image/jpg,.doc,.docx,.xls,.xlsx"
+                    onChange={(e) => {
+                      addDocsFromFiles(e.target.files);
+                      e.target.value = "";
+                    }}
+                  />
+                </div>
                 {docs.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
                     Nenhum documento adicionado.
@@ -723,56 +771,65 @@ function NovoCasoPage() {
                     {docs.map((d) => (
                       <div
                         key={d.id}
-                        className="grid grid-cols-1 sm:grid-cols-[1fr_180px_auto] gap-2 items-end p-3 border rounded-md bg-muted/30"
+                        className="border rounded-md p-3 bg-muted/30 space-y-2"
                       >
-                        <div>
-                          <Label className="text-xs">Arquivo</Label>
-                          <Input
-                            type="file"
-                            accept="application/pdf,image/jpeg,image/png,image/jpg"
-                            onChange={(e) => {
-                              const files = e.target.files;
-                              const file = files && files.length > 0 ? files[0] : null;
-                              updateDocFile(d.id, file);
-                            }}
-                          />
-                          {d.file && (
-                            <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                              <FileText className="h-3 w-3" />
-                              {d.file.name} -{" "}
-                              {(d.file.size / 1024).toFixed(0)} KB
-                            </p>
-                          )}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            {d.file ? (
+                              <p className="text-sm font-medium truncate flex items-center gap-1">
+                                <FileText className="h-3.5 w-3.5 shrink-0" />
+                                {d.file.name}
+                                <span className="text-xs text-muted-foreground ml-1">
+                                  ({(d.file.size / 1024).toFixed(0)} KB)
+                                </span>
+                              </p>
+                            ) : (
+                              <Input
+                                type="file"
+                                accept="application/pdf,image/jpeg,image/png,image/jpg,.doc,.docx,.xls,.xlsx"
+                                onChange={(e) => {
+                                  const files = e.target.files;
+                                  const file = files && files.length > 0
+                                    ? files[0]
+                                    : null;
+                                  updateDocFile(d.id, file);
+                                }}
+                              />
+                            )}
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => removeDoc(d.id)}
+                            aria-label="Remover documento"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
                         </div>
                         <div>
                           <Label className="text-xs">Tipo</Label>
-                          <Select
+                          <DocTypeCombobox
+                            options={TIPOS_DOCUMENTO}
                             value={d.tipo}
-                            onValueChange={(v) =>
-                              updateDocTipo(d.id, v as TipoDocumento)
-                            }
-                          >
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {TIPOS_DOCUMENTO.map((t) => (
-                                <SelectItem key={t.value} value={t.value}>
-                                  {t.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                            onChange={(v) => updateDocTipo(d.id, v)}
+                            placeholder="Selecione ou busque o tipo..."
+                          />
                         </div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => removeDoc(d.id)}
-                          aria-label="Remover documento"
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
+                        {d.tipo === "outro" && (
+                          <div>
+                            <Label className="text-xs">
+                              Nome do documento (obrigatório)
+                            </Label>
+                            <Input
+                              placeholder="Ex.: Cartão do INSS, Decisão do MS..."
+                              value={d.tipoPersonalizado}
+                              onChange={(e) =>
+                                updateDocPersonalizado(d.id, e.target.value)
+                              }
+                            />
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -781,10 +838,10 @@ function NovoCasoPage() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={addDoc}
+                  onClick={addDocVazio}
                 >
                   <Plus className="h-4 w-4 mr-2" />
-                  Adicionar documento
+                  Adicionar linha em branco
                 </Button>
               </CardContent>
             </Card>
