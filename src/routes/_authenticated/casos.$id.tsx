@@ -503,26 +503,28 @@ function CasoDetalhePage() {
         setRepasses((repassesResp.data || []) as Array<Repasse>);
       }
 
-      if (isInterno) {
-        const procAdminResp = await supabase
-          .from("processos_admin")
-          .select("*")
-          .eq("caso_id", casoId)
-          .order("created_at", { ascending: false });
-        if (!procAdminResp.error) {
-          setProcessosAdmin((procAdminResp.data || []) as Array<ProcessoAdmin>);
-        }
+      // Processos sao carregados tambem para o parceiro porque a aba Andamentos
+      // depende disso pra renderizar os cards "Administrativos" e "Judiciais"
+      // (a separacao de andamentos por processo). RLS ja restringe parceiro
+      // aos processos dos casos dele.
+      const procAdminResp = await supabase
+        .from("processos_admin")
+        .select("*")
+        .eq("caso_id", casoId)
+        .order("created_at", { ascending: false });
+      if (!procAdminResp.error) {
+        setProcessosAdmin((procAdminResp.data || []) as Array<ProcessoAdmin>);
+      }
 
-        const procJudResp = await supabase
-          .from("processos_judiciais")
-          .select("*")
-          .eq("caso_id", casoId)
-          .order("created_at", { ascending: false });
-        if (!procJudResp.error) {
-          setProcessosJudiciais(
-            (procJudResp.data || []) as Array<ProcessoJudicial>,
-          );
-        }
+      const procJudResp = await supabase
+        .from("processos_judiciais")
+        .select("*")
+        .eq("caso_id", casoId)
+        .order("created_at", { ascending: false });
+      if (!procJudResp.error) {
+        setProcessosJudiciais(
+          (procJudResp.data || []) as Array<ProcessoJudicial>,
+        );
       }
     } catch (err) {
       console.error(err);
