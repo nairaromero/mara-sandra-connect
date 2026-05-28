@@ -687,7 +687,7 @@ function GrupoCaso(props: GrupoCasoProps) {
         )}
         {pendentes.length === 0 && cumpridos.length > 0 && (
           <p className="text-sm text-muted-foreground text-center py-3">
-            Nenhuma solicitacao pendente.
+            Nenhuma solicitação pendente.
           </p>
         )}
         {cumpridos.length > 0 && (
@@ -704,12 +704,12 @@ function GrupoCaso(props: GrupoCasoProps) {
                   <ChevronRight className="h-4 w-4 shrink-0" />
                 )}
                 <span className="text-sm font-medium truncate">
-                  Solicitacoes cumpridas
+                  Solicitações cumpridas
                 </span>
               </div>
               <span className="text-xs text-muted-foreground shrink-0">
                 {cumpridos.length}{" "}
-                {cumpridos.length === 1 ? "solicitacao" : "solicitacoes"}
+                {cumpridos.length === 1 ? "solicitação" : "solicitações"}
               </span>
             </button>
             {cumpridosAberto && (

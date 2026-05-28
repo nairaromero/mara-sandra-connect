@@ -2382,7 +2382,7 @@ function TabDocumentos(props: TabDocumentosProps) {
   // Upload de arquivo no atendimento
   const [arquivoUpload, setArquivoUpload] = useState<File | null>(null);
   const [comAnexo, setComAnexo] = useState(false);
-  // Estado do accordion "Solicitacoes cumpridas"
+  // Estado do accordion "Solicitações cumpridas"
   const [cumpridasAberto, setCumpridasAberto] = useState(false);
 
   // Renomeia arquivo para o nome do tipo solicitado (ex.: CNIS.pdf)
@@ -2826,7 +2826,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                 )}
                 {pendentes.length === 0 && cumpridas.length > 0 && (
                   <p className="text-sm text-muted-foreground text-center py-3">
-                    Nenhuma solicitacao pendente.
+                    Nenhuma solicitação pendente.
                   </p>
                 )}
                 {cumpridas.length > 0 && (
@@ -2843,14 +2843,14 @@ function TabDocumentos(props: TabDocumentosProps) {
                           <ChevronRight className="h-4 w-4 shrink-0" />
                         )}
                         <span className="text-sm font-medium truncate">
-                          Solicitacoes cumpridas
+                          Solicitações cumpridas
                         </span>
                       </div>
                       <span className="text-xs text-muted-foreground shrink-0">
                         {cumpridas.length}{" "}
                         {cumpridas.length === 1
-                          ? "solicitacao"
-                          : "solicitacoes"}
+                          ? "solicitação"
+                          : "solicitações"}
                       </span>
                     </button>
                     {cumpridasAberto && (
