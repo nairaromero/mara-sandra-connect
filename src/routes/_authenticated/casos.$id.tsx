@@ -1063,14 +1063,29 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
   const [clTelefone, setClTelefone] = useState("");
   const [clEmail, setClEmail] = useState("");
   const [clObservacoes, setClObservacoes] = useState("");
+  // Campo senha no modal de editar cliente. Sempre comeca vazio - se ficar
+  // vazio na submissao, NAO mexe na senha atual. Se preenchido, substitui
+  // via set_senha_meu_inss (criptografando no banco).
+  const [clSenhaMeuInss, setClSenhaMeuInss] = useState("");
+  const [clTemSenha, setClTemSenha] = useState(false);
   const [clSalvando, setClSalvando] = useState(false);
 
-  function abrirDialogCliente() {
+  async function abrirDialogCliente() {
     setClNome(cliente.nome);
     setClDataNascimento(cliente.data_nascimento || "");
     setClTelefone(cliente.telefone || "");
     setClEmail(cliente.email || "");
     setClObservacoes(cliente.observacoes || "");
+    setClSenhaMeuInss("");
+    // Checa se ja tem senha MEU INSS cadastrada (sem revelar a senha).
+    try {
+      const resp = await supabase.rpc("tem_senha_meu_inss", {
+        p_cliente_id: cliente.id,
+      });
+      setClTemSenha(resp.data === true);
+    } catch {
+      setClTemSenha(false);
+    }
     setAbrirEditCliente(true);
   }
 
@@ -1097,6 +1112,23 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
         toast.error("Atualizacao nao foi aplicada. Possivel bloqueio de RLS.");
         return;
       }
+      // Se preencheu campo de senha, atualiza via RPC criptografada.
+      // Campo vazio = manter senha atual intacta (nao mexe).
+      const senhaNova = clSenhaMeuInss.trim();
+      if (senhaNova.length > 0) {
+        const senhaResp = await supabase.rpc("set_senha_meu_inss", {
+          p_cliente_id: cliente.id,
+          p_senha: senhaNova,
+        });
+        if (senhaResp.error) {
+          toast.warning(
+            "Cliente atualizado, mas a senha MEU INSS nao foi salva: " +
+              (senhaResp.error.message || "erro desconhecido"),
+          );
+        } else {
+          toast.success(clTemSenha ? "Senha MEU INSS substituida" : "Senha MEU INSS cadastrada");
+        }
+      }
       toast.success("Cliente atualizado");
       setAbrirEditCliente(false);
       onChange();
@@ -1115,6 +1147,56 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
   const [carregandoSenha, setCarregandoSenha] = useState(false);
   const [senhaValor, setSenhaValor] = useState<string | null>(null);
   const [erroSenha, setErroSenha] = useState<string | null>(null);
+
+  // ---- Dialog: Alterar senha MEU INSS (parceiro, write-only) ----
+  // Parceiro escreve mas nao le. Mesmo fluxo do interno usaria, mas
+  // parceiro tem UI separada e simplificada (sem opcao de visualizar).
+  const [abrirSenhaParc, setAbrirSenhaParc] = useState(false);
+  const [senhaParcValor, setSenhaParcValor] = useState("");
+  const [senhaParcSalvando, setSenhaParcSalvando] = useState(false);
+  const [senhaParcTemSenha, setSenhaParcTemSenha] = useState(false);
+
+  async function abrirAlterarSenhaParceiro() {
+    setSenhaParcValor("");
+    try {
+      const resp = await supabase.rpc("tem_senha_meu_inss", {
+        p_cliente_id: cliente.id,
+      });
+      setSenhaParcTemSenha(resp.data === true);
+    } catch {
+      setSenhaParcTemSenha(false);
+    }
+    setAbrirSenhaParc(true);
+  }
+
+  async function salvarSenhaParceiro() {
+    const senhaNova = senhaParcValor.trim();
+    if (senhaNova.length === 0) {
+      toast.error("Digite a senha pra salvar");
+      return;
+    }
+    setSenhaParcSalvando(true);
+    try {
+      const resp = await supabase.rpc("set_senha_meu_inss", {
+        p_cliente_id: cliente.id,
+        p_senha: senhaNova,
+      });
+      if (resp.error) throw resp.error;
+      toast.success(
+        senhaParcTemSenha
+          ? "Senha MEU INSS substituida"
+          : "Senha MEU INSS cadastrada",
+      );
+      setAbrirSenhaParc(false);
+      setSenhaParcValor("");
+    } catch (err) {
+      console.error(err);
+      const errObj = err as { message?: string };
+      toast.error(errObj.message || "Erro ao salvar senha");
+    } finally {
+      setSenhaParcSalvando(false);
+    }
+  }
 
   async function abrirVerSenha() {
     setAbrirSenha(true);
@@ -1270,6 +1352,23 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
               </Button>
             </div>
           )}
+          {!isInterno && (
+            // Parceiro: write-only. Nao tem botao "Ver", so "Alterar".
+            <div className="pt-2 border-t flex items-center justify-between">
+              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                <KeyRound className="h-3.5 w-3.5" />
+                Senha MEU INSS
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={abrirAlterarSenhaParceiro}
+              >
+                <Pencil className="h-3.5 w-3.5 mr-1" />
+                Alterar
+              </Button>
+            </div>
+          )}
           {cliente.observacoes && (
             <div className="pt-2 border-t">
               <p className="text-xs text-muted-foreground mb-1">Observacoes</p>
@@ -1331,6 +1430,33 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                     value={clObservacoes}
                     onChange={(e) => setClObservacoes(e.target.value)}
                   />
+                </div>
+                {/* Senha MEU INSS - sempre vazio. Vazio = manter, preenchido =
+                    substituir via RPC criptografada. Status atual (ja tem ou
+                    nao) eh mostrado em texto auxiliar. */}
+                <div className="pt-3 border-t">
+                  <Label className="text-xs flex items-center gap-1">
+                    <KeyRound className="h-3.5 w-3.5" />
+                    Senha MEU INSS{" "}
+                    <span className="text-muted-foreground font-normal">
+                      ({clTemSenha ? "ja cadastrada - sera substituida" : "nao cadastrada"})
+                    </span>
+                  </Label>
+                  <Input
+                    type="password"
+                    value={clSenhaMeuInss}
+                    onChange={(e) => setClSenhaMeuInss(e.target.value)}
+                    placeholder={
+                      clTemSenha
+                        ? "Deixe vazio pra manter a senha atual"
+                        : "Senha do MEU INSS do cliente"
+                    }
+                    autoComplete="off"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Criptografada no banco. Toda escrita e leitura ficam
+                    registradas em auditoria.
+                  </p>
                 </div>
               </div>
               <DialogFooter>
@@ -1412,6 +1538,67 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
               <DialogFooter>
                 <Button variant="outline" onClick={fecharSenha}>
                   Fechar
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
+        {!isInterno && (
+          // Dialog write-only do parceiro. So input + Salvar.
+          <Dialog
+            open={abrirSenhaParc}
+            onOpenChange={(o) => {
+              if (!o) {
+                setAbrirSenhaParc(false);
+                setSenhaParcValor("");
+              }
+            }}
+          >
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <KeyRound className="h-4 w-4" />
+                  {senhaParcTemSenha
+                    ? "Substituir senha MEU INSS"
+                    : "Cadastrar senha MEU INSS"}
+                </DialogTitle>
+                <DialogDescription className="text-xs text-warning bg-warning/10 border border-warning/30 rounded p-2 mt-1">
+                  {senhaParcTemSenha
+                    ? "Ja existe uma senha cadastrada para este cliente. Ao salvar, ela sera SUBSTITUIDA pela nova. Esta acao fica registrada em auditoria."
+                    : "A senha sera criptografada no banco. Voce nao podera consultar depois - apenas substituir. Acao registrada em auditoria."}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs">Nova senha do MEU INSS</Label>
+                  <Input
+                    type="password"
+                    value={senhaParcValor}
+                    onChange={(e) => setSenhaParcValor(e.target.value)}
+                    placeholder="Senha do MEU INSS do cliente"
+                    autoComplete="off"
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setAbrirSenhaParc(false);
+                    setSenhaParcValor("");
+                  }}
+                  disabled={senhaParcSalvando}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={salvarSenhaParceiro}
+                  disabled={senhaParcSalvando || senhaParcValor.trim().length === 0}
+                >
+                  {senhaParcSalvando && (
+                    <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                  )}
+                  Salvar
                 </Button>
               </DialogFooter>
             </DialogContent>

@@ -354,31 +354,9 @@ function NovoCasoPage() {
       }
       const clienteId = clienteInsert.id;
 
-      // 1b) Grava a senha do MEU INSS criptografada via RPC.
-      // O Postgres pega a chave em GUC app.inss_key, cifra com pgp_sym_encrypt
-      // e grava em clientes.senha_meu_inss (bytea). Toda leitura futura tem
-      // que passar por get_senha_meu_inss(), que registra audit.
-      const senhaInformada = values.senha_meu_inss
-        ? values.senha_meu_inss.trim()
-        : "";
-      if (senhaInformada.length > 0) {
-        const setSenhaResp = await supabase.rpc("set_senha_meu_inss", {
-          p_cliente_id: clienteId,
-          p_senha: senhaInformada,
-        });
-        if (setSenhaResp.error) {
-          // Nao bloqueia o cadastro do caso por causa da senha - registra
-          // como aviso para o operador, mas segue o fluxo. A senha pode
-          // ser definida depois em uma tela de edicao.
-          console.error("Falha ao gravar senha MEU INSS:", setSenhaResp.error);
-          toast.warning(
-            "Cliente cadastrado, mas a senha do MEU INSS nao foi salva: " +
-              (setSenhaResp.error.message || "erro desconhecido"),
-          );
-        }
-      }
-
-      // 2) Insere caso
+      // 2) Insere caso PRIMEIRO. A funcao set_senha_meu_inss valida que o
+      // parceiro eh dono de algum caso do cliente - entao precisamos do caso
+      // criado antes da chamada RPC.
       const casoResp = await supabase
         .from("casos")
         .insert({
@@ -402,6 +380,28 @@ function NovoCasoPage() {
         throw new Error("Falha ao obter ID do caso recem-criado");
       }
       const casoId = casoInsert.id;
+
+      // 2b) Grava a senha do MEU INSS criptografada via RPC.
+      // Funcao backend cifra com pgcrypto e grava em senha_meu_inss (bytea).
+      // Parceiro consegue chamar porque o caso ja existe vinculado a ele.
+      const senhaInformada = values.senha_meu_inss
+        ? values.senha_meu_inss.trim()
+        : "";
+      if (senhaInformada.length > 0) {
+        const setSenhaResp = await supabase.rpc("set_senha_meu_inss", {
+          p_cliente_id: clienteId,
+          p_senha: senhaInformada,
+        });
+        if (setSenhaResp.error) {
+          // Nao bloqueia o fluxo - registra aviso. Senha pode ser definida
+          // depois pela tela de edicao do cliente.
+          console.error("Falha ao gravar senha MEU INSS:", setSenhaResp.error);
+          toast.warning(
+            "Caso cadastrado, mas a senha do MEU INSS nao foi salva: " +
+              (setSenhaResp.error.message || "erro desconhecido"),
+          );
+        }
+      }
 
       // 3) Upload de documentos (se houver)
       const docsToUpload = docs.filter((d) => d.file !== null);
