@@ -3062,13 +3062,20 @@ function TabDocumentos(props: TabDocumentosProps) {
     ? documentos
     : documentos.filter((d) => d.visivel_parceiro === true);
 
-  // Ordena por grupo (categoria) e, dentro do mesmo grupo, por nome do
-  // arquivo alfabetico SEM o prefixo numerico ("01 - ", "02 - ", etc.).
-  // Fica previsivel mesmo com uploads fora de ordem ou nomeacoes diferentes.
+  // Ordena por grupo (categoria). Dentro do mesmo grupo:
+  //   - Grupos 1-8 (categorias estruturadas): alfabetico pelo nome de
+  //     arquivo sem prefixo numerico - fica previsivel.
+  //   - Grupo 9 (Outros): por created_at crescente - preserva a ordem
+  //     em que foram uploadados, util porque sao documentos diversos
+  //     onde a ordem manual faz sentido.
   const lista = listaFiltrada.slice().sort((a, b) => {
     const ga = getDocGroup(a.tipo);
     const gb = getDocGroup(b.tipo);
     if (ga !== gb) return ga - gb;
+    if (ga === 9) {
+      // Outros: ordem de upload (mais antigo primeiro)
+      return a.created_at.localeCompare(b.created_at);
+    }
     return displayNomeArquivo(a.nome_arquivo).localeCompare(
       displayNomeArquivo(b.nome_arquivo),
     );
