@@ -1,4 +1,10 @@
-import { createFileRoute, Outlet, useNavigate, Link } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  Outlet,
+  useNavigate,
+  Link,
+  useRouterState,
+} from "@tanstack/react-router";
 import { useEffect } from "react";
 import { Loader2, LogOut, Plus } from "lucide-react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
@@ -15,12 +21,26 @@ export const Route = createFileRoute("/_authenticated")({
 function AuthenticatedLayout() {
   const { session, usuario, loading, signOut } = useAuth();
   const navigate = useNavigate();
+  const currentPath = useRouterState({ select: (r) => r.location.pathname });
 
   useEffect(() => {
     if (!loading && !session) {
       navigate({ to: "/login" });
     }
   }, [loading, session, navigate]);
+
+  // Redireciona parceiro que ainda nao fez onboarding pra /boas-vindas.
+  // Internos foram auto-marcados como onboarded no backfill da migration.
+  // So redireciona quando o usuario ja foi carregado (evita flash na primeira
+  // renderizacao). Nao redireciona se ja esta em /boas-vindas (evita loop).
+  useEffect(() => {
+    if (loading || !usuario) return;
+    const precisaOnboarding =
+      usuario.tipo === "parceiro" && !usuario.onboarded_em;
+    if (precisaOnboarding && currentPath !== "/boas-vindas") {
+      navigate({ to: "/boas-vindas" });
+    }
+  }, [loading, usuario, currentPath, navigate]);
 
   if (loading || !session) {
     return (

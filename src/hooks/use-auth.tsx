@@ -8,6 +8,7 @@ interface AuthContextValue {
   usuario: UsuarioRow | null;
   loading: boolean;
   signOut: () => Promise<void>;
+  refreshUsuario: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -43,7 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function loadUsuario(userId: string) {
     const { data, error } = await supabase
       .from("usuarios")
-      .select("id, nome, email, tipo, avatar_url")
+      .select("id, nome, email, tipo, avatar_url, onboarded_em, aceitou_termos_em")
       .eq("id", userId)
       .maybeSingle();
     if (error) {
@@ -60,9 +61,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(null);
   }
 
+  // Permite a tela de /boas-vindas atualizar o usuario apos marcar
+  // onboarded_em sem precisar de full page reload.
+  async function refreshUsuario() {
+    if (session?.user?.id) {
+      await loadUsuario(session.user.id);
+    }
+  }
+
   return (
     <AuthContext.Provider
-      value={{ session, user: session?.user ?? null, usuario, loading, signOut }}
+      value={{
+        session,
+        user: session?.user ?? null,
+        usuario,
+        loading,
+        signOut,
+        refreshUsuario,
+      }}
     >
       {children}
     </AuthContext.Provider>

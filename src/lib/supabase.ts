@@ -22,4 +22,6 @@ export interface UsuarioRow {
   email: string | null;
   tipo: UsuarioTipo;
   avatar_url?: string | null;
+  onboarded_em?: string | null;
+  aceitou_termos_em?: string | null;
 }
