@@ -1,4 +1,9 @@
-import { createFileRoute, useParams, Link } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  useParams,
+  useNavigate,
+  Link,
+} from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -31,6 +36,11 @@ import {
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import {
+  MAX_FILE_SIZE_MB,
+  validateFileSize,
+  validateFileSizes,
+} from "@/lib/upload-limits";
 import { ClientOnly } from "@/components/client-only";
 import { DocTypeCombobox } from "@/components/doc-type-combobox";
 import {
@@ -69,6 +79,16 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export const Route = createFileRoute("/_authenticated/casos/$id")({
   component: CasoDetalhePage,
@@ -1055,6 +1075,14 @@ interface TabVisaoGeralProps {
 function TabVisaoGeral(props: TabVisaoGeralProps) {
   const { caso, cliente, parceiro, parceirosDisponiveis, isInterno, onChange } =
     props;
+  const navigate = useNavigate();
+
+  // ---- AlertDialog: confirmar excluir cliente ----
+  // Acao destrutiva: apaga cliente + todos os casos vinculados + documentos.
+  // RPC backend valida que e interno e cuida do cascade. Frontend apaga
+  // tambem o storage depois pra nao deixar lixo.
+  const [confExcluirCliente, setConfExcluirCliente] = useState(false);
+  const [excluindoCliente, setExcluindoCliente] = useState(false);
 
   // ---- Dialog: Editar cliente ----
   const [abrirEditCliente, setAbrirEditCliente] = useState(false);
@@ -1138,6 +1166,48 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
       toast.error(errObj.message || "Erro ao atualizar cliente");
     } finally {
       setClSalvando(false);
+    }
+  }
+
+  // ---- Excluir cliente (interno only, destrutivo) ----
+  // Fluxo:
+  //   1) Chama RPC excluir_cliente -> retorna lista de storage_paths.
+  //   2) Apaga arquivos do bucket Storage (pra nao deixar lixo).
+  //   3) Toast + navega pra home (/casos).
+  // Nao da rollback do storage se RPC falhar (passo 1 acontece em transacao
+  // no banco). Se passo 2 falhar, no banco ja sumiu, so deixa arquivo orfao.
+  async function excluirCliente() {
+    if (!isInterno) return;
+    setExcluindoCliente(true);
+    try {
+      const rpcResp = await supabase.rpc("excluir_cliente", {
+        p_cliente_id: cliente.id,
+      });
+      if (rpcResp.error) throw rpcResp.error;
+
+      // RPC retorna array de paths. Apaga do storage.
+      const paths = (rpcResp.data as string[] | null) ?? [];
+      if (paths.length > 0) {
+        const remResp = await supabase.storage
+          .from("documentos")
+          .remove(paths);
+        if (remResp.error) {
+          // Banco ja apagado - so deixa warning sobre lixo no storage.
+          console.warn("Cliente excluido, mas arquivos do storage falharam:",
+            remResp.error);
+        }
+      }
+
+      toast.success("Cliente e dados vinculados excluidos.");
+      setConfExcluirCliente(false);
+      setAbrirEditCliente(false);
+      navigate({ to: "/" });
+    } catch (err) {
+      console.error(err);
+      const errObj = err as { message?: string };
+      toast.error(errObj.message || "Erro ao excluir cliente");
+    } finally {
+      setExcluindoCliente(false);
     }
   }
 
@@ -1293,7 +1363,24 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="space-y-3">
+      {/* Botao discreto pra editar tipo beneficio / fase / status / parceiro.
+          Substitui o antigo card "Configuracoes do caso" - info ja aparece
+          nas tags do header. */}
+      {isInterno && (
+        <div className="flex justify-end">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={abrirDialogCaso}
+            className="text-xs"
+          >
+            <Pencil className="h-3.5 w-3.5 mr-1" />
+            Editar caso
+          </Button>
+        </div>
+      )}
+      <div className="grid gap-4 lg:grid-cols-2">
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between gap-2">
@@ -1459,23 +1546,90 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                   </p>
                 </div>
               </div>
-              <DialogFooter>
+              <DialogFooter className="sm:justify-between gap-2">
+                {/* Excluir vai a esquerda - separacao visual clara da acao
+                    primaria (Salvar). Espacamento sm:justify-between joga
+                    o destrutivo pra ponta. */}
                 <Button
-                  variant="ghost"
-                  onClick={() => setAbrirEditCliente(false)}
-                  disabled={clSalvando}
+                  variant="destructive"
+                  onClick={() => setConfExcluirCliente(true)}
+                  disabled={clSalvando || excluindoCliente}
+                  className="sm:mr-auto"
                 >
-                  Cancelar
+                  <Trash2 className="h-3.5 w-3.5 mr-1" />
+                  Excluir cliente
                 </Button>
-                <Button onClick={salvarCliente} disabled={clSalvando}>
-                  {clSalvando && (
-                    <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                  )}
-                  Salvar
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="ghost"
+                    onClick={() => setAbrirEditCliente(false)}
+                    disabled={clSalvando}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button onClick={salvarCliente} disabled={clSalvando}>
+                    {clSalvando && (
+                      <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                    )}
+                    Salvar
+                  </Button>
+                </div>
               </DialogFooter>
             </DialogContent>
           </Dialog>
+        )}
+        {/* AlertDialog de confirmacao de exclusao. Acao destrutiva amplia o
+            consentimento explicito do usuario - lista o que vai sumir. */}
+        {isInterno && (
+          <AlertDialog
+            open={confExcluirCliente}
+            onOpenChange={(o) => {
+              if (!excluindoCliente) setConfExcluirCliente(o);
+            }}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  Excluir {cliente.nome}?
+                </AlertDialogTitle>
+                <AlertDialogDescription asChild>
+                  <div className="space-y-2 text-sm">
+                    <p>
+                      Esta acao e <strong>irreversivel</strong>. Sera removido:
+                    </p>
+                    <ul className="list-disc pl-5 space-y-0.5 text-muted-foreground">
+                      <li>O cliente e todos os dados cadastrais</li>
+                      <li>Todos os casos vinculados</li>
+                      <li>Todos os documentos, andamentos e solicitacoes</li>
+                      <li>Conversas, repasses e processos do caso</li>
+                      <li>Senha MEU INSS criptografada (se houver)</li>
+                    </ul>
+                    <p className="text-xs text-muted-foreground">
+                      O log de auditoria do acesso a senhas e preservado.
+                    </p>
+                  </div>
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={excluindoCliente}>
+                  Cancelar
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={(e) => {
+                    e.preventDefault();
+                    excluirCliente();
+                  }}
+                  disabled={excluindoCliente}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  {excluindoCliente && (
+                    <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                  )}
+                  Sim, excluir tudo
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         )}
         {isInterno && (
           // Dialog para exibir a senha MEU INSS decifrada.
@@ -1606,29 +1760,11 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
         )}
       </Card>
 
-      <Card>
-        <CardContent className="py-4 flex items-center justify-between gap-2">
-          <div className="min-w-0">
-            <p className="text-sm font-medium">Configuracoes do caso</p>
-            <p className="text-xs text-muted-foreground">
-              Tipo de beneficio, parceiro, fase e status (visíveis nas tags e
-              no header).
-            </p>
-          </div>
-          {isInterno && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={abrirDialogCaso}
-              className="shrink-0"
-            >
-              <Pencil className="h-3.5 w-3.5 mr-1" />
-              Editar
-            </Button>
-          )}
-        </CardContent>
-        {isInterno && (
-          <Dialog open={abrirEditCaso} onOpenChange={setAbrirEditCaso}>
+      </div>
+      {/* Dialog "Editar caso" - fora do grid pra ficar como overlay limpo.
+          Trigger fica no botao "Editar caso" no topo da TabVisaoGeral. */}
+      {isInterno && (
+        <Dialog open={abrirEditCaso} onOpenChange={setAbrirEditCaso}>
             <DialogContent className="max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Editar caso</DialogTitle>
@@ -1753,8 +1889,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
               </DialogFooter>
             </DialogContent>
           </Dialog>
-        )}
-      </Card>
+      )}
     </div>
   );
 }
@@ -3194,6 +3329,14 @@ function TabDocumentos(props: TabDocumentosProps) {
       toast.error("Selecione um arquivo para anexar");
       return;
     }
+    // Valida tamanho antes de subir.
+    if (arquivoUpload) {
+      const erroTamanho = validateFileSize(arquivoUpload);
+      if (erroTamanho) {
+        toast.error(erroTamanho);
+        return;
+      }
+    }
     setSalvandoModal(true);
     try {
       let documentoId: string | null = null;
@@ -3774,6 +3917,9 @@ function TabDocumentos(props: TabDocumentosProps) {
                     className="block w-full text-sm border rounded-md p-2"
                     accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
                   />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Tamanho maximo: {MAX_FILE_SIZE_MB} MB por arquivo.
+                  </p>
                   {arquivoUpload && acaoAlvo && (
                     <p className="text-xs text-muted-foreground mt-1">
                       Sera salvo como:{" "}
@@ -3975,6 +4121,20 @@ function UploadDoc(props: {
 
   async function enviarTodos() {
     if (!usuarioId || !todosValidos) return;
+
+    // Valida tamanho de TODOS os arquivos antes de comecar a subir,
+    // pra evitar criar registros parciais.
+    const errosTamanho = validateFileSizes(itens.map((it) => it.arquivo));
+    if (errosTamanho.length > 0) {
+      errosTamanho.slice(0, 3).forEach((e) => toast.error(e));
+      if (errosTamanho.length > 3) {
+        toast.error(
+          "Mais " + (errosTamanho.length - 3) + " arquivo(s) acima do limite.",
+        );
+      }
+      return;
+    }
+
     setEnviando(true);
     let okCount = 0;
     let errCount = 0;
@@ -4048,7 +4208,8 @@ function UploadDoc(props: {
           <DialogTitle>Adicionar documentos</DialogTitle>
           <DialogDescription>
             Selecione um ou vários arquivos. Cada um precisa de um tipo. Se
-            escolher &quot;Outro&quot;, informe o nome do documento.
+            escolher &quot;Outro&quot;, informe o nome do documento. Tamanho
+            máximo: {MAX_FILE_SIZE_MB} MB por arquivo.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">

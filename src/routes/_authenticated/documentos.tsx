@@ -15,6 +15,7 @@ import {
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { MAX_FILE_SIZE_MB, validateFileSize } from "@/lib/upload-limits";
 import { ClientOnly } from "@/components/client-only";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -291,6 +292,14 @@ function DocumentosPendentesPage() {
     if (acaoAlvo.novoStatus === "atendido" && comAnexo && !arquivoUpload) {
       toast.error("Selecione um arquivo para anexar");
       return;
+    }
+    // Valida tamanho antes de subir pra evitar erro generico do Storage.
+    if (arquivoUpload) {
+      const erroTamanho = validateFileSize(arquivoUpload);
+      if (erroTamanho) {
+        toast.error(erroTamanho);
+        return;
+      }
     }
     setSalvandoModal(true);
     try {
@@ -579,6 +588,9 @@ function DocumentosPendentesPage() {
                       className="block w-full text-sm border rounded-md p-2"
                       accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
                     />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Tamanho maximo: {MAX_FILE_SIZE_MB} MB por arquivo.
+                    </p>
                     {arquivoUpload && acaoAlvo && (
                       <p className="text-xs text-muted-foreground mt-1">
                         Sera salvo como:{" "}

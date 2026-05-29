@@ -8,6 +8,7 @@ import { ArrowLeft, Loader2, Eye, EyeOff, Plus, X, FileText } from "lucide-react
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { MAX_FILE_SIZE_MB, validateFileSizes } from "@/lib/upload-limits";
 import { ClientOnly } from "@/components/client-only";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -281,6 +282,26 @@ function NovoCasoPage() {
 
   async function onSubmit(values: FormValues) {
     if (!usuario) return;
+
+    // Validacao de tamanho dos arquivos antes de qualquer insert.
+    // Falha cedo evita criar cliente+caso e travar no upload depois.
+    const arquivosParaSubir = docs
+      .map((d) => d.file)
+      .filter((f): f is File => f !== null);
+    if (arquivosParaSubir.length > 0) {
+      const errosTamanho = validateFileSizes(arquivosParaSubir);
+      if (errosTamanho.length > 0) {
+        // Mostra ate 3 erros pra nao explodir a tela
+        errosTamanho.slice(0, 3).forEach((e) => toast.error(e));
+        if (errosTamanho.length > 3) {
+          toast.error(
+            "Mais " + (errosTamanho.length - 3) + " arquivo(s) acima do limite.",
+          );
+        }
+        return;
+      }
+    }
+
     setSubmitting(true);
     try {
       const cpfDigits = values.cpf.replace(/\D/g, "");
@@ -789,7 +810,8 @@ function NovoCasoPage() {
                 <CardTitle className="text-base">Documentos</CardTitle>
                 <CardDescription>
                   Anexe documentos que ja tem em maos. Pode adicionar mais
-                  depois no caso.
+                  depois no caso. Tamanho maximo: {MAX_FILE_SIZE_MB} MB por
+                  arquivo.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
