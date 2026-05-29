@@ -1014,17 +1014,19 @@ function CasoHeader(props: CasoHeaderProps) {
         {tags.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
             {tags.map((t) => (
+              // Tag TI usa a cor original do sistema TI - facilita o
+              // reconhecimento cruzado entre o app e o TI.
               <Badge
                 key={t.id}
                 variant="outline"
-                className="gap-1.5 font-normal text-xs"
+                className="font-normal text-xs"
+                style={{
+                  backgroundColor: t.color,
+                  borderColor: t.color,
+                  color: "#1f2937",
+                }}
                 title={"Tag do Tramitacao Inteligente"}
               >
-                <span
-                  className="inline-block h-2 w-2 rounded-full shrink-0"
-                  style={{ backgroundColor: t.color }}
-                  aria-hidden="true"
-                />
                 {t.name}
               </Badge>
             ))}

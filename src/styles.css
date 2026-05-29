@@ -54,14 +54,15 @@
 
 :root {
   --radius: 0.5rem;
-  /* Paleta MSV: marfim quente + preto-quente + dourado accent.
-     Inspirada na propria identidade do logo (gold + black on cream). */
-  --background: oklch(0.97 0.013 80);
+  /* Paleta MSV: branco quase puro + preto-quente + dourado accent.
+     Background bem clarinho com tom warm sutilissimo, cards puro branco
+     pra terem destaque visual real sobre o fundo. */
+  --background: oklch(0.985 0.006 80);
   --foreground: oklch(0.20 0.015 60);
 
-  --card: oklch(0.995 0.005 80);
+  --card: oklch(1 0 0);
   --card-foreground: oklch(0.20 0.015 60);
-  --popover: oklch(0.995 0.005 80);
+  --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.20 0.015 60);
 
   /* Primary: preto-quente (#2a251b ~) - botoes principais, badges default.
@@ -99,15 +100,15 @@
   /* Ring (foco) em dourado pra dar toque premium nos inputs/botoes */
   --ring: oklch(0.62 0.13 80);
 
-  /* Sidebar levemente mais pigmentada que o background pra dar separacao
-     visual sem precisar de border forte. */
-  --sidebar: oklch(0.94 0.016 80);
+  /* Sidebar com marfim sutil pra separar visualmente do conteudo (que
+     agora esta em fundo quase-branco). Diferenca pequena mas suficiente. */
+  --sidebar: oklch(0.96 0.014 80);
   --sidebar-foreground: oklch(0.22 0.015 60);
   --sidebar-primary: oklch(0.22 0.015 60);
   --sidebar-primary-foreground: oklch(0.985 0.005 80);
-  --sidebar-accent: oklch(0.91 0.02 80);
+  --sidebar-accent: oklch(0.92 0.018 80);
   --sidebar-accent-foreground: oklch(0.22 0.015 60);
-  --sidebar-border: oklch(0.86 0.022 80);
+  --sidebar-border: oklch(0.88 0.02 80);
   /* Sidebar ring tambem dourado pra consistencia */
   --sidebar-ring: oklch(0.62 0.13 80);
 }
