@@ -2,11 +2,17 @@
 @source "../src";
 @import "tw-animate-css";
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&display=swap");
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Cormorant Garamond", ui-serif, Georgia, "Times New Roman",
+    serif;
+  --color-gold: var(--gold);
+  --color-gold-foreground: var(--gold-foreground);
+  --color-gold-soft: var(--gold-soft);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -71,14 +77,24 @@
   --destructive-foreground: oklch(0.985 0 0);
   --success: oklch(0.62 0.16 150);
   --success-foreground: oklch(0.99 0 0);
-  --warning: oklch(0.78 0.15 80);
-  --warning-foreground: oklch(0.22 0.05 80);
+  /* Warning agora alinhado com a paleta dourada do logo (#b8862e) */
+  --warning: oklch(0.62 0.13 80);
+  --warning-foreground: oklch(0.99 0 0);
   --info: oklch(0.55 0.13 240);
   --info-foreground: oklch(0.99 0 0);
 
+  /* Dourado da identidade visual MSV.
+     gold:        #b8862e (dark gold)        - texto/foco/badge
+     gold-soft:   #f4e9c8 (cream)            - background sutil
+   */
+  --gold: oklch(0.62 0.13 80);
+  --gold-foreground: oklch(0.99 0 0);
+  --gold-soft: oklch(0.93 0.05 85);
+
   --border: oklch(0.92 0.008 250);
   --input: oklch(0.92 0.008 250);
-  --ring: oklch(0.36 0.07 252);
+  /* Ring (foco) em dourado pra dar toque premium nos inputs/botoes */
+  --ring: oklch(0.62 0.13 80);
 
   --sidebar: oklch(0.985 0.003 250);
   --sidebar-foreground: oklch(0.30 0.04 252);
@@ -87,7 +103,8 @@
   --sidebar-accent: oklch(0.94 0.01 250);
   --sidebar-accent-foreground: oklch(0.30 0.05 252);
   --sidebar-border: oklch(0.90 0.008 250);
-  --sidebar-ring: oklch(0.36 0.07 252);
+  /* Sidebar ring tambem dourado pra consistencia */
+  --sidebar-ring: oklch(0.62 0.13 80);
 }
 
 .dark {
@@ -112,14 +129,18 @@
   --destructive-foreground: oklch(0.99 0 0);
   --success: oklch(0.70 0.16 150);
   --success-foreground: oklch(0.15 0.03 150);
-  --warning: oklch(0.80 0.16 80);
-  --warning-foreground: oklch(0.20 0.05 80);
+  --warning: oklch(0.75 0.13 80);
+  --warning-foreground: oklch(0.18 0.04 80);
   --info: oklch(0.68 0.13 240);
   --info-foreground: oklch(0.15 0.03 240);
 
+  --gold: oklch(0.75 0.13 80);
+  --gold-foreground: oklch(0.18 0.04 80);
+  --gold-soft: oklch(0.30 0.07 80);
+
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 12%);
-  --ring: oklch(0.72 0.09 245);
+  --ring: oklch(0.75 0.13 80);
 
   --sidebar: oklch(0.20 0.025 250);
   --sidebar-foreground: oklch(0.92 0.005 250);
@@ -128,7 +149,7 @@
   --sidebar-accent: oklch(0.27 0.03 250);
   --sidebar-accent-foreground: oklch(0.96 0.005 250);
   --sidebar-border: oklch(1 0 0 / 8%);
-  --sidebar-ring: oklch(0.72 0.09 245);
+  --sidebar-ring: oklch(0.75 0.13 80);
 }
 
 @layer base {

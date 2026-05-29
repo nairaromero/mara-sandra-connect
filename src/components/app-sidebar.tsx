@@ -53,7 +53,14 @@ export function AppSidebar() {
 
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader className="border-b border-sidebar-border">
+      {/* Faixa dourada sob o logo ecoa a identidade visual MSV. */}
+      <SidebarHeader
+        className="border-b-2"
+        style={{
+          borderImage:
+            "linear-gradient(90deg, transparent 0%, var(--gold) 20%, var(--gold) 80%, transparent 100%) 1",
+        }}
+      >
         {/* Logo do escritorio. Clicar volta para a home (lista de casos). */}
         <Link
           to="/"

@@ -66,7 +66,7 @@ function LoginPage() {
             <Scale className="h-6 w-6" />
           </div>
           <div className="text-center">
-            <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+            <h1 className="font-serif text-3xl font-semibold tracking-tight text-foreground">
               Mara Sandra Advocacia
             </h1>
             <p className="text-sm text-muted-foreground">Plataforma interna · Previdenciário</p>

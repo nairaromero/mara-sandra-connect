@@ -383,7 +383,7 @@ function DocumentosPendentesPage() {
     >
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
+          <h1 className="font-serif text-3xl font-semibold tracking-tight flex items-center gap-2">
             <ClipboardList className="h-6 w-6" />
             Documentos pendentes
           </h1>
@@ -764,7 +764,7 @@ function SolicitacaoItem(props: SolicitacaoItemProps) {
               {TIPOS_DOCUMENTO_LABEL[s.tipo] || s.tipo}
             </p>
             {isPendente && (
-              <Badge className="bg-amber-500 hover:bg-amber-500 text-white">
+              <Badge className="bg-warning hover:bg-warning text-warning-foreground">
                 Pendente
               </Badge>
             )}

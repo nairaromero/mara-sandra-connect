@@ -3201,7 +3201,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                           {TIPOS_DOCUMENTO_LABEL[s.tipo] || s.tipo}
                         </p>
                         {isPendente && (
-                          <Badge className="bg-amber-500 hover:bg-amber-500 text-white">
+                          <Badge className="bg-warning hover:bg-warning text-warning-foreground">
                             Pendente
                           </Badge>
                         )}
