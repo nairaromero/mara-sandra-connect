@@ -280,6 +280,57 @@ const TIPOS_DOCUMENTO_LABEL: Record<string, string> = {
   outro: "Outro",
 };
 
+// Ordem de exibicao dos documentos na aba Documentos do caso.
+// Cada tipo recebe um indice de grupo (1-9). A lista de documentos eh
+// ordenada por esse indice (depois por nome dentro do mesmo grupo).
+// Grupos:
+//   1. Documentos pessoais
+//   2. Comprovantes de endereco
+//   3. Procuracao/Substabelecimento/Declaracoes
+//   4. CNIS
+//   5. Documentos profissionais (CTPS, PPP, LTCAT)
+//   6. Laudos medicos
+//   7. Laudos do INSS
+//   8. Holerites e comprovantes de pagamento
+//   9. Outros (default)
+const DOC_TYPE_GROUP: Record<string, number> = {
+  // 1. Documentos pessoais
+  rg_cpf: 1,
+  certidao_nascimento: 1,
+  certidao_casamento: 1,
+  certidao_obito: 1,
+  // 2. Comprovantes de endereco
+  comprovante_residencia: 2,
+  // 3. Procuracao / Substabelecimento / Declaracoes
+  procuracao: 3,
+  contrato_honorarios: 3,
+  declaracao_uniao_estavel: 3,
+  declaracao_atividade_rural: 3,
+  // 4. CNIS
+  cnis: 4,
+  // 5. Documentos profissionais
+  ctps: 5,
+  ppp: 5,
+  ltcat: 5,
+  // 6. Laudos medicos
+  laudo_medico: 6,
+  atestado_medico: 6,
+  cat: 6,
+  // 7. Laudos do INSS
+  hiscre: 7,
+  carta_concessao_inss: 7,
+  ctc: 7,
+  // 8. Holerites e comprovantes de pagamento
+  holerite: 8,
+  carne_gps: 8,
+  // 9. Outros (default para qualquer tipo nao listado, inclusive "outro")
+  outro: 9,
+};
+
+function getDocGroup(tipo: string): number {
+  return DOC_TYPE_GROUP[tipo] !== undefined ? DOC_TYPE_GROUP[tipo] : 9;
+}
+
 const STATUS_REPASSE_LABEL: Record<string, string> = {
   previsto: "Previsto",
   a_pagar: "A pagar",
@@ -2400,9 +2451,19 @@ function TabDocumentos(props: TabDocumentosProps) {
     return labelSanit + "." + ext.toLowerCase();
   }
 
-  const lista = isInterno
+  const listaFiltrada = isInterno
     ? documentos
     : documentos.filter((d) => d.visivel_parceiro === true);
+
+  // Ordena por grupo (categoria) e, dentro do mesmo grupo, por nome do
+  // arquivo (alfabetica) para ficar previsivel mesmo com uploads fora
+  // de ordem.
+  const lista = listaFiltrada.slice().sort((a, b) => {
+    const ga = getDocGroup(a.tipo);
+    const gb = getDocGroup(b.tipo);
+    if (ga !== gb) return ga - gb;
+    return (a.nome_arquivo || "").localeCompare(b.nome_arquivo || "");
+  });
 
   // Solicitacoes ordenadas: pendentes primeiro, depois atendidas, depois dispensadas
   const ordemStatus: Record<string, number> = {
