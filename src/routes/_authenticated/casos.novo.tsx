@@ -4,7 +4,16 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2, Eye, EyeOff, Plus, X, FileText } from "lucide-react";
+import {
+  ArrowLeft,
+  Loader2,
+  Eye,
+  EyeOff,
+  Plus,
+  X,
+  FileText,
+  FileDown,
+} from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
@@ -24,6 +33,11 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { DocTypeCombobox } from "@/components/doc-type-combobox";
+import {
+  DrivePickerDialog,
+  type DriveImportedFile,
+} from "@/components/drive-picker-dialog";
+import { isGoogleDriveConfigured } from "@/lib/google-drive";
 import {
   Select,
   SelectContent,
@@ -191,6 +205,9 @@ function NovoCasoPage() {
   const [submitting, setSubmitting] = useState(false);
   const [showPwd, setShowPwd] = useState(false);
   const [docs, setDocs] = useState<Array<DocUpload>>([]);
+  // Dialog do Google Drive Picker (so aparece se env vars configuradas
+  // e usuario for interno).
+  const [driveDialogAberto, setDriveDialogAberto] = useState(false);
 
   const isInterno = usuario?.tipo === "interno";
 
@@ -241,6 +258,19 @@ function NovoCasoPage() {
         tipoPersonalizado: "",
       });
     }
+    setDocs((prev) => [...prev, ...novos]);
+  }
+
+  // Recebe arquivos importados do Google Drive (ja baixados como File pelo
+  // DrivePickerDialog) e adiciona ao array `docs` ja com tipo pre-inferido.
+  // Ao submit do form, eles seguem o mesmo upload-flow dos files manuais.
+  async function addDocsFromDrive(arquivos: Array<DriveImportedFile>) {
+    const novos: Array<DocUpload> = arquivos.map((a) => ({
+      id: crypto.randomUUID(),
+      file: a.file,
+      tipo: a.tipo,
+      tipoPersonalizado: a.tipoPersonalizado,
+    }));
     setDocs((prev) => [...prev, ...novos]);
   }
 
@@ -832,6 +862,22 @@ function NovoCasoPage() {
                     }}
                   />
                 </div>
+                {/* Importar do Google Drive - so aparece pra interno e se
+                    as env vars estiverem configuradas. Util pra migrar
+                    documentos de clientes que ja tem pasta no Drive. */}
+                {isInterno && isGoogleDriveConfigured() && (
+                  <div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setDriveDialogAberto(true)}
+                    >
+                      <FileDown className="h-4 w-4 mr-2" />
+                      Importar do Google Drive
+                    </Button>
+                  </div>
+                )}
                 {docs.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
                     Nenhum documento adicionado.
@@ -955,6 +1001,15 @@ function NovoCasoPage() {
             </div>
           </form>
         </Form>
+        {/* Dialog do Google Drive Picker */}
+        {isInterno && (
+          <DrivePickerDialog
+            aberto={driveDialogAberto}
+            onOpenChange={setDriveDialogAberto}
+            tiposDocumento={TIPOS_DOCUMENTO}
+            onConfirmar={addDocsFromDrive}
+          />
+        )}
       </ClientOnly>
     </div>
   );

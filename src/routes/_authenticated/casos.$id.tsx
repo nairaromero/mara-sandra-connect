@@ -10,6 +10,7 @@ import {
   ArrowLeft,
   Loader2,
   FileText,
+  FileDown,
   Plus,
   Send,
   Download,
@@ -41,8 +42,13 @@ import {
   validateFileSize,
   validateFileSizes,
 } from "@/lib/upload-limits";
+import { isGoogleDriveConfigured } from "@/lib/google-drive";
 import { ClientOnly } from "@/components/client-only";
 import { DocTypeCombobox } from "@/components/doc-type-combobox";
+import {
+  DrivePickerDialog,
+  type DriveImportedFile,
+} from "@/components/drive-picker-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -3019,6 +3025,65 @@ function TabDocumentos(props: TabDocumentosProps) {
     new Set(),
   );
 
+  // ---- Importar do Google Drive (interno only) ----
+  // Quando o usuario importa do Drive, baixamos os files no DrivePickerDialog
+  // e aqui fazemos upload pro Supabase Storage + insert em documentos.
+  const [driveDialogAberto, setDriveDialogAberto] = useState(false);
+  const tiposDocImportOptions = Object.keys(TIPOS_DOCUMENTO_LABEL).map((k) => ({
+    value: k,
+    label: TIPOS_DOCUMENTO_LABEL[k],
+  }));
+
+  async function importarDriveParaCaso(
+    arquivos: Array<DriveImportedFile>,
+  ): Promise<void> {
+    if (!usuarioId) {
+      toast.error("Sessao invalida.");
+      return;
+    }
+    let okCount = 0;
+    let errCount = 0;
+    for (const a of arquivos) {
+      try {
+        const fileName = Date.now() + "_" + sanitizeFileName(a.file.name);
+        const storagePath = casoId + "/" + fileName;
+        const uploadResp = await supabase.storage
+          .from("documentos")
+          .upload(storagePath, a.file, {
+            cacheControl: "3600",
+            upsert: false,
+          });
+        if (uploadResp.error) throw uploadResp.error;
+
+        const insertResp = await supabase.from("documentos").insert({
+          caso_id: casoId,
+          tipo: a.tipo,
+          tipo_personalizado: a.tipo === "outro"
+            ? a.tipoPersonalizado.trim()
+            : null,
+          nome_arquivo: a.file.name,
+          storage_path: storagePath,
+          tamanho_bytes: a.file.size,
+          uploaded_by: usuarioId,
+          // Importados do Drive sao visiveis ao parceiro por default,
+          // alinhado com o resto do app.
+          visivel_parceiro: true,
+        });
+        if (insertResp.error) throw insertResp.error;
+        okCount++;
+      } catch (err) {
+        console.error("Falha ao importar", a.file.name, err);
+        errCount++;
+      }
+    }
+    if (okCount > 0) {
+      onChange(); // recarrega lista
+    }
+    if (errCount > 0) {
+      toast.error(errCount + " arquivo(s) falharam ao importar.");
+    }
+  }
+
   function toggleGrupoExpandido(g: number) {
     setGruposExpandidos((prev) => {
       const next = new Set(prev);
@@ -3507,6 +3572,17 @@ function TabDocumentos(props: TabDocumentosProps) {
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
+              )}
+              {isInterno && isGoogleDriveConfigured() && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setDriveDialogAberto(true)}
+                  title="Importar arquivos do Google Drive"
+                >
+                  <FileDown className="h-4 w-4 mr-2" />
+                  Drive
+                </Button>
               )}
               <UploadDoc
                 casoId={casoId}
@@ -4092,6 +4168,15 @@ function TabDocumentos(props: TabDocumentosProps) {
           </div>
         </DialogContent>
       </Dialog>
+      {/* Dialog do Google Drive Picker (interno only). */}
+      {isInterno && (
+        <DrivePickerDialog
+          aberto={driveDialogAberto}
+          onOpenChange={setDriveDialogAberto}
+          tiposDocumento={tiposDocImportOptions}
+          onConfirmar={importarDriveParaCaso}
+        />
+      )}
     </div>
   );
 }
