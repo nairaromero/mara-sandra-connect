@@ -346,6 +346,16 @@ function getDocGroup(tipo: string): number {
   return DOC_TYPE_GROUP[tipo] !== undefined ? DOC_TYPE_GROUP[tipo] : 9;
 }
 
+// Grupos exibidos como accordion (recolhem por padrao porque tendem a ter
+// muitos arquivos do mesmo tipo). Os demais grupos seguem como lista plana.
+const GRUPOS_ACCORDION = new Set<number>([6, 7, 8]);
+
+const GRUPO_LABELS: Record<number, string> = {
+  6: "Laudos medicos",
+  7: "Laudos do INSS",
+  8: "Holerites e comprovantes de pagamento",
+};
+
 // Remove prefixo numerico do nome do arquivo na exibicao.
 // Ex.: "01 - RG e CPF.pdf" -> "RG e CPF.pdf"
 //      "08 - Relatorio.pdf" -> "Relatorio.pdf"
@@ -2472,6 +2482,20 @@ function TabDocumentos(props: TabDocumentosProps) {
   const [docsSelecionados, setDocsSelecionados] = useState<Set<string>>(
     new Set(),
   );
+  // Accordions dos grupos 6, 7, 8 (Laudos medicos, Laudos INSS, Holerites).
+  // Por padrao recolhidos para nao poluir a tela quando ha muitos arquivos.
+  const [gruposExpandidos, setGruposExpandidos] = useState<Set<number>>(
+    new Set(),
+  );
+
+  function toggleGrupoExpandido(g: number) {
+    setGruposExpandidos((prev) => {
+      const next = new Set(prev);
+      if (next.has(g)) next.delete(g);
+      else next.add(g);
+      return next;
+    });
+  }
 
   function toggleDocSelecionado(id: string) {
     setDocsSelecionados((prev) => {
@@ -2943,74 +2967,148 @@ function TabDocumentos(props: TabDocumentosProps) {
                   Selecionar tudo ({lista.length})
                 </label>
               )}
-              <ul className="space-y-2">
-              {lista.map((d) => (
-                <li
-                  key={d.id}
-                  className="flex items-center justify-between gap-2 border rounded-md p-3"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    {isInterno && (
-                      <input
-                        type="checkbox"
-                        checked={docsSelecionados.has(d.id)}
-                        onChange={() => toggleDocSelecionado(d.id)}
-                        className="h-4 w-4 shrink-0"
-                        title="Selecionar para excluir em batch"
-                      />
-                    )}
-                    <FileText className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">
-                        {displayNomeArquivo(d.nome_arquivo)}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {d.tipo === "outro" && d.tipo_personalizado
-                          ? d.tipo_personalizado
-                          : TIPOS_DOCUMENTO_LABEL[d.tipo] || d.tipo}{" "}
-                        -{" "}
-                        {formatBytes(d.tamanho_bytes)} -{" "}
-                        {formatDate(d.created_at)}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {isInterno && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => baixar(d)}
-                      >
-                        <Download className="h-4 w-4 mr-2" />
-                        Baixar
-                      </Button>
-                    )}
-                    {!isInterno && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => abrirPreview(d)}
-                        disabled={carregandoPreview}
-                      >
-                        <Eye className="h-4 w-4 mr-2" />
-                        Visualizar
-                      </Button>
-                    )}
-                    {isInterno && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => deletarDoc(d)}
-                        title="Deletar documento"
-                        aria-label="Deletar documento"
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    )}
-                  </div>
-                </li>
-              ))}
-              </ul>
+              {(() => {
+                // Helper: renderiza o <li> de um documento individual.
+                // Usado tanto na lista plana quanto dentro dos accordions.
+                function renderDocLi(d: Documento) {
+                  return (
+                    <li
+                      key={d.id}
+                      className="flex items-center justify-between gap-2 border rounded-md p-3"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        {isInterno && (
+                          <input
+                            type="checkbox"
+                            checked={docsSelecionados.has(d.id)}
+                            onChange={() => toggleDocSelecionado(d.id)}
+                            className="h-4 w-4 shrink-0"
+                            title="Selecionar para excluir em batch"
+                          />
+                        )}
+                        <FileText className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">
+                            {displayNomeArquivo(d.nome_arquivo)}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {d.tipo === "outro" && d.tipo_personalizado
+                              ? d.tipo_personalizado
+                              : TIPOS_DOCUMENTO_LABEL[d.tipo] || d.tipo}{" "}
+                            -{" "}
+                            {formatBytes(d.tamanho_bytes)} -{" "}
+                            {formatDate(d.created_at)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {isInterno && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => baixar(d)}
+                          >
+                            <Download className="h-4 w-4 mr-2" />
+                            Baixar
+                          </Button>
+                        )}
+                        {!isInterno && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => abrirPreview(d)}
+                            disabled={carregandoPreview}
+                          >
+                            <Eye className="h-4 w-4 mr-2" />
+                            Visualizar
+                          </Button>
+                        )}
+                        {isInterno && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => deletarDoc(d)}
+                            title="Deletar documento"
+                            aria-label="Deletar documento"
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
+                      </div>
+                    </li>
+                  );
+                }
+
+                // Divide lista (ja ordenada por grupo) em secoes:
+                //  - tipo "flat": grupo nao-accordion, renderiza como <li> direto
+                //  - tipo "accordion": grupo 6/7/8, renderiza como bloco
+                //    expansivel com cabecalho clicavel.
+                type Secao =
+                  | { kind: "flat"; doc: Documento }
+                  | { kind: "accordion"; grupo: number; docs: Array<Documento> };
+                const secoes: Array<Secao> = [];
+                for (const d of lista) {
+                  const g = getDocGroup(d.tipo);
+                  if (GRUPOS_ACCORDION.has(g)) {
+                    const ultima = secoes[secoes.length - 1];
+                    if (
+                      ultima &&
+                      ultima.kind === "accordion" &&
+                      ultima.grupo === g
+                    ) {
+                      ultima.docs.push(d);
+                    } else {
+                      secoes.push({ kind: "accordion", grupo: g, docs: [d] });
+                    }
+                  } else {
+                    secoes.push({ kind: "flat", doc: d });
+                  }
+                }
+
+                return (
+                  <ul className="space-y-2">
+                    {secoes.map((s, idx) => {
+                      if (s.kind === "flat") {
+                        return renderDocLi(s.doc);
+                      }
+                      const aberto = gruposExpandidos.has(s.grupo);
+                      const label = GRUPO_LABELS[s.grupo] || "Grupo " + s.grupo;
+                      return (
+                        <li
+                          key={"grupo-" + s.grupo + "-" + idx}
+                          className="border rounded-md overflow-hidden"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => toggleGrupoExpandido(s.grupo)}
+                            className="w-full flex items-center justify-between p-3 hover:bg-muted/50 transition-colors text-left"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              {aberto ? (
+                                <ChevronDown className="h-4 w-4 shrink-0" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4 shrink-0" />
+                              )}
+                              <span className="text-sm font-medium truncate">
+                                {label}
+                              </span>
+                            </div>
+                            <span className="text-xs text-muted-foreground shrink-0">
+                              {s.docs.length}{" "}
+                              {s.docs.length === 1 ? "arquivo" : "arquivos"}
+                            </span>
+                          </button>
+                          {aberto && (
+                            <ul className="space-y-2 p-3 border-t">
+                              {s.docs.map(renderDocLi)}
+                            </ul>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                );
+              })()}
             </div>
           )}
           {!isInterno && lista.length > 0 && (
