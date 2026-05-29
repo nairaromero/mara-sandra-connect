@@ -175,7 +175,8 @@ create or replace function public.set_senha_meu_inss(
 ) returns void
 language plpgsql
 security definer
-set search_path = public
+-- inclui 'extensions' pq no Supabase pgcrypto fica em extensions schema
+set search_path = public, extensions
 as $$
 declare
   v_key text;
@@ -214,7 +215,8 @@ create or replace function public.get_senha_meu_inss(
 ) returns text
 language plpgsql
 security definer
-set search_path = public
+-- inclui 'extensions' pq no Supabase pgcrypto fica em extensions schema
+set search_path = public, extensions
 as $$
 declare
   v_key text;
