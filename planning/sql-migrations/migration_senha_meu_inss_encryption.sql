@@ -57,12 +57,43 @@ comment on column public.clientes.senha_meu_inss is
 -- ---------------------------------------------------------------------------
 -- Audit log
 -- ---------------------------------------------------------------------------
+-- Cria a tabela se nao existir, e garante todas as colunas (defensivo
+-- caso uma versao anterior tenha criado com schema diferente).
 create table if not exists public.acessos_senha_inss (
-  id uuid primary key default gen_random_uuid(),
-  cliente_id uuid not null references public.clientes(id) on delete cascade,
-  usuario_id uuid references public.usuarios(id) on delete set null,
-  acessado_em timestamptz not null default now()
+  id uuid primary key default gen_random_uuid()
 );
+
+alter table public.acessos_senha_inss
+  add column if not exists cliente_id uuid;
+alter table public.acessos_senha_inss
+  add column if not exists usuario_id uuid;
+alter table public.acessos_senha_inss
+  add column if not exists acessado_em timestamptz not null default now();
+
+-- Foreign keys (idempotente)
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+     where conname = 'acessos_senha_inss_cliente_id_fkey'
+  ) then
+    alter table public.acessos_senha_inss
+      add constraint acessos_senha_inss_cliente_id_fkey
+      foreign key (cliente_id) references public.clientes(id) on delete cascade;
+  end if;
+  if not exists (
+    select 1 from pg_constraint
+     where conname = 'acessos_senha_inss_usuario_id_fkey'
+  ) then
+    alter table public.acessos_senha_inss
+      add constraint acessos_senha_inss_usuario_id_fkey
+      foreign key (usuario_id) references public.usuarios(id) on delete set null;
+  end if;
+end $$;
+
+-- NOT NULL no cliente_id (depois das FKs)
+alter table public.acessos_senha_inss
+  alter column cliente_id set not null;
 
 create index if not exists idx_acessos_senha_inss_cliente
   on public.acessos_senha_inss(cliente_id, acessado_em desc);
