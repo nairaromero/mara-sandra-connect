@@ -2,7 +2,6 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import {
   Briefcase,
   FileWarning,
-  Wallet,
   Settings,
   ShieldCheck,
   Users,
@@ -24,9 +23,9 @@ import { useAuth } from "@/hooks/use-auth";
 const itemsBase = [
   { title: "Casos", url: "/", icon: Briefcase },
   { title: "Documentos pendentes", url: "/documentos", icon: FileWarning },
-  { title: "Repasses", url: "/repasses", icon: Wallet },
-  // "Conversas" removida da sidebar - comunicacao agora eh por
-  // comentarios direto na aba Comentarios de cada caso.
+  // "Repasses" e "Conversas" removidas da sidebar mas as rotas /repasses
+  // e /conversas continuam existindo no codigo - decisao de produto
+  // pendente sobre o que fazer com essas paginas no futuro.
 ];
 
 const itemsInternos = [
