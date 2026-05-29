@@ -95,6 +95,24 @@ end $$;
 alter table public.acessos_senha_inss
   alter column cliente_id set not null;
 
+-- Defensivo: se uma versao anterior da tabela tinha colunas extras com
+-- NOT NULL (ex.: 'acao' text not null), nao deixa quebrar o INSERT da
+-- nova funcao. Da default razoavel + remove o NOT NULL.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public'
+       and table_name = 'acessos_senha_inss'
+       and column_name = 'acao'
+  ) then
+    alter table public.acessos_senha_inss
+      alter column acao set default 'leitura';
+    alter table public.acessos_senha_inss
+      alter column acao drop not null;
+  end if;
+end $$;
+
 create index if not exists idx_acessos_senha_inss_cliente
   on public.acessos_senha_inss(cliente_id, acessado_em desc);
 create index if not exists idx_acessos_senha_inss_usuario
