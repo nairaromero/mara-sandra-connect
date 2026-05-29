@@ -1,5 +1,6 @@
 -- =============================================================================
 -- Migration: criptografia simetrica para senha do MEU INSS via pgcrypto.
+-- A chave fica no Supabase Vault (cofre nativo, encrypted at rest).
 --
 -- Por que existe:
 --   - Hoje a senha do MEU INSS fica em clientes.senha_meu_inss_plain (text).
@@ -12,19 +13,31 @@
 --   - Funcao set_senha_meu_inss(cliente_id, senha) criptografa e grava.
 --   - Funcao get_senha_meu_inss(cliente_id) decripta e registra audit.
 --   - Apenas usuarios com tipo='interno' podem chamar set/get.
+--   - A chave fica em vault.decrypted_secrets com nome 'inss_encryption_key'.
 --
 -- PRE-REQUISITO MANUAL (rode ANTES desta migration no SQL Editor):
---   1) Gerar uma chave forte (32+ chars). No terminal local rode:
+--
+--   1) Gere uma chave forte (32+ chars). No terminal local:
 --        openssl rand -hex 32
 --      Copie o resultado.
 --
---   2) Configurar a chave no banco (SQL Editor do Supabase):
---        alter database postgres set app.inss_key = '<chave-do-passo-1>';
---        select pg_reload_conf();
+--   2) Salve a chave no Supabase Vault (SQL Editor):
 --
---   3) Verificar que a chave esta acessivel:
---        show app.inss_key;
---      (deve retornar a chave; se vier vazio, repetir o passo 2)
+--        select vault.create_secret(
+--          'COLE_SUA_CHAVE_AQUI',
+--          'inss_encryption_key',
+--          'Chave AES para criptografar senha MEU INSS dos clientes'
+--        );
+--
+--      Se ja existir o segredo (idempotencia falha), use:
+--        select vault.update_secret(
+--          (select id from vault.secrets where name = 'inss_encryption_key'),
+--          'COLE_SUA_CHAVE_AQUI'
+--        );
+--
+--   3) Verifique que o segredo existe:
+--        select name, description, created_at
+--          from vault.secrets where name = 'inss_encryption_key';
 --
 -- Idempotente: pode rodar varias vezes.
 -- =============================================================================
@@ -73,6 +86,35 @@ create policy "acessos_senha_inss_interno_read"
   );
 
 -- ---------------------------------------------------------------------------
+-- Helper interno: le a chave de criptografia do Supabase Vault.
+-- Eh security definer pra ter permissao de ler vault.decrypted_secrets.
+-- ---------------------------------------------------------------------------
+create or replace function public._inss_get_key()
+returns text
+language plpgsql
+security definer
+set search_path = public, vault
+as $$
+declare
+  v_key text;
+begin
+  select decrypted_secret into v_key
+    from vault.decrypted_secrets
+   where name = 'inss_encryption_key'
+   limit 1;
+
+  if v_key is null or length(v_key) < 16 then
+    raise exception 'Chave inss_encryption_key nao encontrada no Vault ou muito curta';
+  end if;
+
+  return v_key;
+end;
+$$;
+
+revoke all on function public._inss_get_key() from public;
+revoke all on function public._inss_get_key() from authenticated;
+
+-- ---------------------------------------------------------------------------
 -- set_senha_meu_inss(cliente_id, senha)
 --   - Criptografa e grava em clientes.senha_meu_inss.
 --   - Senha NULL/vazia limpa o campo.
@@ -90,24 +132,21 @@ declare
   v_key text;
   v_tipo text;
 begin
-  -- Validar que quem chama eh interno
   select tipo into v_tipo from public.usuarios where id = auth.uid();
   if v_tipo is null or v_tipo <> 'interno' then
     raise exception 'Apenas usuarios internos podem definir senha MEU INSS';
   end if;
 
-  v_key := current_setting('app.inss_key', true);
-  if v_key is null or length(v_key) < 16 then
-    raise exception 'Chave de criptografia nao configurada (app.inss_key)';
-  end if;
-
   if p_senha is null or length(trim(p_senha)) = 0 then
     update public.clientes set senha_meu_inss = null where id = p_cliente_id;
-  else
-    update public.clientes
-       set senha_meu_inss = pgp_sym_encrypt(p_senha, v_key)
-     where id = p_cliente_id;
+    return;
   end if;
+
+  v_key := public._inss_get_key();
+
+  update public.clientes
+     set senha_meu_inss = pgp_sym_encrypt(p_senha, v_key)
+   where id = p_cliente_id;
 end;
 $$;
 
@@ -138,17 +177,14 @@ begin
     raise exception 'Apenas usuarios internos podem ler senha MEU INSS';
   end if;
 
-  v_key := current_setting('app.inss_key', true);
-  if v_key is null or length(v_key) < 16 then
-    raise exception 'Chave de criptografia nao configurada (app.inss_key)';
-  end if;
-
   select senha_meu_inss into v_senha_bytea
     from public.clientes where id = p_cliente_id;
 
   if v_senha_bytea is null then
     return null;
   end if;
+
+  v_key := public._inss_get_key();
 
   -- Audita o acesso antes de retornar
   insert into public.acessos_senha_inss (cliente_id, usuario_id)
