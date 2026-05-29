@@ -2582,9 +2582,23 @@ function TabDocumentos(props: TabDocumentosProps) {
         .from("documentos")
         .createSignedUrl(d.storage_path, 300); // 5 min de TTL
       if (resp.error) throw resp.error;
-      const url = resp.data ? resp.data.signedUrl : null;
-      if (!url) throw new Error("Nao foi possivel gerar link de visualizacao");
-      setPreviewDoc({ doc: d, url: url });
+      const signedUrl = resp.data ? resp.data.signedUrl : null;
+      if (!signedUrl) throw new Error("Nao foi possivel gerar link de visualizacao");
+
+      // Buscamos o arquivo e convertemos para blob: URL same-origin.
+      // Sem isso, o Chrome bloqueia iframes apontados direto para o
+      // Supabase Storage (cross-origin + Content-Disposition pode forcar
+      // download, e o sandbox impede o PDF viewer de renderizar).
+      // Com blob: URL o iframe e same-origin do app e o PDF viewer interno
+      // do Chrome consegue exibir normalmente.
+      const fileResp = await fetch(signedUrl);
+      if (!fileResp.ok) {
+        throw new Error("Erro ao baixar arquivo para preview");
+      }
+      const blob = await fileResp.blob();
+      const blobUrl = URL.createObjectURL(blob);
+
+      setPreviewDoc({ doc: d, url: blobUrl });
     } catch (err) {
       console.error(err);
       const errObj = err as { message?: string };
@@ -2595,6 +2609,10 @@ function TabDocumentos(props: TabDocumentosProps) {
   }
 
   function fecharPreview() {
+    // Libera memoria do blob URL gerado em abrirPreview.
+    if (previewDoc && previewDoc.url.startsWith("blob:")) {
+      URL.revokeObjectURL(previewDoc.url);
+    }
     setPreviewDoc(null);
   }
 
