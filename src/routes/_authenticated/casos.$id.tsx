@@ -24,12 +24,20 @@ import {
   Search,
   ChevronDown,
   ChevronRight,
+  MoreVertical,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import { ClientOnly } from "@/components/client-only";
 import { DocTypeCombobox } from "@/components/doc-type-combobox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -2467,6 +2475,14 @@ function TabDocumentos(props: TabDocumentosProps) {
     });
   }
 
+  function toggleSelecionarTodos(listaParaCheck: Array<Documento>) {
+    if (docsSelecionados.size === listaParaCheck.length) {
+      setDocsSelecionados(new Set());
+    } else {
+      setDocsSelecionados(new Set(listaParaCheck.map((d) => d.id)));
+    }
+  }
+
   // Renomeia arquivo para o nome do tipo solicitado (ex.: CNIS.pdf)
   function nomearArquivo(tipoSolic: string, arquivoOriginal: File): string {
     const ext = arquivoOriginal.name.includes(".")
@@ -2525,6 +2541,46 @@ function TabDocumentos(props: TabDocumentosProps) {
       console.error(err);
       const errObj = err as { message?: string };
       toast.error(errObj.message || "Erro ao gerar link do documento");
+    }
+  }
+
+  async function baixarSelecionados() {
+    if (docsSelecionados.size === 0) return;
+    const alvos = lista.filter((d) => docsSelecionados.has(d.id));
+    if (alvos.length === 0) return;
+    let okCount = 0;
+    let errCount = 0;
+    for (const d of alvos) {
+      try {
+        const resp = await supabase.storage
+          .from("documentos")
+          .createSignedUrl(d.storage_path, 60);
+        if (resp.error) throw resp.error;
+        const url = resp.data ? resp.data.signedUrl : null;
+        if (url) {
+          window.open(url, "_blank");
+          okCount++;
+        } else {
+          errCount++;
+        }
+        // pausa curta entre downloads para nao saturar/popup-blocker
+        await new Promise((r) => setTimeout(r, 300));
+      } catch (err) {
+        console.error("erro baixar", d.nome_arquivo, err);
+        errCount++;
+      }
+    }
+    if (okCount > 0) {
+      toast.success(
+        okCount + " download" + (okCount === 1 ? "" : "s") + " iniciado" +
+          (okCount === 1 ? "" : "s"),
+      );
+    }
+    if (errCount > 0) {
+      toast.error(
+        errCount + " falha" + (errCount === 1 ? "" : "s") +
+          " ao gerar link. Ver console.",
+      );
     }
   }
 
@@ -2789,29 +2845,46 @@ function TabDocumentos(props: TabDocumentosProps) {
               </CardDescription>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              {isInterno && docsSelecionados.size > 0 && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={deletarSelecionados}
-                  className="text-destructive hover:text-destructive border-destructive/30 hover:bg-destructive/10"
-                  title="Excluir somente os documentos marcados"
-                >
-                  <Trash2 className="h-4 w-4 mr-1" />
-                  Excluir selecionados ({docsSelecionados.size})
-                </Button>
-              )}
               {isInterno && lista.length > 0 && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={deletarTodos}
-                  className="text-destructive hover:text-destructive border-destructive/30 hover:bg-destructive/10"
-                  title="Excluir todos os documentos do caso"
-                >
-                  <Trash2 className="h-4 w-4 mr-1" />
-                  Excluir todos
-                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={docsSelecionados.size === 0}
+                      title={
+                        docsSelecionados.size === 0
+                          ? "Selecione documentos primeiro"
+                          : "Ações nos selecionados"
+                      }
+                    >
+                      <MoreVertical className="h-4 w-4 mr-1" />
+                      Ações ({docsSelecionados.size})
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={baixarSelecionados}>
+                      <Download className="h-4 w-4 mr-2" />
+                      Baixar selecionados
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={deletarSelecionados}
+                      className="text-destructive focus:text-destructive"
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Excluir selecionados
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={deletarTodos}
+                      className="text-destructive focus:text-destructive"
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Excluir TODOS do caso
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               )}
               <UploadDoc
                 casoId={casoId}
@@ -2827,7 +2900,22 @@ function TabDocumentos(props: TabDocumentosProps) {
               Nenhum documento anexado ainda.
             </p>
           ) : (
-            <ul className="space-y-2">
+            <div className="space-y-2">
+              {isInterno && (
+                <label className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={
+                      lista.length > 0 &&
+                      docsSelecionados.size === lista.length
+                    }
+                    onChange={() => toggleSelecionarTodos(lista)}
+                    className="h-4 w-4"
+                  />
+                  Selecionar tudo ({lista.length})
+                </label>
+              )}
+              <ul className="space-y-2">
               {lista.map((d) => (
                 <li
                   key={d.id}
@@ -2877,7 +2965,8 @@ function TabDocumentos(props: TabDocumentosProps) {
                   </div>
                 </li>
               ))}
-            </ul>
+              </ul>
+            </div>
           )}
           {!isInterno && lista.length > 0 && (
             <p className="text-xs text-muted-foreground mt-3">
