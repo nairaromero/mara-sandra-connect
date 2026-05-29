@@ -4,7 +4,14 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { Loader2, UserPlus, Mail, ShieldAlert, Pencil } from "lucide-react";
+import {
+  Loader2,
+  UserPlus,
+  Mail,
+  ShieldAlert,
+  Pencil,
+  Trash2,
+} from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
@@ -44,6 +51,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 
 export const Route = createFileRoute("/_authenticated/parceiros")({
@@ -96,6 +113,13 @@ function ParceirosPage() {
   const [editOab, setEditOab] = useState("");
   const [editTelefone, setEditTelefone] = useState("");
   const [editSalvando, setEditSalvando] = useState(false);
+
+  // ---- Excluir parceiro ----
+  // Acao destrutiva mas com cascade que preserva historico: casos viram
+  // sem parceiro indicador, andamentos/documentos perdem autoria, mas
+  // continuam existindo. So comentarios feitos pelo parceiro sao apagados.
+  const [excluirAlvo, setExcluirAlvo] = useState<ParceiroRow | null>(null);
+  const [excluindo, setExcluindo] = useState(false);
 
   const isInterno = usuario?.tipo === "interno";
 
@@ -169,6 +193,37 @@ function ParceirosPage() {
       toast.error(errObj.message || "Erro ao atualizar parceiro");
     } finally {
       setEditSalvando(false);
+    }
+  }
+
+  async function excluirParceiroConfirmado() {
+    if (!excluirAlvo) return;
+    setExcluindo(true);
+    try {
+      const resp = await supabase.functions.invoke("excluir-parceiro", {
+        body: { usuario_id: excluirAlvo.id, confirmar: true },
+      });
+      if (resp.error) throw resp.error;
+      const data = resp.data as {
+        excluido?: boolean;
+        auth_excluido?: boolean;
+        warning?: string;
+      } | null;
+      if (data?.warning) {
+        toast.warning(data.warning);
+      } else {
+        toast.success(
+          "Parceiro " + (excluirAlvo.nome ?? "") + " excluido.",
+        );
+      }
+      setExcluirAlvo(null);
+      await loadParceiros();
+    } catch (err) {
+      console.error(err);
+      const errObj = err as { message?: string };
+      toast.error(errObj.message || "Erro ao excluir parceiro");
+    } finally {
+      setExcluindo(false);
     }
   }
 
@@ -394,7 +449,7 @@ function ParceirosPage() {
                     <TableHead>OAB</TableHead>
                     <TableHead>Telefone</TableHead>
                     <TableHead className="w-24">Status</TableHead>
-                    <TableHead className="w-20 text-right">Acoes</TableHead>
+                    <TableHead className="w-28 text-right">Acoes</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -412,14 +467,25 @@ function ParceirosPage() {
                         )}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => abrirEditar(p)}
-                          aria-label="Editar parceiro"
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
+                        <div className="flex justify-end gap-0.5">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => abrirEditar(p)}
+                            aria-label="Editar parceiro"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setExcluirAlvo(p)}
+                            aria-label="Excluir parceiro"
+                            className="text-muted-foreground hover:text-destructive"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -510,6 +576,68 @@ function ParceirosPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* AlertDialog: confirmar exclusao destrutiva */}
+        <AlertDialog
+          open={excluirAlvo !== null}
+          onOpenChange={(o) => {
+            if (!excluindo && !o) setExcluirAlvo(null);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                Excluir {excluirAlvo?.nome ?? "parceiro"}?
+              </AlertDialogTitle>
+              <AlertDialogDescription asChild>
+                <div className="space-y-2 text-sm">
+                  <p>
+                    Esta acao e <strong>irreversivel</strong>. O parceiro sera
+                    removido do sistema (login + cadastro).
+                  </p>
+                  <p>Cascade que preserva historico:</p>
+                  <ul className="list-disc pl-5 space-y-0.5 text-muted-foreground">
+                    <li>
+                      <strong>Casos</strong> vinculados ficarao sem parceiro
+                      indicador (parceiro_id = null). Voce pode reatribuir
+                      depois.
+                    </li>
+                    <li>
+                      <strong>Andamentos e documentos</strong> do parceiro
+                      continuam existindo, mas perdem a autoria.
+                    </li>
+                    <li>
+                      <strong>Comentarios</strong> feitos pelo parceiro sao
+                      apagados (respostas tambem).
+                    </li>
+                    <li>
+                      <strong>Login</strong> e cadastro (auth.users + usuarios)
+                      sao removidos.
+                    </li>
+                  </ul>
+                </div>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={excluindo}>
+                Cancelar
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault();
+                  excluirParceiroConfirmado();
+                }}
+                disabled={excluindo}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {excluindo && (
+                  <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                )}
+                Sim, excluir parceiro
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </ClientOnly>
     </div>
   );
