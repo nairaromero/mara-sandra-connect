@@ -2596,6 +2596,12 @@ function TabDocumentos(props: TabDocumentosProps) {
         throw new Error("Erro ao baixar arquivo para preview");
       }
       const blob = await fileResp.blob();
+      console.log("[preview]", {
+        nome: d.nome_arquivo,
+        contentType: fileResp.headers.get("content-type"),
+        blobType: blob.type,
+        blobSize: blob.size,
+      });
       const blobUrl = URL.createObjectURL(blob);
 
       setPreviewDoc({ doc: d, url: blobUrl });
@@ -3513,11 +3519,13 @@ function TabDocumentos(props: TabDocumentosProps) {
                   className="w-full h-full object-contain pointer-events-none"
                 />
               ) : (
+                // Sem sandbox: o PDF viewer interno do Chrome precisa rodar
+                // scripts pra renderizar. Como a URL e blob: same-origin
+                // (gerado por nos no client), o risco e baixo.
                 <iframe
                   src={previewDoc.url + "#toolbar=0&navpanes=0&scrollbar=1"}
                   title={previewDoc.doc.nome_arquivo}
                   className="w-full h-full"
-                  sandbox="allow-same-origin"
                 />
               )}
               {/* Watermark com identificacao do usuario */}
