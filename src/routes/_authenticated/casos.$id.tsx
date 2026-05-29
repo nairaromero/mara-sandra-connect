@@ -2865,7 +2865,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem onClick={baixarSelecionados}>
                       <Download className="h-4 w-4 mr-2" />
-                      Baixar selecionados
+                      Baixar
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
@@ -2873,15 +2873,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                       className="text-destructive focus:text-destructive"
                     >
                       <Trash2 className="h-4 w-4 mr-2" />
-                      Excluir selecionados
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onClick={deletarTodos}
-                      className="text-destructive focus:text-destructive"
-                    >
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      Excluir TODOS do caso
+                      Excluir
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
