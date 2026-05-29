@@ -4,7 +4,7 @@ import {
   useNavigate,
   Link,
 } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -55,6 +55,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   Card,
   CardContent,
@@ -198,12 +199,30 @@ interface AnaliseTecnica {
 }
 
 interface Mensagem {
+  // Legacy: tabela mensagens nao eh mais usada na UI - mantida no banco como
+  // historico. Comentarios (nova tabela) substituiu desde Fase 48.
   id: string;
   caso_id: string;
   remetente_id: string;
   texto: string;
   lida: boolean;
   created_at: string;
+}
+
+interface ComentarioRow {
+  id: string;
+  caso_id: string;
+  parent_id: string | null;
+  autor_id: string;
+  texto: string;
+  created_at: string;
+  // Join virtual com usuarios (vem de select aninhado)
+  autor?: {
+    id: string;
+    nome: string | null;
+    email: string | null;
+    tipo: string;
+  } | null;
 }
 
 interface Repasse {
@@ -495,6 +514,7 @@ function CasoDetalhePage() {
   const [solicitacoes, setSolicitacoes] = useState<Array<SolicitacaoDocumento>>([]);
   const [analises, setAnalises] = useState<Array<AnaliseTecnica>>([]);
   const [mensagens, setMensagens] = useState<Array<Mensagem>>([]);
+  const [comentarios, setComentarios] = useState<Array<ComentarioRow>>([]);
   const [repasses, setRepasses] = useState<Array<Repasse>>([]);
   const [processosAdmin, setProcessosAdmin] = useState<Array<ProcessoAdmin>>([]);
   const [processosJudiciais, setProcessosJudiciais] = useState<
@@ -594,13 +614,23 @@ function CasoDetalhePage() {
         }
       }
 
-      const mensagensResp = await supabase
-        .from("mensagens")
-        .select("*")
+      // Mensagens (legacy chat) nao sao mais carregadas. Substituido por
+      // comentarios desde Fase 48. Mantemos setMensagens vazio pra nao
+      // quebrar nada se algum codigo antigo referenciar.
+      setMensagens([]);
+
+      // Carrega comentarios do caso com join no autor.
+      const comentariosResp = await supabase
+        .from("comentarios")
+        .select(
+          "id, caso_id, parent_id, autor_id, texto, created_at, autor:autor_id(id, nome, email, tipo)",
+        )
         .eq("caso_id", casoId)
         .order("created_at", { ascending: true });
-      if (!mensagensResp.error) {
-        setMensagens((mensagensResp.data || []) as Array<Mensagem>);
+      if (!comentariosResp.error) {
+        setComentarios(
+          (comentariosResp.data || []) as unknown as Array<ComentarioRow>,
+        );
       }
 
       const repassesResp = await supabase
@@ -729,9 +759,9 @@ function CasoDetalhePage() {
               </TabsTrigger>
             )}
             {caso.parceiro_id && (
-              <TabsTrigger value="chat" className="flex items-center gap-1 shrink-0">
+              <TabsTrigger value="comentarios" className="flex items-center gap-1 shrink-0">
                 <MessageSquare className="h-4 w-4" />
-                <span>Chat</span>
+                <span>Comentarios</span>
               </TabsTrigger>
             )}
             <TabsTrigger value="repasses" className="flex items-center gap-1 shrink-0">
@@ -793,11 +823,11 @@ function CasoDetalhePage() {
           )}
 
           {caso.parceiro_id && (
-            <TabsContent value="chat" className="mt-4">
-              <TabChat
+            <TabsContent value="comentarios" className="mt-4">
+              <TabComentarios
                 casoId={casoId}
-                mensagens={mensagens}
-                setMensagens={setMensagens}
+                comentarios={comentarios}
+                setComentarios={setComentarios}
                 usuarioId={usuario ? usuario.id : null}
               />
             </TabsContent>
@@ -2209,18 +2239,38 @@ function TabAndamentos(props: TabAndamentosProps) {
         processoJudicialId = processoVinculo.slice("judicial:".length);
       }
 
-      const resp = await supabase.from("andamentos").insert({
-        caso_id: casoId,
-        origem: "interno",
-        titulo: titulo.trim(),
-        descricao: descricao.trim() || null,
-        data_evento: new Date().toISOString(),
-        criado_por: usuarioId,
-        visivel_parceiro: temParceiro ? visivelParceiro : false,
-        processo_admin_id: processoAdminId,
-        processo_judicial_id: processoJudicialId,
-      });
+      const visivelFinal = temParceiro ? visivelParceiro : false;
+      const resp = await supabase
+        .from("andamentos")
+        .insert({
+          caso_id: casoId,
+          origem: "interno",
+          titulo: titulo.trim(),
+          descricao: descricao.trim() || null,
+          data_evento: new Date().toISOString(),
+          criado_por: usuarioId,
+          visivel_parceiro: visivelFinal,
+          processo_admin_id: processoAdminId,
+          processo_judicial_id: processoJudicialId,
+        })
+        .select("id")
+        .single();
       if (resp.error) throw resp.error;
+      const novoAndamentoId = (resp.data as { id: string } | null)?.id;
+
+      // Dispara email pro parceiro se andamento visivel. Fire-and-forget.
+      // A edge function valida visivel_parceiro=true e parceiro_id antes de
+      // realmente enviar - aqui so chamamos sempre que visivel pra simplificar.
+      if (visivelFinal && novoAndamentoId) {
+        supabase.functions
+          .invoke("notify-novo-andamento", {
+            body: { andamento_id: novoAndamentoId },
+          })
+          .then((r) => {
+            if (r.error) console.warn("notify-novo-andamento:", r.error);
+          });
+      }
+
       toast.success("Andamento adicionado");
       setTitulo("");
       setDescricao("");
@@ -4699,150 +4749,344 @@ function TabAnaliseTecnica(props: TabAnaliseTecnicaProps) {
 }
 
 // ===========================================================================
-// Tab: Chat (polling)
+// Tab: Comentarios (threads)
 // ===========================================================================
+//
+// Substitui o antigo Chat por sistema de comentarios com threads:
+//   - Top-level comments aparecem como "cards"
+//   - Cada thread pode ter replies (1 nivel apenas, sem aninhamento profundo)
+//   - "Novo comentario" abre input no topo
+//   - "Responder" abre input inline dentro de um thread
+//   - Email automatico pro destinatario (parceiro <-> interno) via edge function
+//
+// Padrao de comunicacao assincrona (nao e chat tempo real - sem polling
+// frequente, recarrega quando usuario interage).
 
-interface TabChatProps {
+interface TabComentariosProps {
   casoId: string;
-  mensagens: Array<Mensagem>;
-  setMensagens: (m: Array<Mensagem>) => void;
+  comentarios: Array<ComentarioRow>;
+  setComentarios: (c: Array<ComentarioRow>) => void;
   usuarioId: string | null;
 }
 
-function TabChat(props: TabChatProps) {
-  const { casoId, mensagens, setMensagens, usuarioId } = props;
-  const [texto, setTexto] = useState("");
-  const [enviando, setEnviando] = useState(false);
-  const bottomRef = useRef<HTMLDivElement | null>(null);
+function tipoBadgeClasses(tipo: string | undefined | null): string {
+  if (tipo === "interno") {
+    return "bg-gold-soft/40 border border-gold/40 text-foreground";
+  }
+  if (tipo === "parceiro") {
+    return "bg-secondary text-secondary-foreground border border-border";
+  }
+  return "bg-muted text-muted-foreground border border-border";
+}
 
-  // Polling a cada 10s
-  useEffect(() => {
-    let cancelado = false;
-    async function poll() {
-      const resp = await supabase
-        .from("mensagens")
-        .select("*")
-        .eq("caso_id", casoId)
-        .order("created_at", { ascending: true });
-      if (!cancelado && !resp.error) {
-        setMensagens((resp.data || []) as Array<Mensagem>);
+function tipoBadgeLabel(tipo: string | undefined | null): string {
+  if (tipo === "interno") return "Equipe";
+  if (tipo === "parceiro") return "Parceiro";
+  return "?";
+}
+
+function TabComentarios(props: TabComentariosProps) {
+  const { casoId, comentarios, setComentarios, usuarioId } = props;
+
+  // Estado: textos por thread (chave = parent_id ou "novo")
+  const [novoTexto, setNovoTexto] = useState("");
+  const [respostaTexto, setRespostaTexto] = useState<Record<string, string>>({});
+  const [respondendoEm, setRespondendoEm] = useState<string | null>(null);
+  const [enviando, setEnviando] = useState(false);
+  const [excluindoId, setExcluindoId] = useState<string | null>(null);
+
+  // Agrupa comentarios em threads: top-level + replies
+  const threads = useMemo(() => {
+    const tops = comentarios.filter((c) => c.parent_id === null);
+    const byParent = new Map<string, Array<ComentarioRow>>();
+    for (const c of comentarios) {
+      if (c.parent_id) {
+        const arr = byParent.get(c.parent_id) || [];
+        arr.push(c);
+        byParent.set(c.parent_id, arr);
       }
     }
-    const id = setInterval(poll, 10000);
-    return () => {
-      cancelado = true;
-      clearInterval(id);
-    };
-  }, [casoId, setMensagens]);
+    // Top-level mais recente primeiro; replies cronologico (mais antigo primeiro)
+    return tops
+      .slice()
+      .sort(
+        (a, b) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+      )
+      .map((top) => ({
+        top,
+        replies: (byParent.get(top.id) || []).slice().sort(
+          (a, b) =>
+            new Date(a.created_at).getTime() -
+            new Date(b.created_at).getTime(),
+        ),
+      }));
+  }, [comentarios]);
 
-  useEffect(() => {
-    if (bottomRef.current) {
-      bottomRef.current.scrollIntoView({ behavior: "smooth" });
+  async function recarregar() {
+    const resp = await supabase
+      .from("comentarios")
+      .select(
+        "id, caso_id, parent_id, autor_id, texto, created_at, autor:autor_id(id, nome, email, tipo)",
+      )
+      .eq("caso_id", casoId)
+      .order("created_at", { ascending: true });
+    if (!resp.error) {
+      setComentarios((resp.data || []) as unknown as Array<ComentarioRow>);
     }
-  }, [mensagens.length]);
+  }
 
-  async function enviar() {
+  async function enviarComentario(texto: string, parentId: string | null) {
     if (!texto.trim() || !usuarioId) return;
     setEnviando(true);
     try {
-      const resp = await supabase.from("mensagens").insert({
-        caso_id: casoId,
-        remetente_id: usuarioId,
-        texto: texto.trim(),
-        lida: false,
-      });
-      if (resp.error) throw resp.error;
-      setTexto("");
-      const refetch = await supabase
-        .from("mensagens")
-        .select("*")
-        .eq("caso_id", casoId)
-        .order("created_at", { ascending: true });
-      if (!refetch.error) {
-        setMensagens((refetch.data || []) as Array<Mensagem>);
+      const insertResp = await supabase
+        .from("comentarios")
+        .insert({
+          caso_id: casoId,
+          parent_id: parentId,
+          autor_id: usuarioId,
+          texto: texto.trim(),
+        })
+        .select("id")
+        .single();
+      if (insertResp.error) throw insertResp.error;
+      const novoId = (insertResp.data as { id: string }).id;
+
+      // Dispara email fire-and-forget. Nao bloqueia a UI nem mostra erro
+      // ao usuario - se falhar, eh registrado no console e Resend logs.
+      supabase.functions
+        .invoke("notify-novo-comentario", {
+          body: { comentario_id: novoId },
+        })
+        .then((r) => {
+          if (r.error) console.warn("notify-novo-comentario:", r.error);
+        });
+
+      // Limpa input e recarrega lista
+      if (parentId === null) {
+        setNovoTexto("");
+      } else {
+        setRespostaTexto((prev) => ({ ...prev, [parentId]: "" }));
+        setRespondendoEm(null);
       }
+      await recarregar();
+      toast.success(parentId === null ? "Comentario enviado" : "Resposta enviada");
     } catch (err) {
       console.error(err);
       const errObj = err as { message?: string };
-      toast.error(errObj.message || "Erro ao enviar mensagem");
+      toast.error(errObj.message || "Erro ao enviar comentario");
     } finally {
       setEnviando(false);
     }
   }
 
+  async function excluirComentario(id: string) {
+    if (!confirm("Excluir este comentario? Replies tambem serao removidas.")) {
+      return;
+    }
+    setExcluindoId(id);
+    try {
+      const resp = await supabase.from("comentarios").delete().eq("id", id);
+      if (resp.error) throw resp.error;
+      await recarregar();
+      toast.success("Comentario excluido");
+    } catch (err) {
+      console.error(err);
+      const errObj = err as { message?: string };
+      toast.error(errObj.message || "Erro ao excluir");
+    } finally {
+      setExcluindoId(null);
+    }
+  }
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Conversa do caso</CardTitle>
-        <CardDescription>
-          Mensagens entre escritorio e parceiro indicador.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="border rounded-md h-96 overflow-y-auto p-3 bg-muted/20 space-y-2">
-          {mensagens.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-12">
-              Nenhuma mensagem ainda. Comece a conversa.
-            </p>
-          ) : (
-            mensagens.map((m) => {
-              const eu = m.remetente_id === usuarioId;
-              return (
-                <div
-                  key={m.id}
-                  className={
-                    "flex " + (eu ? "justify-end" : "justify-start")
-                  }
-                >
-                  <div
-                    className={
-                      "max-w-[75%] rounded-md px-3 py-2 text-sm " +
-                      (eu
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-background border")
+    <div className="space-y-4">
+      {/* Input pra novo comentario top-level */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Novo comentario</CardTitle>
+          <CardDescription>
+            Inicie um novo topico. O destinatario receba email avisando.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Textarea
+            rows={3}
+            placeholder="Escreva um comentario..."
+            value={novoTexto}
+            onChange={(e) => setNovoTexto(e.target.value)}
+          />
+          <div className="flex justify-end mt-2">
+            <Button
+              onClick={() => enviarComentario(novoTexto, null)}
+              disabled={enviando || !novoTexto.trim()}
+            >
+              {enviando ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4 mr-2" />
+              )}
+              Publicar comentario
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Lista de threads */}
+      {threads.length === 0 ? (
+        <Card>
+          <CardContent className="py-12 text-center text-sm text-muted-foreground">
+            Nenhum comentario ainda. Inicie um novo topico acima.
+          </CardContent>
+        </Card>
+      ) : (
+        threads.map(({ top, replies }) => (
+          <Card key={top.id}>
+            <CardContent className="py-4 space-y-3">
+              {/* Top-level */}
+              <ComentarioItem
+                comentario={top}
+                isMine={top.autor_id === usuarioId}
+                onExcluir={() => excluirComentario(top.id)}
+                excluindo={excluindoId === top.id}
+              />
+
+              {/* Replies (recuadas) */}
+              {replies.length > 0 && (
+                <div className="ml-6 pl-3 border-l-2 border-border space-y-3">
+                  {replies.map((r) => (
+                    <ComentarioItem
+                      key={r.id}
+                      comentario={r}
+                      isMine={r.autor_id === usuarioId}
+                      onExcluir={() => excluirComentario(r.id)}
+                      excluindo={excluindoId === r.id}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {/* Input de resposta (inline) */}
+              {respondendoEm === top.id ? (
+                <div className="ml-6 pl-3 border-l-2 border-[var(--gold)]/40">
+                  <Textarea
+                    rows={2}
+                    placeholder="Sua resposta..."
+                    value={respostaTexto[top.id] || ""}
+                    onChange={(e) =>
+                      setRespostaTexto((prev) => ({
+                        ...prev,
+                        [top.id]: e.target.value,
+                      }))
                     }
-                  >
-                    <p className="whitespace-pre-wrap">{m.texto}</p>
-                    <p
-                      className={
-                        "text-[10px] mt-1 " +
-                        (eu
-                          ? "text-primary-foreground/70"
-                          : "text-muted-foreground")
+                    className="text-sm"
+                    autoFocus
+                  />
+                  <div className="flex justify-end gap-2 mt-2">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setRespondendoEm(null);
+                        setRespostaTexto((prev) => ({ ...prev, [top.id]: "" }));
+                      }}
+                      disabled={enviando}
+                    >
+                      Cancelar
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() =>
+                        enviarComentario(respostaTexto[top.id] || "", top.id)
+                      }
+                      disabled={
+                        enviando || !(respostaTexto[top.id] || "").trim()
                       }
                     >
-                      {formatDateTime(m.created_at)}
-                    </p>
+                      {enviando && (
+                        <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                      )}
+                      Responder
+                    </Button>
                   </div>
                 </div>
-              );
-            })
+              ) : (
+                <div className="ml-6">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setRespondendoEm(top.id)}
+                    className="text-xs h-7 text-muted-foreground hover:text-foreground"
+                  >
+                    Responder
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ))
+      )}
+    </div>
+  );
+}
+
+function ComentarioItem(props: {
+  comentario: ComentarioRow;
+  isMine: boolean;
+  onExcluir: () => void;
+  excluindo: boolean;
+}) {
+  const { comentario, isMine, onExcluir, excluindo } = props;
+  const autorNome =
+    comentario.autor?.nome || comentario.autor?.email || "(sem nome)";
+  const tipo = comentario.autor?.tipo;
+
+  return (
+    <div className="flex gap-3">
+      <Avatar className="h-8 w-8 shrink-0">
+        <AvatarFallback className="bg-primary text-primary-foreground text-xs">
+          {autorNome
+            .split(" ")
+            .map((p) => p[0])
+            .slice(0, 2)
+            .join("")
+            .toUpperCase()}
+        </AvatarFallback>
+      </Avatar>
+      <div className="flex-1 min-w-0">
+        <div className="flex flex-wrap items-baseline gap-2 mb-1">
+          <span className="text-sm font-medium">{autorNome}</span>
+          <Badge
+            variant="outline"
+            className={"text-[10px] font-normal " + tipoBadgeClasses(tipo)}
+          >
+            {tipoBadgeLabel(tipo)}
+          </Badge>
+          <span className="text-xs text-muted-foreground">
+            {formatDateTime(comentario.created_at)}
+          </span>
+          {isMine && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={onExcluir}
+              disabled={excluindo}
+              className="h-5 px-1 text-xs text-muted-foreground hover:text-destructive ml-auto"
+            >
+              {excluindo ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Trash2 className="h-3 w-3" />
+              )}
+            </Button>
           )}
-          <div ref={bottomRef} />
         </div>
-        <div className="flex gap-2 mt-3">
-          <Textarea
-            rows={2}
-            placeholder="Escreva uma mensagem..."
-            value={texto}
-            onChange={(e) => setTexto(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                enviar();
-              }
-            }}
-          />
-          <Button onClick={enviar} disabled={enviando || !texto.trim()}>
-            {enviando ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Send className="h-4 w-4" />
-            )}
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+        <p className="text-sm whitespace-pre-wrap text-foreground/90">
+          {comentario.texto}
+        </p>
+      </div>
+    </div>
   );
 }
 
