@@ -685,37 +685,39 @@ function CasoDetalhePage() {
         />
 
         <Tabs defaultValue="visao_geral" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 h-auto">
-            <TabsTrigger value="visao_geral" className="flex items-center gap-1">
+          {/* Tabs em uma unica linha com scroll horizontal em telas estreitas.
+              Evita o efeito de "linhas quebradas" desorganizadas. */}
+          <TabsList className="w-full flex justify-start overflow-x-auto">
+            <TabsTrigger value="visao_geral" className="flex items-center gap-1 shrink-0">
               <Activity className="h-4 w-4" />
               <span>Visao geral</span>
             </TabsTrigger>
-            <TabsTrigger value="andamentos" className="flex items-center gap-1">
+            <TabsTrigger value="andamentos" className="flex items-center gap-1 shrink-0">
               <ClipboardList className="h-4 w-4" />
               <span>Andamentos</span>
             </TabsTrigger>
-            <TabsTrigger value="documentos" className="flex items-center gap-1">
+            <TabsTrigger value="documentos" className="flex items-center gap-1 shrink-0">
               <FileCheck className="h-4 w-4" />
               <span>Documentos</span>
             </TabsTrigger>
             {isInterno && (
-              <TabsTrigger value="analise" className="flex items-center gap-1">
+              <TabsTrigger value="analise" className="flex items-center gap-1 shrink-0">
                 <FileText className="h-4 w-4" />
                 <span>Analise</span>
               </TabsTrigger>
             )}
             {caso.parceiro_id && (
-              <TabsTrigger value="chat" className="flex items-center gap-1">
+              <TabsTrigger value="chat" className="flex items-center gap-1 shrink-0">
                 <MessageSquare className="h-4 w-4" />
                 <span>Chat</span>
               </TabsTrigger>
             )}
-            <TabsTrigger value="repasses" className="flex items-center gap-1">
+            <TabsTrigger value="repasses" className="flex items-center gap-1 shrink-0">
               <DollarSign className="h-4 w-4" />
               <span>Repasses</span>
             </TabsTrigger>
             {isInterno && (
-              <TabsTrigger value="processos" className="flex items-center gap-1">
+              <TabsTrigger value="processos" className="flex items-center gap-1 shrink-0">
                 <Scale className="h-4 w-4" />
                 <span>Processos</span>
               </TabsTrigger>
@@ -956,19 +958,62 @@ function CasoHeader(props: CasoHeaderProps) {
 
   return (
     <Card>
-      <CardHeader>
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-          <div>
+      <CardHeader className="space-y-3">
+        {/* Linha 1: nome + CPF do cliente, com menu "..." de acoes a direita.
+            Mantem o header limpo - tags ficam isoladas na linha de baixo. */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
             <CardTitle className="text-xl">{cliente.nome}</CardTitle>
             <CardDescription>
               CPF: {cpfFormatado} - {caso.tipo_beneficio}
             </CardDescription>
           </div>
+          {isInterno && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 shrink-0"
+                  aria-label="Acoes do caso"
+                  disabled={syncing || syncingLM}
+                >
+                  {syncing || syncingLM ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <MoreVertical className="h-4 w-4" />
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onClick={syncTI}
+                  disabled={syncing}
+                  title="Sincronizar tags e dados com Tramitacao Inteligente"
+                >
+                  {syncing && (
+                    <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                  )}
+                  Sync TI
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={syncLegalmail}
+                  disabled={syncingLM}
+                  title="Atualizar movimentacoes dos processos Legalmail vinculados"
+                >
+                  {syncingLM && (
+                    <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                  )}
+                  Sync Legal
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
+        {/* Linha 2: somente tags TI (com bolinha colorida + outline neutro). */}
+        {tags.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
             {tags.map((t) => (
-              // Tag TI com estilo uniforme (outline) + bolinha colorida da
-              // cor original do TI. Mantem a associacao visual com o sistema
-              // TI sem o efeito "arco-iris" de blocos pastel.
               <Badge
                 key={t.id}
                 variant="outline"
@@ -983,32 +1028,8 @@ function CasoHeader(props: CasoHeaderProps) {
                 {t.name}
               </Badge>
             ))}
-            {isInterno && (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={syncTI}
-                disabled={syncing}
-                title="Sincronizar tags e dados com Tramitacao Inteligente"
-              >
-                {syncing && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
-                Sync TI
-              </Button>
-            )}
-            {isInterno && (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={syncLegalmail}
-                disabled={syncingLM}
-                title="Atualizar movimentacoes dos processos Legalmail vinculados"
-              >
-                {syncingLM && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
-                Sync Legal
-              </Button>
-            )}
           </div>
-        </div>
+        )}
       </CardHeader>
     </Card>
   );

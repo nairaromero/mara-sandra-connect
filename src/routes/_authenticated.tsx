@@ -69,7 +69,12 @@ function AuthenticatedLayout() {
                 </Link>
               </Button>
               {usuario?.tipo && (
-                <Badge variant={usuario.tipo === "interno" ? "default" : "secondary"} className="capitalize">
+                // Badge em dourado quebra a monotonia do navy (botao Novo
+                // caso + avatar + Sair) e reforca a identidade visual.
+                <Badge
+                  variant="outline"
+                  className="capitalize bg-gold-soft/40 border-gold/40 text-foreground"
+                >
                   {usuario.tipo}
                 </Badge>
               )}
