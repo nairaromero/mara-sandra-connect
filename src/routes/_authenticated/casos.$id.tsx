@@ -758,12 +758,10 @@ function CasoDetalhePage() {
                 <span>Analise</span>
               </TabsTrigger>
             )}
-            {caso.parceiro_id && (
-              <TabsTrigger value="comentarios" className="flex items-center gap-1 shrink-0">
-                <MessageSquare className="h-4 w-4" />
-                <span>Comentarios</span>
-              </TabsTrigger>
-            )}
+            <TabsTrigger value="comentarios" className="flex items-center gap-1 shrink-0">
+              <MessageSquare className="h-4 w-4" />
+              <span>Comentarios</span>
+            </TabsTrigger>
             <TabsTrigger value="repasses" className="flex items-center gap-1 shrink-0">
               <DollarSign className="h-4 w-4" />
               <span>Repasses</span>
@@ -822,16 +820,15 @@ function CasoDetalhePage() {
             </TabsContent>
           )}
 
-          {caso.parceiro_id && (
-            <TabsContent value="comentarios" className="mt-4">
-              <TabComentarios
-                casoId={casoId}
-                comentarios={comentarios}
-                setComentarios={setComentarios}
-                usuarioId={usuario ? usuario.id : null}
-              />
-            </TabsContent>
-          )}
+          <TabsContent value="comentarios" className="mt-4">
+            <TabComentarios
+              casoId={casoId}
+              comentarios={comentarios}
+              setComentarios={setComentarios}
+              usuarioId={usuario ? usuario.id : null}
+              temParceiro={caso.parceiro_id !== null}
+            />
+          </TabsContent>
 
           <TabsContent value="repasses" className="mt-4">
             <TabRepasses
@@ -4767,6 +4764,9 @@ interface TabComentariosProps {
   comentarios: Array<ComentarioRow>;
   setComentarios: (c: Array<ComentarioRow>) => void;
   usuarioId: string | null;
+  // Se false, caso nao tem parceiro vinculado - comentarios funcionam como
+  // notas internas (so equipe ve). UI muda copy pra refletir isso.
+  temParceiro: boolean;
 }
 
 function tipoBadgeClasses(tipo: string | undefined | null): string {
@@ -4786,7 +4786,7 @@ function tipoBadgeLabel(tipo: string | undefined | null): string {
 }
 
 function TabComentarios(props: TabComentariosProps) {
-  const { casoId, comentarios, setComentarios, usuarioId } = props;
+  const { casoId, comentarios, setComentarios, usuarioId, temParceiro } = props;
 
   // Estado: textos por thread (chave = parent_id ou "novo")
   const [novoTexto, setNovoTexto] = useState("");
@@ -4907,7 +4907,9 @@ function TabComentarios(props: TabComentariosProps) {
         <CardHeader>
           <CardTitle className="text-base">Novo comentario</CardTitle>
           <CardDescription>
-            Inicie um novo topico. O destinatario receba email avisando.
+            {temParceiro
+              ? "Inicie um novo topico. O destinatario (parceiro ou equipe) recebe email avisando."
+              : "Caso sem parceiro vinculado - comentarios funcionam como notas internas da equipe. Outros internos sao notificados por email."}
           </CardDescription>
         </CardHeader>
         <CardContent>
