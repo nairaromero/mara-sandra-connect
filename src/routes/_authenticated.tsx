@@ -46,9 +46,20 @@ function AuthenticatedLayout() {
           <header className="sticky top-0 z-10 flex h-14 items-center justify-between border-b border-border bg-background px-4">
             <div className="flex items-center gap-2">
               <SidebarTrigger />
-              <span className="text-sm font-medium text-muted-foreground hidden sm:inline">
-                Mara Sandra Advocacia
-              </span>
+              {/* Logo pequeno no topbar - sempre visivel, leva pra home.
+                  No mobile fica como reforco da marca quando a sidebar
+                  esta colapsada. */}
+              <Link
+                to="/"
+                aria-label="Mara Sandra Vian Advocacia - inicio"
+                className="hidden sm:flex items-center hover:opacity-80 transition-opacity"
+              >
+                <img
+                  src="/logo.png"
+                  alt="Mara Sandra Vian Advocacia"
+                  className="h-10 w-auto object-contain"
+                />
+              </Link>
             </div>
             <div className="flex items-center gap-3">
               <Button size="sm" asChild>

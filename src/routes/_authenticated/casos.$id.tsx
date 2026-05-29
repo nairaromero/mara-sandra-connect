@@ -966,16 +966,20 @@ function CasoHeader(props: CasoHeaderProps) {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {tags.map((t) => (
+              // Tag TI com estilo uniforme (outline) + bolinha colorida da
+              // cor original do TI. Mantem a associacao visual com o sistema
+              // TI sem o efeito "arco-iris" de blocos pastel.
               <Badge
                 key={t.id}
                 variant="outline"
-                style={{
-                  backgroundColor: t.color,
-                  borderColor: t.color,
-                  color: "#1f2937",
-                }}
+                className="gap-1.5 font-normal text-xs"
                 title={"Tag do Tramitacao Inteligente"}
               >
+                <span
+                  className="inline-block h-2 w-2 rounded-full shrink-0"
+                  style={{ backgroundColor: t.color }}
+                  aria-hidden="true"
+                />
                 {t.name}
               </Badge>
             ))}
