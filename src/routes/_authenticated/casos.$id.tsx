@@ -25,6 +25,8 @@ import {
   ChevronDown,
   ChevronRight,
   MoreVertical,
+  Copy,
+  KeyRound,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -1107,6 +1109,51 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
     }
   }
 
+  // ---- Dialog: Ver senha MEU INSS (interno) ----
+  // Chama RPC get_senha_meu_inss que decripta + registra audit.
+  const [abrirSenha, setAbrirSenha] = useState(false);
+  const [carregandoSenha, setCarregandoSenha] = useState(false);
+  const [senhaValor, setSenhaValor] = useState<string | null>(null);
+  const [erroSenha, setErroSenha] = useState<string | null>(null);
+
+  async function abrirVerSenha() {
+    setAbrirSenha(true);
+    setCarregandoSenha(true);
+    setSenhaValor(null);
+    setErroSenha(null);
+    try {
+      const resp = await supabase.rpc("get_senha_meu_inss", {
+        p_cliente_id: cliente.id,
+      });
+      if (resp.error) throw resp.error;
+      const data = resp.data as string | null;
+      setSenhaValor(data);
+    } catch (err) {
+      console.error(err);
+      const errObj = err as { message?: string };
+      setErroSenha(errObj.message || "Erro ao decifrar senha");
+    } finally {
+      setCarregandoSenha(false);
+    }
+  }
+
+  function fecharSenha() {
+    setAbrirSenha(false);
+    setSenhaValor(null);
+    setErroSenha(null);
+  }
+
+  async function copiarSenha() {
+    if (!senhaValor) return;
+    try {
+      await navigator.clipboard.writeText(senhaValor);
+      toast.success("Senha copiada");
+    } catch (err) {
+      console.error(err);
+      toast.error("Nao foi possivel copiar (clipboard bloqueado)");
+    }
+  }
+
   // ---- Dialog: Editar caso ----
   const [abrirEditCaso, setAbrirEditCaso] = useState(false);
   const [csTipoBeneficio, setCsTipoBeneficio] = useState("");
@@ -1201,6 +1248,28 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
           {isInterno && (
             <Linha label="E-mail" valor={cliente.email || "-"} />
           )}
+          {isInterno && (
+            // Botao Ver senha MEU INSS. O clique dispara RPC com audit.
+            <div className="pt-2 border-t flex items-center justify-between">
+              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                <KeyRound className="h-3.5 w-3.5" />
+                Senha MEU INSS
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={abrirVerSenha}
+                disabled={carregandoSenha}
+              >
+                {carregandoSenha ? (
+                  <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                ) : (
+                  <Eye className="h-3.5 w-3.5 mr-1" />
+                )}
+                Ver senha
+              </Button>
+            </div>
+          )}
           {cliente.observacoes && (
             <div className="pt-2 border-t">
               <p className="text-xs text-muted-foreground mb-1">Observacoes</p>
@@ -1277,6 +1346,72 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                     <Loader2 className="h-3 w-3 mr-2 animate-spin" />
                   )}
                   Salvar
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
+        {isInterno && (
+          // Dialog para exibir a senha MEU INSS decifrada.
+          // O backend ja registrou audit antes de retornar a senha.
+          <Dialog
+            open={abrirSenha}
+            onOpenChange={(o) => {
+              if (!o) fecharSenha();
+            }}
+          >
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <KeyRound className="h-4 w-4" />
+                  Senha MEU INSS
+                </DialogTitle>
+                <DialogDescription className="text-xs text-warning bg-warning/10 border border-warning/30 rounded p-2 mt-1">
+                  Acesso registrado em auditoria. A senha e confidencial -
+                  use apenas no portal MEU INSS do cliente.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                {carregandoSenha && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Decifrando senha...
+                  </div>
+                )}
+                {!carregandoSenha && erroSenha && (
+                  <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                    {erroSenha}
+                  </div>
+                )}
+                {!carregandoSenha && !erroSenha && senhaValor === null && (
+                  <p className="text-sm text-muted-foreground">
+                    Este cliente nao tem senha do MEU INSS cadastrada.
+                  </p>
+                )}
+                {!carregandoSenha && !erroSenha && senhaValor !== null && (
+                  <div className="space-y-2">
+                    <Label className="text-xs">Senha</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={senhaValor}
+                        readOnly
+                        className="font-mono"
+                      />
+                      <Button
+                        onClick={copiarSenha}
+                        size="sm"
+                        variant="outline"
+                        title="Copiar senha"
+                      >
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={fecharSenha}>
+                  Fechar
                 </Button>
               </DialogFooter>
             </DialogContent>
