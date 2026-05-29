@@ -297,7 +297,8 @@ function NovoCasoPage() {
         parceiroId = usuario.id;
       }
 
-      // 1) Insere cliente (senha em texto puro temporariamente, ver TODO.md)
+      // 1) Insere cliente SEM senha. A senha do MEU INSS e gravada por
+      // RPC criptografada no passo 1b (set_senha_meu_inss).
       const clienteResp = await supabase
         .from("clientes")
         .insert({
@@ -306,9 +307,6 @@ function NovoCasoPage() {
           data_nascimento: values.data_nascimento,
           telefone: values.telefone.trim(),
           email: values.email ? values.email.trim() || null : null,
-          senha_meu_inss_plain: values.senha_meu_inss
-            ? values.senha_meu_inss.trim() || null
-            : null,
           observacoes: values.observacoes_cliente
             ? values.observacoes_cliente.trim() || null
             : null,
@@ -355,6 +353,30 @@ function NovoCasoPage() {
         throw new Error("Falha ao obter ID do cliente recem-criado");
       }
       const clienteId = clienteInsert.id;
+
+      // 1b) Grava a senha do MEU INSS criptografada via RPC.
+      // O Postgres pega a chave em GUC app.inss_key, cifra com pgp_sym_encrypt
+      // e grava em clientes.senha_meu_inss (bytea). Toda leitura futura tem
+      // que passar por get_senha_meu_inss(), que registra audit.
+      const senhaInformada = values.senha_meu_inss
+        ? values.senha_meu_inss.trim()
+        : "";
+      if (senhaInformada.length > 0) {
+        const setSenhaResp = await supabase.rpc("set_senha_meu_inss", {
+          p_cliente_id: clienteId,
+          p_senha: senhaInformada,
+        });
+        if (setSenhaResp.error) {
+          // Nao bloqueia o cadastro do caso por causa da senha - registra
+          // como aviso para o operador, mas segue o fluxo. A senha pode
+          // ser definida depois em uma tela de edicao.
+          console.error("Falha ao gravar senha MEU INSS:", setSenhaResp.error);
+          toast.warning(
+            "Cliente cadastrado, mas a senha do MEU INSS nao foi salva: " +
+              (setSenhaResp.error.message || "erro desconhecido"),
+          );
+        }
+      }
 
       // 2) Insere caso
       const casoResp = await supabase
