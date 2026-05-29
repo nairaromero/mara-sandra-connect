@@ -166,10 +166,30 @@ function DashboardPage() {
     navigate({ to: "/casos/$id", params: { id: id } });
   }
 
+  // Spinner enquanto o hook carrega - mas evita travar pra sempre.
+  // Apos 5s, mostra mensagem em vez de loop infinito.
+  const [spinnerTimedOut, setSpinnerTimedOut] = useState(false);
+  useEffect(() => {
+    if (usuario) return;
+    const t = setTimeout(() => setSpinnerTimedOut(true), 5000);
+    return () => clearTimeout(t);
+  }, [usuario]);
+
   if (!usuario) {
     return (
-      <div className="flex h-64 items-center justify-center">
+      <div className="flex h-64 flex-col items-center justify-center gap-3">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        {spinnerTimedOut && (
+          <div className="max-w-md text-center text-sm text-muted-foreground space-y-1">
+            <p>
+              Demorou demais carregando seu perfil. Verifique no console se ha
+              erro de coluna inexistente em <code>usuarios</code>.
+            </p>
+            <p className="text-xs">
+              Provavelmente alguma migration SQL ainda nao foi aplicada.
+            </p>
+          </div>
+        )}
       </div>
     );
   }

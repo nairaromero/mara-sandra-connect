@@ -42,16 +42,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function loadUsuario(userId: string) {
-    const { data, error } = await supabase
+    // Tenta primeiro o select completo (com colunas de onboarding).
+    // Se falhar (ex.: migration de onboarding ainda nao rodou no ambiente),
+    // cai pra select basico - assim o app nao trava em spinner infinito.
+    const fullResp = await supabase
       .from("usuarios")
       .select("id, nome, email, tipo, avatar_url, onboarded_em, aceitou_termos_em")
       .eq("id", userId)
       .maybeSingle();
-    if (error) {
-      console.error("Erro ao carregar usuário:", error);
+
+    if (!fullResp.error) {
+      setUsuario(fullResp.data as UsuarioRow | null);
+      return;
+    }
+
+    console.warn(
+      "loadUsuario: select completo falhou, tentando fallback basico:",
+      fullResp.error,
+    );
+
+    const basicResp = await supabase
+      .from("usuarios")
+      .select("id, nome, email, tipo, avatar_url")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (basicResp.error) {
+      console.error("loadUsuario: fallback basico tambem falhou:", basicResp.error);
       setUsuario(null);
+      return;
+    }
+
+    // Sucesso no fallback - assume onboarded_em=null pra forcar fluxo de
+    // boas-vindas em ambientes que ainda nao rodaram a migration. Interno
+    // recebe valor truthy fake pra nao virar loop de redirect.
+    const data = basicResp.data as UsuarioRow | null;
+    if (data) {
+      const isInterno = data.tipo === "interno";
+      setUsuario({
+        ...data,
+        onboarded_em: isInterno ? new Date().toISOString() : null,
+        aceitou_termos_em: null,
+      });
     } else {
-      setUsuario(data as UsuarioRow | null);
+      setUsuario(null);
     }
   }
 
