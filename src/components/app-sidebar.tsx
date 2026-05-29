@@ -5,6 +5,7 @@ import {
   Wallet,
   MessagesSquare,
   Settings,
+  ShieldCheck,
   Users,
 } from "lucide-react";
 import {
@@ -30,6 +31,7 @@ const itemsBase = [
 
 const itemsInternos = [
   { title: "Parceiros", url: "/parceiros", icon: Users },
+  { title: "Auditoria", url: "/auditoria", icon: ShieldCheck },
 ];
 
 const itemsFooter = [
