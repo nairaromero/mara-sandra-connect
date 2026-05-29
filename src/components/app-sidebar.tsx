@@ -3,7 +3,6 @@ import {
   Briefcase,
   FileWarning,
   Wallet,
-  MessagesSquare,
   Settings,
   ShieldCheck,
   Users,
@@ -26,7 +25,8 @@ const itemsBase = [
   { title: "Casos", url: "/", icon: Briefcase },
   { title: "Documentos pendentes", url: "/documentos", icon: FileWarning },
   { title: "Repasses", url: "/repasses", icon: Wallet },
-  { title: "Conversas", url: "/conversas", icon: MessagesSquare },
+  // "Conversas" removida da sidebar - comunicacao agora eh por
+  // comentarios direto na aba Comentarios de cada caso.
 ];
 
 const itemsInternos = [
