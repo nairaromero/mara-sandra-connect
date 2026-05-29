@@ -457,6 +457,11 @@ function NovoCasoPage() {
             storage_path: storagePath,
             tamanho_bytes: doc.file.size,
             uploaded_by: usuario.id,
+            // Documentos cadastrados durante criacao do caso sao visiveis ao
+            // parceiro por default - sao a documentacao base que ele forneceu
+            // ou conhece. Interno pode marcar individualmente como privado
+            // depois pela aba Documentos se algum for sensivel.
+            visivel_parceiro: true,
           });
 
           if (docInsertResp.error) {
