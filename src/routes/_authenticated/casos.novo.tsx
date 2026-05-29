@@ -72,7 +72,16 @@ const TIPOS_DOCUMENTO = [
   { value: "declaracao_uniao_estavel", label: "Declaracao de uniao estavel" },
   { value: "declaracao_atividade_rural", label: "Declaracao de atividade rural" },
   { value: "procuracao", label: "Procuracao" },
+  { value: "substabelecimento", label: "Substabelecimento" },
   { value: "contrato_honorarios", label: "Contrato de honorarios" },
+  {
+    value: "declaracao_hipossuficiencia",
+    label: "Declaracao de hipossuficiencia",
+  },
+  {
+    value: "declaracao_ausencia_duplicidade",
+    label: "Declaracao de ausencia de duplicidade de acao",
+  },
   { value: "outro", label: "Outro" },
 ];
 

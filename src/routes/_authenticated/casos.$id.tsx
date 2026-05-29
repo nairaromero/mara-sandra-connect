@@ -276,7 +276,11 @@ const TIPOS_DOCUMENTO_LABEL: Record<string, string> = {
   declaracao_uniao_estavel: "Declaracao de uniao estavel",
   declaracao_atividade_rural: "Declaracao de atividade rural",
   procuracao: "Procuracao",
+  substabelecimento: "Substabelecimento",
   contrato_honorarios: "Contrato de honorarios",
+  declaracao_hipossuficiencia: "Declaracao de hipossuficiencia",
+  declaracao_ausencia_duplicidade:
+    "Declaracao de ausencia de duplicidade de acao",
   outro: "Outro",
 };
 
@@ -303,9 +307,12 @@ const DOC_TYPE_GROUP: Record<string, number> = {
   comprovante_residencia: 2,
   // 3. Procuracao / Substabelecimento / Declaracoes
   procuracao: 3,
+  substabelecimento: 3,
   contrato_honorarios: 3,
   declaracao_uniao_estavel: 3,
   declaracao_atividade_rural: 3,
+  declaracao_hipossuficiencia: 3,
+  declaracao_ausencia_duplicidade: 3,
   // 4. CNIS
   cnis: 4,
   // 5. Documentos profissionais
@@ -329,6 +336,15 @@ const DOC_TYPE_GROUP: Record<string, number> = {
 
 function getDocGroup(tipo: string): number {
   return DOC_TYPE_GROUP[tipo] !== undefined ? DOC_TYPE_GROUP[tipo] : 9;
+}
+
+// Remove prefixo numerico do nome do arquivo na exibicao.
+// Ex.: "01 - RG e CPF.pdf" -> "RG e CPF.pdf"
+//      "08 - Relatorio.pdf" -> "Relatorio.pdf"
+// O arquivo original no Storage NAO e renomeado, so o que aparece na UI.
+function displayNomeArquivo(nome: string | null | undefined): string {
+  if (!nome) return "";
+  return nome.replace(/^\d+\s*[-_.]\s*/, "").trim();
 }
 
 const STATUS_REPASSE_LABEL: Record<string, string> = {
@@ -2456,13 +2472,15 @@ function TabDocumentos(props: TabDocumentosProps) {
     : documentos.filter((d) => d.visivel_parceiro === true);
 
   // Ordena por grupo (categoria) e, dentro do mesmo grupo, por nome do
-  // arquivo (alfabetica) para ficar previsivel mesmo com uploads fora
-  // de ordem.
+  // arquivo alfabetico SEM o prefixo numerico ("01 - ", "02 - ", etc.).
+  // Fica previsivel mesmo com uploads fora de ordem ou nomeacoes diferentes.
   const lista = listaFiltrada.slice().sort((a, b) => {
     const ga = getDocGroup(a.tipo);
     const gb = getDocGroup(b.tipo);
     if (ga !== gb) return ga - gb;
-    return (a.nome_arquivo || "").localeCompare(b.nome_arquivo || "");
+    return displayNomeArquivo(a.nome_arquivo).localeCompare(
+      displayNomeArquivo(b.nome_arquivo),
+    );
   });
 
   // Solicitacoes ordenadas: pendentes primeiro, depois atendidas, depois dispensadas
@@ -2680,7 +2698,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                     <FileText className="h-5 w-5 text-muted-foreground flex-shrink-0" />
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate">
-                        {d.nome_arquivo}
+                        {displayNomeArquivo(d.nome_arquivo)}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {d.tipo === "outro" && d.tipo_personalizado
