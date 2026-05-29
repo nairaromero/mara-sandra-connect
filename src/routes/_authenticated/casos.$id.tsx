@@ -2453,6 +2453,19 @@ function TabDocumentos(props: TabDocumentosProps) {
   const [comAnexo, setComAnexo] = useState(false);
   // Estado do accordion "Solicitações cumpridas"
   const [cumpridasAberto, setCumpridasAberto] = useState(false);
+  // Multi-select de documentos para deletar em batch (so interno usa)
+  const [docsSelecionados, setDocsSelecionados] = useState<Set<string>>(
+    new Set(),
+  );
+
+  function toggleDocSelecionado(id: string) {
+    setDocsSelecionados((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   // Renomeia arquivo para o nome do tipo solicitado (ex.: CNIS.pdf)
   function nomearArquivo(tipoSolic: string, arquivoOriginal: File): string {
@@ -2513,6 +2526,54 @@ function TabDocumentos(props: TabDocumentosProps) {
       const errObj = err as { message?: string };
       toast.error(errObj.message || "Erro ao gerar link do documento");
     }
+  }
+
+  async function deletarSelecionados() {
+    if (docsSelecionados.size === 0) return;
+    const alvos = lista.filter((d) => docsSelecionados.has(d.id));
+    if (alvos.length === 0) return;
+    const ok = window.confirm(
+      "Excluir " + alvos.length + " documento" +
+        (alvos.length === 1 ? "" : "s") + " selecionado" +
+        (alvos.length === 1 ? "" : "s") + "?\n\n" +
+        "Os arquivos serão removidos do storage e do banco. Essa ação não pode ser desfeita.",
+    );
+    if (!ok) return;
+    let okCount = 0;
+    let errCount = 0;
+    for (const d of alvos) {
+      try {
+        const storageResp = await supabase.storage
+          .from("documentos")
+          .remove([d.storage_path]);
+        if (storageResp.error) {
+          console.error("Erro storage", d.nome_arquivo, storageResp.error);
+        }
+        const delResp = await supabase
+          .from("documentos")
+          .delete()
+          .eq("id", d.id);
+        if (delResp.error) throw delResp.error;
+        okCount++;
+      } catch (err) {
+        console.error("erro deletar", d.nome_arquivo, err);
+        errCount++;
+      }
+    }
+    if (okCount > 0) {
+      toast.success(
+        okCount + " documento" + (okCount === 1 ? "" : "s") + " excluido" +
+          (okCount === 1 ? "" : "s"),
+      );
+    }
+    if (errCount > 0) {
+      toast.error(
+        errCount + " documento" + (errCount === 1 ? "" : "s") +
+          " falharam. Ver console.",
+      );
+    }
+    setDocsSelecionados(new Set());
+    onChange();
   }
 
   async function deletarTodos() {
@@ -2727,7 +2788,19 @@ function TabDocumentos(props: TabDocumentosProps) {
                 Arquivos anexados a este caso.
               </CardDescription>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              {isInterno && docsSelecionados.size > 0 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={deletarSelecionados}
+                  className="text-destructive hover:text-destructive border-destructive/30 hover:bg-destructive/10"
+                  title="Excluir somente os documentos marcados"
+                >
+                  <Trash2 className="h-4 w-4 mr-1" />
+                  Excluir selecionados ({docsSelecionados.size})
+                </Button>
+              )}
               {isInterno && lista.length > 0 && (
                 <Button
                   size="sm"
@@ -2761,6 +2834,15 @@ function TabDocumentos(props: TabDocumentosProps) {
                   className="flex items-center justify-between gap-2 border rounded-md p-3"
                 >
                   <div className="flex items-center gap-3 min-w-0">
+                    {isInterno && (
+                      <input
+                        type="checkbox"
+                        checked={docsSelecionados.has(d.id)}
+                        onChange={() => toggleDocSelecionado(d.id)}
+                        className="h-4 w-4 shrink-0"
+                        title="Selecionar para excluir em batch"
+                      />
+                    )}
                     <FileText className="h-5 w-5 text-muted-foreground flex-shrink-0" />
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate">
