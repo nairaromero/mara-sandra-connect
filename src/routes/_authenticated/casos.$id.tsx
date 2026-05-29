@@ -2515,6 +2515,54 @@ function TabDocumentos(props: TabDocumentosProps) {
     }
   }
 
+  async function deletarTodos() {
+    if (lista.length === 0) return;
+    const ok = window.confirm(
+      "Tem certeza que deseja deletar TODOS os " +
+        lista.length +
+        " documento" +
+        (lista.length === 1 ? "" : "s") +
+        " deste caso?\n\n" +
+        "Essa ação remove TODOS os arquivos do storage e os registros do banco, e NÃO pode ser desfeita.\n\n" +
+        "Solicitações que estavam vinculadas a esses documentos podem ficar com link quebrado (precisará reanexar o documento).",
+    );
+    if (!ok) return;
+    let okCount = 0;
+    let errCount = 0;
+    for (const d of lista) {
+      try {
+        const storageResp = await supabase.storage
+          .from("documentos")
+          .remove([d.storage_path]);
+        if (storageResp.error) {
+          console.error("Erro storage", d.nome_arquivo, storageResp.error);
+        }
+        const delResp = await supabase
+          .from("documentos")
+          .delete()
+          .eq("id", d.id);
+        if (delResp.error) throw delResp.error;
+        okCount++;
+      } catch (err) {
+        console.error("erro deletar", d.nome_arquivo, err);
+        errCount++;
+      }
+    }
+    if (okCount > 0) {
+      toast.success(
+        okCount + " documento" + (okCount === 1 ? "" : "s") + " deletado" +
+          (okCount === 1 ? "" : "s"),
+      );
+    }
+    if (errCount > 0) {
+      toast.error(
+        errCount + " documento" + (errCount === 1 ? "" : "s") +
+          " falharam. Ver console.",
+      );
+    }
+    onChange();
+  }
+
   async function deletarDoc(d: Documento) {
     const ok = window.confirm(
       "Tem certeza que deseja deletar o documento '" + d.nome_arquivo + "'?\n\nEssa acao remove o arquivo do storage e o registro do banco, e nao pode ser desfeita.",
@@ -2679,7 +2727,25 @@ function TabDocumentos(props: TabDocumentosProps) {
                 Arquivos anexados a este caso.
               </CardDescription>
             </div>
-            <UploadDoc casoId={casoId} usuarioId={usuarioId} onChange={onChange} />
+            <div className="flex items-center gap-2">
+              {isInterno && lista.length > 0 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={deletarTodos}
+                  className="text-destructive hover:text-destructive border-destructive/30 hover:bg-destructive/10"
+                  title="Excluir todos os documentos do caso"
+                >
+                  <Trash2 className="h-4 w-4 mr-1" />
+                  Excluir todos
+                </Button>
+              )}
+              <UploadDoc
+                casoId={casoId}
+                usuarioId={usuarioId}
+                onChange={onChange}
+              />
+            </div>
           </div>
         </CardHeader>
         <CardContent>
