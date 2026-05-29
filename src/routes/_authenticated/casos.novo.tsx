@@ -433,6 +433,16 @@ function NovoCasoPage() {
     }
   }
 
+  // Valida documentos: cada doc com arquivo precisa de tipo selecionado;
+  // se tipo='outro', precisa de tipoPersonalizado preenchido.
+  const docsComArquivo = docs.filter((d) => d.file !== null);
+  const docsInvalidos = docsComArquivo.filter(
+    (d) =>
+      !d.tipo ||
+      (d.tipo === "outro" && d.tipoPersonalizado.trim().length === 0),
+  );
+  const todosDocumentosNomeados = docsInvalidos.length === 0;
+
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="flex items-center justify-between">
@@ -846,6 +856,22 @@ function NovoCasoPage() {
               </CardContent>
             </Card>
 
+            {!todosDocumentosNomeados && (
+              <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+                <p className="font-medium">
+                  Há {docsInvalidos.length}{" "}
+                  {docsInvalidos.length === 1
+                    ? "documento sem tipo"
+                    : "documentos sem tipo"}{" "}
+                  selecionado{docsInvalidos.length === 1 ? "" : "s"}.
+                </p>
+                <p className="text-xs mt-1">
+                  Cada arquivo precisa ter um tipo escolhido no Combobox. Se
+                  for &quot;Outro&quot;, preencha o nome do documento. Sem isso
+                  o cadastro não pode prosseguir.
+                </p>
+              </div>
+            )}
             <div className="flex items-center justify-end gap-2">
               <Button
                 type="button"
@@ -855,7 +881,15 @@ function NovoCasoPage() {
               >
                 Cancelar
               </Button>
-              <Button type="submit" disabled={submitting}>
+              <Button
+                type="submit"
+                disabled={submitting || !todosDocumentosNomeados}
+                title={
+                  !todosDocumentosNomeados
+                    ? "Há documentos sem tipo selecionado"
+                    : undefined
+                }
+              >
                 {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 Cadastrar caso
               </Button>
