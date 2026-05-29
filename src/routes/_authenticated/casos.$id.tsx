@@ -2448,6 +2448,8 @@ interface TabDocumentosProps {
 
 function TabDocumentos(props: TabDocumentosProps) {
   const { casoId, documentos, solicitacoes, isInterno, usuarioId, onChange } = props;
+  // Usuario logado (usado pelo preview do parceiro para watermark)
+  const { usuario } = useAuth();
 
   // Modal para coletar motivo (dispensa ou atendimento)
   const [acaoAlvo, setAcaoAlvo] = useState<{
@@ -2461,6 +2463,11 @@ function TabDocumentos(props: TabDocumentosProps) {
   const [comAnexo, setComAnexo] = useState(false);
   // Estado do accordion "Solicitações cumpridas"
   const [cumpridasAberto, setCumpridasAberto] = useState(false);
+  // Preview de documento (parceiro: visualizar sem baixar)
+  const [previewDoc, setPreviewDoc] = useState<
+    { doc: Documento; url: string } | null
+  >(null);
+  const [carregandoPreview, setCarregandoPreview] = useState(false);
   // Multi-select de documentos para deletar em batch (so interno usa)
   const [docsSelecionados, setDocsSelecionados] = useState<Set<string>>(
     new Set(),
@@ -2542,6 +2549,35 @@ function TabDocumentos(props: TabDocumentosProps) {
       const errObj = err as { message?: string };
       toast.error(errObj.message || "Erro ao gerar link do documento");
     }
+  }
+
+  async function abrirPreview(d: Documento) {
+    setCarregandoPreview(true);
+    try {
+      const resp = await supabase.storage
+        .from("documentos")
+        .createSignedUrl(d.storage_path, 300); // 5 min de TTL
+      if (resp.error) throw resp.error;
+      const url = resp.data ? resp.data.signedUrl : null;
+      if (!url) throw new Error("Nao foi possivel gerar link de visualizacao");
+      setPreviewDoc({ doc: d, url: url });
+    } catch (err) {
+      console.error(err);
+      const errObj = err as { message?: string };
+      toast.error(errObj.message || "Erro ao abrir preview");
+    } finally {
+      setCarregandoPreview(false);
+    }
+  }
+
+  function fecharPreview() {
+    setPreviewDoc(null);
+  }
+
+  // Detecta se o arquivo eh imagem (pra usar <img> em vez de <iframe>)
+  function ehImagemDoc(nome: string | null | undefined): boolean {
+    if (!nome) return false;
+    return /\.(jpe?g|png|gif|webp|bmp)$/i.test(nome);
   }
 
   async function baixarSelecionados() {
@@ -2939,10 +2975,27 @@ function TabDocumentos(props: TabDocumentosProps) {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Button size="sm" variant="outline" onClick={() => baixar(d)}>
-                      <Download className="h-4 w-4 mr-2" />
-                      Baixar
-                    </Button>
+                    {isInterno && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => baixar(d)}
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        Baixar
+                      </Button>
+                    )}
+                    {!isInterno && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => abrirPreview(d)}
+                        disabled={carregandoPreview}
+                      >
+                        <Eye className="h-4 w-4 mr-2" />
+                        Visualizar
+                      </Button>
+                    )}
                     {isInterno && (
                       <Button
                         size="sm"
@@ -3301,6 +3354,76 @@ function TabDocumentos(props: TabDocumentosProps) {
               Confirmar
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ---- Dialog de preview de documento (parceiro: visualizar sem baixar) ---- */}
+      <Dialog
+        open={previewDoc !== null}
+        onOpenChange={(o) => {
+          if (!o) fecharPreview();
+        }}
+      >
+        <DialogContent
+          className="max-w-4xl max-h-[95vh] overflow-hidden p-0"
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <DialogHeader className="px-4 pt-4 pb-2">
+            <DialogTitle className="text-base">
+              {previewDoc
+                ? displayNomeArquivo(previewDoc.doc.nome_arquivo)
+                : ""}
+            </DialogTitle>
+            <DialogDescription className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2 mt-1">
+              <strong>Documento confidencial.</strong> Captura de tela, gravação
+              ou compartilhamento configura responsabilidade legal. Acesso
+              registrado para auditoria.
+            </DialogDescription>
+          </DialogHeader>
+          {previewDoc && (
+            <div
+              className="relative bg-muted/30 select-none"
+              style={{ height: "75vh" }}
+              onContextMenu={(e) => e.preventDefault()}
+              onDragStart={(e) => e.preventDefault()}
+            >
+              {ehImagemDoc(previewDoc.doc.nome_arquivo) ? (
+                <img
+                  src={previewDoc.url}
+                  alt={previewDoc.doc.nome_arquivo}
+                  draggable={false}
+                  onDragStart={(e) => e.preventDefault()}
+                  onContextMenu={(e) => e.preventDefault()}
+                  className="w-full h-full object-contain pointer-events-none"
+                />
+              ) : (
+                <iframe
+                  src={previewDoc.url + "#toolbar=0&navpanes=0&scrollbar=1"}
+                  title={previewDoc.doc.nome_arquivo}
+                  className="w-full h-full"
+                  sandbox="allow-same-origin"
+                />
+              )}
+              {/* Watermark com identificacao do usuario */}
+              <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center overflow-hidden">
+                <div
+                  className="font-bold text-gray-400/30 -rotate-12 text-center whitespace-pre-line leading-tight"
+                  style={{ fontSize: "2rem" }}
+                >
+                  {(usuario && usuario.nome) || "Confidencial"}
+                  {"\n"}
+                  {(usuario && usuario.email) || ""}
+                  {"\n"}
+                  {new Date().toLocaleString("pt-BR")}
+                </div>
+              </div>
+            </div>
+          )}
+          <div className="flex items-center justify-end gap-2 px-4 py-3 border-t">
+            <Button variant="outline" size="sm" onClick={fecharPreview}>
+              Fechar
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
