@@ -5,7 +5,6 @@ import {
   Wallet,
   MessagesSquare,
   Settings,
-  Scale,
   Users,
 } from "lucide-react";
 import {
@@ -55,17 +54,32 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="border-b border-sidebar-border">
-        <div className="flex items-center gap-2 px-2 py-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <Scale className="h-4 w-4" />
-          </div>
-          {!collapsed && (
-            <div className="flex flex-col leading-tight">
-              <span className="text-sm font-semibold text-sidebar-foreground">Mara Sandra</span>
-              <span className="text-xs text-muted-foreground">Advocacia</span>
+        {/* Logo do escritorio. Clicar volta para a home (lista de casos). */}
+        <Link
+          to="/"
+          aria-label="Mara Sandra Vian Advocacia - voltar para a pagina inicial"
+          className="flex items-center justify-center px-2 py-3 hover:opacity-80 transition-opacity"
+        >
+          {collapsed ? (
+            // Estado colapsado: mostra so o mark "msv" em um badge dourado.
+            // Mantem identidade visual sem ocupar largura.
+            <div
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-white font-bold italic"
+              style={{
+                background:
+                  "linear-gradient(135deg, #c9a14a 0%, #e8c878 50%, #b8862e 100%)",
+              }}
+            >
+              <span className="text-sm leading-none">msv</span>
             </div>
+          ) : (
+            <img
+              src="/logo.png"
+              alt="Mara Sandra Vian Advocacia"
+              className="max-h-20 w-auto object-contain"
+            />
           )}
-        </div>
+        </Link>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
