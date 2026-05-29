@@ -866,9 +866,8 @@ function NovoCasoPage() {
                   selecionado{docsInvalidos.length === 1 ? "" : "s"}.
                 </p>
                 <p className="text-xs mt-1">
-                  Cada arquivo precisa ter um tipo escolhido no Combobox. Se
-                  for &quot;Outro&quot;, preencha o nome do documento. Sem isso
-                  o cadastro não pode prosseguir.
+                  Selecione o tipo de cada arquivo. Se for &quot;Outro&quot;,
+                  informe o nome.
                 </p>
               </div>
             )}
