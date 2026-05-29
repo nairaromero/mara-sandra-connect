@@ -98,14 +98,24 @@ function AuthenticatedLayout() {
                   {usuario.tipo}
                 </Badge>
               )}
-              <div className="flex items-center gap-2">
-                <Avatar className="h-8 w-8">
+              {/* Avatar + nome viram link pro perfil/configuracoes do
+                  usuario logado. Botao Configuracoes na sidebar continua
+                  funcionando como atalho redundante. */}
+              <Link
+                to="/configuracoes"
+                aria-label="Abrir configuracoes do perfil"
+                className="flex items-center gap-2 rounded-md px-1.5 py-0.5 hover:bg-muted/60 transition-colors"
+                title="Configuracoes do perfil"
+              >
+                <Avatar className="h-8 w-8 ring-1 ring-transparent hover:ring-[var(--gold)]/40 transition-all">
                   <AvatarFallback className="bg-primary text-primary-foreground text-xs">
                     {initials}
                   </AvatarFallback>
                 </Avatar>
-                <span className="text-sm font-medium hidden md:inline">{displayName}</span>
-              </div>
+                <span className="text-sm font-medium hidden md:inline">
+                  {displayName}
+                </span>
+              </Link>
               <Button variant="ghost" size="sm" onClick={async () => { await signOut(); navigate({ to: "/login" }); }}>
                 <LogOut className="h-4 w-4 sm:mr-2" />
                 <span className="hidden sm:inline">Sair</span>
