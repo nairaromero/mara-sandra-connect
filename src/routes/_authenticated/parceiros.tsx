@@ -4,7 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { Loader2, UserPlus, Mail, ShieldAlert } from "lucide-react";
+import { Loader2, UserPlus, Mail, ShieldAlert, Pencil } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
@@ -36,6 +36,15 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 
 export const Route = createFileRoute("/_authenticated/parceiros")({
   component: ParceirosPage,
@@ -76,6 +85,18 @@ function ParceirosPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
+  // ---- Editar parceiro ----
+  // Usado pra trocar email de teste (naira+nome@gmail.com) pelo email real
+  // do parceiro, ou corrigir nome/oab/telefone. Backend cuida de auth.users
+  // + envia novo magic link se email mudou.
+  const [editAberto, setEditAberto] = useState(false);
+  const [editAlvo, setEditAlvo] = useState<ParceiroRow | null>(null);
+  const [editNome, setEditNome] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editOab, setEditOab] = useState("");
+  const [editTelefone, setEditTelefone] = useState("");
+  const [editSalvando, setEditSalvando] = useState(false);
+
   const isInterno = usuario?.tipo === "interno";
 
   useEffect(() => {
@@ -95,6 +116,61 @@ function ParceirosPage() {
       observacoes: "",
     },
   });
+
+  function abrirEditar(p: ParceiroRow) {
+    setEditAlvo(p);
+    setEditNome(p.nome ?? "");
+    setEditEmail(p.email ?? "");
+    setEditOab(p.oab ?? "");
+    setEditTelefone(p.telefone ?? "");
+    setEditAberto(true);
+  }
+
+  async function salvarEdit() {
+    if (!editAlvo) return;
+    if (!editNome.trim()) {
+      toast.error("Nome obrigatorio");
+      return;
+    }
+    if (!editEmail.trim()) {
+      toast.error("Email obrigatorio");
+      return;
+    }
+    setEditSalvando(true);
+    try {
+      const emailMudou = editEmail.trim().toLowerCase() !== (editAlvo.email ?? "").toLowerCase();
+      const resp = await supabase.functions.invoke("update-parceiro", {
+        body: {
+          usuario_id: editAlvo.id,
+          nome: editNome.trim(),
+          email: editEmail.trim().toLowerCase(),
+          oab: editOab.trim(),
+          telefone: editTelefone.trim(),
+          enviar_link: emailMudou, // so envia magic link se email mudou
+        },
+      });
+      if (resp.error) throw resp.error;
+      const data = resp.data as { link_enviado?: boolean } | null;
+      if (emailMudou) {
+        toast.success(
+          data?.link_enviado
+            ? "Parceiro atualizado. Magic link enviado pro novo email."
+            : "Parceiro atualizado. (Magic link nao foi enviado - veja logs.)",
+        );
+      } else {
+        toast.success("Parceiro atualizado.");
+      }
+      setEditAberto(false);
+      setEditAlvo(null);
+      await loadParceiros();
+    } catch (err) {
+      console.error(err);
+      const errObj = err as { message?: string };
+      toast.error(errObj.message || "Erro ao atualizar parceiro");
+    } finally {
+      setEditSalvando(false);
+    }
+  }
 
   async function loadParceiros() {
     setLoading(true);
@@ -318,6 +394,7 @@ function ParceirosPage() {
                     <TableHead>OAB</TableHead>
                     <TableHead>Telefone</TableHead>
                     <TableHead className="w-24">Status</TableHead>
+                    <TableHead className="w-20 text-right">Acoes</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -334,6 +411,16 @@ function ParceirosPage() {
                           <Badge variant="outline">Inativo</Badge>
                         )}
                       </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => abrirEditar(p)}
+                          aria-label="Editar parceiro"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -341,6 +428,88 @@ function ParceirosPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Dialog: editar parceiro (interno only) */}
+        <Dialog
+          open={editAberto}
+          onOpenChange={(o) => {
+            if (!editSalvando) setEditAberto(o);
+          }}
+        >
+          <DialogContent className="max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Editar parceiro</DialogTitle>
+              <DialogDescription>
+                Atualize dados do parceiro. Se trocar o email, um novo magic
+                link sera enviado pro novo endereco automaticamente - util pra
+                testar com seu proprio email agora e migrar pro email real
+                depois.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div>
+                <Label className="text-xs">Nome completo</Label>
+                <Input
+                  value={editNome}
+                  onChange={(e) => setEditNome(e.target.value)}
+                  placeholder="Nome do advogado parceiro"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">E-mail</Label>
+                <Input
+                  type="email"
+                  value={editEmail}
+                  onChange={(e) => setEditEmail(e.target.value)}
+                  placeholder="parceiro@exemplo.com"
+                  autoComplete="off"
+                />
+                {editAlvo && editEmail.trim().toLowerCase() !==
+                  (editAlvo.email ?? "").toLowerCase() && (
+                  <p className="text-xs text-[var(--gold)] mt-1 font-medium">
+                    Email mudou - sera enviado novo magic link ao salvar.
+                  </p>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">OAB</Label>
+                  <Input
+                    value={editOab}
+                    onChange={(e) => setEditOab(e.target.value)}
+                    placeholder="OAB/SP 000000"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Telefone</Label>
+                  <Input
+                    value={editTelefone}
+                    onChange={(e) =>
+                      setEditTelefone(maskTelefone(e.target.value))
+                    }
+                    placeholder="(00) 00000-0000"
+                    inputMode="tel"
+                  />
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="ghost"
+                onClick={() => setEditAberto(false)}
+                disabled={editSalvando}
+              >
+                Cancelar
+              </Button>
+              <Button onClick={salvarEdit} disabled={editSalvando}>
+                {editSalvando && (
+                  <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                )}
+                Salvar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </ClientOnly>
     </div>
   );
