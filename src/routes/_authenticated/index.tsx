@@ -22,14 +22,20 @@ interface CasoRow {
   parceiro?: { nome: string | null } | null;
 }
 
+// Hierarquia de status na paleta MSV:
+//   - Em progresso (em_andamento, em_analise): cor neutra creme (secondary)
+//   - Acao necessaria (aguardando_doc, em_revisao): dourado (warning)
+//   - Sucesso: verde (success)
+//   - Insucesso: vermelho (destructive)
+//   - Arquivado: muted (cinza marfim)
 const STATUS_VARIANT: Record<string, { label: string; className: string }> = {
   aguardando_documentos: { label: "Aguardando documentos", className: "bg-warning text-warning-foreground hover:bg-warning" },
-  em_analise: { label: "Em analise", className: "bg-info text-info-foreground hover:bg-info" },
+  em_analise: { label: "Em analise", className: "bg-secondary text-secondary-foreground hover:bg-secondary border border-border" },
   em_revisao: { label: "Em revisao", className: "bg-warning text-warning-foreground hover:bg-warning" },
-  em_andamento: { label: "Em andamento", className: "bg-info text-info-foreground hover:bg-info" },
+  em_andamento: { label: "Em andamento", className: "bg-secondary text-secondary-foreground hover:bg-secondary border border-border" },
   concluido_exito: { label: "Concluido com exito", className: "bg-success text-success-foreground hover:bg-success" },
   concluido_sem_exito: { label: "Concluido sem exito", className: "bg-destructive text-destructive-foreground hover:bg-destructive" },
-  arquivado: { label: "Arquivado", className: "bg-secondary text-secondary-foreground hover:bg-secondary" },
+  arquivado: { label: "Arquivado", className: "bg-muted text-muted-foreground hover:bg-muted" },
 };
 
 function StatusBadge({ status }: { status: string | null }) {

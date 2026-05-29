@@ -405,7 +405,7 @@ function DocumentosPendentesPage() {
           <Card>
             <CardHeader className="pb-2">
               <CardDescription>Interna (escritorio)</CardDescription>
-              <CardTitle className="text-3xl text-blue-700">
+              <CardTitle className="text-3xl">
                 {totalInterna}
               </CardTitle>
             </CardHeader>
@@ -413,7 +413,7 @@ function DocumentosPendentesPage() {
           <Card>
             <CardHeader className="pb-2">
               <CardDescription>Externa (parceiro/cliente)</CardDescription>
-              <CardTitle className="text-3xl text-purple-700">
+              <CardTitle className="text-3xl">
                 {totalExterna}
               </CardTitle>
             </CardHeader>
@@ -769,7 +769,7 @@ function SolicitacaoItem(props: SolicitacaoItemProps) {
               </Badge>
             )}
             {isAtendido && (
-              <Badge className="bg-green-600 hover:bg-green-600 text-white">
+              <Badge className="bg-success hover:bg-success text-success-foreground">
                 <CheckCircle2 className="h-3 w-3 mr-1" />
                 Atendido
               </Badge>
@@ -780,20 +780,13 @@ function SolicitacaoItem(props: SolicitacaoItemProps) {
                 Dispensado
               </Badge>
             )}
-            <Badge
-              variant="outline"
-              className={
-                s.origem === "interna"
-                  ? "border-blue-500 text-blue-700"
-                  : "border-purple-500 text-purple-700"
-              }
-            >
+            <Badge variant="outline" className="font-normal">
               {ORIGEM_SOLICITACAO_LABEL[s.origem] || s.origem}
             </Badge>
             {isPendente && dias !== null && dias > 7 && (
               <Badge
                 variant="outline"
-                className="border-red-500 text-red-700"
+                className="border-destructive text-destructive"
               >
                 {dias}d em aberto
               </Badge>

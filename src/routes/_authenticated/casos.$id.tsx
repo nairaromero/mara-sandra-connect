@@ -3231,7 +3231,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                           </Badge>
                         )}
                         {isAtendido && (
-                          <Badge className="bg-green-600 hover:bg-green-600 text-white">
+                          <Badge className="bg-success hover:bg-success text-success-foreground">
                             <CheckCircle2 className="h-3 w-3 mr-1" />
                             Atendido
                           </Badge>
@@ -3242,14 +3242,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                             Dispensado
                           </Badge>
                         )}
-                        <Badge
-                          variant="outline"
-                          className={
-                            s.origem === "interna"
-                              ? "border-blue-500 text-blue-700"
-                              : "border-purple-500 text-purple-700"
-                          }
-                        >
+                        <Badge variant="outline" className="font-normal">
                           {ORIGEM_SOLICITACAO_LABEL[s.origem] || s.origem}
                         </Badge>
                       </div>
@@ -3521,7 +3514,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                 ? displayNomeArquivo(previewDoc.doc.nome_arquivo)
                 : ""}
             </DialogTitle>
-            <DialogDescription className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2 mt-1">
+            <DialogDescription className="text-xs text-destructive bg-destructive/10 border border-destructive/30 rounded p-2 mt-1">
               <strong>Documento confidencial.</strong> Captura de tela, gravação
               ou compartilhamento configura responsabilidade legal. Acesso
               registrado para auditoria.
@@ -4540,13 +4533,13 @@ function TabRepasses(props: TabRepassesProps) {
           </div>
           <div className="border rounded-md p-3">
             <p className="text-xs text-muted-foreground">A pagar</p>
-            <p className="text-base font-medium text-amber-700">
+            <p className="text-base font-medium text-warning">
               {formatMoney(aPagar)}
             </p>
           </div>
           <div className="border rounded-md p-3">
             <p className="text-xs text-muted-foreground">Pago</p>
-            <p className="text-base font-medium text-green-700">
+            <p className="text-base font-medium text-success">
               {formatMoney(pago)}
             </p>
           </div>

@@ -217,7 +217,7 @@ function ConversasPage() {
               <MessagesSquare className="h-6 w-6" />
               Conversas
               {totalNaoLidas > 0 && (
-                <Badge className="bg-red-600 hover:bg-red-600">
+                <Badge className="bg-destructive hover:bg-destructive text-destructive-foreground">
                   {totalNaoLidas} nao lida
                   {totalNaoLidas > 1 ? "s" : ""}
                 </Badge>
@@ -321,7 +321,7 @@ function ConversaItem(props: ConversaItemProps) {
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 {totalNaoLidas > 0 && (
-                  <Badge className="bg-red-600 hover:bg-red-600 text-white">
+                  <Badge className="bg-destructive hover:bg-destructive text-destructive-foreground">
                     {totalNaoLidas}
                   </Badge>
                 )}

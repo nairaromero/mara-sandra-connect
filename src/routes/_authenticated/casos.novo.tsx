@@ -868,7 +868,7 @@ function NovoCasoPage() {
             </Card>
 
             {!todosDocumentosNomeados && (
-              <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+              <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
                 <p className="font-medium">
                   Há {docsInvalidos.length}{" "}
                   {docsInvalidos.length === 1
