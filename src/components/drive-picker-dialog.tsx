@@ -311,6 +311,11 @@ export function DrivePickerDialog(props: DrivePickerDialogProps) {
                       <p className="text-sm font-medium truncate">
                         {it.drive.name}
                       </p>
+                      {it.drive.pastaRelativa && (
+                        <p className="text-xs text-[var(--gold)] truncate">
+                          {it.drive.pastaRelativa}/
+                        </p>
+                      )}
                       <p className="text-xs text-muted-foreground">
                         {it.drive.mimeType}
                         {it.drive.sizeBytes > 0 &&

@@ -112,6 +112,11 @@ export interface DrivePickedFile {
   iconUrl?: string;
   /** "file" ou "folder" */
   type: string;
+  /**
+   * Quando vem de listagem recursiva, indica a subpasta dentro da pasta raiz.
+   * Ex.: "Subpasta A/Outra" ou "" (vazio) se esta na raiz.
+   */
+  pastaRelativa?: string;
 }
 
 export interface DrivePickerResult {
@@ -347,18 +352,23 @@ function abrirPickerPastaComToken(
   picker.setVisible(true);
 }
 
+const FOLDER_MIME = "application/vnd.google-apps.folder";
+
 /**
- * Lista arquivos (nao pastas, nao trashed) dentro de uma pasta do Drive.
- * Usa Drive API REST diretamente. Retorna max 200 arquivos por chamada.
- *
- * Se a pasta nao existir ou nao for acessivel com o token, lanca erro.
+ * Lista UM nivel de uma pasta no Drive. Retorna arquivos E subpastas.
+ * Usado internamente pela versao recursiva.
  */
-export async function listarArquivosDaPasta(
+async function listarUmNivel(
   folderId: string,
   accessToken: string,
-): Promise<Array<DrivePickedFile>> {
-  // q="'<folder>' in parents and trashed=false and mimeType!=folder"
-  const q = `'${folderId}' in parents and trashed=false and mimeType != 'application/vnd.google-apps.folder'`;
+): Promise<Array<{
+  id: string;
+  name: string;
+  mimeType: string;
+  size?: string;
+  iconLink?: string;
+}>> {
+  const q = `'${folderId}' in parents and trashed=false`;
   const fields = "files(id,name,mimeType,size,iconLink)";
   const url =
     "https://www.googleapis.com/drive/v3/files" +
@@ -368,9 +378,7 @@ export async function listarArquivosDaPasta(
     "&supportsAllDrives=true&includeItemsFromAllDrives=true";
 
   const resp = await fetch(url, {
-    headers: {
-      Authorization: "Bearer " + accessToken,
-    },
+    headers: { Authorization: "Bearer " + accessToken },
   });
   if (!resp.ok) {
     const detail = await resp.text();
@@ -387,15 +395,71 @@ export async function listarArquivosDaPasta(
       iconLink?: string;
     }>;
   };
+  return data.files || [];
+}
 
-  return (data.files || []).map((f) => ({
-    id: f.id,
-    name: f.name,
-    mimeType: f.mimeType,
-    sizeBytes: parseInt(f.size || "0", 10) || 0,
-    iconUrl: f.iconLink,
-    type: "file",
-  }));
+/**
+ * Lista arquivos dentro de uma pasta RECURSIVAMENTE (entra nas subpastas).
+ *
+ * Limites de seguranca:
+ *   - Max 5 niveis de profundidade
+ *   - Max 500 arquivos no total
+ *
+ * Cada arquivo retornado tem `pastaRelativa` indicando o caminho desde a
+ * pasta raiz (ex.: "Subpasta A/Documentos").
+ */
+export async function listarArquivosDaPasta(
+  folderId: string,
+  accessToken: string,
+  opts?: { maxDepth?: number; maxFiles?: number },
+): Promise<Array<DrivePickedFile>> {
+  const maxDepth = opts?.maxDepth ?? 5;
+  const maxFiles = opts?.maxFiles ?? 500;
+  const arquivos: Array<DrivePickedFile> = [];
+
+  async function recurse(
+    currentFolderId: string,
+    depth: number,
+    pathPrefix: string,
+  ): Promise<void> {
+    if (depth > maxDepth || arquivos.length >= maxFiles) return;
+    let itens: Awaited<ReturnType<typeof listarUmNivel>>;
+    try {
+      itens = await listarUmNivel(currentFolderId, accessToken);
+    } catch (err) {
+      console.warn(
+        "[listarArquivosDaPasta] erro lendo subpasta",
+        currentFolderId,
+        err,
+      );
+      return;
+    }
+    // Processa primeiro arquivos, depois subpastas (estabilidade na ordem)
+    const files = itens.filter((it) => it.mimeType !== FOLDER_MIME);
+    const folders = itens.filter((it) => it.mimeType === FOLDER_MIME);
+    for (const f of files) {
+      if (arquivos.length >= maxFiles) return;
+      arquivos.push({
+        id: f.id,
+        name: f.name,
+        mimeType: f.mimeType,
+        sizeBytes: parseInt(f.size || "0", 10) || 0,
+        iconUrl: f.iconLink,
+        type: "file",
+        pastaRelativa: pathPrefix || undefined,
+      });
+    }
+    for (const folder of folders) {
+      if (arquivos.length >= maxFiles) return;
+      const novoPath = pathPrefix
+        ? pathPrefix + "/" + folder.name
+        : folder.name;
+      await recurse(folder.id, depth + 1, novoPath);
+    }
+  }
+
+  await recurse(folderId, 0, "");
+  return arquivos;
 }
 
 /**
