@@ -16,14 +16,31 @@ declare global {
   }
 }
 
-const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
-const API_KEY = import.meta.env.VITE_GOOGLE_API_KEY as string | undefined;
+// Credenciais publicas do Google Drive Picker. Sao publicas por design
+// (Picker eh client-side, browser ja teria acesso de qualquer jeito).
+// A protecao real vem das restricoes configuradas no Google Cloud Console:
+//   - Origens JavaScript autorizadas (limita quais dominios podem usar)
+//   - Restricoes HTTP referrer na API Key (mesma logica)
+//   - Test users na tela de consentimento OAuth
+//
+// Hardcoded porque Cloudflare Workers Builds nao estava injetando as
+// env vars VITE_* durante o build (testamos extensivamente). Pra rotacionar,
+// e so trocar aqui e fazer push.
+const CLIENT_ID = "209632652751-2foqg4po8fsmcjjoe11o8vhv8kr6ev4l.apps.googleusercontent.com";
+const API_KEY = "AIzaSyDX0D4MjnCyklJK-wcIj70F3rpaOk4lZ_4";
+
+// Fallback pras env vars caso voce queira tentar de novo no futuro - se
+// existirem em build time, sobrescrevem o hardcode.
+const ENV_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
+const ENV_API_KEY = import.meta.env.VITE_GOOGLE_API_KEY as string | undefined;
+const EFFECTIVE_CLIENT_ID = ENV_CLIENT_ID || CLIENT_ID;
+const EFFECTIVE_API_KEY = ENV_API_KEY || API_KEY;
 
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
 
 /** Falha rapida se as env vars nao estao configuradas (build cru). */
 export function isGoogleDriveConfigured(): boolean {
-  return !!CLIENT_ID && !!API_KEY;
+  return !!EFFECTIVE_CLIENT_ID && !!EFFECTIVE_API_KEY;
 }
 
 // ---------------------------------------------------------------------------
@@ -114,11 +131,9 @@ export interface DrivePickerResult {
  * Se o usuario cancelar, resolve com files=[] e accessToken="".
  */
 export function abrirDrivePicker(): Promise<DrivePickerResult> {
-  if (!CLIENT_ID || !API_KEY) {
+  if (!EFFECTIVE_CLIENT_ID || !EFFECTIVE_API_KEY) {
     return Promise.reject(
-      new Error(
-        "Google Drive nao configurado (faltam VITE_GOOGLE_CLIENT_ID e/ou VITE_GOOGLE_API_KEY)",
-      ),
+      new Error("Google Drive nao configurado (credenciais ausentes)"),
     );
   }
 
@@ -132,7 +147,7 @@ export function abrirDrivePicker(): Promise<DrivePickerResult> {
 
     // Token client OAuth (Google Identity Services)
     const tokenClient = window.google.accounts.oauth2.initTokenClient({
-      client_id: CLIENT_ID,
+      client_id: EFFECTIVE_CLIENT_ID,
       scope: DRIVE_SCOPE,
       callback: (resp: any) => {
         if (resp.error) {
@@ -162,7 +177,7 @@ function abrirPickerComToken(
     .enableFeature(window.google.picker.Feature.MULTISELECT_ENABLED)
     .enableFeature(window.google.picker.Feature.SUPPORT_DRIVES)
     .setOAuthToken(accessToken)
-    .setDeveloperKey(API_KEY)
+    .setDeveloperKey(EFFECTIVE_API_KEY)
     // View principal: todos os tipos, com pastas navegaveis
     .addView(
       new window.google.picker.DocsView()
