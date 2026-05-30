@@ -1,5 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
+  Home,
   UserCircle,
   FileWarning,
   Settings,
@@ -21,7 +22,8 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 
 const itemsBase = [
-  { title: "Clientes", url: "/", icon: UserCircle },
+  { title: "Inicio", url: "/", icon: Home },
+  { title: "Clientes", url: "/clientes", icon: UserCircle },
   { title: "Documentos pendentes", url: "/documentos", icon: FileWarning },
   // "Repasses" e "Conversas" removidas da sidebar mas as rotas /repasses
   // e /conversas continuam existindo no codigo - decisao de produto
