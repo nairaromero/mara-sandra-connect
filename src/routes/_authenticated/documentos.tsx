@@ -172,6 +172,8 @@ function DocumentosPendentesPage() {
   // Upload de arquivo no atendimento
   const [arquivoUpload, setArquivoUpload] = useState<File | null>(null);
   const [comAnexo, setComAnexo] = useState(false);
+  // Nome editavel pelo usuario (pre-preenchido com auto-rename)
+  const [nomeArquivoEdit, setNomeArquivoEdit] = useState("");
 
   const carregar = useCallback(async () => {
     if (!jaCarregouRef.current) {
@@ -260,6 +262,7 @@ function DocumentosPendentesPage() {
     setAcaoAlvo({ solic: s, novoStatus: novoStatus });
     setComentarioModal(s.comentario || "");
     setArquivoUpload(null);
+    setNomeArquivoEdit("");
     // Parceiro SEMPRE cumpre com arquivo. Interno por default sem arquivo.
     setComAnexo(!isInterno && novoStatus === "atendido");
   }
@@ -269,6 +272,7 @@ function DocumentosPendentesPage() {
     setComentarioModal("");
     setSalvandoModal(false);
     setArquivoUpload(null);
+    setNomeArquivoEdit("");
     setComAnexo(false);
   }
 
@@ -293,6 +297,16 @@ function DocumentosPendentesPage() {
       toast.error("Selecione um arquivo para anexar");
       return;
     }
+    // Nome do arquivo obrigatorio quando ha upload
+    if (
+      acaoAlvo.novoStatus === "atendido" &&
+      comAnexo &&
+      arquivoUpload &&
+      !nomeArquivoEdit.trim()
+    ) {
+      toast.error("Informe o nome do arquivo");
+      return;
+    }
     // Valida tamanho antes de subir pra evitar erro generico do Storage.
     if (arquivoUpload) {
       const erroTamanho = validateFileSize(arquivoUpload);
@@ -312,7 +326,9 @@ function DocumentosPendentesPage() {
         arquivoUpload &&
         usuario
       ) {
-        const nomeArq = nomearArquivo(acaoAlvo.solic.tipo, arquivoUpload);
+        // Usa nome editado (ou fallback pra auto-rename)
+        const nomeArq = nomeArquivoEdit.trim() ||
+          nomearArquivo(acaoAlvo.solic.tipo, arquivoUpload);
         const path = acaoAlvo.solic.caso_id + "/" + nomeArq;
         // upsert=true permite re-enviar mesmo nome (sobrescreve)
         const upResp = await supabase.storage
@@ -582,22 +598,40 @@ function DocumentosPendentesPage() {
                     </Label>
                     <input
                       type="file"
-                      onChange={(e) =>
-                        setArquivoUpload(e.target.files?.[0] || null)
-                      }
+                      onChange={(e) => {
+                        const f = e.target.files?.[0] || null;
+                        setArquivoUpload(f);
+                        // Pre-preenche nome editavel com auto-rename
+                        if (f && acaoAlvo) {
+                          setNomeArquivoEdit(
+                            nomearArquivo(acaoAlvo.solic.tipo, f),
+                          );
+                        } else {
+                          setNomeArquivoEdit("");
+                        }
+                      }}
                       className="block w-full text-sm border rounded-md p-2"
                       accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
                     />
                     <p className="text-xs text-muted-foreground mt-1">
                       Tamanho maximo: {MAX_FILE_SIZE_MB} MB por arquivo.
                     </p>
-                    {arquivoUpload && acaoAlvo && (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Sera salvo como:{" "}
-                        <code className="bg-muted px-1 rounded">
-                          {nomearArquivo(acaoAlvo.solic.tipo, arquivoUpload)}
-                        </code>
-                      </p>
+                    {arquivoUpload && (
+                      <div className="mt-2">
+                        <Label className="text-xs">
+                          Nome do arquivo (obrigatorio)
+                        </Label>
+                        <Input
+                          value={nomeArquivoEdit}
+                          onChange={(e) => setNomeArquivoEdit(e.target.value)}
+                          placeholder="Ex: RG_e_CPF_Joao.pdf"
+                          className="text-sm"
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Pre-preenchido com nome padrao - voce pode editar.
+                          Mantenha a extensao (.pdf, .jpg, etc.).
+                        </p>
+                      </div>
                     )}
                   </div>
                 )}
