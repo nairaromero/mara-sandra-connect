@@ -19,22 +19,17 @@ declare global {
 // Credenciais publicas do Google Drive Picker. Sao publicas por design
 // (Picker eh client-side, browser ja teria acesso de qualquer jeito).
 // A protecao real vem das restricoes configuradas no Google Cloud Console:
-//   - Origens JavaScript autorizadas (limita quais dominios podem usar)
-//   - Restricoes HTTP referrer na API Key (mesma logica)
-//   - Test users na tela de consentimento OAuth
+//   - Origens JavaScript autorizadas no OAuth Client (3 dominios)
+//   - HTTP referrer restrictions + API restrictions na API Key
+//   - Test users na tela de consentimento OAuth (Mara + Naira)
 //
-// Hardcoded porque Cloudflare Workers Builds nao estava injetando as
-// env vars VITE_* durante o build (testamos extensivamente). Pra rotacionar,
-// e so trocar aqui e fazer push.
-const CLIENT_ID = "209632652751-2foqg4po8fsmcjjoe11o8vhv8kr6ev4l.apps.googleusercontent.com";
-const API_KEY = "AIzaSyDX0D4MjnCyklJK-wcIj70F3rpaOk4lZ_4";
-
-// Fallback pras env vars caso voce queira tentar de novo no futuro - se
-// existirem em build time, sobrescrevem o hardcode.
-const ENV_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
-const ENV_API_KEY = import.meta.env.VITE_GOOGLE_API_KEY as string | undefined;
-const EFFECTIVE_CLIENT_ID = ENV_CLIENT_ID || CLIENT_ID;
-const EFFECTIVE_API_KEY = ENV_API_KEY || API_KEY;
+// IMPORTANTE: Hardcoded SEM fallback pra env var, porque Vite/Cloudflare
+// estavam injetando valor truncado de VITE_GOOGLE_CLIENT_ID e o tree-shaking
+// removia o fallback hardcoded. Pra rotacionar credenciais: troca aqui +
+// push. Pra revogar acesso: deleta o OAuth Client no Google Cloud.
+const EFFECTIVE_CLIENT_ID =
+  "209632652751-2foqg4po8fsmcjjoe11o8vhv8kr6ev4l.apps.googleusercontent.com";
+const EFFECTIVE_API_KEY = "AIzaSyDX0D4MjnCyklJK-wcIj70F3rpaOk4lZ_4";
 
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
 
