@@ -290,11 +290,29 @@ export function DrivePickerDialog(props: DrivePickerDialogProps) {
     <Dialog
       open={aberto}
       onOpenChange={(o) => {
-        if (importando) return; // bloqueia fechar durante import
+        // Bloqueia fechar enquanto:
+        //   - estamos importando (upload em andamento)
+        //   - o Picker do Google esta aberto (clique no Picker eh detectado
+        //     pelo Radix como "click outside" e tentaria fechar nosso dialog)
+        if (importando || abrindoPicker) return;
         onOpenChange(o);
       }}
     >
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+      <DialogContent
+        className="max-h-[90vh] overflow-y-auto sm:max-w-3xl"
+        // Previne fechamento por click fora ou Escape enquanto Picker aberto
+        // ou import em andamento. Sem isso, click no Picker do Google (que
+        // sobrepoe o dialog) fecha o dialog antes da selecao terminar.
+        onPointerDownOutside={(e) => {
+          if (abrindoPicker || importando) e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          if (abrindoPicker || importando) e.preventDefault();
+        }}
+        onInteractOutside={(e) => {
+          if (abrindoPicker || importando) e.preventDefault();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Importar do Google Drive</DialogTitle>
           <DialogDescription>
