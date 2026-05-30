@@ -110,6 +110,7 @@ export function DrivePickerDialog(props: DrivePickerDialogProps) {
   }, [aberto]);
 
   async function handleAbrirPicker() {
+    console.log("[DrivePickerDialog] handleAbrirPicker called");
     if (!isGoogleDriveConfigured()) {
       toast.error(
         "Google Drive nao configurado. Defina VITE_GOOGLE_CLIENT_ID e VITE_GOOGLE_API_KEY.",
@@ -119,14 +120,15 @@ export function DrivePickerDialog(props: DrivePickerDialogProps) {
     }
     setAbrindoPicker(true);
     try {
+      console.log("[DrivePickerDialog] awaiting abrirDrivePicker()");
       const { files, accessToken: tok } = await abrirDrivePicker();
+      console.log("[DrivePickerDialog] abrirDrivePicker resolved with files:", files.length, "files:", files);
       if (files.length === 0) {
-        // Cancelou o picker - fecha o dialog
+        console.log("[DrivePickerDialog] no files, closing dialog");
         onOpenChange(false);
         return;
       }
       setAccessToken(tok);
-      // Cria estado inicial com tipo inferido por nome
       const items: Array<Item> = files.map((f) => ({
         drive: f,
         selecionado: true,
@@ -136,9 +138,10 @@ export function DrivePickerDialog(props: DrivePickerDialogProps) {
         erro: null,
         arquivoBaixado: null,
       }));
+      console.log("[DrivePickerDialog] setting itens:", items.length);
       setItens(items);
     } catch (err) {
-      console.error(err);
+      console.error("[DrivePickerDialog] error:", err);
       const msg = (err as { message?: string })?.message ||
         "Erro ao abrir Google Drive";
       toast.error(msg);

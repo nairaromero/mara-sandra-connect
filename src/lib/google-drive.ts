@@ -168,22 +168,25 @@ function abrirPickerComToken(
   accessToken: string,
   resolve: (r: DrivePickerResult) => void,
 ) {
+  // Debug logging (Fase 51 troubleshooting)
+  console.log("[DrivePicker] abrirPickerComToken called, building picker");
+
   const picker = new window.google.picker.PickerBuilder()
     .enableFeature(window.google.picker.Feature.MULTISELECT_ENABLED)
     .enableFeature(window.google.picker.Feature.SUPPORT_DRIVES)
     .setOAuthToken(accessToken)
     .setDeveloperKey(EFFECTIVE_API_KEY)
-    // View principal: todos os tipos, com pastas navegaveis
     .addView(
       new window.google.picker.DocsView()
         .setIncludeFolders(true)
-        .setSelectFolderEnabled(false), // por enquanto so arquivos, nao pastas
+        .setSelectFolderEnabled(false),
     )
-    // Localizacao em portugues (best effort)
     .setLocale("pt")
     .setCallback((data: any) => {
+      console.log("[DrivePicker] picker callback action:", data.action, "data:", data);
       if (data.action === window.google.picker.Action.PICKED) {
         const docs = data.docs || [];
+        console.log("[DrivePicker] PICKED, files count:", docs.length);
         const files: DrivePickedFile[] = docs.map((d: any) => ({
           id: d.id,
           name: d.name,
@@ -194,11 +197,13 @@ function abrirPickerComToken(
         }));
         resolve({ files, accessToken });
       } else if (data.action === window.google.picker.Action.CANCEL) {
+        console.log("[DrivePicker] CANCEL");
         resolve({ files: [], accessToken: "" });
       }
     })
     .build();
 
+  console.log("[DrivePicker] calling picker.setVisible(true)");
   picker.setVisible(true);
 }
 
