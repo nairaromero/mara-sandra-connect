@@ -182,6 +182,8 @@ interface Documento {
   visivel_parceiro: boolean;
   // ID do arquivo no Drive (se foi importado de la) - usado pra dedupe de sync
   gdrive_file_id?: string | null;
+  // Caminho da subpasta no Drive (ex.: "Diversos"). Null = raiz/manual.
+  pasta_relativa?: string | null;
   created_at: string;
 }
 
@@ -3041,6 +3043,21 @@ function TabDocumentos(props: TabDocumentosProps) {
   const [gruposExpandidos, setGruposExpandidos] = useState<Set<number>>(
     new Set(),
   );
+  // Pastas (Drive) expandidas na aba Documentos. Vazio = todas fechadas
+  // exceto a raiz que abre por default. Usado quando ha pasta_relativa nos
+  // documentos.
+  const [pastasDocExpandidas, setPastasDocExpandidas] = useState<Set<string>>(
+    new Set([""]),
+  );
+
+  function togglePastaDoc(pasta: string) {
+    setPastasDocExpandidas((prev) => {
+      const next = new Set(prev);
+      if (next.has(pasta)) next.delete(pasta);
+      else next.add(pasta);
+      return next;
+    });
+  }
 
   // ---- Importar do Google Drive (interno only) ----
   // O parente abre o Picker e so depois passa os arquivos pro dialog.
@@ -3206,6 +3223,8 @@ function TabDocumentos(props: TabDocumentosProps) {
           visivel_parceiro: true,
           // Salva file_id do Drive pra dedupe no proximo sync da pasta
           gdrive_file_id: a.gdriveFileId,
+          // Caminho da subpasta no Drive (ex.: "Diversos"). Vazio = raiz.
+          pasta_relativa: a.pastaRelativa || null,
         });
         if (insertResp.error) throw insertResp.error;
         okCount++;
@@ -3283,6 +3302,26 @@ function TabDocumentos(props: TabDocumentosProps) {
       displayNomeArquivo(b.nome_arquivo),
     );
   });
+
+  // Agrupa por pasta_relativa pra mostrar subpastas como secoes separadas.
+  // Se nenhum doc tem pasta_relativa setada, retorna 1 grupo unico (flat).
+  // Raiz aparece primeiro, depois subpastas em ordem alfabetica.
+  const algumDocComPasta = lista.some((d) => d.pasta_relativa);
+  const gruposPasta: Array<[string, Array<Documento>]> = algumDocComPasta
+    ? (() => {
+        const map = new Map<string, Array<Documento>>();
+        for (const d of lista) {
+          const key = d.pasta_relativa || "";
+          if (!map.has(key)) map.set(key, []);
+          map.get(key)!.push(d);
+        }
+        return Array.from(map.entries()).sort(([a], [b]) => {
+          if (a === "" && b !== "") return -1;
+          if (b === "" && a !== "") return 1;
+          return a.localeCompare(b);
+        });
+      })()
+    : [["", lista]];
 
   // Solicitacoes ordenadas: pendentes primeiro, depois atendidas, depois dispensadas
   const ordemStatus: Record<string, number> = {
@@ -3803,6 +3842,75 @@ function TabDocumentos(props: TabDocumentosProps) {
                 </label>
               )}
               {(() => {
+                // Renderiza secoes (tipo-grupos) dentro de um array de docs.
+                // Extraido pra reusar em cada pasta quando ha agrupamento.
+                function renderSecoesDeDocs(docs: Array<Documento>) {
+                  type Secao =
+                    | { kind: "flat"; doc: Documento }
+                    | { kind: "accordion"; grupo: number; docs: Array<Documento> };
+                  const secoes: Array<Secao> = [];
+                  for (const d of docs) {
+                    const g = getDocGroup(d.tipo);
+                    if (GRUPOS_ACCORDION.has(g)) {
+                      const ultima = secoes[secoes.length - 1];
+                      if (
+                        ultima &&
+                        ultima.kind === "accordion" &&
+                        ultima.grupo === g
+                      ) {
+                        ultima.docs.push(d);
+                      } else {
+                        secoes.push({ kind: "accordion", grupo: g, docs: [d] });
+                      }
+                    } else {
+                      secoes.push({ kind: "flat", doc: d });
+                    }
+                  }
+                  return (
+                    <ul className="space-y-2">
+                      {secoes.map((s, idx) => {
+                        if (s.kind === "flat") {
+                          return renderDocLi(s.doc);
+                        }
+                        const aberto = gruposExpandidos.has(s.grupo);
+                        const label = GRUPO_LABELS[s.grupo] || "Grupo " + s.grupo;
+                        return (
+                          <li
+                            key={"grupo-" + s.grupo + "-" + idx}
+                            className="border rounded-md overflow-hidden"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => toggleGrupoExpandido(s.grupo)}
+                              className="w-full flex items-center justify-between p-3 hover:bg-muted/50 transition-colors text-left"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                {aberto ? (
+                                  <ChevronDown className="h-4 w-4 shrink-0" />
+                                ) : (
+                                  <ChevronRight className="h-4 w-4 shrink-0" />
+                                )}
+                                <span className="text-sm font-medium truncate">
+                                  {label}
+                                </span>
+                              </div>
+                              <span className="text-xs text-muted-foreground shrink-0">
+                                {s.docs.length}{" "}
+                                {s.docs.length === 1 ? "arquivo" : "arquivos"}
+                              </span>
+                            </button>
+                            {aberto && (
+                              <ul className="space-y-2 p-3 border-t">
+                                {s.docs.map(renderDocLi)}
+                              </ul>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  );
+                }
+
                 // Helper: renderiza o <li> de um documento individual.
                 // Usado tanto na lista plana quanto dentro dos accordions.
                 function renderDocLi(d: Documento) {
@@ -3874,74 +3982,54 @@ function TabDocumentos(props: TabDocumentosProps) {
                   );
                 }
 
-                // Divide lista (ja ordenada por grupo) em secoes:
-                //  - tipo "flat": grupo nao-accordion, renderiza como <li> direto
-                //  - tipo "accordion": grupo 6/7/8, renderiza como bloco
-                //    expansivel com cabecalho clicavel.
-                type Secao =
-                  | { kind: "flat"; doc: Documento }
-                  | { kind: "accordion"; grupo: number; docs: Array<Documento> };
-                const secoes: Array<Secao> = [];
-                for (const d of lista) {
-                  const g = getDocGroup(d.tipo);
-                  if (GRUPOS_ACCORDION.has(g)) {
-                    const ultima = secoes[secoes.length - 1];
-                    if (
-                      ultima &&
-                      ultima.kind === "accordion" &&
-                      ultima.grupo === g
-                    ) {
-                      ultima.docs.push(d);
-                    } else {
-                      secoes.push({ kind: "accordion", grupo: g, docs: [d] });
-                    }
-                  } else {
-                    secoes.push({ kind: "flat", doc: d });
-                  }
+                // Se ha agrupamento por pasta (algum doc tem pasta_relativa),
+                // renderiza cada pasta como uma secao colapsavel. Dentro
+                // de cada pasta usa o mesmo agrupamento por tipo.
+                // Caso contrario, renderiza flat.
+                if (!algumDocComPasta) {
+                  return renderSecoesDeDocs(lista);
                 }
-
                 return (
-                  <ul className="space-y-2">
-                    {secoes.map((s, idx) => {
-                      if (s.kind === "flat") {
-                        return renderDocLi(s.doc);
-                      }
-                      const aberto = gruposExpandidos.has(s.grupo);
-                      const label = GRUPO_LABELS[s.grupo] || "Grupo " + s.grupo;
+                  <div className="space-y-3">
+                    {gruposPasta.map(([pasta, docs]) => {
+                      const aberta = pastasDocExpandidas.has(pasta);
+                      const labelPasta = pasta === ""
+                        ? (gdriveFolderName || "(raiz)")
+                        : gdriveFolderName
+                          ? gdriveFolderName + "/" + pasta
+                          : pasta;
                       return (
-                        <li
-                          key={"grupo-" + s.grupo + "-" + idx}
+                        <div
+                          key={pasta || "_raiz"}
                           className="border rounded-md overflow-hidden"
                         >
                           <button
                             type="button"
-                            onClick={() => toggleGrupoExpandido(s.grupo)}
-                            className="w-full flex items-center justify-between p-3 hover:bg-muted/50 transition-colors text-left"
+                            onClick={() => togglePastaDoc(pasta)}
+                            className="w-full flex items-center gap-2 px-3 py-2 bg-muted/40 hover:bg-muted/60 text-left"
                           >
-                            <div className="flex items-center gap-2 min-w-0">
-                              {aberto ? (
-                                <ChevronDown className="h-4 w-4 shrink-0" />
-                              ) : (
-                                <ChevronRight className="h-4 w-4 shrink-0" />
-                              )}
-                              <span className="text-sm font-medium truncate">
-                                {label}
-                              </span>
-                            </div>
+                            {aberta ? (
+                              <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                            ) : (
+                              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                            )}
+                            <span className="text-sm font-medium truncate flex-1 text-foreground">
+                              📂 {labelPasta}
+                            </span>
                             <span className="text-xs text-muted-foreground shrink-0">
-                              {s.docs.length}{" "}
-                              {s.docs.length === 1 ? "arquivo" : "arquivos"}
+                              {docs.length}{" "}
+                              {docs.length === 1 ? "arquivo" : "arquivos"}
                             </span>
                           </button>
-                          {aberto && (
-                            <ul className="space-y-2 p-3 border-t">
-                              {s.docs.map(renderDocLi)}
-                            </ul>
+                          {aberta && (
+                            <div className="p-3 border-t">
+                              {renderSecoesDeDocs(docs)}
+                            </div>
                           )}
-                        </li>
+                        </div>
                       );
                     })}
-                  </ul>
+                  </div>
                 );
               })()}
             </div>

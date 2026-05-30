@@ -113,6 +113,8 @@ interface DocUpload {
   tipoPersonalizado: string;
   // Quando o doc veio do Drive, guarda o file_id pra dedupe futura.
   gdriveFileId?: string;
+  // Caminho da subpasta no Drive (ex.: "Diversos"). Vazio = raiz/manual.
+  pastaRelativa?: string;
 }
 
 // Helpers de mascara e validacao
@@ -294,6 +296,7 @@ function NovoCasoPage() {
       tipo: a.tipo,
       tipoPersonalizado: a.tipoPersonalizado,
       gdriveFileId: a.gdriveFileId,
+      pastaRelativa: a.pastaRelativa,
     }));
     setDocs((prev) => [...prev, ...novos]);
   }
@@ -518,6 +521,7 @@ function NovoCasoPage() {
             visivel_parceiro: true,
             // Se veio do Drive, guarda file_id pra dedupe em sync futuro
             gdrive_file_id: doc.gdriveFileId ?? null,
+            pasta_relativa: doc.pastaRelativa || null,
           });
 
           if (docInsertResp.error) {

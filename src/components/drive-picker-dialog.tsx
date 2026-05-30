@@ -60,6 +60,8 @@ export interface DriveImportedFile {
   tipoPersonalizado: string;
   /** ID do arquivo no Drive - permite dedupe em syncs futuros. */
   gdriveFileId: string;
+  /** Caminho relativo da subpasta (ex.: "Diversos"). Vazio = raiz. */
+  pastaRelativa: string;
 }
 
 interface DrivePickerDialogProps {
@@ -282,6 +284,7 @@ export function DrivePickerDialog(props: DrivePickerDialogProps) {
           tipo: it.tipo,
           tipoPersonalizado: it.tipoPersonalizado,
           gdriveFileId: it.drive.id,
+          pastaRelativa: it.drive.pastaRelativa ?? "",
         }));
 
       if (okParaImportar.length === 0) {
