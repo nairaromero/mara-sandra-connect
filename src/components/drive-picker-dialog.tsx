@@ -17,8 +17,17 @@
 //   />
 // =============================================================================
 
-import { useEffect, useState } from "react";
-import { Loader2, FileDown, X, AlertCircle } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Loader2,
+  FileDown,
+  X,
+  AlertCircle,
+  Folder,
+  FolderOpen,
+  ChevronDown,
+  ChevronRight,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -98,6 +107,29 @@ export function DrivePickerDialog(props: DrivePickerDialogProps) {
 
   const [itens, setItens] = useState<Array<Item>>([]);
   const [importando, setImportando] = useState(false);
+  // Pastas expandidas/recolhidas no preview. Default: raiz aberta.
+  const [pastasExpandidas, setPastasExpandidas] = useState<Set<string>>(
+    new Set([""]),
+  );
+
+  function togglePasta(pasta: string) {
+    setPastasExpandidas((prev) => {
+      const next = new Set(prev);
+      if (next.has(pasta)) next.delete(pasta);
+      else next.add(pasta);
+      return next;
+    });
+  }
+
+  function setSelecaoPasta(pasta: string, novo: boolean) {
+    setItens((prev) =>
+      prev.map((it) =>
+        (it.drive.pastaRelativa ?? "") === pasta
+          ? { ...it, selecionado: novo }
+          : it,
+      ),
+    );
+  }
 
   // Quando os arquivos selecionados mudam, reinicia o estado da preview
   // com tipos inferidos por nome.
@@ -113,6 +145,9 @@ export function DrivePickerDialog(props: DrivePickerDialogProps) {
         arquivoBaixado: null,
       }));
       setItens(items);
+      // Expande todas as pastas vindas (raiz + subpastas) por default
+      const pastas = new Set(items.map((i) => i.drive.pastaRelativa ?? ""));
+      setPastasExpandidas(pastas);
       setImportando(false);
     } else {
       setItens([]);
@@ -147,6 +182,22 @@ export function DrivePickerDialog(props: DrivePickerDialogProps) {
   }
 
   const selecionados = itens.filter((it) => it.selecionado);
+
+  // Agrupa por pasta relativa. Raiz aparece primeiro, depois subpastas em
+  // ordem alfabetica.
+  const grupos = useMemo(() => {
+    const map = new Map<string, Array<{ item: Item; idx: number }>>();
+    itens.forEach((item, idx) => {
+      const key = item.drive.pastaRelativa ?? "";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push({ item, idx });
+    });
+    return Array.from(map.entries()).sort(([a], [b]) => {
+      if (a === "" && b !== "") return -1;
+      if (b === "" && a !== "") return 1;
+      return a.localeCompare(b);
+    });
+  }, [itens]);
 
   // Valida que todos os selecionados tem tipo, e tipo='outro' tem rotulo livre.
   const todosValidos =
@@ -286,76 +337,140 @@ export function DrivePickerDialog(props: DrivePickerDialogProps) {
         </DialogHeader>
 
         {itens.length > 0 && (
-          <div className="space-y-2">
+          <div className="space-y-3">
             <p className="text-xs text-muted-foreground">
               {selecionados.length} de {itens.length} selecionado(s)
+              {grupos.length > 1 && " em " + grupos.length + " pasta(s)"}
             </p>
-            <ul className="space-y-2">
-              {itens.map((it, i) => (
-                <li
-                  key={it.drive.id}
-                  className={
-                    "border rounded-md p-3 space-y-2 " +
-                    (it.selecionado ? "bg-background" : "bg-muted/30 opacity-60")
-                  }
+            {grupos.map(([pasta, entradas]) => {
+              const expandida = pastasExpandidas.has(pasta);
+              const selecionadosNaPasta = entradas.filter(
+                (e) => e.item.selecionado,
+              ).length;
+              const todosSelecionados = selecionadosNaPasta === entradas.length;
+              const labelPasta = pasta === "" ? "(raiz)" : pasta;
+              return (
+                <div
+                  key={pasta || "_root"}
+                  className="border rounded-md overflow-hidden"
                 >
-                  <div className="flex items-start gap-2">
-                    <input
-                      type="checkbox"
-                      checked={it.selecionado}
-                      onChange={() => toggleSelecionado(i)}
-                      disabled={importando}
-                      className="h-4 w-4 mt-1"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">
-                        {it.drive.name}
-                      </p>
-                      {it.drive.pastaRelativa && (
-                        <p className="text-xs text-[var(--gold)] truncate">
-                          {it.drive.pastaRelativa}/
-                        </p>
-                      )}
-                      <p className="text-xs text-muted-foreground">
-                        {it.drive.mimeType}
-                        {it.drive.sizeBytes > 0 &&
-                          " - " + formatBytes(it.drive.sizeBytes)}
-                      </p>
-                      {it.erro && (
-                        <p className="text-xs text-destructive flex items-center gap-1 mt-1">
-                          <AlertCircle className="h-3 w-3" />
-                          {it.erro}
-                        </p>
-                      )}
-                    </div>
-                    {it.baixando && (
-                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  {/* Header da pasta - clicar expande/recolhe */}
+                  <button
+                    type="button"
+                    onClick={() => togglePasta(pasta)}
+                    className="w-full flex items-center gap-2 px-3 py-2 bg-muted/40 hover:bg-muted/60 text-left"
+                  >
+                    {expandida ? (
+                      <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
                     )}
-                  </div>
-                  {it.selecionado && (
-                    <div className="ml-6 space-y-2">
-                      <DocTypeCombobox
-                        options={tiposDocumento}
-                        value={it.tipo}
-                        onChange={(v) => atualizarTipo(i, v)}
-                        disabled={importando}
-                        placeholder="Escolha o tipo"
-                      />
-                      {it.tipo === "outro" && (
-                        <Input
-                          placeholder="Nome livre do documento"
-                          value={it.tipoPersonalizado}
-                          onChange={(e) =>
-                            atualizarTipoPersonalizado(i, e.target.value)
-                          }
-                          disabled={importando}
-                        />
+                    {expandida ? (
+                      <FolderOpen className="h-4 w-4 shrink-0 text-[var(--gold)]" />
+                    ) : (
+                      <Folder className="h-4 w-4 shrink-0 text-[var(--gold)]" />
+                    )}
+                    <span className="text-sm font-medium truncate flex-1">
+                      {labelPasta}
+                    </span>
+                    <span className="text-xs text-muted-foreground shrink-0">
+                      {selecionadosNaPasta}/{entradas.length}
+                    </span>
+                    {/* Checkbox de selecionar/desselecionar todos da pasta */}
+                    <span
+                      role="checkbox"
+                      aria-checked={todosSelecionados}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelecaoPasta(pasta, !todosSelecionados);
+                      }}
+                      className={
+                        "h-4 w-4 shrink-0 rounded-sm border flex items-center justify-center " +
+                        (todosSelecionados
+                          ? "bg-primary border-primary text-primary-foreground"
+                          : "bg-background border-input")
+                      }
+                      title={
+                        todosSelecionados
+                          ? "Desmarcar todos da pasta"
+                          : "Marcar todos da pasta"
+                      }
+                    >
+                      {todosSelecionados && (
+                        <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
                       )}
-                    </div>
+                    </span>
+                  </button>
+
+                  {/* Lista de arquivos da pasta */}
+                  {expandida && (
+                    <ul className="divide-y">
+                      {entradas.map(({ item: it, idx: i }) => (
+                        <li
+                          key={it.drive.id}
+                          className={
+                            "p-3 space-y-2 " +
+                            (it.selecionado ? "" : "bg-muted/30 opacity-60")
+                          }
+                        >
+                          <div className="flex items-start gap-2">
+                            <input
+                              type="checkbox"
+                              checked={it.selecionado}
+                              onChange={() => toggleSelecionado(i)}
+                              disabled={importando}
+                              className="h-4 w-4 mt-1"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">
+                                {it.drive.name}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {it.drive.mimeType}
+                                {it.drive.sizeBytes > 0 &&
+                                  " - " + formatBytes(it.drive.sizeBytes)}
+                              </p>
+                              {it.erro && (
+                                <p className="text-xs text-destructive flex items-center gap-1 mt-1">
+                                  <AlertCircle className="h-3 w-3" />
+                                  {it.erro}
+                                </p>
+                              )}
+                            </div>
+                            {it.baixando && (
+                              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                            )}
+                          </div>
+                          {it.selecionado && (
+                            <div className="ml-6 space-y-2">
+                              <DocTypeCombobox
+                                options={tiposDocumento}
+                                value={it.tipo}
+                                onChange={(v) => atualizarTipo(i, v)}
+                                disabled={importando}
+                                placeholder="Escolha o tipo"
+                              />
+                              {it.tipo === "outro" && (
+                                <Input
+                                  placeholder="Nome livre do documento"
+                                  value={it.tipoPersonalizado}
+                                  onChange={(e) =>
+                                    atualizarTipoPersonalizado(i, e.target.value)
+                                  }
+                                  disabled={importando}
+                                />
+                              )}
+                            </div>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
                   )}
-                </li>
-              ))}
-            </ul>
+                </div>
+              );
+            })}
           </div>
         )}
 
