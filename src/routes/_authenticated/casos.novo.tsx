@@ -37,7 +37,11 @@ import {
   DrivePickerDialog,
   type DriveImportedFile,
 } from "@/components/drive-picker-dialog";
-import { isGoogleDriveConfigured } from "@/lib/google-drive";
+import {
+  abrirDrivePicker,
+  isGoogleDriveConfigured,
+  type DrivePickedFile,
+} from "@/lib/google-drive";
 import {
   Select,
   SelectContent,
@@ -205,9 +209,26 @@ function NovoCasoPage() {
   const [submitting, setSubmitting] = useState(false);
   const [showPwd, setShowPwd] = useState(false);
   const [docs, setDocs] = useState<Array<DocUpload>>([]);
-  // Dialog do Google Drive Picker (so aparece se env vars configuradas
-  // e usuario for interno).
-  const [driveDialogAberto, setDriveDialogAberto] = useState(false);
+  // Dialog do Google Drive Picker. O parente chama abrirDrivePicker direto
+  // antes de abrir o dialog, e so abre o dialog quando o Picker retorna com
+  // arquivos selecionados. Isso evita race conditions onde o dialog fechava
+  // sozinho durante a interacao com o Picker.
+  const [drivePicked, setDrivePicked] = useState<{
+    files: Array<DrivePickedFile>;
+    accessToken: string;
+  } | null>(null);
+
+  async function handleClickDrive() {
+    try {
+      const result = await abrirDrivePicker();
+      if (result.files.length === 0) return; // cancelou
+      setDrivePicked({ files: result.files, accessToken: result.accessToken });
+    } catch (err) {
+      const msg = (err as { message?: string })?.message ||
+        "Erro ao abrir Google Drive";
+      toast.error(msg);
+    }
+  }
 
   const isInterno = usuario?.tipo === "interno";
 
@@ -871,7 +892,7 @@ function NovoCasoPage() {
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={() => setDriveDialogAberto(true)}
+                      onClick={handleClickDrive}
                     >
                       <FileDown className="h-4 w-4 mr-2" />
                       Importar do Google Drive
@@ -1004,8 +1025,9 @@ function NovoCasoPage() {
         {/* Dialog do Google Drive Picker */}
         {isInterno && (
           <DrivePickerDialog
-            aberto={driveDialogAberto}
-            onOpenChange={setDriveDialogAberto}
+            arquivosSelecionados={drivePicked?.files ?? null}
+            accessToken={drivePicked?.accessToken ?? ""}
+            onFechar={() => setDrivePicked(null)}
             tiposDocumento={TIPOS_DOCUMENTO}
             onConfirmar={addDocsFromDrive}
           />

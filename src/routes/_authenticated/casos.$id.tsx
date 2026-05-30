@@ -42,7 +42,11 @@ import {
   validateFileSize,
   validateFileSizes,
 } from "@/lib/upload-limits";
-import { isGoogleDriveConfigured } from "@/lib/google-drive";
+import {
+  abrirDrivePicker,
+  isGoogleDriveConfigured,
+  type DrivePickedFile,
+} from "@/lib/google-drive";
 import { ClientOnly } from "@/components/client-only";
 import { DocTypeCombobox } from "@/components/doc-type-combobox";
 import {
@@ -3026,9 +3030,25 @@ function TabDocumentos(props: TabDocumentosProps) {
   );
 
   // ---- Importar do Google Drive (interno only) ----
-  // Quando o usuario importa do Drive, baixamos os files no DrivePickerDialog
-  // e aqui fazemos upload pro Supabase Storage + insert em documentos.
-  const [driveDialogAberto, setDriveDialogAberto] = useState(false);
+  // O parente abre o Picker e so depois passa os arquivos pro dialog.
+  // Isso evita race conditions onde o Picker e o dialog do app brigavam
+  // pelo foco durante a interacao.
+  const [drivePicked, setDrivePicked] = useState<{
+    files: Array<DrivePickedFile>;
+    accessToken: string;
+  } | null>(null);
+
+  async function handleClickDrive() {
+    try {
+      const result = await abrirDrivePicker();
+      if (result.files.length === 0) return; // cancelou
+      setDrivePicked({ files: result.files, accessToken: result.accessToken });
+    } catch (err) {
+      const msg = (err as { message?: string })?.message ||
+        "Erro ao abrir Google Drive";
+      toast.error(msg);
+    }
+  }
   const tiposDocImportOptions = Object.keys(TIPOS_DOCUMENTO_LABEL).map((k) => ({
     value: k,
     label: TIPOS_DOCUMENTO_LABEL[k],
@@ -3577,7 +3597,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => setDriveDialogAberto(true)}
+                  onClick={handleClickDrive}
                   title="Importar arquivos do Google Drive"
                 >
                   <FileDown className="h-4 w-4 mr-2" />
@@ -4171,8 +4191,9 @@ function TabDocumentos(props: TabDocumentosProps) {
       {/* Dialog do Google Drive Picker (interno only). */}
       {isInterno && (
         <DrivePickerDialog
-          aberto={driveDialogAberto}
-          onOpenChange={setDriveDialogAberto}
+          arquivosSelecionados={drivePicked?.files ?? null}
+          accessToken={drivePicked?.accessToken ?? ""}
+          onFechar={() => setDrivePicked(null)}
           tiposDocumento={tiposDocImportOptions}
           onConfirmar={importarDriveParaCaso}
         />

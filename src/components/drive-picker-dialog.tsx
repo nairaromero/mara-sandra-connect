@@ -22,9 +22,7 @@ import { Loader2, FileDown, X, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 
 import {
-  abrirDrivePicker,
   downloadDriveFile,
-  isGoogleDriveConfigured,
   nomeDownloadFinal,
   type DrivePickedFile,
 } from "@/lib/google-drive";
@@ -54,8 +52,14 @@ export interface DriveImportedFile {
 }
 
 interface DrivePickerDialogProps {
-  aberto: boolean;
-  onOpenChange: (o: boolean) => void;
+  /**
+   * Arquivos ja selecionados no Picker pelo parent component.
+   * Quando null, dialog fica fechado. Quando array nao-vazio, dialog abre
+   * mostrando preview/tipo pra cada arquivo.
+   */
+  arquivosSelecionados: Array<DrivePickedFile> | null;
+  accessToken: string;
+  onFechar: () => void;
   tiposDocumento: Array<DocTypeOption>;
   /**
    * Chamada quando o usuario clica em "Importar N arquivos". O componente
@@ -84,58 +88,20 @@ function formatBytes(n: number): string {
 }
 
 export function DrivePickerDialog(props: DrivePickerDialogProps) {
-  const { aberto, onOpenChange, tiposDocumento, onConfirmar } = props;
+  const { arquivosSelecionados, accessToken, onFechar, tiposDocumento, onConfirmar } =
+    props;
 
-  const [accessToken, setAccessToken] = useState<string>("");
+  // Dialog aberto quando ha arquivos selecionados
+  const aberto = arquivosSelecionados !== null && arquivosSelecionados.length > 0;
+
   const [itens, setItens] = useState<Array<Item>>([]);
-  const [abrindoPicker, setAbrindoPicker] = useState(false);
   const [importando, setImportando] = useState(false);
 
-  // Quando o dialog fecha, reseta estado pra proxima abertura.
+  // Quando os arquivos selecionados mudam, reinicia o estado da preview
+  // com tipos inferidos por nome.
   useEffect(() => {
-    if (!aberto) {
-      setAccessToken("");
-      setItens([]);
-      setAbrindoPicker(false);
-      setImportando(false);
-    }
-  }, [aberto]);
-
-  // Ao abrir o dialog, SEMPRE limpa estado de sessao anterior e dispara o
-  // Picker. Sem essa limpeza forcada, se voce abrir o dialog uma segunda
-  // vez depois de uma importacao bem-sucedida, os itens da sessao anterior
-  // aparecem fantasma e o Picker nao re-abre.
-  useEffect(() => {
-    if (aberto) {
-      setAccessToken("");
-      setItens([]);
-      setImportando(false);
-      handleAbrirPicker();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aberto]);
-
-  async function handleAbrirPicker() {
-    console.log("[DrivePickerDialog] handleAbrirPicker called");
-    if (!isGoogleDriveConfigured()) {
-      toast.error(
-        "Google Drive nao configurado. Defina VITE_GOOGLE_CLIENT_ID e VITE_GOOGLE_API_KEY.",
-      );
-      onOpenChange(false);
-      return;
-    }
-    setAbrindoPicker(true);
-    try {
-      console.log("[DrivePickerDialog] awaiting abrirDrivePicker()");
-      const { files, accessToken: tok } = await abrirDrivePicker();
-      console.log("[DrivePickerDialog] abrirDrivePicker resolved with files:", files.length, "files:", files);
-      if (files.length === 0) {
-        console.log("[DrivePickerDialog] no files, closing dialog");
-        onOpenChange(false);
-        return;
-      }
-      setAccessToken(tok);
-      const items: Array<Item> = files.map((f) => ({
+    if (arquivosSelecionados && arquivosSelecionados.length > 0) {
+      const items: Array<Item> = arquivosSelecionados.map((f) => ({
         drive: f,
         selecionado: true,
         tipo: inferirTipoPorNome(f.name),
@@ -144,18 +110,13 @@ export function DrivePickerDialog(props: DrivePickerDialogProps) {
         erro: null,
         arquivoBaixado: null,
       }));
-      console.log("[DrivePickerDialog] setting itens:", items.length);
       setItens(items);
-    } catch (err) {
-      console.error("[DrivePickerDialog] error:", err);
-      const msg = (err as { message?: string })?.message ||
-        "Erro ao abrir Google Drive";
-      toast.error(msg);
-      onOpenChange(false);
-    } finally {
-      setAbrindoPicker(false);
+      setImportando(false);
+    } else {
+      setItens([]);
+      setImportando(false);
     }
-  }
+  }, [arquivosSelecionados]);
 
   function toggleSelecionado(i: number) {
     setItens((prev) =>
@@ -275,7 +236,7 @@ export function DrivePickerDialog(props: DrivePickerDialogProps) {
       const falhas = baixados.filter((it) => it.selecionado && it.erro).length;
       if (falhas === 0) {
         toast.success(okParaImportar.length + " documento(s) importado(s) do Drive.");
-        onOpenChange(false);
+        onFechar();
       } else {
         toast.warning(
           okParaImportar.length + " importado(s), " + falhas + " falharam (ver lista).",
@@ -296,55 +257,30 @@ export function DrivePickerDialog(props: DrivePickerDialogProps) {
     <Dialog
       open={aberto}
       onOpenChange={(o) => {
-        // Bloqueia fechar enquanto:
-        //   - estamos importando (upload em andamento)
-        //   - o Picker do Google esta aberto (clique no Picker eh detectado
-        //     pelo Radix como "click outside" e tentaria fechar nosso dialog)
-        if (importando || abrindoPicker) return;
-        onOpenChange(o);
+        // Bloqueia fechar enquanto importando (upload em andamento).
+        if (importando) return;
+        if (!o) onFechar();
       }}
     >
       <DialogContent
         className="max-h-[90vh] overflow-y-auto sm:max-w-3xl"
-        // Previne fechamento por click fora ou Escape enquanto Picker aberto
-        // ou import em andamento. Sem isso, click no Picker do Google (que
-        // sobrepoe o dialog) fecha o dialog antes da selecao terminar.
         onPointerDownOutside={(e) => {
-          if (abrindoPicker || importando) e.preventDefault();
+          if (importando) e.preventDefault();
         }}
         onEscapeKeyDown={(e) => {
-          if (abrindoPicker || importando) e.preventDefault();
+          if (importando) e.preventDefault();
         }}
         onInteractOutside={(e) => {
-          if (abrindoPicker || importando) e.preventDefault();
+          if (importando) e.preventDefault();
         }}
       >
         <DialogHeader>
           <DialogTitle>Importar do Google Drive</DialogTitle>
           <DialogDescription>
-            Selecione os arquivos no Picker. Cada um vira um documento do caso
-            com o tipo sugerido (voce pode editar antes de importar).
-            Tamanho maximo: {MAX_FILE_SIZE_MB} MB por arquivo.
+            Revise os arquivos selecionados, ajuste o tipo se necessario, e
+            clique em Importar. Tamanho maximo: {MAX_FILE_SIZE_MB} MB por arquivo.
           </DialogDescription>
         </DialogHeader>
-
-        {abrindoPicker && (
-          <div className="flex items-center gap-3 py-8 justify-center text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Abrindo Google Drive...
-          </div>
-        )}
-
-        {!abrindoPicker && itens.length === 0 && (
-          <div className="py-8 text-center text-sm text-muted-foreground">
-            Picker foi cancelado ou nenhum arquivo selecionado.
-            <div className="mt-3">
-              <Button variant="outline" size="sm" onClick={handleAbrirPicker}>
-                Abrir Drive novamente
-              </Button>
-            </div>
-          </div>
-        )}
 
         {itens.length > 0 && (
           <div className="space-y-2">
@@ -418,7 +354,7 @@ export function DrivePickerDialog(props: DrivePickerDialogProps) {
         <DialogFooter>
           <Button
             variant="ghost"
-            onClick={() => onOpenChange(false)}
+            onClick={() => onFechar()}
             disabled={importando}
           >
             <X className="h-4 w-4 mr-1" />
