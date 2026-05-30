@@ -67,6 +67,27 @@
 - [ ] **Tela `/processos` global** no sidebar (se decidir adicionar)
 - [ ] **Onboarding de parceiro**
 
+### Google Drive — sync bidirecional (push app → Drive)
+
+> **Contexto:** hoje o sync é unidirecional (Drive → app). Quando o documento já existe no Drive, o app importa. Mas quando o documento foi cadastrado direto no app (upload manual, cumprir solicitação, ou caso ainda sem pasta vinculada), ele NÃO vai pro Drive.
+>
+> **Objetivo:** complementar o fluxo atual permitindo subir docs do app pro Drive — útil pra equipe que prefere o Drive como repositório de backup e pra clientes legacy que ainda não têm pasta no Drive.
+
+Cenários a cobrir:
+
+- [ ] **Cenário A — caso sem pasta vinculada ainda**: botão "Criar pasta no Drive e exportar tudo" no caso. App cria pasta no Drive (com nome do cliente), faz upload de cada documento do caso, salva folder_id + file_id em cada doc.
+- [ ] **Cenário B — pasta já vinculada, documento só no app**: detectar docs com `pasta_relativa is null` (ou docs sem `gdrive_file_id`) e oferecer botão "Subir pendentes pro Drive". Cria/escolhe subpasta opcional. Atualiza `gdrive_file_id` após upload.
+- [ ] **Cenário C — sync incremental contínuo**: extensão do "Sync pasta" — além de baixar arquivos novos do Drive, também detectar e subir docs do app que ainda não estão no Drive. Sync bidirecional num clique.
+
+Considerações:
+
+- Drive API precisa de scope `drive.file` (escrita) além do `drive.readonly` (leitura) que já temos
+- Requer nova autorização OAuth (popup pedindo escopo maior na primeira vez)
+- Verificar limites: API Drive permite ~750 uploads/dia por usuário sem cobrar
+- UX: confirmar destino (raiz vs subpasta específica) antes de subir
+- Conflitos: o que fazer se arquivo de mesmo nome já existe no Drive? Renomear (sufixo `_1`), substituir, pular?
+- Audit: registrar quem disparou cada upload (já cobre `documentos.uploaded_by`)
+
 ### Reorganização opcional do repositório
 
 - [ ] **Mover `planning/edge-functions/` para `supabase/functions/<slug>/index.ts`** (padrão do Supabase CLI, habilita `supabase functions deploy`)
