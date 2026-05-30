@@ -111,6 +111,8 @@ interface DocUpload {
   file: File | null;
   tipo: TipoDocumento;
   tipoPersonalizado: string;
+  // Quando o doc veio do Drive, guarda o file_id pra dedupe futura.
+  gdriveFileId?: string;
 }
 
 // Helpers de mascara e validacao
@@ -291,6 +293,7 @@ function NovoCasoPage() {
       file: a.file,
       tipo: a.tipo,
       tipoPersonalizado: a.tipoPersonalizado,
+      gdriveFileId: a.gdriveFileId,
     }));
     setDocs((prev) => [...prev, ...novos]);
   }
@@ -513,6 +516,8 @@ function NovoCasoPage() {
             // ou conhece. Interno pode marcar individualmente como privado
             // depois pela aba Documentos se algum for sensivel.
             visivel_parceiro: true,
+            // Se veio do Drive, guarda file_id pra dedupe em sync futuro
+            gdrive_file_id: doc.gdriveFileId ?? null,
           });
 
           if (docInsertResp.error) {

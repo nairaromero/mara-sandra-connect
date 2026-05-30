@@ -49,6 +49,8 @@ export interface DriveImportedFile {
   file: File;
   tipo: string;
   tipoPersonalizado: string;
+  /** ID do arquivo no Drive - permite dedupe em syncs futuros. */
+  gdriveFileId: string;
 }
 
 interface DrivePickerDialogProps {
@@ -223,6 +225,7 @@ export function DrivePickerDialog(props: DrivePickerDialogProps) {
           file: it.arquivoBaixado as File,
           tipo: it.tipo,
           tipoPersonalizado: it.tipoPersonalizado,
+          gdriveFileId: it.drive.id,
         }));
 
       if (okParaImportar.length === 0) {

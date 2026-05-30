@@ -33,6 +33,7 @@ import {
   MoreVertical,
   Copy,
   KeyRound,
+  X,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -44,7 +45,10 @@ import {
 } from "@/lib/upload-limits";
 import {
   abrirDrivePicker,
+  abrirDrivePickerPasta,
   isGoogleDriveConfigured,
+  listarArquivosDaPasta,
+  obterAccessToken,
   type DrivePickedFile,
 } from "@/lib/google-drive";
 import { ClientOnly } from "@/components/client-only";
@@ -144,6 +148,9 @@ interface Caso {
   atrasados_estimados: number | null;
   tramitacao_id: string | null;
   observacoes: string | null;
+  // Pasta do Drive vinculada (Fase 52). Null = sem vinculo.
+  gdrive_folder_id?: string | null;
+  gdrive_folder_name?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -173,6 +180,8 @@ interface Documento {
   tamanho_bytes: number | null;
   uploaded_by: string | null;
   visivel_parceiro: boolean;
+  // ID do arquivo no Drive (se foi importado de la) - usado pra dedupe de sync
+  gdrive_file_id?: string | null;
   created_at: string;
 }
 
@@ -815,6 +824,8 @@ function CasoDetalhePage() {
               solicitacoes={solicitacoes}
               isInterno={isInterno}
               usuarioId={usuario ? usuario.id : null}
+              gdriveFolderId={caso.gdrive_folder_id ?? null}
+              gdriveFolderName={caso.gdrive_folder_name ?? null}
               onChange={carregar}
             />
           </TabsContent>
@@ -2994,11 +3005,13 @@ interface TabDocumentosProps {
   solicitacoes: Array<SolicitacaoDocumento>;
   isInterno: boolean;
   usuarioId: string | null;
+  gdriveFolderId: string | null;
+  gdriveFolderName: string | null;
   onChange: () => void;
 }
 
 function TabDocumentos(props: TabDocumentosProps) {
-  const { casoId, documentos, solicitacoes, isInterno, usuarioId, onChange } = props;
+  const { casoId, documentos, solicitacoes, isInterno, usuarioId, gdriveFolderId, gdriveFolderName, onChange } = props;
   // Usuario logado (usado pelo preview do parceiro para watermark)
   const { usuario } = useAuth();
 
@@ -3049,6 +3062,94 @@ function TabDocumentos(props: TabDocumentosProps) {
       toast.error(msg);
     }
   }
+
+  // ---- Vincular / Desvincular / Sincronizar pasta do Drive ----
+  const [vinculandoPasta, setVinculandoPasta] = useState(false);
+  const [sincronizando, setSincronizando] = useState(false);
+
+  async function handleVincularPasta() {
+    setVinculandoPasta(true);
+    try {
+      const folder = await abrirDrivePickerPasta();
+      if (!folder.id) return; // cancelou
+      const resp = await supabase
+        .from("casos")
+        .update({
+          gdrive_folder_id: folder.id,
+          gdrive_folder_name: folder.name,
+          gdrive_vinculado_em: new Date().toISOString(),
+          gdrive_vinculado_por: usuarioId,
+        })
+        .eq("id", casoId);
+      if (resp.error) throw resp.error;
+      toast.success("Pasta vinculada: " + folder.name);
+      onChange();
+    } catch (err) {
+      const msg = (err as { message?: string })?.message ||
+        "Erro ao vincular pasta";
+      toast.error(msg);
+    } finally {
+      setVinculandoPasta(false);
+    }
+  }
+
+  async function handleDesvincularPasta() {
+    if (!confirm("Desvincular pasta do Drive? Arquivos ja importados continuam no caso.")) {
+      return;
+    }
+    try {
+      const resp = await supabase
+        .from("casos")
+        .update({
+          gdrive_folder_id: null,
+          gdrive_folder_name: null,
+          gdrive_vinculado_em: null,
+          gdrive_vinculado_por: null,
+        })
+        .eq("id", casoId);
+      if (resp.error) throw resp.error;
+      toast.success("Pasta desvinculada");
+      onChange();
+    } catch (err) {
+      const msg = (err as { message?: string })?.message ||
+        "Erro ao desvincular";
+      toast.error(msg);
+    }
+  }
+
+  async function handleSincronizarPasta() {
+    if (!gdriveFolderId) return;
+    setSincronizando(true);
+    try {
+      // 1) Pega access token (silencioso se ja autorizou antes)
+      const accessToken = await obterAccessToken();
+      // 2) Lista todos os arquivos da pasta no Drive
+      const arquivosDrive = await listarArquivosDaPasta(
+        gdriveFolderId,
+        accessToken,
+      );
+      // 3) Filtra arquivos que ja foram importados (dedupe por gdrive_file_id)
+      const idsImportados = new Set(
+        documentos
+          .map((d) => d.gdrive_file_id)
+          .filter((id): id is string => !!id),
+      );
+      const novos = arquivosDrive.filter((f) => !idsImportados.has(f.id));
+      if (novos.length === 0) {
+        toast.success("Nada novo na pasta. Tudo ja importado.");
+        return;
+      }
+      // 4) Passa pro DrivePickerDialog (mesmo fluxo de Importar)
+      setDrivePicked({ files: novos, accessToken });
+      toast.success(novos.length + " arquivo(s) novo(s) encontrado(s).");
+    } catch (err) {
+      const msg = (err as { message?: string })?.message ||
+        "Erro ao sincronizar pasta";
+      toast.error(msg);
+    } finally {
+      setSincronizando(false);
+    }
+  }
   const tiposDocImportOptions = Object.keys(TIPOS_DOCUMENTO_LABEL).map((k) => ({
     value: k,
     label: TIPOS_DOCUMENTO_LABEL[k],
@@ -3088,6 +3189,8 @@ function TabDocumentos(props: TabDocumentosProps) {
           // Importados do Drive sao visiveis ao parceiro por default,
           // alinhado com o resto do app.
           visivel_parceiro: true,
+          // Salva file_id do Drive pra dedupe no proximo sync da pasta
+          gdrive_file_id: a.gdriveFileId,
         });
         if (insertResp.error) throw insertResp.error;
         okCount++;
@@ -3558,6 +3661,23 @@ function TabDocumentos(props: TabDocumentosProps) {
               <CardDescription>
                 Arquivos anexados a este caso.
               </CardDescription>
+              {isInterno && gdriveFolderId && (
+                <div className="mt-1 text-xs text-muted-foreground flex items-center gap-1">
+                  <span>Pasta vinculada:</span>
+                  <span className="font-medium text-foreground">
+                    {gdriveFolderName ?? "(sem nome)"}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleDesvincularPasta}
+                    className="h-5 px-1 text-xs text-muted-foreground hover:text-destructive ml-1"
+                    title="Desvincular pasta"
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               {isInterno && lista.length > 0 && (
@@ -3593,12 +3713,46 @@ function TabDocumentos(props: TabDocumentosProps) {
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}
+              {/* Botoes de Drive: vincular pasta / sync / importar avulso */}
+              {isInterno && isGoogleDriveConfigured() && gdriveFolderId && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleSincronizarPasta}
+                  disabled={sincronizando}
+                  title={"Sincronizar com pasta: " + (gdriveFolderName ?? "")}
+                  className="border-[var(--gold)]/40"
+                >
+                  {sincronizando ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <FileDown className="h-4 w-4 mr-2" />
+                  )}
+                  Sync pasta
+                </Button>
+              )}
+              {isInterno && isGoogleDriveConfigured() && !gdriveFolderId && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleVincularPasta}
+                  disabled={vinculandoPasta}
+                  title="Vincular pasta do Drive a este caso (sync futuro)"
+                >
+                  {vinculandoPasta ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <FileDown className="h-4 w-4 mr-2" />
+                  )}
+                  Vincular pasta
+                </Button>
+              )}
               {isInterno && isGoogleDriveConfigured() && (
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={handleClickDrive}
-                  title="Importar arquivos do Google Drive"
+                  title="Importar arquivos avulsos do Google Drive"
                 >
                   <FileDown className="h-4 w-4 mr-2" />
                   Drive

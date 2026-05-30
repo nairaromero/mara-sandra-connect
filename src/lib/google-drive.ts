@@ -260,3 +260,176 @@ export function nomeDownloadFinal(file: DrivePickedFile): string {
   }
   return file.name;
 }
+
+// =============================================================================
+// Folder Picker + Listagem de pasta (Fase 52 - sync semi-automatico)
+// =============================================================================
+
+export interface DrivePickedFolder {
+  id: string;
+  name: string;
+  accessToken: string;
+}
+
+/**
+ * Abre o Picker do Google configurado pra ESCOLHER UMA PASTA. Usado pra
+ * vincular pasta do Drive a um caso (botao "Vincular pasta").
+ *
+ * Resolve com a pasta escolhida ou folder.id === "" se cancelou.
+ */
+export function abrirDrivePickerPasta(): Promise<DrivePickedFolder> {
+  if (!EFFECTIVE_CLIENT_ID || !EFFECTIVE_API_KEY) {
+    return Promise.reject(
+      new Error("Google Drive nao configurado (credenciais ausentes)"),
+    );
+  }
+
+  return new Promise(async (resolve, reject) => {
+    try {
+      await loadGoogleScripts();
+    } catch (err) {
+      reject(err);
+      return;
+    }
+
+    const tokenClient = window.google.accounts.oauth2.initTokenClient({
+      client_id: EFFECTIVE_CLIENT_ID,
+      scope: DRIVE_SCOPE,
+      callback: (resp: any) => {
+        if (resp.error) {
+          reject(new Error("Falha OAuth: " + resp.error));
+          return;
+        }
+        const accessToken = resp.access_token as string;
+        if (!accessToken) {
+          reject(new Error("Sem access_token na resposta OAuth"));
+          return;
+        }
+        abrirPickerPastaComToken(accessToken, resolve);
+      },
+    });
+
+    tokenClient.requestAccessToken({ prompt: "" });
+  });
+}
+
+function abrirPickerPastaComToken(
+  accessToken: string,
+  resolve: (r: DrivePickedFolder) => void,
+) {
+  // View que mostra so pastas e permite selecionar pasta.
+  const view = new window.google.picker.DocsView()
+    .setIncludeFolders(true)
+    .setMimeTypes("application/vnd.google-apps.folder")
+    .setSelectFolderEnabled(true);
+
+  const picker = new window.google.picker.PickerBuilder()
+    .enableFeature(window.google.picker.Feature.SUPPORT_DRIVES)
+    .setOAuthToken(accessToken)
+    .setDeveloperKey(EFFECTIVE_API_KEY)
+    .addView(view)
+    .setLocale("pt")
+    .setTitle("Escolha a pasta do cliente para vincular")
+    .setCallback((data: any) => {
+      if (data.action === window.google.picker.Action.PICKED) {
+        const doc = (data.docs || [])[0];
+        if (doc) {
+          resolve({ id: doc.id, name: doc.name, accessToken });
+        } else {
+          resolve({ id: "", name: "", accessToken: "" });
+        }
+      } else if (data.action === window.google.picker.Action.CANCEL) {
+        resolve({ id: "", name: "", accessToken: "" });
+      }
+    })
+    .build();
+
+  picker.setVisible(true);
+}
+
+/**
+ * Lista arquivos (nao pastas, nao trashed) dentro de uma pasta do Drive.
+ * Usa Drive API REST diretamente. Retorna max 200 arquivos por chamada.
+ *
+ * Se a pasta nao existir ou nao for acessivel com o token, lanca erro.
+ */
+export async function listarArquivosDaPasta(
+  folderId: string,
+  accessToken: string,
+): Promise<Array<DrivePickedFile>> {
+  // q="'<folder>' in parents and trashed=false and mimeType!=folder"
+  const q = `'${folderId}' in parents and trashed=false and mimeType != 'application/vnd.google-apps.folder'`;
+  const fields = "files(id,name,mimeType,size,iconLink)";
+  const url =
+    "https://www.googleapis.com/drive/v3/files" +
+    "?q=" + encodeURIComponent(q) +
+    "&fields=" + encodeURIComponent(fields) +
+    "&pageSize=200" +
+    "&supportsAllDrives=true&includeItemsFromAllDrives=true";
+
+  const resp = await fetch(url, {
+    headers: {
+      Authorization: "Bearer " + accessToken,
+    },
+  });
+  if (!resp.ok) {
+    const detail = await resp.text();
+    throw new Error(
+      "Falha ao listar pasta do Drive: HTTP " + resp.status + " - " + detail,
+    );
+  }
+  const data = await resp.json() as {
+    files?: Array<{
+      id: string;
+      name: string;
+      mimeType: string;
+      size?: string;
+      iconLink?: string;
+    }>;
+  };
+
+  return (data.files || []).map((f) => ({
+    id: f.id,
+    name: f.name,
+    mimeType: f.mimeType,
+    sizeBytes: parseInt(f.size || "0", 10) || 0,
+    iconUrl: f.iconLink,
+    type: "file",
+  }));
+}
+
+/**
+ * Pega um access token sem abrir popup (ou abre se necessario). Usado pelo
+ * fluxo Sync - precisa de token pra chamar Drive API mas nao precisa do Picker.
+ */
+export function obterAccessToken(): Promise<string> {
+  if (!EFFECTIVE_CLIENT_ID) {
+    return Promise.reject(
+      new Error("Google Drive nao configurado (credenciais ausentes)"),
+    );
+  }
+  return new Promise(async (resolve, reject) => {
+    try {
+      await loadGoogleScripts();
+    } catch (err) {
+      reject(err);
+      return;
+    }
+    const tokenClient = window.google.accounts.oauth2.initTokenClient({
+      client_id: EFFECTIVE_CLIENT_ID,
+      scope: DRIVE_SCOPE,
+      callback: (resp: any) => {
+        if (resp.error) {
+          reject(new Error("Falha OAuth: " + resp.error));
+          return;
+        }
+        if (!resp.access_token) {
+          reject(new Error("Sem access_token na resposta OAuth"));
+          return;
+        }
+        resolve(resp.access_token);
+      },
+    });
+    tokenClient.requestAccessToken({ prompt: "" });
+  });
+}
