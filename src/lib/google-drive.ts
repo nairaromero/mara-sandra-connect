@@ -459,6 +459,21 @@ export async function listarArquivosDaPasta(
   }
 
   await recurse(folderId, 0, "");
+  // Log de diagnostico - quantos arquivos por pasta encontrou
+  const porPasta = arquivos.reduce(
+    (acc: Record<string, number>, f) => {
+      const k = f.pastaRelativa ?? "(raiz)";
+      acc[k] = (acc[k] || 0) + 1;
+      return acc;
+    },
+    {},
+  );
+  console.log(
+    "[Drive] listarArquivosDaPasta encontrou",
+    arquivos.length,
+    "arquivo(s):",
+    porPasta,
+  );
   return arquivos;
 }
 

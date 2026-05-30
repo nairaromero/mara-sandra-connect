@@ -4364,6 +4364,7 @@ function TabDocumentos(props: TabDocumentosProps) {
           accessToken={drivePicked?.accessToken ?? ""}
           onFechar={() => setDrivePicked(null)}
           tiposDocumento={tiposDocImportOptions}
+          pastaRaizNome={gdriveFolderName}
           onConfirmar={importarDriveParaCaso}
         />
       )}

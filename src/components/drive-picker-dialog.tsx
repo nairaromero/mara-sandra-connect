@@ -73,6 +73,11 @@ interface DrivePickerDialogProps {
   onFechar: () => void;
   tiposDocumento: Array<DocTypeOption>;
   /**
+   * Nome da pasta raiz vinculada ao caso. Usado como label do grupo de
+   * arquivos que estao "na raiz" da pasta (sem subpasta).
+   */
+  pastaRaizNome?: string | null;
+  /**
    * Chamada quando o usuario clica em "Importar N arquivos". O componente
    * desabilita os controles e mostra spinner ate a promise resolver.
    * Em erro, o dialog fica aberto pro usuario tentar de novo.
@@ -99,7 +104,7 @@ function formatBytes(n: number): string {
 }
 
 export function DrivePickerDialog(props: DrivePickerDialogProps) {
-  const { arquivosSelecionados, accessToken, onFechar, tiposDocumento, onConfirmar } =
+  const { arquivosSelecionados, accessToken, onFechar, tiposDocumento, pastaRaizNome, onConfirmar } =
     props;
 
   // Dialog aberto quando ha arquivos selecionados
@@ -348,7 +353,11 @@ export function DrivePickerDialog(props: DrivePickerDialogProps) {
                 (e) => e.item.selecionado,
               ).length;
               const todosSelecionados = selecionadosNaPasta === entradas.length;
-              const labelPasta = pasta === "" ? "(raiz)" : pasta;
+              const labelPasta = pasta === ""
+                ? (pastaRaizNome || "(raiz)")
+                : pastaRaizNome
+                  ? pastaRaizNome + "/" + pasta
+                  : pasta;
               return (
                 <div
                   key={pasta || "_root"}
