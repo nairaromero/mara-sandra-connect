@@ -3128,20 +3128,35 @@ function TabDocumentos(props: TabDocumentosProps) {
         gdriveFolderId,
         accessToken,
       );
-      // 3) Filtra arquivos que ja foram importados (dedupe por gdrive_file_id)
+      // 3) Dedupe em 2 niveis:
+      //    a) Por gdrive_file_id (forte) - funciona pra docs importados via app
+      //    b) Por nome do arquivo (fallback) - cobre docs legacy uploadados antes
+      //       da feature de file_id existir. Tambem cobre docs uploadados manual.
       const idsImportados = new Set(
         documentos
           .map((d) => d.gdrive_file_id)
           .filter((id): id is string => !!id),
       );
-      const novos = arquivosDrive.filter((f) => !idsImportados.has(f.id));
+      const nomesImportados = new Set(
+        documentos.map((d) => d.nome_arquivo.toLowerCase().trim()),
+      );
+      const novos = arquivosDrive.filter((f) => {
+        if (idsImportados.has(f.id)) return false; // dedupe forte
+        if (nomesImportados.has(f.name.toLowerCase().trim())) return false; // fallback nome
+        return true;
+      });
+      const ignorados = arquivosDrive.length - novos.length;
       if (novos.length === 0) {
-        toast.success("Nada novo na pasta. Tudo ja importado.");
+        toast.success(
+          arquivosDrive.length + " arquivo(s) na pasta, todos ja no caso.",
+        );
         return;
       }
       // 4) Passa pro DrivePickerDialog (mesmo fluxo de Importar)
       setDrivePicked({ files: novos, accessToken });
-      toast.success(novos.length + " arquivo(s) novo(s) encontrado(s).");
+      const msg = novos.length + " novo(s) encontrado(s)" +
+        (ignorados > 0 ? " (" + ignorados + " ja existiam, ignorados)" : "");
+      toast.success(msg);
     } catch (err) {
       const msg = (err as { message?: string })?.message ||
         "Erro ao sincronizar pasta";
