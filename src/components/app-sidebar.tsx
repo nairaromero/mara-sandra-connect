@@ -6,6 +6,7 @@ import {
   Settings,
   ShieldCheck,
   Users,
+  Webhook,
 } from "lucide-react";
 import {
   Sidebar,
@@ -32,6 +33,7 @@ const itemsBase = [
 
 const itemsInternos = [
   { title: "Parceiros", url: "/parceiros", icon: Users },
+  { title: "Webhooks", url: "/webhooks", icon: Webhook },
   { title: "Auditoria", url: "/auditoria", icon: ShieldCheck },
 ];
 

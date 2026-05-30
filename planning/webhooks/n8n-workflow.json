@@ -1,0 +1,117 @@
+{
+  "name": "MSC - Entrega de Webhooks ao Parceiro",
+  "_comment": "RASCUNHO/DESIGN. Importar no n8n (nairavian-n8n.de) e ajustar credenciais/typeVersion conforme a versao instalada. O segredo HMAC NUNCA passa pelo n8n: a assinatura ja vem pronta de webhook_claim_batch. Body deve ser enviado RAW (verbatim) para os bytes baterem com a assinatura.",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "nodes": [
+    {
+      "id": "node-schedule",
+      "name": "A cada 20s",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "seconds", "secondsInterval": 20 }
+          ]
+        }
+      }
+    },
+    {
+      "id": "node-claim",
+      "name": "Claim Batch",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [240, 0],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select * from public.webhook_claim_batch(20);",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": { "id": "REPLACE_POSTGRES_CRED_ID", "name": "Supabase MSC (service_role)" }
+      },
+      "notes": "Retorna 0..N entregas ja assinadas: evento_id, delivery_id, tipo, url, ts, signature, body. Cada linha vira um item; os nos seguintes iteram automaticamente. Se vier 0 itens, o ramo simplesmente nao executa."
+    },
+    {
+      "id": "node-http",
+      "name": "POST ao parceiro",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 0],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-MSC-Event", "value": "={{ $json.tipo }}" },
+            { "name": "X-MSC-Delivery", "value": "={{ $json.delivery_id }}" },
+            { "name": "X-MSC-Timestamp", "value": "={{ $json.ts }}" },
+            { "name": "X-MSC-Signature", "value": "={{ $json.signature }}" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.body }}",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": { "fullResponse": true, "neverError": true }
+          }
+        }
+      },
+      "notes": "contentType=raw + body={{$json.body}} envia os bytes EXATOS que foram assinados (nao re-serializar). neverError=true: nao lanca em 4xx/5xx, retorna statusCode para o no de resultado decidir."
+    },
+    {
+      "id": "node-prep",
+      "name": "Preparar resultado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [720, 0],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// evento_id vem do no Claim (pairing de itens preservado).\nconst eventoId = $('Claim Batch').item.json.evento_id;\nconst code = $json.statusCode;\nconst ok = typeof code === 'number' && code >= 200 && code < 300;\nlet erro = null;\nif (!ok) {\n  let b = $json.body;\n  if (b && typeof b === 'object') b = JSON.stringify(b);\n  erro = ('HTTP ' + (code ?? 'sem resposta') + ' ' + (b ?? '')).slice(0, 500);\n}\nreturn { json: { evento_id: eventoId, ok, http_status: code ?? null, erro } };"
+      }
+    },
+    {
+      "id": "node-mark",
+      "name": "Marcar resultado",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [960, 0],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select public.webhook_mark_result($1::uuid, $2::boolean, $3::int, $4::text);",
+        "options": {
+          "queryReplacement": "={{ [$json.evento_id, $json.ok, $json.http_status, $json.erro] }}"
+        }
+      },
+      "credentials": {
+        "postgres": { "id": "REPLACE_POSTGRES_CRED_ID", "name": "Supabase MSC (service_role)" }
+      },
+      "notes": "Sucesso -> status='enviado'. Falha -> tentativas++ com backoff (1m/5m/30m/2h), 5a falha -> 'falhou'. A logica de backoff esta no proprio webhook_mark_result."
+    }
+  ],
+  "connections": {
+    "A cada 20s": {
+      "main": [[{ "node": "Claim Batch", "type": "main", "index": 0 }]]
+    },
+    "Claim Batch": {
+      "main": [[{ "node": "POST ao parceiro", "type": "main", "index": 0 }]]
+    },
+    "POST ao parceiro": {
+      "main": [[{ "node": "Preparar resultado", "type": "main", "index": 0 }]]
+    },
+    "Preparar resultado": {
+      "main": [[{ "node": "Marcar resultado", "type": "main", "index": 0 }]]
+    }
+  }
+}

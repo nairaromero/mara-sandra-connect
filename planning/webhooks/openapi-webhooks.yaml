@@ -1,0 +1,736 @@
+openapi: 3.1.0
+
+info:
+  title: Mara Sandra Connect - Webhooks do Parceiro
+  version: "2026-05-30"
+  summary: Contrato dos eventos que a plataforma ENVIA ao sistema do advogado parceiro.
+  description: |
+    Este documento descreve os webhooks que o Mara Sandra Connect entrega ao
+    endpoint HTTPS de um advogado parceiro (captador). O parceiro e um destino
+    EXTERNO, portanto:
+
+    - Cada parceiro so recebe eventos dos casos onde ele e o `parceiro_id`.
+    - Andamentos e documentos so sao enviados quando `visivel_parceiro = true`.
+    - Nunca trafegam: senha MEU INSS, CPF completo, `resultado_json` de analise
+      tecnica, ou qualquer campo nao listado no schema do evento (allowlist).
+    - O CPF, quando enviado, vai mascarado (ex.: `***.***.789-00`) e e opcional.
+
+    ## Verificacao da assinatura (HMAC)
+
+    Toda entrega traz um cabecalho `X-MSC-Signature`. Calcule assim e compare em
+    tempo constante:
+
+        assinado = HMAC_SHA256(segredo_do_parceiro, timestamp + "." + corpo_bruto)
+        X-MSC-Signature == "sha256=" + hex(assinado)
+
+    Onde `timestamp` e o valor do cabecalho `X-MSC-Timestamp` (epoch em segundos)
+    e `corpo_bruto` e o corpo da requisicao exatamente como recebido (sem
+    reserializar). Rejeite entregas com `X-MSC-Timestamp` divergente em mais de
+    300s do relogio atual (protecao contra replay).
+
+    ## Entrega e idempotencia
+
+    - Metodo: POST, `Content-Type: application/json`.
+    - Sucesso = qualquer resposta 2xx em ate 10s. Caso contrario, reentrega com
+      backoff exponencial (ate 5 tentativas).
+    - Use o cabecalho `X-MSC-Delivery` (== `id` do envelope) como chave de
+      idempotencia. A mesma entrega pode chegar mais de uma vez.
+
+  contact:
+    name: Mara Sandra Advocacia
+    email: nairaromerovian@gmail.com
+
+webhooks:
+
+  caso.created:
+    post:
+      summary: Caso criado para o parceiro
+      description: Disparado quando um novo caso e criado com este parceiro como `parceiro_id`.
+      parameters:
+        - $ref: '#/components/parameters/EventHeader'
+        - $ref: '#/components/parameters/DeliveryHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/SignatureHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEnvelope'
+                - type: object
+                  properties:
+                    type:
+                      const: caso.created
+                    data:
+                      $ref: '#/components/schemas/CasoCreatedData'
+      responses:
+        '2XX':
+          description: Recebimento confirmado pelo parceiro.
+
+  caso.status_changed:
+    post:
+      summary: Status do caso alterado
+      description: Disparado quando `casos.status` muda. Traz valor anterior e novo.
+      parameters:
+        - $ref: '#/components/parameters/EventHeader'
+        - $ref: '#/components/parameters/DeliveryHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/SignatureHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEnvelope'
+                - type: object
+                  properties:
+                    type:
+                      const: caso.status_changed
+                    data:
+                      $ref: '#/components/schemas/CasoStatusChangedData'
+      responses:
+        '2XX':
+          description: Recebimento confirmado pelo parceiro.
+
+  caso.fase_changed:
+    post:
+      summary: Fase do caso alterada
+      description: Disparado quando `casos.fase` muda (analise/admin/judicial/finalizado).
+      parameters:
+        - $ref: '#/components/parameters/EventHeader'
+        - $ref: '#/components/parameters/DeliveryHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/SignatureHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEnvelope'
+                - type: object
+                  properties:
+                    type:
+                      const: caso.fase_changed
+                    data:
+                      $ref: '#/components/schemas/CasoFaseChangedData'
+      responses:
+        '2XX':
+          description: Recebimento confirmado pelo parceiro.
+
+  andamento.created:
+    post:
+      summary: Novo andamento visivel ao parceiro
+      description: |
+        Disparado apos INSERT em `andamentos` SOMENTE quando `visivel_parceiro = true`
+        e o caso tem `parceiro_id`. Este e o evento de maior valor (ex.: movimentacao
+        judicial nova vinda do Legalmail, nota da Tramitacao).
+      parameters:
+        - $ref: '#/components/parameters/EventHeader'
+        - $ref: '#/components/parameters/DeliveryHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/SignatureHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEnvelope'
+                - type: object
+                  properties:
+                    type:
+                      const: andamento.created
+                    data:
+                      $ref: '#/components/schemas/AndamentoCreatedData'
+      responses:
+        '2XX':
+          description: Recebimento confirmado pelo parceiro.
+
+  solicitacao_documento.created:
+    post:
+      summary: Documento solicitado ao parceiro
+      description: Disparado quando uma solicitacao de documento e aberta num caso do parceiro.
+      parameters:
+        - $ref: '#/components/parameters/EventHeader'
+        - $ref: '#/components/parameters/DeliveryHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/SignatureHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEnvelope'
+                - type: object
+                  properties:
+                    type:
+                      const: solicitacao_documento.created
+                    data:
+                      $ref: '#/components/schemas/SolicitacaoDocumentoData'
+      responses:
+        '2XX':
+          description: Recebimento confirmado pelo parceiro.
+
+  documento.uploaded:
+    post:
+      summary: Documento disponibilizado ao parceiro
+      description: |
+        Disparado apos upload em `documentos` SOMENTE quando `visivel_parceiro = true`.
+        Por padrao NAO inclui link de download (LGPD). Um link assinado de curta duracao
+        pode ser habilitado por parceiro, sob acordo.
+      parameters:
+        - $ref: '#/components/parameters/EventHeader'
+        - $ref: '#/components/parameters/DeliveryHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/SignatureHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEnvelope'
+                - type: object
+                  properties:
+                    type:
+                      const: documento.uploaded
+                    data:
+                      $ref: '#/components/schemas/DocumentoUploadedData'
+      responses:
+        '2XX':
+          description: Recebimento confirmado pelo parceiro.
+
+  repasse.status_changed:
+    post:
+      summary: Status de repasse alterado
+      description: Disparado quando `repasses.status` muda (previsto/a_pagar/pago).
+      parameters:
+        - $ref: '#/components/parameters/EventHeader'
+        - $ref: '#/components/parameters/DeliveryHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/SignatureHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEnvelope'
+                - type: object
+                  properties:
+                    type:
+                      const: repasse.status_changed
+                    data:
+                      $ref: '#/components/schemas/RepasseStatusChangedData'
+      responses:
+        '2XX':
+          description: Recebimento confirmado pelo parceiro.
+
+  solicitacao_documento.status_changed:
+    post:
+      summary: Solicitacao de documento atendida ou dispensada
+      description: Disparado quando `solicitacoes_documento.status` muda (fecha o ciclo da solicitacao).
+      parameters:
+        - $ref: '#/components/parameters/EventHeader'
+        - $ref: '#/components/parameters/DeliveryHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/SignatureHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEnvelope'
+                - type: object
+                  properties:
+                    type:
+                      const: solicitacao_documento.status_changed
+                    data:
+                      $ref: '#/components/schemas/SolicitacaoStatusChangedData'
+      responses:
+        '2XX':
+          description: Recebimento confirmado pelo parceiro.
+
+  processo_admin.decisao:
+    post:
+      summary: Decisao do processo administrativo (INSS)
+      description: |
+        Disparado quando `processos_admin.decisao` e preenchida/alterada
+        (DEFERIDO/INDEFERIDO). Momento-chave do administrativo previdenciario.
+      parameters:
+        - $ref: '#/components/parameters/EventHeader'
+        - $ref: '#/components/parameters/DeliveryHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/SignatureHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEnvelope'
+                - type: object
+                  properties:
+                    type:
+                      const: processo_admin.decisao
+                    data:
+                      $ref: '#/components/schemas/ProcessoAdminDecisaoData'
+      responses:
+        '2XX':
+          description: Recebimento confirmado pelo parceiro.
+
+  processo_judicial.created:
+    post:
+      summary: Acao judicial ajuizada
+      description: Disparado quando um processo judicial e criado no caso (caso virou judicial).
+      parameters:
+        - $ref: '#/components/parameters/EventHeader'
+        - $ref: '#/components/parameters/DeliveryHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/SignatureHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEnvelope'
+                - type: object
+                  properties:
+                    type:
+                      const: processo_judicial.created
+                    data:
+                      $ref: '#/components/schemas/ProcessoJudicialCreatedData'
+      responses:
+        '2XX':
+          description: Recebimento confirmado pelo parceiro.
+
+  analise_tecnica.disponivel:
+    post:
+      summary: Analise tecnica disponivel ao parceiro
+      description: |
+        Disparado quando uma analise tecnica e criada. Envia APENAS o
+        `resumo_parceiro` (versao voltada ao parceiro). O `resultado_json`
+        interno, custos e tokens NUNCA trafegam.
+      parameters:
+        - $ref: '#/components/parameters/EventHeader'
+        - $ref: '#/components/parameters/DeliveryHeader'
+        - $ref: '#/components/parameters/TimestampHeader'
+        - $ref: '#/components/parameters/SignatureHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/WebhookEnvelope'
+                - type: object
+                  properties:
+                    type:
+                      const: analise_tecnica.disponivel
+                    data:
+                      $ref: '#/components/schemas/AnaliseTecnicaData'
+      responses:
+        '2XX':
+          description: Recebimento confirmado pelo parceiro.
+
+components:
+
+  parameters:
+    EventHeader:
+      name: X-MSC-Event
+      in: header
+      required: true
+      description: Tipo do evento (igual ao campo `type` do envelope).
+      schema:
+        type: string
+        example: andamento.created
+    DeliveryHeader:
+      name: X-MSC-Delivery
+      in: header
+      required: true
+      description: Id unico da entrega (igual ao campo `id`). Use como chave de idempotencia.
+      schema:
+        type: string
+        example: evt_5f3c1e0a-2b7d-4a9c-9e21-77d2c0a1b8e4
+    TimestampHeader:
+      name: X-MSC-Timestamp
+      in: header
+      required: true
+      description: Epoch em segundos no momento da assinatura. Entra no calculo do HMAC.
+      schema:
+        type: integer
+        example: 1748620800
+    SignatureHeader:
+      name: X-MSC-Signature
+      in: header
+      required: true
+      description: 'Assinatura HMAC: "sha256=" + hex(HMAC_SHA256(segredo, timestamp + "." + corpo_bruto)).'
+      schema:
+        type: string
+        example: sha256=9b2f...c4a1
+
+  schemas:
+
+    WebhookEnvelope:
+      type: object
+      required: [id, type, occurred_at, api_version, data]
+      properties:
+        id:
+          type: string
+          description: Id unico da entrega (idempotencia).
+          example: evt_5f3c1e0a-2b7d-4a9c-9e21-77d2c0a1b8e4
+        type:
+          type: string
+          description: Tipo do evento.
+          enum:
+            - caso.created
+            - caso.status_changed
+            - caso.fase_changed
+            - andamento.created
+            - solicitacao_documento.created
+            - solicitacao_documento.status_changed
+            - documento.uploaded
+            - repasse.status_changed
+            - processo_admin.decisao
+            - processo_judicial.created
+            - analise_tecnica.disponivel
+        occurred_at:
+          type: string
+          format: date-time
+          description: Momento em que a mudanca ocorreu (UTC).
+        api_version:
+          type: string
+          description: Versao do contrato de payload.
+          example: "2026-05-30"
+        data:
+          type: object
+          description: Conteudo especifico do evento (ver schemas por tipo).
+
+    ClienteRef:
+      type: object
+      description: |
+        Referencia ao cliente. O parceiro e co-controlador e ja detem o CPF do
+        cliente que indicou, entao o CPF completo pode ser enviado para correlacao
+        no CRM do parceiro. Nunca trafegam dados nao listados (senha MEU INSS etc.).
+      required: [id, nome]
+      properties:
+        id:
+          type: string
+          format: uuid
+        nome:
+          type: string
+          example: Joao da Silva
+        cpf:
+          type: string
+          description: CPF completo (somente digitos). Opcional, para correlacao no CRM do parceiro.
+          example: "12345678900"
+
+    CasoCreatedData:
+      type: object
+      required: [caso_id, cliente, tipo_beneficio, fase, status, created_at]
+      properties:
+        caso_id:
+          type: string
+          format: uuid
+        cliente:
+          $ref: '#/components/schemas/ClienteRef'
+        tipo_beneficio:
+          type: string
+          example: incapacidade_permanente
+        fase:
+          type: string
+          enum: [analise, admin, judicial, finalizado]
+        status:
+          type: string
+          example: em_analise
+        link_caso:
+          type: string
+          format: uri
+          description: URL do caso na plataforma (parceiro logado ve a timeline).
+        created_at:
+          type: string
+          format: date-time
+
+    CasoStatusChangedData:
+      type: object
+      required: [caso_id, cliente, status, changed_at]
+      properties:
+        caso_id:
+          type: string
+          format: uuid
+        cliente:
+          $ref: '#/components/schemas/ClienteRef'
+        status:
+          $ref: '#/components/schemas/StatusTransition'
+        link_caso:
+          type: string
+          format: uri
+        changed_at:
+          type: string
+          format: date-time
+
+    CasoFaseChangedData:
+      type: object
+      required: [caso_id, cliente, fase, changed_at]
+      properties:
+        caso_id:
+          type: string
+          format: uuid
+        cliente:
+          $ref: '#/components/schemas/ClienteRef'
+        fase:
+          type: object
+          required: [from, to]
+          properties:
+            from:
+              type: string
+              enum: [analise, admin, judicial, finalizado]
+            to:
+              type: string
+              enum: [analise, admin, judicial, finalizado]
+        link_caso:
+          type: string
+          format: uri
+        changed_at:
+          type: string
+          format: date-time
+
+    AndamentoCreatedData:
+      type: object
+      required: [andamento_id, caso_id, cliente, origem, titulo, data_evento]
+      properties:
+        andamento_id:
+          type: string
+          format: uuid
+        caso_id:
+          type: string
+          format: uuid
+        cliente:
+          $ref: '#/components/schemas/ClienteRef'
+        origem:
+          type: string
+          enum: [interno, tramitacao, legalmail, sistema]
+        titulo:
+          type: string
+          example: Sentenca
+        descricao:
+          type: [string, "null"]
+          description: Conteudo ja marcado como visivel ao parceiro.
+        data_evento:
+          type: string
+          format: date-time
+        link_caso:
+          type: string
+          format: uri
+
+    SolicitacaoDocumentoData:
+      type: object
+      required: [solicitacao_id, caso_id, cliente, tipo, status, data_solicitacao]
+      properties:
+        solicitacao_id:
+          type: string
+          format: uuid
+        caso_id:
+          type: string
+          format: uuid
+        cliente:
+          $ref: '#/components/schemas/ClienteRef'
+        tipo:
+          type: string
+          example: cnis
+        descricao:
+          type: [string, "null"]
+        status:
+          type: string
+          enum: [pendente, atendido, dispensado]
+        link_caso:
+          type: string
+          format: uri
+        data_solicitacao:
+          type: string
+          format: date-time
+
+    DocumentoUploadedData:
+      type: object
+      required: [documento_id, caso_id, cliente, tipo, nome_arquivo, uploaded_at]
+      properties:
+        documento_id:
+          type: string
+          format: uuid
+        caso_id:
+          type: string
+          format: uuid
+        cliente:
+          $ref: '#/components/schemas/ClienteRef'
+        tipo:
+          type: string
+          example: ppp
+        nome_arquivo:
+          type: string
+          example: ppp_assinado.pdf
+        download_url:
+          type: [string, "null"]
+          format: uri
+          description: Opcional e desabilitado por padrao. Link assinado de curta duracao, sob acordo.
+        uploaded_at:
+          type: string
+          format: date-time
+
+    RepasseStatusChangedData:
+      type: object
+      required: [repasse_id, caso_id, cliente, valor, status, changed_at]
+      properties:
+        repasse_id:
+          type: string
+          format: uuid
+        caso_id:
+          type: string
+          format: uuid
+        cliente:
+          $ref: '#/components/schemas/ClienteRef'
+        valor:
+          type: number
+          description: Valor do repasse em BRL.
+          example: 1500.00
+        status:
+          type: object
+          required: [from, to]
+          properties:
+            from:
+              type: string
+              enum: [previsto, a_pagar, pago]
+            to:
+              type: string
+              enum: [previsto, a_pagar, pago]
+        changed_at:
+          type: string
+          format: date-time
+
+    SolicitacaoStatusChangedData:
+      type: object
+      required: [solicitacao_id, caso_id, cliente, tipo, status, changed_at]
+      properties:
+        solicitacao_id:
+          type: string
+          format: uuid
+        caso_id:
+          type: string
+          format: uuid
+        cliente:
+          $ref: '#/components/schemas/ClienteRef'
+        tipo:
+          type: string
+          example: cnis
+        status:
+          type: object
+          required: [from, to]
+          properties:
+            from:
+              type: string
+              enum: [pendente, atendido, dispensado]
+            to:
+              type: string
+              enum: [pendente, atendido, dispensado]
+        link_caso:
+          type: string
+          format: uri
+        changed_at:
+          type: string
+          format: date-time
+
+    ProcessoAdminDecisaoData:
+      type: object
+      required: [processo_admin_id, caso_id, cliente, decisao]
+      properties:
+        processo_admin_id:
+          type: string
+          format: uuid
+        caso_id:
+          type: string
+          format: uuid
+        cliente:
+          $ref: '#/components/schemas/ClienteRef'
+        numero_requerimento:
+          type: [string, "null"]
+        decisao:
+          type: string
+          description: Texto da decisao do INSS.
+          example: DEFERIDO
+        data_decisao:
+          type: [string, "null"]
+          format: date
+        link_caso:
+          type: string
+          format: uri
+
+    ProcessoJudicialCreatedData:
+      type: object
+      required: [processo_judicial_id, caso_id, cliente, numero_processo]
+      properties:
+        processo_judicial_id:
+          type: string
+          format: uuid
+        caso_id:
+          type: string
+          format: uuid
+        cliente:
+          $ref: '#/components/schemas/ClienteRef'
+        numero_processo:
+          type: string
+          description: Numero CNJ.
+          example: "5001234-56.2026.4.03.6183"
+        vara:
+          type: [string, "null"]
+        comarca:
+          type: [string, "null"]
+        uf:
+          type: [string, "null"]
+        data_distribuicao:
+          type: [string, "null"]
+          format: date
+        link_caso:
+          type: string
+          format: uri
+
+    AnaliseTecnicaData:
+      type: object
+      required: [analise_id, caso_id, cliente, resumo_parceiro, created_at]
+      properties:
+        analise_id:
+          type: string
+          format: uuid
+        caso_id:
+          type: string
+          format: uuid
+        cliente:
+          $ref: '#/components/schemas/ClienteRef'
+        versao:
+          type: [integer, "null"]
+        beneficio_recomendado:
+          type: [string, "null"]
+        resumo_parceiro:
+          type: string
+          description: Resumo voltado ao parceiro. Nunca inclui resultado_json/custos/tokens.
+        link_caso:
+          type: string
+          format: uri
+        created_at:
+          type: string
+          format: date-time
+
+    StatusTransition:
+      type: object
+      required: [from, to]
+      properties:
+        from:
+          type: string
+          example: em_analise
+        to:
+          type: string
+          example: em_andamento
