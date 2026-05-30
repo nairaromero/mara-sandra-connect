@@ -101,9 +101,15 @@ export function DrivePickerDialog(props: DrivePickerDialogProps) {
     }
   }, [aberto]);
 
-  // Ao abrir o dialog, ja dispara o Picker automaticamente.
+  // Ao abrir o dialog, SEMPRE limpa estado de sessao anterior e dispara o
+  // Picker. Sem essa limpeza forcada, se voce abrir o dialog uma segunda
+  // vez depois de uma importacao bem-sucedida, os itens da sessao anterior
+  // aparecem fantasma e o Picker nao re-abre.
   useEffect(() => {
-    if (aberto && accessToken === "" && itens.length === 0 && !abrindoPicker) {
+    if (aberto) {
+      setAccessToken("");
+      setItens([]);
+      setImportando(false);
       handleAbrirPicker();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
