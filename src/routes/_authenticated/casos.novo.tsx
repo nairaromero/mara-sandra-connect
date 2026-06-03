@@ -13,6 +13,7 @@ import {
   X,
   FileText,
   FileDown,
+  Search,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -212,6 +213,7 @@ function NovoCasoPage() {
   const [parceiros, setParceiros] = useState<Array<ParceiroOption>>([]);
   const [submitting, setSubmitting] = useState(false);
   const [showPwd, setShowPwd] = useState(false);
+  const [buscandoTI, setBuscandoTI] = useState(false);
   const [docs, setDocs] = useState<Array<DocUpload>>([]);
   // Dialog do Google Drive Picker. O parente chama abrirDrivePicker direto
   // antes de abrir o dialog, e so abre o dialog quando o Picker retorna com
@@ -254,6 +256,86 @@ function NovoCasoPage() {
   });
 
   const clienteInternoWatch = form.watch("cliente_interno");
+
+  // Normaliza data vinda do TI para YYYY-MM-DD (formato do input date).
+  function coerceData(d: string | null | undefined): string {
+    if (!d) return "";
+    const s = String(d).trim();
+    const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+    const br = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+    if (br) return `${br[3]}-${br[2]}-${br[1]}`;
+    return "";
+  }
+
+  // Busca o cliente no Tramitacao Inteligente pelo CPF e pre-preenche o form.
+  // Usa check-ti-cliente que, quando o cliente ainda nao existe localmente,
+  // retorna customer_ti sem gravar nada.
+  async function buscarNoTI() {
+    const cpfDigits = (form.getValues("cpf") || "").replace(/\D/g, "");
+    if (cpfDigits.length !== 11) {
+      toast.error("Digite um CPF valido (11 digitos) antes de buscar no TI");
+      return;
+    }
+    setBuscandoTI(true);
+    try {
+      const resp = await supabase.functions.invoke("check-ti-cliente", {
+        body: { cpf: cpfDigits },
+      });
+      if (resp.error) throw resp.error;
+      const r = resp.data as {
+        achou_no_ti?: boolean;
+        customer_ti?: {
+          name?: string | null;
+          email?: string | null;
+          phone_mobile?: string | null;
+          birthdate?: string | null;
+        };
+        motivo?: string;
+      };
+      if (!r.achou_no_ti) {
+        toast.message("Cliente nao encontrado no Tramitacao Inteligente.");
+        return;
+      }
+      const c = r.customer_ti;
+      if (!c) {
+        toast.message(
+          r.motivo || "Cliente encontrado no TI, mas ja existe no sistema.",
+        );
+        return;
+      }
+      let campos = 0;
+      if (c.name) {
+        form.setValue("nome", c.name, { shouldValidate: true });
+        campos++;
+      }
+      const nasc = coerceData(c.birthdate);
+      if (nasc) {
+        form.setValue("data_nascimento", nasc, { shouldValidate: true });
+        campos++;
+      }
+      if (c.phone_mobile) {
+        form.setValue("telefone", maskTelefone(c.phone_mobile), {
+          shouldValidate: true,
+        });
+        campos++;
+      }
+      if (c.email) {
+        form.setValue("email", c.email, { shouldValidate: true });
+        campos++;
+      }
+      toast.success(
+        "Dados do TI preenchidos (" + campos + " campo" +
+          (campos === 1 ? "" : "s") + "). Confira antes de salvar.",
+      );
+    } catch (err) {
+      console.error(err);
+      const e = err as { message?: string };
+      toast.error(e.message || "Erro ao buscar no TI");
+    } finally {
+      setBuscandoTI(false);
+    }
+  }
 
   useEffect(() => {
     if (!isInterno) return;
@@ -617,14 +699,31 @@ function NovoCasoPage() {
                     <FormItem>
                       <FormLabel>CPF *</FormLabel>
                       <FormControl>
-                        <Input
-                          placeholder="000.000.000-00"
-                          inputMode="numeric"
-                          value={field.value}
-                          onChange={(e) =>
-                            field.onChange(maskCPF(e.target.value))
-                          }
-                        />
+                        <div className="flex items-center gap-2">
+                          <Input
+                            placeholder="000.000.000-00"
+                            inputMode="numeric"
+                            value={field.value}
+                            onChange={(e) =>
+                              field.onChange(maskCPF(e.target.value))}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="shrink-0"
+                            onClick={buscarNoTI}
+                            disabled={buscandoTI}
+                            title="Buscar dados do cliente no Tramitacao Inteligente pelo CPF"
+                          >
+                            {buscandoTI
+                              ? <Loader2 className="h-4 w-4 animate-spin" />
+                              : <Search className="h-4 w-4" />}
+                            <span className="ml-1 hidden sm:inline">
+                              Buscar no TI
+                            </span>
+                          </Button>
+                        </div>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
