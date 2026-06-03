@@ -81,7 +81,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -303,6 +305,46 @@ const ETAPAS_JUDICIAL = [
   "Cumprimento de sentenca",
   "Outro",
 ];
+
+// Tribunais relevantes para o previdenciario: Justica Federal (TRFs) + TJs.
+const TRIBUNAIS_FEDERAIS = [
+  "TRF1 - Tribunal Regional Federal da 1a Regiao",
+  "TRF2 - Tribunal Regional Federal da 2a Regiao",
+  "TRF3 - Tribunal Regional Federal da 3a Regiao",
+  "TRF4 - Tribunal Regional Federal da 4a Regiao",
+  "TRF5 - Tribunal Regional Federal da 5a Regiao",
+  "TRF6 - Tribunal Regional Federal da 6a Regiao",
+];
+const TRIBUNAIS_ESTADUAIS = [
+  "TJAC - Tribunal de Justica do Acre",
+  "TJAL - Tribunal de Justica de Alagoas",
+  "TJAP - Tribunal de Justica do Amapa",
+  "TJAM - Tribunal de Justica do Amazonas",
+  "TJBA - Tribunal de Justica da Bahia",
+  "TJCE - Tribunal de Justica do Ceara",
+  "TJDFT - Tribunal de Justica do Distrito Federal e Territorios",
+  "TJES - Tribunal de Justica do Espirito Santo",
+  "TJGO - Tribunal de Justica de Goias",
+  "TJMA - Tribunal de Justica do Maranhao",
+  "TJMT - Tribunal de Justica de Mato Grosso",
+  "TJMS - Tribunal de Justica de Mato Grosso do Sul",
+  "TJMG - Tribunal de Justica de Minas Gerais",
+  "TJPA - Tribunal de Justica do Para",
+  "TJPB - Tribunal de Justica da Paraiba",
+  "TJPR - Tribunal de Justica do Parana",
+  "TJPE - Tribunal de Justica de Pernambuco",
+  "TJPI - Tribunal de Justica do Piaui",
+  "TJRJ - Tribunal de Justica do Rio de Janeiro",
+  "TJRN - Tribunal de Justica do Rio Grande do Norte",
+  "TJRS - Tribunal de Justica do Rio Grande do Sul",
+  "TJRO - Tribunal de Justica de Rondonia",
+  "TJRR - Tribunal de Justica de Roraima",
+  "TJSC - Tribunal de Justica de Santa Catarina",
+  "TJSP - Tribunal de Justica de Sao Paulo",
+  "TJSE - Tribunal de Justica de Sergipe",
+  "TJTO - Tribunal de Justica do Tocantins",
+];
+const TRIBUNAIS = [...TRIBUNAIS_FEDERAIS, ...TRIBUNAIS_ESTADUAIS];
 
 // No normalizado da arvore de processos (admin OU judicial num mesmo formato).
 type ProcTipo = "admin" | "judicial";
@@ -6147,6 +6189,16 @@ function TabProcessos(props: TabProcessosProps) {
   }
 
   async function salvarJud() {
+    const faltando: Array<string> = [];
+    if (!numProcesso.trim()) faltando.push("Numero do processo");
+    if (!vara.trim()) faltando.push("Tribunal");
+    if (!comarca.trim()) faltando.push("Comarca");
+    if (!uf.trim()) faltando.push("UF");
+    if (!dataDist) faltando.push("Data da distribuicao");
+    if (faltando.length > 0) {
+      toast.error("Preencha os campos obrigatorios: " + faltando.join(", "));
+      return;
+    }
     if (numProcesso.trim()) {
       const dup = await numeroDuplicado(
         "processos_judiciais",
@@ -6532,7 +6584,7 @@ function TabProcessos(props: TabProcessosProps) {
                 </DialogHeader>
                 <div className="space-y-3">
                   <div>
-                    <Label className="text-xs">Numero do processo</Label>
+                    <Label className="text-xs">Numero do processo *</Label>
                     <Input
                       value={numProcesso}
                       onChange={(e) => setNumProcesso(e.target.value)}
@@ -6584,16 +6636,40 @@ function TabProcessos(props: TabProcessosProps) {
                     </Select>
                   </div>
                   <div>
-                    <Label className="text-xs">Vara</Label>
-                    <Input
-                      value={vara}
-                      onChange={(e) => setVara(e.target.value)}
-                      placeholder="Ex.: 1a Vara Federal"
-                    />
+                    <Label className="text-xs">Tribunal *</Label>
+                    <Select
+                      value={vara || undefined}
+                      onValueChange={setVara}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione o tribunal" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {vara && !TRIBUNAIS.includes(vara) && (
+                          <SelectItem value={vara}>{vara} (atual)</SelectItem>
+                        )}
+                        <SelectGroup>
+                          <SelectLabel>Justica Federal</SelectLabel>
+                          {TRIBUNAIS_FEDERAIS.map((t) => (
+                            <SelectItem key={t} value={t}>
+                              {t}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                        <SelectGroup>
+                          <SelectLabel>Justica Estadual</SelectLabel>
+                          {TRIBUNAIS_ESTADUAIS.map((t) => (
+                            <SelectItem key={t} value={t}>
+                              {t}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     <div className="col-span-2">
-                      <Label className="text-xs">Comarca</Label>
+                      <Label className="text-xs">Comarca *</Label>
                       <Input
                         value={comarca}
                         onChange={(e) => setComarca(e.target.value)}
@@ -6601,7 +6677,7 @@ function TabProcessos(props: TabProcessosProps) {
                       />
                     </div>
                     <div>
-                      <Label className="text-xs">UF</Label>
+                      <Label className="text-xs">UF *</Label>
                       <Input
                         value={uf}
                         onChange={(e) =>
@@ -6613,7 +6689,7 @@ function TabProcessos(props: TabProcessosProps) {
                     </div>
                   </div>
                   <div>
-                    <Label className="text-xs">Data da distribuicao</Label>
+                    <Label className="text-xs">Data da distribuicao *</Label>
                     <Input
                       type="date"
                       value={dataDist}
