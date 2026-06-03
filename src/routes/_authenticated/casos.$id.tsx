@@ -266,6 +266,9 @@ interface ProcessoAdmin {
   tramitacao_id: string | null;
   ultima_sync: string | null;
   created_at: string;
+  parent_id: string | null;
+  parent_tipo: "admin" | "judicial" | null;
+  etapa_tipo: string | null;
 }
 
 interface ProcessoJudicial {
@@ -279,6 +282,39 @@ interface ProcessoJudicial {
   legalmail_id: string | null;
   ultima_sync: string | null;
   created_at: string;
+  parent_id: string | null;
+  parent_tipo: "admin" | "judicial" | null;
+  etapa_tipo: string | null;
+}
+
+// Etapas da cadeia de processos (lista fixa). "" = sem classificacao.
+const ETAPAS_ADMIN = [
+  "Requerimento inicial",
+  "Recurso ordinario",
+  "Prorrogacao",
+  "Pedido de revisao",
+  "Cumprimento de exigencia",
+  "Outro",
+];
+const ETAPAS_JUDICIAL = [
+  "Acao inicial",
+  "Recurso (apelacao)",
+  "Embargos",
+  "Cumprimento de sentenca",
+  "Outro",
+];
+
+// No normalizado da arvore de processos (admin OU judicial num mesmo formato).
+type ProcTipo = "admin" | "judicial";
+interface ProcNode {
+  tipo: ProcTipo;
+  id: string;
+  parent_id: string | null;
+  parent_tipo: "admin" | "judicial" | null;
+  etapa_tipo: string | null;
+  numero: string | null;
+  admin?: ProcessoAdmin;
+  judicial?: ProcessoJudicial;
 }
 
 // ===========================================================================
@@ -787,12 +823,10 @@ function CasoDetalhePage() {
               <DollarSign className="h-4 w-4" />
               <span>Repasses</span>
             </TabsTrigger>
-            {isInterno && (
-              <TabsTrigger value="processos" className="flex items-center gap-1 shrink-0">
-                <Scale className="h-4 w-4" />
-                <span>Processos</span>
-              </TabsTrigger>
-            )}
+            <TabsTrigger value="processos" className="flex items-center gap-1 shrink-0">
+              <Scale className="h-4 w-4" />
+              <span>Processos</span>
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="visao_geral" className="mt-4">
@@ -863,18 +897,17 @@ function CasoDetalhePage() {
             />
           </TabsContent>
 
-          {isInterno && (
-            <TabsContent value="processos" className="mt-4">
-              <TabProcessos
-                casoId={casoId}
-                cliente={cliente}
-                usuarioId={usuario ? usuario.id : null}
-                processosAdmin={processosAdmin}
-                processosJudiciais={processosJudiciais}
-                onChange={carregar}
-              />
-            </TabsContent>
-          )}
+          <TabsContent value="processos" className="mt-4">
+            <TabProcessos
+              casoId={casoId}
+              cliente={cliente}
+              usuarioId={usuario ? usuario.id : null}
+              isInterno={isInterno}
+              processosAdmin={processosAdmin}
+              processosJudiciais={processosJudiciais}
+              onChange={carregar}
+            />
+          </TabsContent>
         </Tabs>
       </div>
     </ClientOnly>
@@ -5745,6 +5778,7 @@ interface TabProcessosProps {
   casoId: string;
   cliente: Cliente;
   usuarioId: string | null;
+  isInterno: boolean;
   processosAdmin: Array<ProcessoAdmin>;
   processosJudiciais: Array<ProcessoJudicial>;
   onChange: () => void;
@@ -5762,23 +5796,176 @@ interface ResultadoBuscaLM {
 }
 
 function TabProcessos(props: TabProcessosProps) {
-  const { casoId, cliente, usuarioId, processosAdmin, processosJudiciais, onChange } =
-    props;
+  const {
+    casoId,
+    cliente,
+    usuarioId,
+    isInterno,
+    processosAdmin,
+    processosJudiciais,
+    onChange,
+  } = props;
 
   const [abrirAdmin, setAbrirAdmin] = useState(false);
+  const [editAdminId, setEditAdminId] = useState<string | null>(null);
   const [numReq, setNumReq] = useState("");
   const [dataProtocolo, setDataProtocolo] = useState("");
   const [decisao, setDecisao] = useState("");
   const [dataDecisao, setDataDecisao] = useState("");
+  const [etapaAdmin, setEtapaAdmin] = useState("");
+  const [parentAdmin, setParentAdmin] = useState("");
   const [salvandoAdmin, setSalvandoAdmin] = useState(false);
 
   const [abrirJud, setAbrirJud] = useState(false);
+  const [editJudId, setEditJudId] = useState<string | null>(null);
   const [numProcesso, setNumProcesso] = useState("");
   const [vara, setVara] = useState("");
   const [comarca, setComarca] = useState("");
   const [uf, setUf] = useState("");
   const [dataDist, setDataDist] = useState("");
+  const [etapaJud, setEtapaJud] = useState("");
+  const [parentJud, setParentJud] = useState("");
   const [salvandoJud, setSalvandoJud] = useState(false);
+
+  const [excluindo, setExcluindo] = useState<ProcNode | null>(null);
+  const [excluindoLoading, setExcluindoLoading] = useState(false);
+
+  // ---- Arvore de processos (admin + judicial num mesmo formato) ----
+  const allNodes = useMemo<Array<ProcNode>>(
+    () => [
+      ...processosAdmin.map((p) => ({
+        tipo: "admin" as const,
+        id: p.id,
+        parent_id: p.parent_id,
+        parent_tipo: p.parent_tipo,
+        etapa_tipo: p.etapa_tipo,
+        numero: p.numero_requerimento,
+        admin: p,
+      })),
+      ...processosJudiciais.map((p) => ({
+        tipo: "judicial" as const,
+        id: p.id,
+        parent_id: p.parent_id,
+        parent_tipo: p.parent_tipo,
+        etapa_tipo: p.etapa_tipo,
+        numero: p.numero_processo,
+        judicial: p,
+      })),
+    ],
+    [processosAdmin, processosJudiciais],
+  );
+
+  const idSet = useMemo(() => new Set(allNodes.map((n) => n.id)), [allNodes]);
+  // Pai inexistente (registro removido) => tratamos como raiz, pra nao sumir.
+  const isRaiz = (n: ProcNode) => !n.parent_id || !idSet.has(n.parent_id);
+  const childrenOf = (id: string) => allNodes.filter((n) => n.parent_id === id);
+
+  function descendantes(rootId: string): Set<string> {
+    const out = new Set<string>();
+    const pilha = [rootId];
+    while (pilha.length) {
+      const cur = pilha.pop() as string;
+      for (const n of allNodes) {
+        if (n.parent_id === cur && !out.has(n.id)) {
+          out.add(n.id);
+          pilha.push(n.id);
+        }
+      }
+    }
+    return out;
+  }
+
+  // Opcoes de pai: todos os processos menos o proprio e seus descendentes (evita ciclo).
+  function parentOptions(selfId: string | null): Array<ProcNode> {
+    const bloqueados = new Set<string>();
+    if (selfId) {
+      bloqueados.add(selfId);
+      for (const d of descendantes(selfId)) bloqueados.add(d);
+    }
+    return allNodes.filter((n) => !bloqueados.has(n.id));
+  }
+
+  function nodeLabel(n: ProcNode): string {
+    const t = n.tipo === "admin" ? "Adm" : "Jud";
+    const num = n.numero || "(sem numero)";
+    return t + " . " + num + (n.etapa_tipo ? " . " + n.etapa_tipo : "");
+  }
+
+  function resetAdmin() {
+    setEditAdminId(null);
+    setNumReq("");
+    setDataProtocolo("");
+    setDecisao("");
+    setDataDecisao("");
+    setEtapaAdmin("");
+    setParentAdmin("");
+  }
+  function abrirNovoAdmin(parentId = "") {
+    resetAdmin();
+    setParentAdmin(parentId);
+    setAbrirAdmin(true);
+  }
+  function abrirEditarAdmin(p: ProcessoAdmin) {
+    setEditAdminId(p.id);
+    setNumReq(p.numero_requerimento || "");
+    setDataProtocolo(p.data_protocolo || "");
+    setDecisao(p.decisao || "");
+    setDataDecisao(p.data_decisao || "");
+    setEtapaAdmin(p.etapa_tipo || "");
+    setParentAdmin(p.parent_id || "");
+    setAbrirAdmin(true);
+  }
+
+  function resetJud() {
+    setEditJudId(null);
+    setNumProcesso("");
+    setVara("");
+    setComarca("");
+    setUf("");
+    setDataDist("");
+    setEtapaJud("");
+    setParentJud("");
+  }
+  function abrirNovoJud(parentId = "") {
+    resetJud();
+    setParentJud(parentId);
+    setAbrirJud(true);
+  }
+  function abrirEditarJud(p: ProcessoJudicial) {
+    setEditJudId(p.id);
+    setNumProcesso(p.numero_processo || "");
+    setVara(p.vara || "");
+    setComarca(p.comarca || "");
+    setUf(p.uf || "");
+    setDataDist(p.data_distribuicao || "");
+    setEtapaJud(p.etapa_tipo || "");
+    setParentJud(p.parent_id || "");
+    setAbrirJud(true);
+  }
+
+  // Checa numero duplicado (global) usando a coluna normalizada do banco.
+  // Se a coluna ainda nao existir (migration nao aplicada), nao bloqueia aqui
+  // e deixa o indice unico do banco ser a rede de seguranca.
+  async function numeroDuplicado(
+    tabela: "processos_admin" | "processos_judiciais",
+    colunaNorm: string,
+    numero: string,
+    ignoreId: string | null,
+  ): Promise<{ id: string; caso_id: string } | null> {
+    const norm = numero.replace(/\D/g, "");
+    if (!norm) return null;
+    const resp = await supabase
+      .from(tabela)
+      .select("id, caso_id")
+      .eq(colunaNorm, norm)
+      .limit(1);
+    if (resp.error) return null;
+    const found = (resp.data || [])[0] as
+      | { id: string; caso_id: string }
+      | undefined;
+    if (found && found.id !== ignoreId) return found;
+    return null;
+  }
 
   // ---- Busca no Legalmail ----
   const [abrirBuscaLM, setAbrirBuscaLM] = useState(false);
@@ -5900,60 +6087,270 @@ function TabProcessos(props: TabProcessosProps) {
   }
 
   async function salvarAdmin() {
+    if (numReq.trim()) {
+      const dup = await numeroDuplicado(
+        "processos_admin",
+        "numero_req_normalizado",
+        numReq,
+        editAdminId,
+      );
+      if (dup) {
+        toast.error(
+          dup.caso_id === casoId
+            ? "Ja existe um processo administrativo com esse numero neste caso."
+            : "Esse numero de requerimento ja esta cadastrado em outro caso.",
+        );
+        return;
+      }
+    }
     setSalvandoAdmin(true);
     try {
-      const resp = await supabase.from("processos_admin").insert({
+      const parentTipo = parentAdmin
+        ? allNodes.find((n) => n.id === parentAdmin)?.tipo ?? null
+        : null;
+      const payload = {
         caso_id: casoId,
         numero_requerimento: numReq.trim() || null,
         data_protocolo: dataProtocolo || null,
         decisao: decisao.trim() || null,
         data_decisao: dataDecisao || null,
-      });
+        etapa_tipo: etapaAdmin || null,
+        parent_id: parentAdmin || null,
+        parent_tipo: parentTipo,
+      };
+      const resp = editAdminId
+        ? await supabase
+          .from("processos_admin")
+          .update(payload)
+          .eq("id", editAdminId)
+        : await supabase.from("processos_admin").insert(payload);
       if (resp.error) throw resp.error;
-      toast.success("Processo administrativo registrado");
-      setNumReq("");
-      setDataProtocolo("");
-      setDecisao("");
-      setDataDecisao("");
+      toast.success(
+        editAdminId
+          ? "Processo administrativo atualizado"
+          : "Processo administrativo registrado",
+      );
+      resetAdmin();
       setAbrirAdmin(false);
       onChange();
     } catch (err) {
       console.error(err);
-      const errObj = err as { message?: string };
-      toast.error(errObj.message || "Erro ao registrar processo");
+      const errObj = err as { message?: string; code?: string };
+      toast.error(
+        errObj.code === "23505"
+          ? "Numero ja cadastrado no sistema: esse requerimento ja existe."
+          : errObj.message || "Erro ao registrar processo",
+      );
     } finally {
       setSalvandoAdmin(false);
     }
   }
 
   async function salvarJud() {
+    if (numProcesso.trim()) {
+      const dup = await numeroDuplicado(
+        "processos_judiciais",
+        "numero_proc_normalizado",
+        numProcesso,
+        editJudId,
+      );
+      if (dup) {
+        toast.error(
+          dup.caso_id === casoId
+            ? "Ja existe um processo judicial com esse numero neste caso."
+            : "Esse numero de processo ja esta cadastrado em outro caso.",
+        );
+        return;
+      }
+    }
     setSalvandoJud(true);
     try {
-      const resp = await supabase.from("processos_judiciais").insert({
+      const parentTipo = parentJud
+        ? allNodes.find((n) => n.id === parentJud)?.tipo ?? null
+        : null;
+      const payload = {
         caso_id: casoId,
         numero_processo: numProcesso.trim() || null,
         vara: vara.trim() || null,
         comarca: comarca.trim() || null,
         uf: uf.trim() || null,
         data_distribuicao: dataDist || null,
-      });
+        etapa_tipo: etapaJud || null,
+        parent_id: parentJud || null,
+        parent_tipo: parentTipo,
+      };
+      const resp = editJudId
+        ? await supabase
+          .from("processos_judiciais")
+          .update(payload)
+          .eq("id", editJudId)
+        : await supabase.from("processos_judiciais").insert(payload);
       if (resp.error) throw resp.error;
-      toast.success("Processo judicial registrado");
-      setNumProcesso("");
-      setVara("");
-      setComarca("");
-      setUf("");
-      setDataDist("");
+      toast.success(
+        editJudId ? "Processo judicial atualizado" : "Processo judicial registrado",
+      );
+      resetJud();
       setAbrirJud(false);
       onChange();
     } catch (err) {
       console.error(err);
-      const errObj = err as { message?: string };
-      toast.error(errObj.message || "Erro ao registrar processo");
+      const errObj = err as { message?: string; code?: string };
+      toast.error(
+        errObj.code === "23505"
+          ? "Numero ja cadastrado no sistema: esse processo ja existe."
+          : errObj.message || "Erro ao registrar processo",
+      );
     } finally {
       setSalvandoJud(false);
     }
   }
+
+  async function confirmarExclusao() {
+    if (!excluindo) return;
+    const node = excluindo;
+    setExcluindoLoading(true);
+    try {
+      // Religa os filhos ao "avo" (pai do no excluido) pra nao deixar orfaos.
+      const temFilhos = allNodes.some((n) => n.parent_id === node.id);
+      if (temFilhos) {
+        const upd = { parent_id: node.parent_id, parent_tipo: node.parent_tipo };
+        const r1 = await supabase
+          .from("processos_admin")
+          .update(upd)
+          .eq("parent_id", node.id);
+        if (r1.error) throw r1.error;
+        const r2 = await supabase
+          .from("processos_judiciais")
+          .update(upd)
+          .eq("parent_id", node.id);
+        if (r2.error) throw r2.error;
+      }
+      const tabela =
+        node.tipo === "admin" ? "processos_admin" : "processos_judiciais";
+      const del = await supabase.from(tabela).delete().eq("id", node.id);
+      if (del.error) throw del.error;
+      toast.success("Processo excluido");
+      setExcluindo(null);
+      onChange();
+    } catch (err) {
+      console.error(err);
+      const errObj = err as { message?: string };
+      toast.error(errObj.message || "Erro ao excluir processo");
+    } finally {
+      setExcluindoLoading(false);
+    }
+  }
+
+  function renderNode(node: ProcNode, depth: number) {
+    const filhos = childrenOf(node.id);
+    return (
+      <li key={node.tipo + ":" + node.id} className="space-y-2">
+        <div
+          className="border rounded-md p-3"
+          style={{ marginLeft: depth * 16 }}
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-medium">
+                  {node.tipo === "admin" ? "Req.: " : "Processo: "}
+                  <span className="font-mono tabular-nums">
+                    {node.numero || "-"}
+                  </span>
+                </p>
+                <Badge
+                  variant={node.tipo === "admin" ? "secondary" : "outline"}
+                  className="text-xs"
+                >
+                  {node.tipo === "admin" ? "Administrativo" : "Judicial"}
+                </Badge>
+                {node.etapa_tipo && (
+                  <Badge variant="outline" className="text-xs">
+                    {node.etapa_tipo}
+                  </Badge>
+                )}
+              </div>
+              {node.tipo === "admin" ? (
+                <>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {node.admin?.data_protocolo
+                      ? "Protocolado em " + formatDate(node.admin.data_protocolo)
+                      : "Sem data de protocolo"}
+                    {node.admin?.data_decisao
+                      ? " - Decidido em " + formatDate(node.admin.data_decisao)
+                      : ""}
+                  </p>
+                  {node.admin?.decisao && (
+                    <Badge variant="outline" className="mt-1">
+                      {node.admin.decisao}
+                    </Badge>
+                  )}
+                </>
+              ) : (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {node.judicial?.vara ? node.judicial.vara + " - " : ""}
+                  {node.judicial?.comarca ? node.judicial.comarca : ""}
+                  {node.judicial?.uf ? "/" + node.judicial.uf : ""}
+                  {node.judicial?.data_distribuicao
+                    ? " - Distribuido em " +
+                      formatDate(node.judicial.data_distribuicao)
+                    : ""}
+                </p>
+              )}
+            </div>
+            {isInterno && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 shrink-0"
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    onClick={() =>
+                      node.tipo === "admin"
+                        ? abrirEditarAdmin(node.admin as ProcessoAdmin)
+                        : abrirEditarJud(node.judicial as ProcessoJudicial)}
+                  >
+                    <Pencil className="h-4 w-4 mr-2" />
+                    Editar
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => abrirNovoAdmin(node.id)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Sub-processo administrativo
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => abrirNovoJud(node.id)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Sub-processo judicial
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={() => setExcluindo(node)}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Excluir
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
+        </div>
+        {filhos.length > 0 && (
+          <ul className="space-y-2">
+            {filhos.map((c) => renderNode(c, depth + 1))}
+          </ul>
+        )}
+      </li>
+    );
+  }
+
+  const adminRaizes = allNodes.filter((n) => n.tipo === "admin" && isRaiz(n));
+  const judRaizes = allNodes.filter((n) => n.tipo === "judicial" && isRaiz(n));
 
   return (
     <div className="space-y-4">
@@ -5968,16 +6365,20 @@ function TabProcessos(props: TabProcessosProps) {
                 Requerimentos protocolados no INSS.
               </CardDescription>
             </div>
+            {isInterno && (
+              <Button size="sm" onClick={() => abrirNovoAdmin()}>
+                <Plus className="h-4 w-4 mr-2" />
+                Novo
+              </Button>
+            )}
             <Dialog open={abrirAdmin} onOpenChange={setAbrirAdmin}>
-              <DialogTrigger asChild>
-                <Button size="sm">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Novo
-                </Button>
-              </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>Novo processo administrativo</DialogTitle>
+                  <DialogTitle>
+                    {editAdminId
+                      ? "Editar processo administrativo"
+                      : "Novo processo administrativo"}
+                  </DialogTitle>
                 </DialogHeader>
                 <div className="space-y-3">
                   <div>
@@ -5987,6 +6388,50 @@ function TabProcessos(props: TabProcessosProps) {
                       onChange={(e) => setNumReq(e.target.value)}
                       placeholder="0000000000000000"
                     />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Etapa</Label>
+                    <Select
+                      value={etapaAdmin || "__none__"}
+                      onValueChange={(v) =>
+                        setEtapaAdmin(v === "__none__" ? "" : v)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Sem classificacao" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">
+                          Sem classificacao
+                        </SelectItem>
+                        {ETAPAS_ADMIN.map((e) => (
+                          <SelectItem key={e} value={e}>
+                            {e}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Processo de origem (pai)</Label>
+                    <Select
+                      value={parentAdmin || "__none__"}
+                      onValueChange={(v) =>
+                        setParentAdmin(v === "__none__" ? "" : v)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Nenhum (principal)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">
+                          Nenhum (principal)
+                        </SelectItem>
+                        {parentOptions(editAdminId).map((n) => (
+                          <SelectItem key={n.tipo + ":" + n.id} value={n.id}>
+                            {nodeLabel(n)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div>
                     <Label className="text-xs">Data do protocolo</Label>
@@ -6033,30 +6478,13 @@ function TabProcessos(props: TabProcessosProps) {
           </div>
         </CardHeader>
         <CardContent>
-          {processosAdmin.length === 0 ? (
+          {adminRaizes.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-6">
               Nenhum processo administrativo registrado.
             </p>
           ) : (
             <ul className="space-y-2">
-              {processosAdmin.map((p) => (
-                <li key={p.id} className="border rounded-md p-3">
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <div>
-                      <p className="text-sm font-medium">
-                        Req.: {p.numero_requerimento || "-"}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Protocolado em {formatDate(p.data_protocolo)}
-                        {p.data_decisao
-                          ? " - Decidido em " + formatDate(p.data_decisao)
-                          : ""}
-                      </p>
-                    </div>
-                    {p.decisao && <Badge variant="outline">{p.decisao}</Badge>}
-                  </div>
-                </li>
-              ))}
+              {adminRaizes.map((n) => renderNode(n, 0))}
             </ul>
           )}
         </CardContent>
@@ -6072,29 +6500,35 @@ function TabProcessos(props: TabProcessosProps) {
               </CardDescription>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={buscarLegalmail}
-                disabled={buscandoLM || !cliente.nome}
-                title="Buscar processos no Legalmail pelo nome do cliente"
-              >
-                {buscandoLM && (
-                  <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                )}
-                <Search className="h-4 w-4 mr-1" />
-                Buscar no Legalmail
-              </Button>
+              {isInterno && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={buscarLegalmail}
+                  disabled={buscandoLM || !cliente.nome}
+                  title="Buscar processos no Legalmail pelo nome do cliente"
+                >
+                  {buscandoLM && (
+                    <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                  )}
+                  <Search className="h-4 w-4 mr-1" />
+                  Buscar no Legalmail
+                </Button>
+              )}
+              {isInterno && (
+                <Button size="sm" onClick={() => abrirNovoJud()}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Novo
+                </Button>
+              )}
               <Dialog open={abrirJud} onOpenChange={setAbrirJud}>
-                <DialogTrigger asChild>
-                  <Button size="sm">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Novo
-                  </Button>
-                </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>Novo processo judicial</DialogTitle>
+                  <DialogTitle>
+                    {editJudId
+                      ? "Editar processo judicial"
+                      : "Novo processo judicial"}
+                  </DialogTitle>
                 </DialogHeader>
                 <div className="space-y-3">
                   <div>
@@ -6104,6 +6538,50 @@ function TabProcessos(props: TabProcessosProps) {
                       onChange={(e) => setNumProcesso(e.target.value)}
                       placeholder="0000000-00.0000.0.00.0000"
                     />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Etapa</Label>
+                    <Select
+                      value={etapaJud || "__none__"}
+                      onValueChange={(v) =>
+                        setEtapaJud(v === "__none__" ? "" : v)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Sem classificacao" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">
+                          Sem classificacao
+                        </SelectItem>
+                        {ETAPAS_JUDICIAL.map((e) => (
+                          <SelectItem key={e} value={e}>
+                            {e}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Processo de origem (pai)</Label>
+                    <Select
+                      value={parentJud || "__none__"}
+                      onValueChange={(v) =>
+                        setParentJud(v === "__none__" ? "" : v)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Nenhum (principal)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">
+                          Nenhum (principal)
+                        </SelectItem>
+                        {parentOptions(editJudId).map((n) => (
+                          <SelectItem key={n.tipo + ":" + n.id} value={n.id}>
+                            {nodeLabel(n)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div>
                     <Label className="text-xs">Vara</Label>
@@ -6164,32 +6642,13 @@ function TabProcessos(props: TabProcessosProps) {
           </div>
         </CardHeader>
         <CardContent>
-          {processosJudiciais.length === 0 ? (
+          {judRaizes.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-6">
               Nenhum processo judicial registrado.
             </p>
           ) : (
             <ul className="space-y-2">
-              {processosJudiciais.map((p) => (
-                <li key={p.id} className="border rounded-md p-3">
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <div>
-                      <p className="text-sm font-medium">
-                        Processo: {p.numero_processo || "-"}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {p.vara ? p.vara + " - " : ""}
-                        {p.comarca ? p.comarca : ""}
-                        {p.uf ? "/" + p.uf : ""}
-                        {p.data_distribuicao
-                          ? " - Distribuido em " +
-                            formatDate(p.data_distribuicao)
-                          : ""}
-                      </p>
-                    </div>
-                  </div>
-                </li>
-              ))}
+              {judRaizes.map((n) => renderNode(n, 0))}
             </ul>
           )}
         </CardContent>
@@ -6292,6 +6751,44 @@ function TabProcessos(props: TabProcessosProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={!!excluindo}
+        onOpenChange={(o) => {
+          if (!o) setExcluindo(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir processo?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {excluindo && childrenOf(excluindo.id).length > 0
+                ? "Este processo tem " +
+                  childrenOf(excluindo.id).length +
+                  " sub-processo(s). Eles serao mantidos e religados ao processo de origem deste. Esta acao nao pode ser desfeita."
+                : "Esta acao nao pode ser desfeita."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={excluindoLoading}>
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                confirmarExclusao();
+              }}
+              disabled={excluindoLoading}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {excluindoLoading && (
+                <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+              )}
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
