@@ -2070,6 +2070,30 @@ function TabAndamentos(props: TabAndamentosProps) {
   const [visivelParceiro, setVisivelParceiro] = useState(true);
   const [processoVinculo, setProcessoVinculo] = useState(PROCESSO_NENHUM);
   const [salvando, setSalvando] = useState(false);
+  const [togglandoVisId, setTogglandoVisId] = useState<string | null>(null);
+
+  // Alterna a visibilidade do andamento para o parceiro (interno <-> visivel).
+  async function toggleVisivelParceiro(a: Andamento) {
+    const novo = !a.visivel_parceiro;
+    setTogglandoVisId(a.id);
+    try {
+      const resp = await supabase
+        .from("andamentos")
+        .update({ visivel_parceiro: novo })
+        .eq("id", a.id);
+      if (resp.error) throw resp.error;
+      toast.success(
+        novo ? "Andamento agora visivel ao parceiro" : "Andamento marcado como interno",
+      );
+      onChange();
+    } catch (err) {
+      console.error(err);
+      const errObj = err as { message?: string };
+      toast.error(errObj.message || "Erro ao alterar visibilidade");
+    } finally {
+      setTogglandoVisId(null);
+    }
+  }
 
   // States dos accordions (qual processo esta expandido em cada card)
   const [expandidosAdmin, setExpandidosAdmin] = useState<Set<string>>(
@@ -2436,17 +2460,25 @@ function TabAndamentos(props: TabAndamentosProps) {
             <span className="text-xs text-muted-foreground">
               {formatDateTime(a.data_evento || a.created_at)}
             </span>
-            {isInterno && temParceiro && a.visivel_parceiro && (
-              <Badge variant="secondary" className="text-xs">
-                <Eye className="h-3 w-3 mr-1" />
-                visivel parceiro
-              </Badge>
-            )}
-            {isInterno && temParceiro && !a.visivel_parceiro && (
-              <Badge variant="outline" className="text-xs">
-                <EyeOff className="h-3 w-3 mr-1" />
-                interno
-              </Badge>
+            {isInterno && temParceiro && (
+              <Button
+                type="button"
+                size="sm"
+                variant={a.visivel_parceiro ? "secondary" : "outline"}
+                className="h-6 px-2 text-xs"
+                disabled={togglandoVisId === a.id}
+                onClick={() => toggleVisivelParceiro(a)}
+                title={a.visivel_parceiro
+                  ? "Visivel ao parceiro - clique para tornar interno"
+                  : "Interno - clique para tornar visivel ao parceiro"}
+              >
+                {togglandoVisId === a.id
+                  ? <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                  : a.visivel_parceiro
+                  ? <Eye className="h-3 w-3 mr-1" />
+                  : <EyeOff className="h-3 w-3 mr-1" />}
+                {a.visivel_parceiro ? "visivel parceiro" : "interno"}
+              </Button>
             )}
           </div>
           {isInterno && (
