@@ -9,6 +9,7 @@ import { useEffect } from "react";
 import { Loader2, LogOut, Plus } from "lucide-react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
+import { NotificacoesBell } from "@/components/notificacoes-bell";
 import { useAuth } from "@/hooks/use-auth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -88,6 +89,7 @@ function AuthenticatedLayout() {
                   <span className="hidden sm:inline">Novo caso</span>
                 </Link>
               </Button>
+              {usuario?.tipo === "interno" && <NotificacoesBell />}
               {usuario?.tipo && (
                 // Badge em dourado quebra a monotonia do navy (botao Novo
                 // caso + avatar + Sair) e reforca a identidade visual.
