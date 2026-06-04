@@ -73,6 +73,16 @@ function extrairNumerosProcesso(texto: string): Array<string> {
   return [...out];
 }
 
+// deno-lint-ignore no-explicit-any
+function tagsKey(tags: any): string {
+  if (!Array.isArray(tags)) return "";
+  return tags
+    .map((t) => String(t?.id ?? t?.name ?? ""))
+    .filter(Boolean)
+    .sort()
+    .join(",");
+}
+
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -288,6 +298,9 @@ serve(async (req) => {
     update.data_nascimento = customer.birthdate;
   }
 
+  const tagsAntes = tagsKey(clienteLocal.tags);
+  const tagsDepois = tagsKey(customer.tags || []);
+
   const { error: upErr } = await supabase
     .from("clientes")
     .update(update)
@@ -298,6 +311,21 @@ serve(async (req) => {
       { error: "erro update cliente", detail: upErr.message },
       500,
     );
+  }
+
+  // Notifica mudanca de tags (mesma regra do sync global).
+  if (tagsAntes !== tagsDepois) {
+    const { error: nErr } = await supabase.from("notificacoes").insert({
+      tipo: "tags",
+      titulo: `Tags atualizadas: ${clienteLocal.nome || "cliente"}`,
+      descricao: "As tags do cliente mudaram no TI.",
+      cliente_id: clienteLocal.id,
+      caso_id: casoId,
+      metadata: { cpf: cpfNorm },
+    });
+    if (nErr && nErr.code !== "23505") {
+      console.error("erro notificacao tags", nErr);
+    }
   }
 
   // ---- Passo 4: se caso_id fornecido, importar notas como andamentos ----
@@ -474,6 +502,24 @@ serve(async (req) => {
         continue;
       }
       notasImportadas++;
+    }
+
+    // Notifica andamentos novos importados (unifica com o sync global:
+    // qualquer sync que traga novidade cai no sino).
+    if (notasImportadas > 0) {
+      const { error: nErr } = await supabase.from("notificacoes").insert({
+        tipo: "andamento",
+        titulo: `${notasImportadas} novo${notasImportadas === 1 ? "" : "s"}` +
+          ` andamento${notasImportadas === 1 ? "" : "s"}: ` +
+          `${clienteLocal.nome || "cliente"}`,
+        descricao: "Importado do TI.",
+        cliente_id: clienteLocal.id,
+        caso_id: casoId,
+        metadata: { cpf: cpfNorm, qtd: notasImportadas },
+      });
+      if (nErr && nErr.code !== "23505") {
+        console.error("erro notificacao andamento", nErr);
+      }
     }
   }
 
