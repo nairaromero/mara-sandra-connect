@@ -34,6 +34,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { DocTypeCombobox } from "@/components/doc-type-combobox";
+import { NovoParceiroDialog } from "@/components/novo-parceiro-dialog";
 import {
   DrivePickerDialog,
   type DriveImportedFile,
@@ -916,7 +917,24 @@ function NovoCasoPage() {
                     name="parceiro_id"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Parceiro indicador</FormLabel>
+                        <div className="flex items-center justify-between gap-2">
+                          <FormLabel>Parceiro indicador</FormLabel>
+                          <NovoParceiroDialog
+                            onCriado={(p) => {
+                              setParceiros((prev) => {
+                                const semDup = prev.filter((x) =>
+                                  x.id !== p.id
+                                );
+                                return [...semDup, p].sort((a, b) =>
+                                  (a.nome || "").localeCompare(b.nome || "")
+                                );
+                              });
+                              form.setValue("parceiro_id", p.id, {
+                                shouldValidate: true,
+                              });
+                            }}
+                          />
+                        </div>
                         <Select
                           value={field.value}
                           onValueChange={field.onChange}
