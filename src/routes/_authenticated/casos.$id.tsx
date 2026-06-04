@@ -1250,6 +1250,12 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
     } catch {
       setClTemSenha(false);
     }
+    // Edicao unificada: prefill tambem os dados do caso.
+    setCsTipoBeneficio(caso.tipo_beneficio);
+    setCsInterno(caso.parceiro_id === null);
+    setCsParceiroId(caso.parceiro_id || "");
+    setCsFase(caso.fase);
+    setCsStatus(caso.status);
     setAbrirEditCliente(true);
   }
 
@@ -1258,8 +1264,31 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
       toast.error("Nome obrigatorio");
       return;
     }
+    if (!csTipoBeneficio) {
+      toast.error("Tipo de beneficio obrigatorio");
+      return;
+    }
+    if (!csInterno && !csParceiroId) {
+      toast.error(
+        "Selecione um parceiro indicador ou marque como cliente interno",
+      );
+      return;
+    }
     setClSalvando(true);
     try {
+      // Atualiza o caso (edicao unificada cliente + caso).
+      const respCaso = await supabase
+        .from("casos")
+        .update({
+          tipo_beneficio: csTipoBeneficio,
+          parceiro_id: csInterno ? null : csParceiroId,
+          fase: csFase,
+          status: csStatus,
+        })
+        .eq("id", caso.id)
+        .select();
+      if (respCaso.error) throw respCaso.error;
+
       const resp = await supabase
         .from("clientes")
         .update({
@@ -1293,7 +1322,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
           toast.success(clTemSenha ? "Senha MEU INSS substituida" : "Senha MEU INSS cadastrada");
         }
       }
-      toast.success("Cliente atualizado");
+      toast.success("Cliente e caso atualizados");
       setAbrirEditCliente(false);
       onChange();
     } catch (err) {
@@ -1500,22 +1529,6 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
 
   return (
     <div className="space-y-3">
-      {/* Botao discreto pra editar tipo beneficio / fase / status / parceiro.
-          Substitui o antigo card "Configuracoes do caso" - info ja aparece
-          nas tags do header. */}
-      {isInterno && (
-        <div className="flex justify-end">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={abrirDialogCaso}
-            className="text-xs"
-          >
-            <Pencil className="h-3.5 w-3.5 mr-1" />
-            Editar caso
-          </Button>
-        </div>
-      )}
       <div className="grid gap-4 lg:grid-cols-2">
       <Card>
         <CardHeader>
@@ -1606,9 +1619,10 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
           >
             <DialogContent className="max-h-[90vh] overflow-y-auto">
               <DialogHeader>
-                <DialogTitle>Editar cliente</DialogTitle>
+                <DialogTitle>Editar cliente e caso</DialogTitle>
                 <DialogDescription>
-                  CPF nao pode ser alterado (chave unica vinculada ao TI).
+                  Dados do cliente e do caso num so lugar. CPF nao pode ser
+                  alterado (chave unica vinculada ao TI).
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3">
@@ -1654,6 +1668,102 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                     onChange={(e) => setClObservacoes(e.target.value)}
                   />
                 </div>
+
+                {/* ---- Dados do caso (edicao unificada) ---- */}
+                <div className="border-t pt-3 space-y-3">
+                  <p className="text-sm font-medium">Dados do caso</p>
+                  <div>
+                    <Label className="text-xs">Tipo de beneficio</Label>
+                    <Select
+                      value={csTipoBeneficio}
+                      onValueChange={setCsTipoBeneficio}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TIPOS_BENEFICIO.map((t) => (
+                          <SelectItem key={t} value={t}>
+                            {t}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <input
+                      id="cl-cs-interno"
+                      type="checkbox"
+                      checked={csInterno}
+                      onChange={(e) => {
+                        setCsInterno(e.target.checked);
+                        if (e.target.checked) setCsParceiroId("");
+                      }}
+                      className="h-4 w-4 mt-0.5"
+                    />
+                    <Label htmlFor="cl-cs-interno" className="text-sm">
+                      Cliente interno do escritorio (sem parceiro indicador)
+                    </Label>
+                  </div>
+                  {!csInterno && (
+                    <div>
+                      <Label className="text-xs">Parceiro indicador</Label>
+                      <Select
+                        value={csParceiroId}
+                        onValueChange={setCsParceiroId}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione um parceiro..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {parceirosDisponiveis.length === 0 && (
+                            <SelectItem value="__vazio__" disabled>
+                              Nenhum parceiro cadastrado
+                            </SelectItem>
+                          )}
+                          {parceirosDisponiveis.map((p) => (
+                            <SelectItem key={p.id} value={p.id}>
+                              {p.nome || p.email || "(sem nome)"}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs">Fase</Label>
+                      <Select value={csFase} onValueChange={setCsFase}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {FASES_CASO.map((f) => (
+                            <SelectItem key={f.value} value={f.value}>
+                              {f.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Status</Label>
+                      <Select value={csStatus} onValueChange={setCsStatus}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {STATUS_CASO.map((s) => (
+                            <SelectItem key={s.value} value={s.value}>
+                              {s.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Senha MEU INSS - sempre vazio. Vazio = manter, preenchido =
                     substituir via RPC criptografada. Status atual (ja tem ou
                     nao) eh mostrado em texto auxiliar. */}
