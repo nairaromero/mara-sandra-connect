@@ -333,17 +333,40 @@ serve(async (req) => {
     let novosNoCliente = 0;
     for (const nota of notas) {
       const tiNotaIdStr = String(nota.id);
-      const { data: existente } = await supabase
-        .from("andamentos")
-        .select("id")
-        .eq("origem", "tramitacao")
-        .eq("metadata->>ti_nota_id", tiNotaIdStr)
-        .maybeSingle();
-      if (existente) continue;
-
       const r = resolver(nota.content || "");
       const vincAdminId = r.judId ? null : (r.adminId ?? autoProcessoAdminId);
       const vincJudId = r.judId;
+
+      const { data: existente } = await supabase
+        .from("andamentos")
+        .select("id, processo_admin_id, processo_judicial_id")
+        .eq("origem", "tramitacao")
+        .eq("metadata->>ti_nota_id", tiNotaIdStr)
+        .maybeSingle();
+      if (existente) {
+        // Backfill: religa nota ja importada que ficou sem processo (notas
+        // antigas, importadas antes do auto-vinculo, ou antes do processo
+        // existir). So mexe se ainda nao tem vinculo.
+        if (
+          !existente.processo_admin_id &&
+          !existente.processo_judicial_id &&
+          (vincJudId || vincAdminId)
+        ) {
+          const { error: bfErr } = await supabase
+            .from("andamentos")
+            .update(
+              vincJudId
+                ? { processo_judicial_id: vincJudId }
+                : { processo_admin_id: vincAdminId },
+            )
+            .eq("id", existente.id)
+            .is("processo_admin_id", null)
+            .is("processo_judicial_id", null);
+          if (bfErr) console.error("erro backfill processo", existente.id, bfErr);
+        }
+        continue;
+      }
+
       const content = nota.content || "";
       const titulo = content.length > 100 ? content.slice(0, 100) : content;
 
