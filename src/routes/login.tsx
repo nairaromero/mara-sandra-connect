@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent } from "react";
-import { Scale, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -59,18 +59,17 @@ function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/30 px-4">
+    <div className="flex min-h-screen items-center justify-center px-4 bg-gradient-to-br from-background via-background to-gold-soft/50">
       <div className="w-full max-w-md">
         <div className="mb-8 flex flex-col items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Scale className="h-6 w-6" />
-          </div>
-          <div className="text-center">
-            <h1 className="font-serif text-3xl font-semibold tracking-tight text-foreground">
-              Mara Sandra Advocacia
-            </h1>
-            <p className="text-sm text-muted-foreground">Plataforma interna · Previdenciário</p>
-          </div>
+          <img
+            src="/logo.png"
+            alt="Mara Sandra Vian Advocacia"
+            className="h-24 w-auto object-contain"
+          />
+          <p className="text-sm text-muted-foreground">
+            Plataforma interna · Previdenciario
+          </p>
         </div>
 
         <Card className="border-border/60 shadow-sm">
