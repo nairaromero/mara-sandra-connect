@@ -12,7 +12,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface TiCliente {
   ti_customer_id: number;
@@ -230,7 +229,7 @@ export function ImportarTiDialog({ onImported }: { onImported: () => void }) {
                   {todosMarcados ? "Desmarcar" : "Marcar"} todos
                 </Button>
               </div>
-              <ScrollArea className="flex-1 max-h-[50vh] border rounded-md">
+              <div className="max-h-[55vh] overflow-y-auto border rounded-md">
                 <ul className="divide-y">
                   {filtrados.map((c) => (
                     <li
@@ -255,7 +254,7 @@ export function ImportarTiDialog({ onImported }: { onImported: () => void }) {
                     </li>
                   ))}
                 </ul>
-              </ScrollArea>
+              </div>
             </>
           )}
 
