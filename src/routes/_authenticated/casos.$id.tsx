@@ -778,6 +778,16 @@ function CasoDetalhePage() {
     carregar();
   }, [carregar]);
 
+  // Recarrega quando um sync (ex.: "Sincronizar tudo" do sino) termina, pra
+  // refletir novos andamentos/vinculos sem o usuario dar refresh manual.
+  useEffect(() => {
+    function onSyncDone() {
+      carregar();
+    }
+    window.addEventListener("msc:sync-done", onSyncDone);
+    return () => window.removeEventListener("msc:sync-done", onSyncDone);
+  }, [carregar]);
+
   if (loading) {
     return (
       <div className="flex h-96 items-center justify-center">

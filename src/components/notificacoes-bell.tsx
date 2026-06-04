@@ -111,6 +111,11 @@ export function NotificacoesBell() {
           `${r.tags_alteradas || 0} tag(s) alterada(s).`,
       );
       await carregar();
+      // Avisa telas abertas (ex.: detalhe do caso) para recarregarem os dados
+      // sem o usuario precisar dar refresh manual.
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("msc:sync-done"));
+      }
     } catch (err) {
       console.error(err);
       const e = err as { message?: string };
