@@ -121,6 +121,7 @@ function StatusBadge({ status }: { status: string | null }) {
 
 function ClientesPage() {
   const { usuario } = useAuth();
+  const isInterno = usuario?.tipo === "interno";
   const navigate = useNavigate();
   const [casos, setCasos] = useState<Array<CasoRow>>([]);
   const [loading, setLoading] = useState(true);
@@ -311,7 +312,7 @@ function ClientesPage() {
                     <TableRow>
                       <TableHead>Cliente</TableHead>
                       <TableHead>CPF</TableHead>
-                      <TableHead>Casos</TableHead>
+                      <TableHead>{isInterno ? "Parceiro" : "Casos"}</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Processos</TableHead>
                       <TableHead className="w-8"></TableHead>
@@ -324,6 +325,13 @@ function ClientesPage() {
                       const totalProcessos = c.casos.reduce(
                         (acc, ca) => acc + ca.numerosProcesso.length,
                         0,
+                      );
+                      const parceirosNomes = Array.from(
+                        new Set(
+                          c.casos
+                            .map((ca) => ca.parceiroNome)
+                            .filter((n): n is string => !!n),
+                        ),
                       );
                       return (
                         <TableRow
@@ -345,9 +353,24 @@ function ClientesPage() {
                             {formatCPF(c.cpf)}
                           </TableCell>
                           <TableCell>
-                            <Badge variant="outline" className="tabular-nums">
-                              {totalCasos}
-                            </Badge>
+                            {isInterno ? (
+                              parceirosNomes.length > 0 ? (
+                                <span className="text-sm">
+                                  {parceirosNomes.join(", ")}
+                                </span>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">
+                                  Interno
+                                </span>
+                              )
+                            ) : (
+                              <Badge
+                                variant="outline"
+                                className="tabular-nums"
+                              >
+                                {totalCasos}
+                              </Badge>
+                            )}
                           </TableCell>
                           <TableCell>
                             {casoMaisRecente && (
