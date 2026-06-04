@@ -2534,15 +2534,46 @@ function TabAndamentos(props: TabAndamentosProps) {
   }
 
   // Helper: renderiza um accordion de processo (header com chevron + lista de andamentos)
+  // Ordena uma lista de processos por hierarquia (raiz primeiro, filhos
+  // aninhados depois), retornando o nivel (depth) de cada um pra indentar.
+  function ordenarPorHierarquia<
+    T extends { id: string; parent_id: string | null },
+  >(lista: Array<T>): Array<{ item: T; depth: number }> {
+    const ids = new Set(lista.map((x) => x.id));
+    const filhosPorPai = new Map<string, Array<T>>();
+    const raizes: Array<T> = [];
+    for (const x of lista) {
+      if (x.parent_id && ids.has(x.parent_id)) {
+        const arr = filhosPorPai.get(x.parent_id) || [];
+        arr.push(x);
+        filhosPorPai.set(x.parent_id, arr);
+      } else {
+        raizes.push(x);
+      }
+    }
+    const out: Array<{ item: T; depth: number }> = [];
+    function visita(x: T, depth: number) {
+      out.push({ item: x, depth });
+      for (const f of filhosPorPai.get(x.id) || []) visita(f, depth + 1);
+    }
+    for (const r of raizes) visita(r, 0);
+    return out;
+  }
+
   function renderAccordion(
     label: string,
     processoId: string,
     ands: Array<Andamento>,
     aberto: boolean,
     onToggle: () => void,
+    depth = 0,
   ) {
     return (
-      <div key={processoId} className="border rounded-md overflow-hidden">
+      <div
+        key={processoId}
+        className="border rounded-md overflow-hidden"
+        style={depth > 0 ? { marginLeft: depth * 16 } : undefined}
+      >
         <button
           type="button"
           onClick={onToggle}
@@ -2626,8 +2657,9 @@ function TabAndamentos(props: TabAndamentosProps) {
           )}
           {(processosAdmin.length > 0 || notasTISemVinculo.length > 0) && (
             <div className="space-y-2">
-              {/* Accordion por processo admin */}
-              {processosAdmin.map((p) => {
+              {/* Accordion por processo admin, em ordem de hierarquia
+                  (principal primeiro, sub-processos aninhados embaixo) */}
+              {ordenarPorHierarquia(processosAdmin).map(({ item: p, depth }) => {
                 const ands = andamentosAdmin.filter(
                   (a) => a.processo_admin_id === p.id,
                 );
@@ -2639,6 +2671,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                   ands,
                   expandidosAdmin.has(p.id),
                   () => toggleAccordionAdmin(p.id),
+                  depth,
                 );
               })}
 
@@ -2787,20 +2820,23 @@ function TabAndamentos(props: TabAndamentosProps) {
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {processosJudiciais.map((p) => {
-                const ands = andamentosJud.filter(
-                  (a) => a.processo_judicial_id === p.id,
-                );
-                const label =
-                  "Judicial: " + (p.numero_processo || "(sem numero)");
-                return renderAccordion(
-                  label,
-                  p.id,
-                  ands,
-                  expandidosJud.has(p.id),
-                  () => toggleAccordionJud(p.id),
-                );
-              })}
+              {ordenarPorHierarquia(processosJudiciais).map(
+                ({ item: p, depth }) => {
+                  const ands = andamentosJud.filter(
+                    (a) => a.processo_judicial_id === p.id,
+                  );
+                  const label =
+                    "Judicial: " + (p.numero_processo || "(sem numero)");
+                  return renderAccordion(
+                    label,
+                    p.id,
+                    ands,
+                    expandidosJud.has(p.id),
+                    () => toggleAccordionJud(p.id),
+                    depth,
+                  );
+                },
+              )}
             </div>
           </CardContent>
         </Card>
