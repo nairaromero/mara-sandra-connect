@@ -38,7 +38,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const APP_BASE_URL = Deno.env.get("APP_BASE_URL") ||
-  "https://mara-sandra-connect.nairaromerovian.workers.dev";
+  "https://marasandraconnect.com";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

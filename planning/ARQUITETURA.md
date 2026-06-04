@@ -39,7 +39,7 @@ Direito previdenciário brasileiro (RGPS principalmente). Tipos de benefício su
 | Edge functions | Supabase Edge Functions (Deno) |
 | Orquestração | n8n self-hosted (`nairavian-n8n.de`) — para integrações TI/Legalmail futuras |
 | Deploy frontend | Cloudflare Workers via push em GitHub (auto-deploy) |
-| Domínio | Temporário: `mara-sandra-connect.nairaromerovian.workers.dev`. Definitivo: `marasandraconnect.com` (registrado 2026-05-28, DNS ainda não apontado pro app) |
+| Domínio | Produção: `marasandraconnect.com` (+ `www`), custom domain do Worker configurado no `wrangler.jsonc` em 2026-06-04. Fallback antigo: `mara-sandra-connect.nairaromerovian.workers.dev` |
 | Repositório | `https://github.com/nairaromero/mara-sandra-connect` (público) |
 
 ### 2.1 Supabase

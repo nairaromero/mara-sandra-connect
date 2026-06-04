@@ -27,7 +27,7 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const APP_BASE_URL = Deno.env.get("APP_BASE_URL") ||
-  "https://mara-sandra-connect.nairaromerovian.workers.dev";
+  "https://marasandraconnect.com";
 
 const FROM_EMAIL = "Mara Sandra Advocacia <noreply@marasandraconnect.com>";
 
