@@ -2664,8 +2664,12 @@ function TabAndamentos(props: TabAndamentosProps) {
                 const ands = andamentosAdmin.filter(
                   (a) => a.processo_admin_id === p.id,
                 );
+                const extras = [p.etapa_tipo, p.tipo_beneficio].filter(
+                  Boolean,
+                );
                 const label =
-                  "Admin: " + (p.numero_requerimento || "(sem numero)");
+                  "Admin: " + (p.numero_requerimento || "(sem numero)") +
+                  (extras.length ? " · " + extras.join(" · ") : "");
                 return renderAccordion(
                   label,
                   p.id,
@@ -2827,7 +2831,8 @@ function TabAndamentos(props: TabAndamentosProps) {
                     (a) => a.processo_judicial_id === p.id,
                   );
                   const label =
-                    "Judicial: " + (p.numero_processo || "(sem numero)");
+                    "Judicial: " + (p.numero_processo || "(sem numero)") +
+                    (p.etapa_tipo ? " · " + p.etapa_tipo : "");
                   return renderAccordion(
                     label,
                     p.id,
