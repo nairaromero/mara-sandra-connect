@@ -506,6 +506,10 @@ function displayNomeArquivo(nome: string | null | undefined): string {
   return nome.replace(/^\d+\s*[-_.]\s*/, "").trim();
 }
 
+// Feature de Repasses PAUSADA na UI (tabela/componente/logica mantidos no
+// backend). Trocar para true quando formos retomar. Ver todo list.
+const REPASSES_ATIVO = false;
+
 const STATUS_REPASSE_LABEL: Record<string, string> = {
   previsto: "Previsto",
   a_pagar: "A pagar",
@@ -872,10 +876,12 @@ function CasoDetalhePage() {
               <MessageSquare className="h-4 w-4" />
               <span>Comentarios</span>
             </TabsTrigger>
-            <TabsTrigger value="repasses" className="flex items-center gap-1 shrink-0">
-              <DollarSign className="h-4 w-4" />
-              <span>Repasses</span>
-            </TabsTrigger>
+            {REPASSES_ATIVO && (
+              <TabsTrigger value="repasses" className="flex items-center gap-1 shrink-0">
+                <DollarSign className="h-4 w-4" />
+                <span>Repasses</span>
+              </TabsTrigger>
+            )}
             <TabsTrigger value="processos" className="flex items-center gap-1 shrink-0">
               <Scale className="h-4 w-4" />
               <span>Processos</span>
@@ -940,15 +946,17 @@ function CasoDetalhePage() {
             />
           </TabsContent>
 
-          <TabsContent value="repasses" className="mt-4">
-            <TabRepasses
-              casoId={casoId}
-              repasses={repasses}
-              parceiroId={parceiro ? parceiro.id : null}
-              isInterno={isInterno}
-              onChange={carregar}
-            />
-          </TabsContent>
+          {REPASSES_ATIVO && (
+            <TabsContent value="repasses" className="mt-4">
+              <TabRepasses
+                casoId={casoId}
+                repasses={repasses}
+                parceiroId={parceiro ? parceiro.id : null}
+                isInterno={isInterno}
+                onChange={carregar}
+              />
+            </TabsContent>
+          )}
 
           <TabsContent value="processos" className="mt-4">
             <TabProcessos

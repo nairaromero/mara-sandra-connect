@@ -205,7 +205,7 @@ function DashboardPage() {
         <p className="text-sm text-muted-foreground">
           {isInterno
             ? "Visao geral de todos os casos do escritorio."
-            : "Acompanhe seus casos e repasses."}
+            : "Acompanhe seus casos."}
         </p>
       </div>
       {isInterno ? (
@@ -216,14 +216,9 @@ function DashboardPage() {
           <MetricCard title="Exitos no mes" value={metrics.exitosMes} icon={TrendingUp} />
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2">
           <MetricCard title="Casos ativos" value={metrics.ativos} icon={Briefcase} />
           <MetricCard title="Exitos no ano" value={metrics.exitosAno} icon={CheckCircle2} />
-          <MetricCard
-            title="Repasse acumulado"
-            value={formatBRL(metrics.repasseAcumulado)}
-            icon={Wallet}
-          />
         </div>
       )}
       <Card>

@@ -78,7 +78,8 @@ const EVENTOS: { value: string; label: string; desc: string }[] = [
   { value: "documento.uploaded", label: "Documento enviado", desc: "Documento anexado ao caso" },
   { value: "solicitacao_documento.created", label: "Solicitacao de documento", desc: "Pedido de documento ao cliente" },
   { value: "solicitacao_documento.status_changed", label: "Status da solicitacao", desc: "Solicitacao de documento mudou de status" },
-  { value: "repasse.status_changed", label: "Status de repasse", desc: "Mudanca no status de um repasse" },
+  // Repasse pausado na UI (mantido no backend) - ver todo list.
+  // { value: "repasse.status_changed", label: "Status de repasse", desc: "Mudanca no status de um repasse" },
   { value: "processo_admin.decisao", label: "Decisao administrativa", desc: "Decisao em processo administrativo" },
   { value: "processo_judicial.created", label: "Processo judicial", desc: "Novo processo judicial cadastrado" },
   { value: "analise_tecnica.disponivel", label: "Analise tecnica", desc: "Analise tecnica disponibilizada" },
