@@ -117,9 +117,36 @@ serve(async (req) => {
     return jsonResponse({ error: "erro ao convidar: " + msg }, 400);
   }
 
+  // IMPORTANTE: nao existe trigger que crie a linha em public.usuarios a partir
+  // de auth.users. Entao criamos explicitamente aqui (upsert por id) para o
+  // parceiro conseguir carregar o perfil ao logar. onboarded_em fica NULL ->
+  // ele passa pelo fluxo de boas-vindas.
+  const newId = data.user?.id || null;
+  if (newId) {
+    const { error: upErr } = await admin.from("usuarios").upsert(
+      {
+        id: newId,
+        nome,
+        email,
+        oab: oab || null,
+        telefone: telefone || null,
+        tipo: "parceiro",
+        ativo: true,
+      },
+      { onConflict: "id" },
+    );
+    if (upErr) {
+      return jsonResponse({
+        ok: false,
+        id: newId,
+        error: "Convite enviado, mas falha ao criar o perfil: " + upErr.message,
+      });
+    }
+  }
+
   return jsonResponse({
     ok: true,
-    id: data.user?.id || null,
+    id: newId,
     nome,
     email,
   });
