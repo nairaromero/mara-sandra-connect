@@ -271,6 +271,7 @@ interface ProcessoAdmin {
   parent_id: string | null;
   parent_tipo: "admin" | "judicial" | null;
   etapa_tipo: string | null;
+  tipo_beneficio: string | null;
 }
 
 interface ProcessoJudicial {
@@ -5934,6 +5935,7 @@ function TabProcessos(props: TabProcessosProps) {
   const [dataDecisao, setDataDecisao] = useState("");
   const [etapaAdmin, setEtapaAdmin] = useState("");
   const [parentAdmin, setParentAdmin] = useState("");
+  const [tipoBeneficioAdmin, setTipoBeneficioAdmin] = useState("");
   const [salvandoAdmin, setSalvandoAdmin] = useState(false);
 
   const [abrirJud, setAbrirJud] = useState(false);
@@ -6019,6 +6021,7 @@ function TabProcessos(props: TabProcessosProps) {
     setDataDecisao("");
     setEtapaAdmin("");
     setParentAdmin("");
+    setTipoBeneficioAdmin("");
   }
   function abrirNovoAdmin(parentId = "") {
     resetAdmin();
@@ -6033,6 +6036,7 @@ function TabProcessos(props: TabProcessosProps) {
     setDataDecisao(p.data_decisao || "");
     setEtapaAdmin(p.etapa_tipo || "");
     setParentAdmin(p.parent_id || "");
+    setTipoBeneficioAdmin(p.tipo_beneficio || "");
     setAbrirAdmin(true);
   }
 
@@ -6237,6 +6241,7 @@ function TabProcessos(props: TabProcessosProps) {
         etapa_tipo: etapaAdmin || null,
         parent_id: parentAdmin || null,
         parent_tipo: parentTipo,
+        tipo_beneficio: tipoBeneficioAdmin || null,
       };
       const resp = editAdminId
         ? await supabase
@@ -6399,6 +6404,11 @@ function TabProcessos(props: TabProcessosProps) {
                     {node.etapa_tipo}
                   </Badge>
                 )}
+                {node.admin?.tipo_beneficio && (
+                  <Badge variant="outline" className="text-xs">
+                    {node.admin.tipo_beneficio}
+                  </Badge>
+                )}
               </div>
               {node.tipo === "admin" ? (
                 <>
@@ -6518,6 +6528,26 @@ function TabProcessos(props: TabProcessosProps) {
                       onChange={(e) => setNumReq(e.target.value)}
                       placeholder="0000000000000000"
                     />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Tipo de beneficio</Label>
+                    <Select
+                      value={tipoBeneficioAdmin || "__none__"}
+                      onValueChange={(v) =>
+                        setTipoBeneficioAdmin(v === "__none__" ? "" : v)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione o beneficio" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Nao informado</SelectItem>
+                        {TIPOS_BENEFICIO.map((b) => (
+                          <SelectItem key={b} value={b}>
+                            {b}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div>
                     <Label className="text-xs">Etapa</Label>
