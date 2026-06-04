@@ -22,6 +22,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ImportarTiDialog } from "@/components/importar-ti-dialog";
 
 export const Route = createFileRoute("/_authenticated/clientes")({
   component: ClientesPage,
@@ -236,15 +237,20 @@ function ClientesPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-serif text-3xl font-semibold tracking-tight flex items-center gap-2">
-          <UserCircle className="h-7 w-7 text-[var(--gold)]" />
-          Clientes
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Lista de todos os clientes com seus casos. Busque por nome, CPF ou
-          numero de processo.
-        </p>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="font-serif text-3xl font-semibold tracking-tight flex items-center gap-2">
+            <UserCircle className="h-7 w-7 text-[var(--gold)]" />
+            Clientes
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Lista de todos os clientes com seus casos. Busque por nome, CPF ou
+            numero de processo.
+          </p>
+        </div>
+        {usuario?.tipo === "interno" && (
+          <ImportarTiDialog onImported={loadData} />
+        )}
       </div>
 
       <ClientOnly
