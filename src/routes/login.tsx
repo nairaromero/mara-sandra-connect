@@ -65,7 +65,7 @@ function LoginPage() {
           <img
             src="/logo.png"
             alt="Mara Sandra Vian Advocacia"
-            className="h-24 w-auto object-contain"
+            className="h-36 w-auto object-contain"
           />
           <p className="text-sm text-muted-foreground">
             Plataforma interna · Previdenciario
