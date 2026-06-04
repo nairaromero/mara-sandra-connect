@@ -73,42 +73,43 @@ export function NovoParceiroDialog(
       const redirectTo = typeof window !== "undefined"
         ? `${window.location.origin}/login`
         : undefined;
-      const { error } = await supabase.auth.signInWithOtp({
-        email: emailNorm,
-        options: {
-          shouldCreateUser: true,
-          emailRedirectTo: redirectTo,
-          data: {
-            nome: nome.trim(),
-            oab: oab.trim(),
-            telefone: telefone.trim(),
-            tipo: "parceiro",
-            observacoes_iniciais: obs.trim() || null,
-          },
+      // Criacao via edge function (admin API). Nao mexe na sessao do interno
+      // logado e nao sofre rate-limit de OTP do navegador.
+      const resp = await supabase.functions.invoke("convidar-parceiro", {
+        body: {
+          nome: nome.trim(),
+          email: emailNorm,
+          oab: oab.trim(),
+          telefone: telefone.trim(),
+          observacoes: obs.trim() || null,
+          redirect_to: redirectTo,
         },
       });
-      if (error) throw error;
-
-      // O trigger handle_new_auth_user cria a linha em `usuarios`. Buscamos o
-      // id (com algumas tentativas) pra ja deixar o parceiro selecionado no caso.
-      let achou: ParceiroCriado | null = null;
-      for (let i = 0; i < 4 && !achou; i++) {
-        const { data } = await supabase
-          .from("usuarios")
-          .select("id, nome, email")
-          .eq("email", emailNorm)
-          .maybeSingle();
-        if (data?.id) {
-          achou = { id: data.id, nome: data.nome, email: data.email };
-        } else {
-          await new Promise((r) => setTimeout(r, 600));
-        }
+      if (resp.error) throw resp.error;
+      const r = (resp.data || {}) as {
+        ok?: boolean;
+        id?: string;
+        nome?: string;
+        email?: string;
+        ja_existia?: boolean;
+        error?: string;
+      };
+      if (r.error) {
+        toast.error(r.error);
+        return;
       }
-      if (achou) onCriado(achou);
-
+      if (r.id) {
+        onCriado({
+          id: r.id,
+          nome: r.nome ?? nome.trim(),
+          email: r.email ?? emailNorm,
+        });
+      }
       toast.success(
-        `Parceiro criado e link de acesso enviado para ${emailNorm}.` +
-          (achou ? " Ja selecionado no caso." : " Atualize a lista para seleciona-lo."),
+        r.ja_existia
+          ? "Parceiro ja existia — selecionado no caso."
+          : `Parceiro criado e link de acesso enviado para ${emailNorm}.` +
+            (r.id ? " Ja selecionado no caso." : ""),
       );
       reset();
       setOpen(false);
