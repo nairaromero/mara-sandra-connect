@@ -1,14 +1,17 @@
 import { Link, useRouterState } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import {
   Home,
   UserCircle,
   FileWarning,
+  Newspaper,
   Settings,
   ShieldCheck,
   Users,
   UserCog,
   Webhook,
 } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 import {
   Sidebar,
   SidebarContent,
@@ -27,6 +30,7 @@ const itemsBase = [
   { title: "Inicio", url: "/", icon: Home },
   { title: "Clientes", url: "/clientes", icon: UserCircle },
   { title: "Documentos pendentes", url: "/documentos", icon: FileWarning },
+  { title: "Publicacoes", url: "/publicacoes", icon: Newspaper },
   // "Repasses" e "Conversas" removidas da sidebar mas as rotas /repasses
   // e /conversas continuam existindo no codigo - decisao de produto
   // pendente sobre o que fazer com essas paginas no futuro.
@@ -57,6 +61,38 @@ export function AppSidebar() {
     ...(isInterno ? itemsInternos : []),
     ...itemsFooter,
   ];
+
+  // Badge de publicacoes novas (DJEN) desde a ultima visita. RLS escopa por
+  // usuario (interno ve todas; parceiro so as dos casos dele).
+  const [pubBadge, setPubBadge] = useState(0);
+  useEffect(() => {
+    let vivo = true;
+    async function calc() {
+      const visto = typeof window !== "undefined"
+        ? window.localStorage.getItem("msc:publicacoes_visto")
+        : null;
+      let q = supabase
+        .from("andamentos")
+        .select("id", { count: "exact", head: true })
+        .eq("origem", "djen");
+      if (visto) q = q.gt("created_at", visto);
+      const { count } = await q;
+      if (vivo) setPubBadge(count || 0);
+    }
+    calc();
+    const onVistas = () => setPubBadge(0);
+    const t = setInterval(calc, 60000);
+    if (typeof window !== "undefined") {
+      window.addEventListener("msc:publicacoes-vistas", onVistas);
+    }
+    return () => {
+      vivo = false;
+      clearInterval(t);
+      if (typeof window !== "undefined") {
+        window.removeEventListener("msc:publicacoes-vistas", onVistas);
+      }
+    };
+  }, []);
 
   return (
     <Sidebar collapsible="icon">
@@ -100,16 +136,30 @@ export function AppSidebar() {
           <SidebarGroupLabel>Navegação</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {items.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
-                    <Link to={item.url} className="flex items-center gap-2">
-                      <item.icon className="h-4 w-4" />
-                      {!collapsed && <span>{item.title}</span>}
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {items.map((item) => {
+                const badge = item.url === "/publicacoes" ? pubBadge : 0;
+                return (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
+                      <Link to={item.url} className="relative flex items-center gap-2">
+                        <item.icon className="h-4 w-4" />
+                        {!collapsed && <span>{item.title}</span>}
+                        {badge > 0 && (
+                          collapsed
+                            ? (
+                              <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-destructive" />
+                            )
+                            : (
+                              <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-medium text-destructive-foreground">
+                                {badge > 9 ? "9+" : badge}
+                              </span>
+                            )
+                        )}
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
