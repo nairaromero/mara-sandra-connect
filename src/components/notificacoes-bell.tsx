@@ -2,11 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   Bell,
-  CheckCheck,
   ClipboardList,
   Loader2,
   RefreshCw,
   Tag,
+  Trash2,
   UserPlus,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -86,16 +86,21 @@ export function NotificacoesBell() {
     };
   }, [carregar]);
 
-  async function marcarLida(id: string) {
-    await supabase.from("notificacoes").update({ lida: true }).eq("id", id);
+  // Clicar dispensa (exclui) a notificacao do sino. Se nao clicar, ela
+  // permanece ate a proxima sincronizacao.
+  async function dispensar(id: string) {
+    setItens((prev) => prev.filter((n) => n.id !== id)); // some na hora
+    await supabase.from("notificacoes").delete().eq("id", id);
     carregar();
   }
 
-  async function marcarTodasLidas() {
-    await supabase
-      .from("notificacoes")
-      .update({ lida: true })
-      .eq("lida", false);
+  async function limparTodas() {
+    const ids = itens.map((n) => n.id);
+    setItens([]);
+    setNaoLidas(0);
+    if (ids.length > 0) {
+      await supabase.from("notificacoes").delete().in("id", ids);
+    }
     carregar();
   }
 
@@ -177,10 +182,10 @@ export function NotificacoesBell() {
                 size="icon"
                 variant="ghost"
                 className="h-7 w-7"
-                onClick={marcarTodasLidas}
-                title="Marcar todas como lidas"
+                onClick={limparTodas}
+                title="Limpar todas"
               >
-                <CheckCheck className="h-4 w-4" />
+                <Trash2 className="h-4 w-4" />
               </Button>
             )}
           </div>
@@ -238,7 +243,7 @@ export function NotificacoesBell() {
                               ? { tab: "andamentos" }
                               : {}}
                             onClick={() => {
-                              marcarLida(n.id);
+                              dispensar(n.id);
                               setOpen(false);
                             }}
                             className="block"
@@ -251,7 +256,7 @@ export function NotificacoesBell() {
                           <Link
                             to="/clientes"
                             onClick={() => {
-                              marcarLida(n.id);
+                              dispensar(n.id);
                               setOpen(false);
                             }}
                             className="block"
@@ -262,7 +267,7 @@ export function NotificacoesBell() {
                         : (
                           <button
                             type="button"
-                            onClick={() => marcarLida(n.id)}
+                            onClick={() => dispensar(n.id)}
                             className="block w-full text-left"
                           >
                             {corpo}
