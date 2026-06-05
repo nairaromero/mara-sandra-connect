@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   Bell,
+  CheckCheck,
   ClipboardList,
   FileCheck,
   FileText,
@@ -17,14 +18,15 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 
-// Sino de movimentacoes do PARCEIRO (versao leve, somente-leitura).
-// Junta TODAS as movimentacoes visiveis dos casos do parceiro: andamentos,
-// comentarios, solicitacoes de documento, documentos juntados e novos
-// processos. Badge = mais novos que a ultima abertura (localStorage).
-// Cadastro do cliente + "dispensar por item" vem no feed completo (#7), que
-// usa triggers/event-log (sem isso, "cadastro" daria falso-positivo a cada sync).
+// Sino de movimentacoes do PARCEIRO. Caixa de NAO-LIDOS: junta andamentos,
+// comentarios, solicitacoes, documentos e novos processos dos casos dele;
+// clicar (ou "marcar todas") marca como lido e o item SAI do sino. Estado de
+// leitura por dispositivo (localStorage) — versao leve; o feed por-usuario no
+// servidor vem na #7. Na 1a carga, tudo que ja existe vira "lido" (slate limpo)
+// -> so movimentacao nova aparece.
 
-const VISTO_KEY = "msc:parceiro_mov_visto";
+const LIDOS_KEY = "msc:parceiro_lidos";
+const INIT_KEY = "msc:parceiro_lidos_init";
 
 type TipoMov =
   | "andamento"
@@ -70,10 +72,20 @@ function tempoRelativo(iso: string): string {
   return new Date(iso).toLocaleDateString("pt-BR");
 }
 
-function getVisto(): number {
-  if (typeof window === "undefined") return 0;
-  const v = window.localStorage.getItem(VISTO_KEY);
-  return v ? new Date(v).getTime() : 0;
+function getLidos(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    return new Set(
+      JSON.parse(window.localStorage.getItem(LIDOS_KEY) || "[]") as string[],
+    );
+  } catch {
+    return new Set();
+  }
+}
+function saveLidos(s: Set<string>) {
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem(LIDOS_KEY, JSON.stringify([...s]));
+  }
 }
 
 // deno-lint-ignore no-explicit-any
@@ -87,7 +99,6 @@ export function MovimentacoesParceiroBell() {
   const { usuario } = useAuth();
   const [open, setOpen] = useState(false);
   const [itens, setItens] = useState<Array<Mov>>([]);
-  const [novos, setNovos] = useState(0);
 
   const carregar = useCallback(async () => {
     const uid = usuario?.id;
@@ -131,82 +142,66 @@ export function MovimentacoesParceiroBell() {
     ]);
 
     const movs: Array<Mov> = [];
-    // deno-lint-ignore no-explicit-any
-    for (const r of (and.data || []) as Array<any>) {
-      movs.push({
-        id: "a:" + r.id,
-        tipo: "andamento",
-        texto: r.titulo || "Novo andamento",
-        created_at: r.created_at,
-        caso_id: r.caso_id,
-        cliente: nome(r),
-      });
-    }
-    // deno-lint-ignore no-explicit-any
-    for (const r of (com.data || []) as Array<any>) {
-      movs.push({
-        id: "c:" + r.id,
-        tipo: "comentario",
-        texto: r.texto || "Novo comentario",
-        created_at: r.created_at,
-        caso_id: r.caso_id,
-        cliente: nome(r),
-      });
-    }
-    // deno-lint-ignore no-explicit-any
-    for (const r of (sol.data || []) as Array<any>) {
-      movs.push({
-        id: "s:" + r.id,
-        tipo: "solicitacao",
-        texto: "Solicitacao: " + (r.tipo || "documento"),
-        created_at: r.data_solicitacao,
-        caso_id: r.caso_id,
-        cliente: nome(r),
-      });
-    }
-    // deno-lint-ignore no-explicit-any
-    for (const r of (doc.data || []) as Array<any>) {
-      movs.push({
-        id: "d:" + r.id,
-        tipo: "documento",
-        texto: r.nome_arquivo || "Documento juntado",
-        created_at: r.created_at,
-        caso_id: r.caso_id,
-        cliente: nome(r),
-      });
-    }
-    // deno-lint-ignore no-explicit-any
-    for (const r of (pa.data || []) as Array<any>) {
-      movs.push({
-        id: "pa:" + r.id,
-        tipo: "processo",
-        texto: "Processo admin: " + (r.numero_requerimento || "novo"),
-        created_at: r.created_at,
-        caso_id: r.caso_id,
-        cliente: nome(r),
-      });
-    }
-    // deno-lint-ignore no-explicit-any
-    for (const r of (pj.data || []) as Array<any>) {
-      movs.push({
-        id: "pj:" + r.id,
-        tipo: "processo",
-        texto: "Processo judicial: " + (r.numero_processo || "novo"),
-        created_at: r.created_at,
-        caso_id: r.caso_id,
-        cliente: nome(r),
-      });
-    }
+    const add = (
+      arr: unknown,
+      tipo: TipoMov,
+      prefix: string,
+      // deno-lint-ignore no-explicit-any
+      texto: (r: any) => string,
+      // deno-lint-ignore no-explicit-any
+      data: (r: any) => string,
+    ) => {
+      // deno-lint-ignore no-explicit-any
+      for (const r of (arr || []) as Array<any>) {
+        if (!data(r)) continue;
+        movs.push({
+          id: prefix + ":" + r.id,
+          tipo,
+          texto: texto(r),
+          created_at: data(r),
+          caso_id: r.caso_id,
+          cliente: nome(r),
+        });
+      }
+    };
+    add(and.data, "andamento", "a", (r) => r.titulo || "Novo andamento", (r) =>
+      r.created_at);
+    add(com.data, "comentario", "c", (r) => r.texto || "Novo comentario", (r) =>
+      r.created_at);
+    add(sol.data, "solicitacao", "s", (r) =>
+      "Solicitacao: " + (r.tipo || "documento"), (r) => r.data_solicitacao);
+    add(doc.data, "documento", "d", (r) => r.nome_arquivo || "Documento", (r) =>
+      r.created_at);
+    add(pa.data, "processo", "pa", (r) =>
+      "Processo admin: " + (r.numero_requerimento || "novo"), (r) =>
+      r.created_at);
+    add(pj.data, "processo", "pj", (r) =>
+      "Processo judicial: " + (r.numero_processo || "novo"), (r) =>
+      r.created_at);
 
     movs.sort((x, y) =>
       new Date(y.created_at).getTime() - new Date(x.created_at).getTime()
     );
-    const top = movs.slice(0, 40);
-    setItens(top);
-    const visto = getVisto();
-    setNovos(
-      top.filter((m) => new Date(m.created_at).getTime() > visto).length,
-    );
+    const top = movs.slice(0, 50);
+
+    let lidos = getLidos();
+    const initDone = typeof window !== "undefined" &&
+      window.localStorage.getItem(INIT_KEY) === "1";
+    if (!initDone) {
+      // Slate limpo: tudo que ja existe vira "lido".
+      lidos = new Set(top.map((m) => m.id));
+      saveLidos(lidos);
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(INIT_KEY, "1");
+      }
+    } else {
+      // Poda: mantem so ids ainda presentes (evita crescer infinito).
+      const presentes = new Set(top.map((m) => m.id));
+      lidos = new Set([...lidos].filter((id) => presentes.has(id)));
+      saveLidos(lidos);
+    }
+
+    setItens(top.filter((m) => !lidos.has(m.id)));
   }, [usuario?.id]);
 
   useEffect(() => {
@@ -220,19 +215,24 @@ export function MovimentacoesParceiroBell() {
     };
   }, [carregar]);
 
-  function abrir(o: boolean) {
-    setOpen(o);
-    if (o) {
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(VISTO_KEY, new Date().toISOString());
-      }
-      setNovos(0);
-      carregar();
-    }
+  function dispensar(id: string) {
+    const lidos = getLidos();
+    lidos.add(id);
+    saveLidos(lidos);
+    setItens((prev) => prev.filter((m) => m.id !== id));
   }
 
+  function marcarTodasLidas() {
+    const lidos = getLidos();
+    itens.forEach((m) => lidos.add(m.id));
+    saveLidos(lidos);
+    setItens([]);
+  }
+
+  const novos = itens.length;
+
   return (
-    <Popover open={open} onOpenChange={abrir}>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
           variant="ghost"
@@ -249,23 +249,35 @@ export function MovimentacoesParceiroBell() {
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-[22rem] p-0">
-        <div className="border-b p-3">
-          <span className="text-sm font-semibold">Movimentacoes recentes</span>
-          <p className="text-xs text-muted-foreground">
-            Atualizacoes recentes dos seus casos.
-          </p>
+        <div className="flex items-center justify-between gap-2 border-b p-3">
+          <div>
+            <span className="text-sm font-semibold">Movimentacoes</span>
+            <p className="text-xs text-muted-foreground">
+              Novidades dos seus casos.
+            </p>
+          </div>
+          {novos > 0 && (
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7 shrink-0"
+              onClick={marcarTodasLidas}
+              title="Marcar todas como lidas"
+            >
+              <CheckCheck className="h-4 w-4" />
+            </Button>
+          )}
         </div>
         <div className="max-h-96 overflow-y-auto">
           {itens.length === 0
             ? (
               <p className="p-6 text-center text-sm text-muted-foreground">
-                Nenhuma movimentacao recente.
+                Nenhuma movimentacao nova.
               </p>
             )
             : (
               <ul className="divide-y">
                 {itens.map((m) => {
-                  const novo = new Date(m.created_at).getTime() > getVisto();
                   const cfg = CFG[m.tipo];
                   const Icon = cfg.icon;
                   return (
@@ -277,14 +289,14 @@ export function MovimentacoesParceiroBell() {
                         to="/casos/$id"
                         params={{ id: m.caso_id }}
                         search={{ tab: cfg.tab }}
-                        onClick={() => setOpen(false)}
+                        onClick={() => {
+                          dispensar(m.id);
+                          setOpen(false);
+                        }}
                         className="block"
                       >
                         <div className="flex items-start gap-2">
-                          <Icon
-                            className={"mt-0.5 h-4 w-4 shrink-0 " +
-                              (novo ? "text-primary" : "text-muted-foreground")}
-                          />
+                          <Icon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-medium truncate">
                               {m.cliente}
@@ -299,9 +311,7 @@ export function MovimentacoesParceiroBell() {
                               {tempoRelativo(m.created_at)}
                             </p>
                           </div>
-                          {novo && (
-                            <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-destructive" />
-                          )}
+                          <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-destructive" />
                         </div>
                       </Link>
                     </li>
