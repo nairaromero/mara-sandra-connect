@@ -208,10 +208,32 @@ export function MovimentacoesParceiroBell() {
 
   useEffect(() => {
     carregar();
-    const t = setInterval(carregar, 30000);
+    // Realtime: qualquer alteracao nas tabelas que alimentam o sino dispara
+    // a re-busca na hora (sem refresh). RLS restringe o que o parceiro ve;
+    // o payload nao e usado, so o sinal de "algo mudou". Poll de 60s e
+    // fallback caso o socket caia.
+    const tabelas = [
+      "andamentos",
+      "comentarios",
+      "solicitacoes_documento",
+      "documentos",
+      "processos_admin",
+      "processos_judiciais",
+    ];
+    let canal = supabase.channel("movimentacoes-parceiro-bell");
+    for (const tabela of tabelas) {
+      canal = canal.on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: tabela },
+        () => carregar(),
+      );
+    }
+    canal.subscribe();
+    const t = setInterval(carregar, 60000);
     const onSyncDone = () => carregar();
     window.addEventListener("msc:sync-done", onSyncDone);
     return () => {
+      supabase.removeChannel(canal);
       clearInterval(t);
       window.removeEventListener("msc:sync-done", onSyncDone);
     };

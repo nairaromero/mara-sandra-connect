@@ -94,12 +94,23 @@ export function NotificacoesBell() {
 
   useEffect(() => {
     carregar();
-    // Poll a cada 30s + atualiza na hora quando QUALQUER sync termina
-    // (global ou por caso), via evento msc:sync-done.
-    const t = setInterval(carregar, 30000);
+    // Realtime: assim que QUALQUER linha de `notificacoes` muda (insert do
+    // backend, ou delete em outro dispositivo), recarrega na hora - sem
+    // precisar dar refresh. O payload nao e usado; so dispara a re-busca
+    // (que respeita RLS). Poll de 60s fica como fallback se o socket cair.
+    const canal = supabase
+      .channel("notificacoes-bell")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "notificacoes" },
+        () => carregar(),
+      )
+      .subscribe();
+    const t = setInterval(carregar, 60000);
     const onSyncDone = () => carregar();
     window.addEventListener("msc:sync-done", onSyncDone);
     return () => {
+      supabase.removeChannel(canal);
       clearInterval(t);
       window.removeEventListener("msc:sync-done", onSyncDone);
     };
