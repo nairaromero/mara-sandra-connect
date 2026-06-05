@@ -6,6 +6,7 @@ import {
   Settings,
   ShieldCheck,
   Users,
+  UserCog,
   Webhook,
 } from "lucide-react";
 import {
@@ -32,6 +33,7 @@ const itemsBase = [
 ];
 
 const itemsInternos = [
+  { title: "Equipe", url: "/equipe", icon: UserCog },
   { title: "Parceiros", url: "/parceiros", icon: Users },
   { title: "Webhooks", url: "/webhooks", icon: Webhook },
   { title: "Auditoria", url: "/auditoria", icon: ShieldCheck },
