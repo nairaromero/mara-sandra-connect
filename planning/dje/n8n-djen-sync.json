@@ -1,0 +1,81 @@
+{
+  "name": "MSC - DJE Sync (Comunica API / DJEN)",
+  "_comment": "RASCUNHO/DESIGN. Importar no n8n (nairavian-n8n.de). Dispara a edge function sync-djen-publicacoes 1x ao dia. O n8n NAO fala com a Comunica API (geo-block BR); ele so cutuca a function, que roda em Sao Paulo via header x-region. SETUP: (1) criar credencial 'Header Auth' com Name=Authorization, Value='Bearer <SERVICE_ROLE_KEY>' do projeto llugytkdsfsrciavhrfw e referenciar no no HTTP (campo authentication). (2) conferir typeVersion conforme a versao instalada. (3) ativar (active=true) quando validado. Timezone do workflow = America/Sao_Paulo para o cron 07:00 ser horario de Brasilia.",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "nodes": [
+    {
+      "id": "node-schedule",
+      "name": "Todo dia 07:00 (BRT)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "cronExpression", "expression": "0 7 * * *" }
+          ]
+        }
+      },
+      "notes": "Cron 07:00 no fuso America/Sao_Paulo (definido em settings.timezone). Para rodar 2x/dia, adicione outra linha de cron, ex.: '0 16 * * *'."
+    },
+    {
+      "id": "node-http",
+      "name": "Disparar sync-djen-publicacoes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [240, 0],
+      "parameters": {
+        "method": "POST",
+        "url": "https://llugytkdsfsrciavhrfw.supabase.co/functions/v1/sync-djen-publicacoes",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-region", "value": "sa-east-1" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"dry_run\": false,\n  \"dias\": 2\n}",
+        "options": {
+          "timeout": 120000,
+          "response": {
+            "response": { "fullResponse": true, "neverError": true }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": { "id": "REPLACE_HEADER_AUTH_CRED_ID", "name": "Supabase MSC (Authorization Bearer service_role)" }
+      },
+      "notes": "x-region: sa-east-1 e OBRIGATORIO (sem ele a function nao sai do Brasil e a Comunica API da 403). A credencial Header Auth injeta 'Authorization: Bearer <service_role>' (sozinho ja basta p/ verify_jwt + gateway). dias=2 = margem de seguranca; dedup por djen_id impede duplicata. timeout 120s pois o sync pode percorrer varias paginas/OABs."
+    },
+    {
+      "id": "node-check",
+      "name": "Conferir resultado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 0],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Le a resposta da function e falha o workflow se nao foi 2xx ou se houve erros.\nconst code = $json.statusCode;\nconst body = $json.body || {};\nconst ok = typeof code === 'number' && code >= 200 && code < 300;\nif (!ok) {\n  throw new Error('sync-djen HTTP ' + (code ?? 'sem resposta') + ' ' + JSON.stringify(body).slice(0, 300));\n}\nconst erros = Array.isArray(body.erros) ? body.erros : [];\nif (erros.length > 0) {\n  throw new Error('sync-djen retornou erros: ' + JSON.stringify(erros).slice(0, 300));\n}\n// Resumo pro log de execucao do n8n.\nreturn { json: {\n  janela: body.janela,\n  publicacoes_recebidas: body.publicacoes_recebidas,\n  vinculadas_novas: body.vinculadas_novas,\n  orfas_novas: body.orfas_novas,\n  andamentos_criados: body.andamentos_criados,\n  ja_no_banco: body.ja_no_banco\n} };"
+      },
+      "notes": "Se a function retornar erro (HTTP != 2xx ou body.erros nao vazio), lanca excecao -> a execucao aparece como FALHA no n8n (e dispara alerta se voce configurar 'Error Workflow'). Caso ok, devolve um resumo dos contadores pro historico."
+    }
+  ],
+  "connections": {
+    "Todo dia 07:00 (BRT)": {
+      "main": [[{ "node": "Disparar sync-djen-publicacoes", "type": "main", "index": 0 }]]
+    },
+    "Disparar sync-djen-publicacoes": {
+      "main": [[{ "node": "Conferir resultado", "type": "main", "index": 0 }]]
+    }
+  }
+}

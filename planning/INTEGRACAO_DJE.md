@@ -113,6 +113,9 @@ Futuro: no onboarding do parceiro, gravar a OAB dele como `tipo='parceiro'`.
 - Edge function `sync-djen-publicacoes` (mesma forma das outras: service role, paginação,
   respeitar rate limit / `User-Agent`).
 - Workflow n8n `djen-sync` (cron diário de manhã), janela incremental via `dataDisponibilizacao`.
+  JSON pronto pra importar: [`dje/n8n-djen-sync.json`](dje/n8n-djen-sync.json).
+  **O n8n NÃO chama a Comunica API direto** (geo-block) — só dispara a function, que roda em
+  São Paulo via header **`x-region: sa-east-1`** (obrigatório no cron).
 - Atualiza `sync_log` (source `djen_publicacoes`, `last_synced_at`) — ver task de `sync_log`.
 
 ---
