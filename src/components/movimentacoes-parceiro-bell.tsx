@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { Bell, ClipboardList, Loader2 } from "lucide-react";
+import { Bell, ClipboardList, MessageSquare } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -10,20 +11,19 @@ import {
 } from "@/components/ui/popover";
 
 // Sino de movimentacoes do PARCEIRO (versao leve, somente-leitura).
-// Mostra os andamentos recentes VISIVEIS dos casos do parceiro (RLS +
-// visivel_parceiro). Badge = quantos sao mais novos que a ultima vez que ele
-// abriu o sino (guardado no localStorage). O feed completo por-usuario (com
-// dispensar, comentarios/docs/processos/cadastro) vem na tarefa #7.
+// Mostra andamentos VISIVEIS + comentarios (de outros) dos casos do parceiro.
+// Badge = quantos sao mais novos que a ultima vez que ele abriu (localStorage).
+// O feed completo por-usuario (dispensar, docs/processos/cadastro) vem na #7.
 
 const VISTO_KEY = "msc:parceiro_mov_visto";
 
-interface MovRow {
+interface Mov {
   id: string;
-  titulo: string | null;
-  descricao: string | null;
+  tipo: "andamento" | "comentario";
+  texto: string;
   created_at: string;
   caso_id: string;
-  casos: { cliente: { nome: string | null } | null } | null;
+  cliente: string;
 }
 
 function tempoRelativo(iso: string): string {
@@ -44,28 +44,70 @@ function getVisto(): number {
   return v ? new Date(v).getTime() : 0;
 }
 
+// deno-lint-ignore no-explicit-any
+function nomeCliente(row: any): string {
+  return row?.casos?.cliente?.nome || "Caso";
+}
+
 export function MovimentacoesParceiroBell() {
+  const { usuario } = useAuth();
   const [open, setOpen] = useState(false);
-  const [itens, setItens] = useState<Array<MovRow>>([]);
+  const [itens, setItens] = useState<Array<Mov>>([]);
   const [novos, setNovos] = useState(0);
 
   const carregar = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("andamentos")
-      .select(
-        "id, titulo, descricao, created_at, caso_id, casos:caso_id(cliente:cliente_id(nome))",
-      )
-      .eq("visivel_parceiro", true)
-      .order("created_at", { ascending: false })
-      .limit(30);
-    if (!error) {
-      const lista = (data || []) as unknown as Array<MovRow>;
-      setItens(lista);
-      const visto = getVisto();
-      setNovos(lista.filter((a) => new Date(a.created_at).getTime() > visto)
-        .length);
+    const [andResp, comResp] = await Promise.all([
+      supabase
+        .from("andamentos")
+        .select(
+          "id, titulo, created_at, caso_id, casos:caso_id(cliente:cliente_id(nome))",
+        )
+        .eq("visivel_parceiro", true)
+        .order("created_at", { ascending: false })
+        .limit(30),
+      usuario?.id
+        ? supabase
+          .from("comentarios")
+          .select(
+            "id, texto, created_at, caso_id, autor_id, casos:caso_id(cliente:cliente_id(nome))",
+          )
+          .neq("autor_id", usuario.id)
+          .order("created_at", { ascending: false })
+          .limit(30)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+
+    const movs: Array<Mov> = [];
+    // deno-lint-ignore no-explicit-any
+    for (const a of (andResp.data || []) as Array<any>) {
+      movs.push({
+        id: "a:" + a.id,
+        tipo: "andamento",
+        texto: a.titulo || "Novo andamento",
+        created_at: a.created_at,
+        caso_id: a.caso_id,
+        cliente: nomeCliente(a),
+      });
     }
-  }, []);
+    // deno-lint-ignore no-explicit-any
+    for (const c of (comResp.data || []) as Array<any>) {
+      movs.push({
+        id: "c:" + c.id,
+        tipo: "comentario",
+        texto: c.texto || "Novo comentario",
+        created_at: c.created_at,
+        caso_id: c.caso_id,
+        cliente: nomeCliente(c),
+      });
+    }
+    movs.sort((x, y) =>
+      new Date(y.created_at).getTime() - new Date(x.created_at).getTime()
+    );
+    const top = movs.slice(0, 30);
+    setItens(top);
+    const visto = getVisto();
+    setNovos(top.filter((m) => new Date(m.created_at).getTime() > visto).length);
+  }, [usuario?.id]);
 
   useEffect(() => {
     carregar();
@@ -81,7 +123,6 @@ export function MovimentacoesParceiroBell() {
   function abrir(o: boolean) {
     setOpen(o);
     if (o) {
-      // Marca tudo como "visto" agora (zera o badge), sem apagar nada.
       if (typeof window !== "undefined") {
         window.localStorage.setItem(VISTO_KEY, new Date().toISOString());
       }
@@ -111,7 +152,7 @@ export function MovimentacoesParceiroBell() {
         <div className="border-b p-3">
           <span className="text-sm font-semibold">Movimentacoes recentes</span>
           <p className="text-xs text-muted-foreground">
-            Ultimas atualizacoes dos seus casos.
+            Andamentos e comentarios recentes dos seus casos.
           </p>
         </div>
         <div className="max-h-96 overflow-y-auto">
@@ -123,36 +164,56 @@ export function MovimentacoesParceiroBell() {
             )
             : (
               <ul className="divide-y">
-                {itens.map((a) => {
-                  const novo = new Date(a.created_at).getTime() > getVisto();
+                {itens.map((m) => {
+                  const novo = new Date(m.created_at).getTime() > getVisto();
                   return (
                     <li
-                      key={a.id}
+                      key={m.id}
                       className="p-3 hover:bg-muted/50 transition-colors"
                     >
                       <Link
                         to="/casos/$id"
-                        params={{ id: a.caso_id }}
-                        search={{ tab: "andamentos" }}
+                        params={{ id: m.caso_id }}
+                        search={{
+                          tab: m.tipo === "comentario"
+                            ? "comentarios"
+                            : "andamentos",
+                        }}
                         onClick={() => setOpen(false)}
                         className="block"
                       >
                         <div className="flex items-start gap-2">
-                          <ClipboardList
-                            className={"mt-0.5 h-4 w-4 shrink-0 " +
-                              (novo ? "text-primary" : "text-muted-foreground")}
-                          />
+                          {m.tipo === "comentario"
+                            ? (
+                              <MessageSquare
+                                className={"mt-0.5 h-4 w-4 shrink-0 " +
+                                  (novo
+                                    ? "text-primary"
+                                    : "text-muted-foreground")}
+                              />
+                            )
+                            : (
+                              <ClipboardList
+                                className={"mt-0.5 h-4 w-4 shrink-0 " +
+                                  (novo
+                                    ? "text-primary"
+                                    : "text-muted-foreground")}
+                              />
+                            )}
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-medium truncate">
-                              {a.casos?.cliente?.nome || "Caso"}
+                              {m.cliente}
+                              <span className="text-xs font-normal text-muted-foreground">
+                                {m.tipo === "comentario"
+                                  ? " · comentario"
+                                  : " · andamento"}
+                              </span>
                             </p>
-                            {a.titulo && (
-                              <p className="text-xs text-muted-foreground line-clamp-2">
-                                {a.titulo}
-                              </p>
-                            )}
+                            <p className="text-xs text-muted-foreground line-clamp-2">
+                              {m.texto}
+                            </p>
                             <p className="text-[11px] text-muted-foreground mt-0.5">
-                              {tempoRelativo(a.created_at)}
+                              {tempoRelativo(m.created_at)}
                             </p>
                           </div>
                           {novo && (
