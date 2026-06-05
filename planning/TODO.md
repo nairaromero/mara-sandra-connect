@@ -52,6 +52,22 @@
 
 ---
 
+## Integração DJE (publicações DJEN) — ver [INTEGRACAO_DJE.md](INTEGRACAO_DJE.md)
+
+> Motivação: Legalmail só manda o **rótulo** da movimentação, não o teor. Publicação do DJE traz o **texto completo** → atualização real pro parceiro. Fonte: **Comunica API CNJ** (consulta GET pública/gratuita). Aval da Naira em 2026-06-04.
+>
+> **Validado ponta-a-ponta em produção (2026-06-05):** function deployada, geo-block resolvido com header `x-region: sa-east-1`, 1 andamento real gravado (proc 5019735-12.2023.4.03.6303 → caso 33016273…). ⚠️ Edge Function da Supabase NÃO sai do Brasil sem o header `x-region: sa-east-1` — a Comunica API de produção geo-bloqueia.
+
+- [x] **Criar tabela `oabs_monitoradas`** (`numero`, `uf`, `tipo` escritorio/parceiro, `parceiro_id`→usuarios, `ativo`) + seed das OABs do escritório (439016/SP, 22928/MT) _(aplicada em prod)_
+- [x] **Adicionar valor `djen` em `andamentos.origem`** — era ENUM `origem_andamento`, não texto livre (`ALTER TYPE … ADD VALUE`)
+- [x] **Edge function `sync-djen-publicacoes`** — consulta Comunica API por OAB ativa, match por CNJ contra `processos_judiciais`, grava `origem='djen'` com texto completo + dedup por `metadata.djen_id`. Suporta `dry_run`. _(deployada + testada)_
+- [ ] **Ajustar UI/timeline** pra reconhecer/estilizar a origem `djen` (badge, ícone)
+- [ ] **Workflow n8n `djen-sync`** (cron diário manhã) — invoca a function **com header `x-region: sa-east-1`** + entrada `djen_publicacoes` no `sync_log`
+- [ ] **Publicações órfãs** — hoje as 28 `sem_processo` só são contadas; persistir numa fila de revisão (reaproveitar tela "Processos órfãos para vincular"). Dependem de popular `processos_judiciais` (sync Legalmail).
+- [ ] **(futuro, quando houver parceiro real)** Gravar OAB do parceiro no onboarding (`tipo='parceiro'`) e ligar publicação dessa OAB aos casos onde o parceiro é indicador
+
+---
+
 ## Longo prazo
 
 ### Notificações
