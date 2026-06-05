@@ -2940,7 +2940,9 @@ function TabAndamentos(props: TabAndamentosProps) {
                         {notasTISemVinculo.map((a) => (
                           <li
                             key={a.id}
-                            className="border-l-2 border-muted pl-3 py-1"
+                            id={"foco-" + a.id}
+                            className={"border-l-2 border-muted pl-3 py-1 " +
+                              (foco === a.id ? DESTAQUE_CLASSE : "")}
                           >
                             <div className="flex items-start gap-2">
                               {isInterno && (
@@ -3094,7 +3096,9 @@ function TabAndamentos(props: TabAndamentosProps) {
               {andamentosManuaisSemVinculo.map((a) => (
                 <li
                   key={a.id}
-                  className="border-l-2 border-muted pl-3 py-1"
+                  id={"foco-" + a.id}
+                  className={"border-l-2 border-muted pl-3 py-1 " +
+                    (foco === a.id ? DESTAQUE_CLASSE : "")}
                 >
                   <div className="flex items-start gap-2">
                     {isInterno && (
@@ -4856,6 +4860,8 @@ function UploadDoc(props: {
   onChange: () => void;
 }) {
   const { casoId, usuarioId, onChange } = props;
+  const { usuario } = useAuth();
+  const souParceiro = usuario?.tipo === "parceiro";
   const [aberto, setAberto] = useState(false);
   const [itens, setItens] = useState<Array<ArquivoComTipo>>([]);
   const [visivelParceiro, setVisivelParceiro] = useState(true);
@@ -4939,6 +4945,7 @@ function UploadDoc(props: {
     setEnviando(true);
     let okCount = 0;
     let errCount = 0;
+    const idsInseridos: Array<string> = [];
     try {
       for (const it of itens) {
         try {
@@ -4953,24 +4960,41 @@ function UploadDoc(props: {
             });
           if (uploadResp.error) throw uploadResp.error;
 
-          const insertResp = await supabase.from("documentos").insert({
-            caso_id: casoId,
-            tipo: it.tipo,
-            tipo_personalizado: it.tipo === "outro"
-              ? it.tipoPersonalizado.trim()
-              : null,
-            nome_arquivo: it.arquivo.name,
-            storage_path: storagePath,
-            tamanho_bytes: it.arquivo.size,
-            uploaded_by: usuarioId,
-            visivel_parceiro: visivelParceiro,
-          });
+          const insertResp = await supabase
+            .from("documentos")
+            .insert({
+              caso_id: casoId,
+              tipo: it.tipo,
+              tipo_personalizado: it.tipo === "outro"
+                ? it.tipoPersonalizado.trim()
+                : null,
+              nome_arquivo: it.arquivo.name,
+              storage_path: storagePath,
+              tamanho_bytes: it.arquivo.size,
+              uploaded_by: usuarioId,
+              // Doc do parceiro e sempre visivel a ele (sem checkbox).
+              visivel_parceiro: souParceiro ? true : visivelParceiro,
+            })
+            .select("id")
+            .single();
           if (insertResp.error) throw insertResp.error;
+          if (insertResp.data?.id) idsInseridos.push(insertResp.data.id);
           okCount++;
         } catch (errInner) {
           console.error("erro upload de", it.arquivo.name, errInner);
           errCount++;
         }
+      }
+      // Se quem enviou foi o PARCEIRO, avisa o sino da equipe (interno).
+      if (souParceiro && idsInseridos.length > 0) {
+        notificarEquipe({
+          tipo: "documento",
+          titulo: `${okCount} documento(s) enviado(s) por ${
+            usuario?.nome || "parceiro"
+          }`,
+          caso_id: casoId,
+          foco_id: idsInseridos[0],
+        });
       }
       if (okCount > 0) {
         toast.success(
@@ -5085,18 +5109,22 @@ function UploadDoc(props: {
             </ul>
           )}
 
-          <div className="flex items-center gap-2 pt-2">
-            <input
-              id="doc-visivel-parceiro"
-              type="checkbox"
-              checked={visivelParceiro}
-              onChange={(e) => setVisivelParceiro(e.target.checked)}
-              className="h-4 w-4"
-            />
-            <Label htmlFor="doc-visivel-parceiro" className="text-sm">
-              Visíveis para o parceiro indicador
-            </Label>
-          </div>
+          {/* Checkbox de visibilidade so faz sentido para o interno; o doc do
+              parceiro e sempre visivel a ele. */}
+          {!souParceiro && (
+            <div className="flex items-center gap-2 pt-2">
+              <input
+                id="doc-visivel-parceiro"
+                type="checkbox"
+                checked={visivelParceiro}
+                onChange={(e) => setVisivelParceiro(e.target.checked)}
+                className="h-4 w-4"
+              />
+              <Label htmlFor="doc-visivel-parceiro" className="text-sm">
+                Visíveis para o parceiro indicador
+              </Label>
+            </div>
+          )}
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={fechar} disabled={enviando}>
