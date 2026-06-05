@@ -52,3 +52,10 @@ begin
     with check (public.is_interno());
   end if;
 end$$;
+
+-- GRANTs de tabela. CRITICO: sem isso, o service_role (edge functions que
+-- gravam notificacoes) leva "permission denied for table notificacoes" mesmo
+-- bypassando RLS — e nenhuma notificacao e criada. authenticated precisa
+-- para o sino ler/marcar como lida (RLS ainda restringe a internos).
+grant all on table public.notificacoes to service_role;
+grant select, insert, update, delete on table public.notificacoes to authenticated;

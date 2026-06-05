@@ -243,6 +243,19 @@ export function NotificacoesBell() {
                             {corpo}
                           </Link>
                         )
+                        : n.tipo === "cliente_ti"
+                        ? (
+                          <Link
+                            to="/clientes"
+                            onClick={() => {
+                              marcarLida(n.id);
+                              setOpen(false);
+                            }}
+                            className="block"
+                          >
+                            {corpo}
+                          </Link>
+                        )
                         : (
                           <button
                             type="button"

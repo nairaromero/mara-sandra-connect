@@ -407,27 +407,31 @@ serve(async (req) => {
     }
   }
 
-  // ---- Novos clientes no TI (existem la, nao aqui) ----
+  // ---- Novos clientes no TI: 1 notificacao agregada com a contagem ----
+  // (em vez de 1 por cliente, que inundaria o sino com centenas).
   for (const customer of tiCustomers) {
     const cpfNorm = normalizeCPF(String(customer.cpf_cnpj || ""));
     if (cpfNorm.length !== 11) continue;
     if (cpfsLocais.has(cpfNorm)) continue;
-    // dedup garantido pelo indice unico parcial; conta so se inseriu.
+    clientesTiNovos++;
+  }
+  if (clientesTiNovos > 0) {
+    // Substitui o agregado anterior nao lido pela contagem atual.
+    await supabase
+      .from("notificacoes")
+      .delete()
+      .eq("tipo", "cliente_ti")
+      .eq("lida", false);
     const { error } = await supabase.from("notificacoes").insert({
       tipo: "cliente_ti",
-      titulo: `Novo cliente no TI: ${customer.name || "(sem nome)"}`,
-      descricao: `CPF ${cpfNorm}. Existe no Tramitacao Inteligente mas ainda` +
-        ` nao foi cadastrado no app.`,
-      metadata: {
-        cpf: cpfNorm,
-        ti_customer_id: customer.id,
-        nome: customer.name,
-      },
+      titulo: `${clientesTiNovos} cliente(s) no TI para cadastrar`,
+      descricao:
+        "Existem clientes no Tramitacao Inteligente ainda nao cadastrados." +
+        " Use 'Importar do TI' na tela Clientes.",
+      metadata: { cpf: "__agg__", qtd: clientesTiNovos },
     });
-    if (!error) {
-      clientesTiNovos++;
-    } else if (error.code !== "23505") {
-      erros.push({ contexto: `notif cliente_ti ${cpfNorm}`, detalhe: error.message });
+    if (error && error.code !== "23505") {
+      erros.push({ contexto: "notif cliente_ti agregado", detalhe: error.message });
     }
   }
 
