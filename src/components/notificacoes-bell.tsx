@@ -75,8 +75,15 @@ export function NotificacoesBell() {
 
   useEffect(() => {
     carregar();
-    const t = setInterval(carregar, 60000);
-    return () => clearInterval(t);
+    // Poll a cada 30s + atualiza na hora quando QUALQUER sync termina
+    // (global ou por caso), via evento msc:sync-done.
+    const t = setInterval(carregar, 30000);
+    const onSyncDone = () => carregar();
+    window.addEventListener("msc:sync-done", onSyncDone);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener("msc:sync-done", onSyncDone);
+    };
   }, [carregar]);
 
   async function marcarLida(id: string) {

@@ -1030,6 +1030,9 @@ function CasoHeader(props: CasoHeaderProps) {
         }
         toast.success(msg);
         onChange();
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("msc:sync-done"));
+        }
       } else {
         toast.error(r.motivo || "Nao foi possivel sincronizar");
       }

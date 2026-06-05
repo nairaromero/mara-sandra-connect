@@ -5,7 +5,8 @@ import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Briefcase, Clock, FileSearch, TrendingUp, Wallet, CheckCircle2, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Briefcase, Clock, FileSearch, TrendingUp, Wallet, CheckCircle2, Loader2, Plus } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/")({
   component: DashboardPage,
@@ -233,10 +234,26 @@ function DashboardPage() {
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           ) : casos.length === 0 ? (
-            <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
-              Nenhum caso encontrado.
+            <div className="flex flex-col items-center justify-center gap-3 py-10 text-center">
+              <Briefcase className="h-8 w-8 text-muted-foreground" />
+              <div>
+                <p className="text-sm font-medium">Nenhum caso ainda</p>
+                <p className="text-xs text-muted-foreground">
+                  {isInterno
+                    ? "Cadastre o primeiro caso ou importe clientes do TI na tela Clientes."
+                    : "Cadastre seu primeiro caso para comecar a acompanhar."}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                onClick={() => navigate({ to: "/casos/novo" })}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Novo caso
+              </Button>
             </div>
           ) : (
+            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -267,6 +284,7 @@ function DashboardPage() {
                 ))}
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>
