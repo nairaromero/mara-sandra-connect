@@ -773,22 +773,27 @@ function NovoCasoPage() {
                             onChange={(e) =>
                               field.onChange(maskCPF(e.target.value))}
                           />
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="shrink-0"
-                            onClick={buscarNoTI}
-                            disabled={buscandoTI}
-                            title="Buscar dados do cliente no Tramitação Inteligente pelo CPF"
-                          >
-                            {buscandoTI
-                              ? <Loader2 className="h-4 w-4 animate-spin" />
-                              : <Search className="h-4 w-4" />}
-                            <span className="ml-1 hidden sm:inline">
-                              Buscar no TI
-                            </span>
-                          </Button>
+                          {/* "Buscar no TI" so para a equipe interna - o
+                              Tramitacao Inteligente e ferramenta interna; o
+                              parceiro nao tem acesso a essa busca. */}
+                          {isInterno && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="shrink-0"
+                              onClick={buscarNoTI}
+                              disabled={buscandoTI}
+                              title="Buscar dados do cliente no Tramitação Inteligente pelo CPF"
+                            >
+                              {buscandoTI
+                                ? <Loader2 className="h-4 w-4 animate-spin" />
+                                : <Search className="h-4 w-4" />}
+                              <span className="ml-1 hidden sm:inline">
+                                Buscar no TI
+                              </span>
+                            </Button>
+                          )}
                         </div>
                       </FormControl>
                       <FormMessage />
