@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { Bell, ClipboardList, MessageSquare } from "lucide-react";
+import {
+  Bell,
+  ClipboardList,
+  FileCheck,
+  FileText,
+  MessageSquare,
+  Scale,
+} from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -11,15 +18,40 @@ import {
 } from "@/components/ui/popover";
 
 // Sino de movimentacoes do PARCEIRO (versao leve, somente-leitura).
-// Mostra andamentos VISIVEIS + comentarios (de outros) dos casos do parceiro.
-// Badge = quantos sao mais novos que a ultima vez que ele abriu (localStorage).
-// O feed completo por-usuario (dispensar, docs/processos/cadastro) vem na #7.
+// Junta TODAS as movimentacoes visiveis dos casos do parceiro: andamentos,
+// comentarios, solicitacoes de documento, documentos juntados e novos
+// processos. Badge = mais novos que a ultima abertura (localStorage).
+// Cadastro do cliente + "dispensar por item" vem no feed completo (#7), que
+// usa triggers/event-log (sem isso, "cadastro" daria falso-positivo a cada sync).
 
 const VISTO_KEY = "msc:parceiro_mov_visto";
 
+type TipoMov =
+  | "andamento"
+  | "comentario"
+  | "solicitacao"
+  | "documento"
+  | "processo";
+
+const CFG: Record<
+  TipoMov,
+  // deno-lint-ignore no-explicit-any
+  { tab: string; label: string; icon: any }
+> = {
+  andamento: { tab: "andamentos", label: "andamento", icon: ClipboardList },
+  comentario: { tab: "comentarios", label: "comentario", icon: MessageSquare },
+  solicitacao: {
+    tab: "documentos",
+    label: "solicitacao de documento",
+    icon: FileText,
+  },
+  documento: { tab: "documentos", label: "documento", icon: FileCheck },
+  processo: { tab: "processos", label: "novo processo", icon: Scale },
+};
+
 interface Mov {
   id: string;
-  tipo: "andamento" | "comentario";
+  tipo: TipoMov;
   texto: string;
   created_at: string;
   caso_id: string;
@@ -45,9 +77,11 @@ function getVisto(): number {
 }
 
 // deno-lint-ignore no-explicit-any
-function nomeCliente(row: any): string {
+function nome(row: any): string {
   return row?.casos?.cliente?.nome || "Caso";
 }
+
+const SEL_CASO = "casos:caso_id(cliente:cliente_id(nome))";
 
 export function MovimentacoesParceiroBell() {
   const { usuario } = useAuth();
@@ -56,57 +90,123 @@ export function MovimentacoesParceiroBell() {
   const [novos, setNovos] = useState(0);
 
   const carregar = useCallback(async () => {
-    const [andResp, comResp] = await Promise.all([
+    const uid = usuario?.id;
+    const vazio = Promise.resolve({ data: [], error: null });
+    const [and, com, sol, doc, pa, pj] = await Promise.all([
       supabase
         .from("andamentos")
-        .select(
-          "id, titulo, created_at, caso_id, casos:caso_id(cliente:cliente_id(nome))",
-        )
+        .select(`id, titulo, created_at, caso_id, ${SEL_CASO}`)
         .eq("visivel_parceiro", true)
         .order("created_at", { ascending: false })
-        .limit(30),
-      usuario?.id
+        .limit(25),
+      uid
         ? supabase
           .from("comentarios")
-          .select(
-            "id, texto, created_at, caso_id, autor_id, casos:caso_id(cliente:cliente_id(nome))",
-          )
-          .neq("autor_id", usuario.id)
+          .select(`id, texto, created_at, caso_id, autor_id, ${SEL_CASO}`)
+          .neq("autor_id", uid)
           .order("created_at", { ascending: false })
-          .limit(30)
-        : Promise.resolve({ data: [], error: null }),
+          .limit(25)
+        : vazio,
+      supabase
+        .from("solicitacoes_documento")
+        .select(`id, tipo, data_solicitacao, caso_id, ${SEL_CASO}`)
+        .order("data_solicitacao", { ascending: false })
+        .limit(25),
+      supabase
+        .from("documentos")
+        .select(`id, nome_arquivo, created_at, caso_id, ${SEL_CASO}`)
+        .eq("visivel_parceiro", true)
+        .order("created_at", { ascending: false })
+        .limit(25),
+      supabase
+        .from("processos_admin")
+        .select(`id, numero_requerimento, created_at, caso_id, ${SEL_CASO}`)
+        .order("created_at", { ascending: false })
+        .limit(25),
+      supabase
+        .from("processos_judiciais")
+        .select(`id, numero_processo, created_at, caso_id, ${SEL_CASO}`)
+        .order("created_at", { ascending: false })
+        .limit(25),
     ]);
 
     const movs: Array<Mov> = [];
     // deno-lint-ignore no-explicit-any
-    for (const a of (andResp.data || []) as Array<any>) {
+    for (const r of (and.data || []) as Array<any>) {
       movs.push({
-        id: "a:" + a.id,
+        id: "a:" + r.id,
         tipo: "andamento",
-        texto: a.titulo || "Novo andamento",
-        created_at: a.created_at,
-        caso_id: a.caso_id,
-        cliente: nomeCliente(a),
+        texto: r.titulo || "Novo andamento",
+        created_at: r.created_at,
+        caso_id: r.caso_id,
+        cliente: nome(r),
       });
     }
     // deno-lint-ignore no-explicit-any
-    for (const c of (comResp.data || []) as Array<any>) {
+    for (const r of (com.data || []) as Array<any>) {
       movs.push({
-        id: "c:" + c.id,
+        id: "c:" + r.id,
         tipo: "comentario",
-        texto: c.texto || "Novo comentario",
-        created_at: c.created_at,
-        caso_id: c.caso_id,
-        cliente: nomeCliente(c),
+        texto: r.texto || "Novo comentario",
+        created_at: r.created_at,
+        caso_id: r.caso_id,
+        cliente: nome(r),
       });
     }
+    // deno-lint-ignore no-explicit-any
+    for (const r of (sol.data || []) as Array<any>) {
+      movs.push({
+        id: "s:" + r.id,
+        tipo: "solicitacao",
+        texto: "Solicitacao: " + (r.tipo || "documento"),
+        created_at: r.data_solicitacao,
+        caso_id: r.caso_id,
+        cliente: nome(r),
+      });
+    }
+    // deno-lint-ignore no-explicit-any
+    for (const r of (doc.data || []) as Array<any>) {
+      movs.push({
+        id: "d:" + r.id,
+        tipo: "documento",
+        texto: r.nome_arquivo || "Documento juntado",
+        created_at: r.created_at,
+        caso_id: r.caso_id,
+        cliente: nome(r),
+      });
+    }
+    // deno-lint-ignore no-explicit-any
+    for (const r of (pa.data || []) as Array<any>) {
+      movs.push({
+        id: "pa:" + r.id,
+        tipo: "processo",
+        texto: "Processo admin: " + (r.numero_requerimento || "novo"),
+        created_at: r.created_at,
+        caso_id: r.caso_id,
+        cliente: nome(r),
+      });
+    }
+    // deno-lint-ignore no-explicit-any
+    for (const r of (pj.data || []) as Array<any>) {
+      movs.push({
+        id: "pj:" + r.id,
+        tipo: "processo",
+        texto: "Processo judicial: " + (r.numero_processo || "novo"),
+        created_at: r.created_at,
+        caso_id: r.caso_id,
+        cliente: nome(r),
+      });
+    }
+
     movs.sort((x, y) =>
       new Date(y.created_at).getTime() - new Date(x.created_at).getTime()
     );
-    const top = movs.slice(0, 30);
+    const top = movs.slice(0, 40);
     setItens(top);
     const visto = getVisto();
-    setNovos(top.filter((m) => new Date(m.created_at).getTime() > visto).length);
+    setNovos(
+      top.filter((m) => new Date(m.created_at).getTime() > visto).length,
+    );
   }, [usuario?.id]);
 
   useEffect(() => {
@@ -152,7 +252,7 @@ export function MovimentacoesParceiroBell() {
         <div className="border-b p-3">
           <span className="text-sm font-semibold">Movimentacoes recentes</span>
           <p className="text-xs text-muted-foreground">
-            Andamentos e comentarios recentes dos seus casos.
+            Atualizacoes recentes dos seus casos.
           </p>
         </div>
         <div className="max-h-96 overflow-y-auto">
@@ -166,6 +266,8 @@ export function MovimentacoesParceiroBell() {
               <ul className="divide-y">
                 {itens.map((m) => {
                   const novo = new Date(m.created_at).getTime() > getVisto();
+                  const cfg = CFG[m.tipo];
+                  const Icon = cfg.icon;
                   return (
                     <li
                       key={m.id}
@@ -174,39 +276,20 @@ export function MovimentacoesParceiroBell() {
                       <Link
                         to="/casos/$id"
                         params={{ id: m.caso_id }}
-                        search={{
-                          tab: m.tipo === "comentario"
-                            ? "comentarios"
-                            : "andamentos",
-                        }}
+                        search={{ tab: cfg.tab }}
                         onClick={() => setOpen(false)}
                         className="block"
                       >
                         <div className="flex items-start gap-2">
-                          {m.tipo === "comentario"
-                            ? (
-                              <MessageSquare
-                                className={"mt-0.5 h-4 w-4 shrink-0 " +
-                                  (novo
-                                    ? "text-primary"
-                                    : "text-muted-foreground")}
-                              />
-                            )
-                            : (
-                              <ClipboardList
-                                className={"mt-0.5 h-4 w-4 shrink-0 " +
-                                  (novo
-                                    ? "text-primary"
-                                    : "text-muted-foreground")}
-                              />
-                            )}
+                          <Icon
+                            className={"mt-0.5 h-4 w-4 shrink-0 " +
+                              (novo ? "text-primary" : "text-muted-foreground")}
+                          />
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-medium truncate">
                               {m.cliente}
                               <span className="text-xs font-normal text-muted-foreground">
-                                {m.tipo === "comentario"
-                                  ? " · comentario"
-                                  : " · andamento"}
+                                {" · " + cfg.label}
                               </span>
                             </p>
                             <p className="text-xs text-muted-foreground line-clamp-2">
