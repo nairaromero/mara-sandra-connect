@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Newspaper, Search, ExternalLink, FileText } from "lucide-react";
+import { Loader2, Newspaper, Search } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
@@ -193,34 +193,10 @@ function PublicacoesPage() {
                         </p>
                       )}
                       {p.descricao && (
-                        <p className="text-sm whitespace-pre-wrap text-muted-foreground line-clamp-6">
+                        <p className="text-sm whitespace-pre-wrap text-muted-foreground">
                           {p.descricao}
                         </p>
                       )}
-                      <div className="flex flex-wrap gap-2 pt-1">
-                        {m.certidao_url && (
-                          <a
-                            href={m.certidao_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-xs text-[var(--gold)] hover:underline"
-                          >
-                            <FileText className="h-3.5 w-3.5" />
-                            Certidao
-                          </a>
-                        )}
-                        {m.link && (
-                          <a
-                            href={m.link}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-xs text-[var(--gold)] hover:underline"
-                          >
-                            <ExternalLink className="h-3.5 w-3.5" />
-                            Abrir no tribunal
-                          </a>
-                        )}
-                      </div>
                     </CardContent>
                   </Card>
                 );
