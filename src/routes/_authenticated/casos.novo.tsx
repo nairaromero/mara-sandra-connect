@@ -216,6 +216,10 @@ function NovoCasoPage() {
   const [submitting, setSubmitting] = useState(false);
   const [showPwd, setShowPwd] = useState(false);
   const [buscandoTI, setBuscandoTI] = useState(false);
+  // Marca que o cliente foi localizado no TI via "Buscar no TI". Quando true,
+  // ao salvar o caso disparamos o sync automatico (importa andamentos +
+  // vincula processos) — sem precisar sincronizar manualmente depois.
+  const [achadoNoTI, setAchadoNoTI] = useState(false);
   const [docs, setDocs] = useState<Array<DocUpload>>([]);
   // Dialog do Google Drive Picker. O parente chama abrirDrivePicker direto
   // antes de abrir o dialog, e so abre o dialog quando o Picker retorna com
@@ -306,6 +310,8 @@ function NovoCasoPage() {
         );
         return;
       }
+      // Cliente existe no TI -> habilita import automatico ao salvar o caso.
+      setAchadoNoTI(true);
       let campos = 0;
       if (c.name) {
         form.setValue("nome", c.name, { shouldValidate: true });
@@ -328,7 +334,8 @@ function NovoCasoPage() {
       }
       toast.success(
         "Dados do TI preenchidos (" + campos + " campo" +
-          (campos === 1 ? "" : "s") + "). Confira antes de salvar.",
+          (campos === 1 ? "" : "s") +
+          "). Ao salvar, os processos e andamentos serão importados automaticamente.",
       );
     } catch (err) {
       console.error(err);
@@ -632,8 +639,53 @@ function NovoCasoPage() {
         });
       }
 
+      // 4) Import automatico do Tramitacao Inteligente.
+      // Se o cliente foi localizado no TI (via "Buscar no TI"), ja puxa
+      // processos e andamentos junto com a criacao do caso — assim a usuaria
+      // nao precisa rodar o sync manualmente depois.
+      if (achadoNoTI) {
+        const toastSync = toast.loading(
+          "Importando processos e andamentos do Tramitação Inteligente...",
+        );
+        try {
+          const syncResp = await supabase.functions.invoke("sync-ti-cliente", {
+            body: { cpf: cpfDigits, caso_id: casoId, usuario_id: usuario.id },
+          });
+          if (syncResp.error) throw syncResp.error;
+          const s = (syncResp.data || {}) as {
+            achou_no_ti?: boolean;
+            notas_importadas?: number;
+            notas_ja_existentes?: number;
+          };
+          const n = s.notas_importadas ?? 0;
+          if (s.achou_no_ti) {
+            toast.success(
+              n > 0
+                ? `Importação concluída: ${n} andamento${
+                    n === 1 ? "" : "s"
+                  } do TI.`
+                : "Cliente sincronizado com o TI (nenhum andamento novo).",
+              { id: toastSync },
+            );
+          } else {
+            toast.message("Cliente não encontrado no TI na importação.", {
+              id: toastSync,
+            });
+          }
+        } catch (errSync) {
+          console.error("Falha na importação automática do TI:", errSync);
+          const e = errSync as { message?: string };
+          toast.warning(
+            "Caso criado, mas a importação automática do TI falhou" +
+              (e.message ? ": " + e.message : "") +
+              ". Você pode sincronizar manualmente no caso.",
+            { id: toastSync },
+          );
+        }
+      }
+
       toast.success("Caso cadastrado com sucesso!");
-      navigate({ to: "/" });
+      navigate({ to: "/casos/$id", params: { id: casoId } });
     } catch (err) {
       console.error(err);
       const errAsObj = err as PostgresError;
