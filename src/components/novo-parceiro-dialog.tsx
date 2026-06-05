@@ -57,11 +57,11 @@ export function NovoParceiroDialog(
       return;
     }
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(emailNorm)) {
-      toast.error("E-mail invalido");
+      toast.error("E-mail inválido");
       return;
     }
     if (oab.trim().length < 3) {
-      toast.error("Informe o numero da OAB");
+      toast.error("Informe o número da OAB");
       return;
     }
     if (telefone.replace(/\D/g, "").length < 10) {
@@ -107,9 +107,9 @@ export function NovoParceiroDialog(
       }
       toast.success(
         r.ja_existia
-          ? "Parceiro ja existia — selecionado no caso."
+          ? "Parceiro já existia — selecionado no caso."
           : `Parceiro criado e link de acesso enviado para ${emailNorm}.` +
-            (r.id ? " Ja selecionado no caso." : ""),
+            (r.id ? " Já selecionado no caso." : ""),
       );
       reset();
       setOpen(false);
@@ -138,7 +138,7 @@ export function NovoParceiroDialog(
         <DialogHeader>
           <DialogTitle>Novo parceiro</DialogTitle>
           <DialogDescription>
-            Cria o parceiro e envia um link de acesso por e-mail. Ele ja fica
+            Cria o parceiro e envia um link de acesso por e-mail. Ele já fica
             selecionado neste caso.
           </DialogDescription>
         </DialogHeader>
@@ -180,7 +180,7 @@ export function NovoParceiroDialog(
             </div>
           </div>
           <div>
-            <Label className="text-xs">Observacoes</Label>
+            <Label className="text-xs">Observações</Label>
             <Textarea
               rows={2}
               value={obs}

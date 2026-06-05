@@ -76,33 +76,33 @@ const TIPOS_BENEFICIO = [
 const TIPOS_DOCUMENTO = [
   { value: "cnis", label: "CNIS" },
   { value: "rg_cpf", label: "RG / CPF" },
-  { value: "comprovante_residencia", label: "Comprovante de residencia" },
+  { value: "comprovante_residencia", label: "Comprovante de residência" },
   { value: "ctps", label: "CTPS" },
   { value: "holerite", label: "Holerite / contracheque" },
   { value: "ppp", label: "PPP" },
-  { value: "laudo_medico", label: "Laudo medico" },
+  { value: "laudo_medico", label: "Laudo médico" },
   { value: "ltcat", label: "LTCAT" },
-  { value: "atestado_medico", label: "Atestado medico" },
-  { value: "cat", label: "CAT (Comunicacao de Acidente de Trabalho)" },
-  { value: "carne_gps", label: "Carne de contribuicao (GPS)" },
+  { value: "atestado_medico", label: "Atestado médico" },
+  { value: "cat", label: "CAT (Comunicação de Acidente de Trabalho)" },
+  { value: "carne_gps", label: "Carnê de contribuição (GPS)" },
   { value: "ctc", label: "CTC" },
-  { value: "carta_concessao_inss", label: "Carta de concessao / indeferimento INSS" },
-  { value: "hiscre", label: "HISCRE (Historico de Creditos)" },
-  { value: "certidao_casamento", label: "Certidao de casamento" },
-  { value: "certidao_obito", label: "Certidao de obito" },
-  { value: "certidao_nascimento", label: "Certidao de nascimento" },
-  { value: "declaracao_uniao_estavel", label: "Declaracao de uniao estavel" },
-  { value: "declaracao_atividade_rural", label: "Declaracao de atividade rural" },
-  { value: "procuracao", label: "Procuracao" },
+  { value: "carta_concessao_inss", label: "Carta de concessão / indeferimento INSS" },
+  { value: "hiscre", label: "HISCRE (Histórico de Créditos)" },
+  { value: "certidao_casamento", label: "Certidão de casamento" },
+  { value: "certidao_obito", label: "Certidão de óbito" },
+  { value: "certidao_nascimento", label: "Certidão de nascimento" },
+  { value: "declaracao_uniao_estavel", label: "Declaração de união estável" },
+  { value: "declaracao_atividade_rural", label: "Declaração de atividade rural" },
+  { value: "procuracao", label: "Procuração" },
   { value: "substabelecimento", label: "Substabelecimento" },
-  { value: "contrato_honorarios", label: "Contrato de honorarios" },
+  { value: "contrato_honorarios", label: "Contrato de honorários" },
   {
     value: "declaracao_hipossuficiencia",
-    label: "Declaracao de hipossuficiencia",
+    label: "Declaração de hipossuficiência",
   },
   {
     value: "declaracao_ausencia_duplicidade",
-    label: "Declaracao de ausencia de duplicidade de acao",
+    label: "Declaração de ausência de duplicidade de ação",
   },
   { value: "outro", label: "Outro" },
 ];
@@ -165,19 +165,19 @@ const schema = z.object({
   cpf: z
     .string()
     .min(14, "CPF incompleto")
-    .refine((v) => isValidCPF(v), "CPF invalido"),
+    .refine((v) => isValidCPF(v), "CPF inválido"),
   data_nascimento: z.string().min(1, "Informe a data de nascimento"),
   telefone: z.string().trim().min(14, "Telefone incompleto").max(16),
   email: z
     .string()
     .trim()
-    .email("E-mail invalido")
+    .email("E-mail inválido")
     .max(150)
     .optional()
     .or(z.literal("")),
   senha_meu_inss: z.string().max(100).optional().or(z.literal("")),
   observacoes_cliente: z.string().max(1000).optional().or(z.literal("")),
-  tipo_beneficio: z.string().min(1, "Selecione o tipo de beneficio"),
+  tipo_beneficio: z.string().min(1, "Selecione o tipo de benefício"),
   cliente_interno: z.boolean().optional(),
   parceiro_id: z.string().optional().or(z.literal("")),
   observacoes_caso: z.string().max(1000).optional().or(z.literal("")),
@@ -276,7 +276,7 @@ function NovoCasoPage() {
   async function buscarNoTI() {
     const cpfDigits = (form.getValues("cpf") || "").replace(/\D/g, "");
     if (cpfDigits.length !== 11) {
-      toast.error("Digite um CPF valido (11 digitos) antes de buscar no TI");
+      toast.error("Digite um CPF válido (11 dígitos) antes de buscar no TI");
       return;
     }
     setBuscandoTI(true);
@@ -296,13 +296,13 @@ function NovoCasoPage() {
         motivo?: string;
       };
       if (!r.achou_no_ti) {
-        toast.message("Cliente nao encontrado no Tramitacao Inteligente.");
+        toast.message("Cliente não encontrado no Tramitação Inteligente.");
         return;
       }
       const c = r.customer_ti;
       if (!c) {
         toast.message(
-          r.motivo || "Cliente encontrado no TI, mas ja existe no sistema.",
+          r.motivo || "Cliente encontrado no TI, mas já existe no sistema.",
         );
         return;
       }
@@ -503,7 +503,7 @@ function NovoCasoPage() {
           });
 
           toast.success(
-            "Cliente ja cadastrado. Sua solicitacao foi registrada e nossa equipe entrara em contato em breve.",
+            "Cliente já cadastrado. Sua solicitação foi registrada e nossa equipe entrará em contato em breve.",
           );
           setSubmitting(false);
           return;
@@ -512,7 +512,7 @@ function NovoCasoPage() {
       }
 
       if (!clienteInsert) {
-        throw new Error("Falha ao obter ID do cliente recem-criado");
+        throw new Error("Falha ao obter ID do cliente recém-criado");
       }
       const clienteId = clienteInsert.id;
 
@@ -539,7 +539,7 @@ function NovoCasoPage() {
 
       if (casoErr) throw casoErr;
       if (!casoInsert) {
-        throw new Error("Falha ao obter ID do caso recem-criado");
+        throw new Error("Falha ao obter ID do caso recém-criado");
       }
       const casoId = casoInsert.id;
 
@@ -559,7 +559,7 @@ function NovoCasoPage() {
           // depois pela tela de edicao do cliente.
           console.error("Falha ao gravar senha MEU INSS:", setSenhaResp.error);
           toast.warning(
-            "Caso cadastrado, mas a senha do MEU INSS nao foi salva: " +
+            "Caso cadastrado, mas a senha do MEU INSS não foi salva: " +
               (setSenhaResp.error.message || "erro desconhecido"),
           );
         }
@@ -664,7 +664,7 @@ function NovoCasoPage() {
             Novo caso
           </h1>
           <p className="text-sm text-muted-foreground">
-            Cadastre o cliente e abra o caso previdenciario.
+            Cadastre o cliente e abra o caso previdenciário.
           </p>
         </div>
         <Button variant="ghost" size="sm" asChild>
@@ -689,7 +689,7 @@ function NovoCasoPage() {
               <CardHeader>
                 <CardTitle className="text-base">Dados do cliente</CardTitle>
                 <CardDescription>
-                  Informacoes pessoais do segurado.
+                  Informações pessoais do segurado.
                 </CardDescription>
               </CardHeader>
               <CardContent className="grid gap-4 sm:grid-cols-2">
@@ -728,7 +728,7 @@ function NovoCasoPage() {
                             className="shrink-0"
                             onClick={buscarNoTI}
                             disabled={buscandoTI}
-                            title="Buscar dados do cliente no Tramitacao Inteligente pelo CPF"
+                            title="Buscar dados do cliente no Tramitação Inteligente pelo CPF"
                           >
                             {buscandoTI
                               ? <Loader2 className="h-4 w-4 animate-spin" />
@@ -824,9 +824,9 @@ function NovoCasoPage() {
                         </div>
                       </FormControl>
                       <p className="text-xs text-muted-foreground">
-                        Aviso temporario: armazenada em texto puro durante a
-                        fase de testes. Sera criptografada antes do uso em
-                        producao.
+                        Aviso temporário: armazenada em texto puro durante a
+                        fase de testes. Será criptografada antes do uso em
+                        produção.
                       </p>
                       <FormMessage />
                     </FormItem>
@@ -837,7 +837,7 @@ function NovoCasoPage() {
                   name="observacoes_cliente"
                   render={({ field }) => (
                     <FormItem className="sm:col-span-2">
-                      <FormLabel>Observacoes sobre o cliente</FormLabel>
+                      <FormLabel>Observações sobre o cliente</FormLabel>
                       <FormControl>
                         <Textarea
                           rows={3}
@@ -857,7 +857,7 @@ function NovoCasoPage() {
               <CardHeader>
                 <CardTitle className="text-base">Dados do caso</CardTitle>
                 <CardDescription>
-                  Tipo de beneficio e responsaveis.
+                  Tipo de benefício e responsáveis.
                 </CardDescription>
               </CardHeader>
               <CardContent className="grid gap-4 sm:grid-cols-2">
@@ -868,7 +868,7 @@ function NovoCasoPage() {
                     <FormItem
                       className={isInterno ? "" : "sm:col-span-2"}
                     >
-                      <FormLabel>Tipo de beneficio *</FormLabel>
+                      <FormLabel>Tipo de benefício *</FormLabel>
                       <Select
                         value={field.value}
                         onValueChange={field.onChange}
@@ -912,11 +912,11 @@ function NovoCasoPage() {
                         </FormControl>
                         <div className="space-y-0.5 leading-none">
                           <FormLabel className="text-sm cursor-pointer">
-                            Cliente interno do escritorio (sem parceiro indicador)
+                            Cliente interno do escritório (sem parceiro indicador)
                           </FormLabel>
                           <p className="text-xs text-muted-foreground">
-                            Marque se o cliente veio direto ao escritorio,
-                            sem indicacao de parceiro captador.
+                            Marque se o cliente veio direto ao escritório,
+                            sem indicação de parceiro captador.
                           </p>
                         </div>
                       </FormItem>
@@ -983,12 +983,12 @@ function NovoCasoPage() {
                   render={({ field }) => (
                     <FormItem className="sm:col-span-2">
                       <FormLabel>
-                        Observacoes iniciais sobre o caso
+                        Observações iniciais sobre o caso
                       </FormLabel>
                       <FormControl>
                         <Textarea
                           rows={4}
-                          placeholder="Contexto, urgencia, documentos ja recebidos..."
+                          placeholder="Contexto, urgência, documentos já recebidos..."
                           {...field}
                         />
                       </FormControl>
@@ -1004,8 +1004,8 @@ function NovoCasoPage() {
               <CardHeader>
                 <CardTitle className="text-base">Documentos</CardTitle>
                 <CardDescription>
-                  Anexe documentos que ja tem em maos. Pode adicionar mais
-                  depois no caso. Tamanho maximo: {MAX_FILE_SIZE_MB} MB por
+                  Anexe documentos que já tem em mãos. Pode adicionar mais
+                  depois no caso. Tamanho máximo: {MAX_FILE_SIZE_MB} MB por
                   arquivo.
                 </CardDescription>
               </CardHeader>

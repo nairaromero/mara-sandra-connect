@@ -217,7 +217,7 @@ export function DrivePickerDialog(props: DrivePickerDialogProps) {
 
   async function handleImportar() {
     if (!todosValidos) {
-      toast.error("Cada arquivo precisa de um tipo. 'Outro' precisa rotulo.");
+      toast.error("Cada arquivo precisa de um tipo. 'Outro' precisa rótulo.");
       return;
     }
     setImportando(true);
@@ -339,8 +339,8 @@ export function DrivePickerDialog(props: DrivePickerDialogProps) {
         <DialogHeader>
           <DialogTitle>Importar do Google Drive</DialogTitle>
           <DialogDescription>
-            Revise os arquivos selecionados, ajuste o tipo se necessario, e
-            clique em Importar. Tamanho maximo: {MAX_FILE_SIZE_MB} MB por arquivo.
+            Revise os arquivos selecionados, ajuste o tipo se necessário, e
+            clique em Importar. Tamanho máximo: {MAX_FILE_SIZE_MB} MB por arquivo.
           </DialogDescription>
         </DialogHeader>
 

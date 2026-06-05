@@ -46,7 +46,7 @@ let scriptsLoadingPromise: Promise<void> | null = null;
 function loadScript(src: string): Promise<void> {
   return new Promise((resolve, reject) => {
     if (typeof document === "undefined") {
-      reject(new Error("document indisponivel (SSR)"));
+      reject(new Error("document indisponível (SSR)"));
       return;
     }
     const existing = document.querySelector(
@@ -88,7 +88,7 @@ async function loadGoogleScripts(): Promise<void> {
     // 3) Carrega o modulo picker do gapi
     await new Promise<void>((resolve, reject) => {
       if (!window.gapi) {
-        reject(new Error("gapi nao disponivel apos carregar api.js"));
+        reject(new Error("gapi não disponível após carregar api.js"));
         return;
       }
       window.gapi.load("picker", {
@@ -133,7 +133,7 @@ export interface DrivePickerResult {
 export function abrirDrivePicker(): Promise<DrivePickerResult> {
   if (!EFFECTIVE_CLIENT_ID || !EFFECTIVE_API_KEY) {
     return Promise.reject(
-      new Error("Google Drive nao configurado (credenciais ausentes)"),
+      new Error("Google Drive não configurado (credenciais ausentes)"),
     );
   }
 
@@ -285,7 +285,7 @@ export interface DrivePickedFolder {
 export function abrirDrivePickerPasta(): Promise<DrivePickedFolder> {
   if (!EFFECTIVE_CLIENT_ID || !EFFECTIVE_API_KEY) {
     return Promise.reject(
-      new Error("Google Drive nao configurado (credenciais ausentes)"),
+      new Error("Google Drive não configurado (credenciais ausentes)"),
     );
   }
 
@@ -484,7 +484,7 @@ export async function listarArquivosDaPasta(
 export function obterAccessToken(): Promise<string> {
   if (!EFFECTIVE_CLIENT_ID) {
     return Promise.reject(
-      new Error("Google Drive nao configurado (credenciais ausentes)"),
+      new Error("Google Drive não configurado (credenciais ausentes)"),
     );
   }
   return new Promise(async (resolve, reject) => {

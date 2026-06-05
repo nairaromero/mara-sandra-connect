@@ -27,10 +27,10 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 
 const itemsBase = [
-  { title: "Inicio", url: "/", icon: Home },
+  { title: "Início", url: "/", icon: Home },
   { title: "Clientes", url: "/clientes", icon: UserCircle },
   { title: "Documentos pendentes", url: "/documentos", icon: FileWarning },
-  { title: "Publicacoes", url: "/publicacoes", icon: Newspaper },
+  { title: "Publicações", url: "/publicacoes", icon: Newspaper },
   // "Repasses" e "Conversas" removidas da sidebar mas as rotas /repasses
   // e /conversas continuam existindo no codigo - decisao de produto
   // pendente sobre o que fazer com essas paginas no futuro.
@@ -107,7 +107,7 @@ export function AppSidebar() {
         {/* Logo do escritorio. Clicar volta para a home (lista de casos). */}
         <Link
           to="/"
-          aria-label="Mara Sandra Vian Advocacia - voltar para a pagina inicial"
+          aria-label="Mara Sandra Vian Advocacia - voltar para a página inicial"
           className="flex items-center justify-center px-2 py-3 hover:opacity-80 transition-opacity"
         >
           {collapsed ? (

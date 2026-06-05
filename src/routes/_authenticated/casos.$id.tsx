@@ -410,38 +410,38 @@ const STATUS_CASO = [
 
 const ORIGEM_LABEL: Record<string, string> = {
   interno: "Interno",
-  tramitacao: "Tramitacao Inteligente",
+  tramitacao: "Tramitação Inteligente",
   legalmail: "Legalmail",
-  djen: "Diario (DJEN)",
+  djen: "Diário (DJEN)",
   sistema: "Sistema",
 };
 
 const TIPOS_DOCUMENTO_LABEL: Record<string, string> = {
   cnis: "CNIS",
   rg_cpf: "RG / CPF",
-  comprovante_residencia: "Comprovante de residencia",
+  comprovante_residencia: "Comprovante de residência",
   ctps: "CTPS",
   holerite: "Holerite / contracheque",
   ppp: "PPP",
-  laudo_medico: "Laudo medico",
+  laudo_medico: "Laudo médico",
   ltcat: "LTCAT",
-  atestado_medico: "Atestado medico",
+  atestado_medico: "Atestado médico",
   cat: "CAT",
-  carne_gps: "Carne de contribuicao (GPS)",
+  carne_gps: "Carnê de contribuição (GPS)",
   ctc: "CTC",
-  carta_concessao_inss: "Carta de concessao/indeferimento INSS",
+  carta_concessao_inss: "Carta de concessão/indeferimento INSS",
   hiscre: "HISCRE",
-  certidao_casamento: "Certidao de casamento",
-  certidao_obito: "Certidao de obito",
-  certidao_nascimento: "Certidao de nascimento",
-  declaracao_uniao_estavel: "Declaracao de uniao estavel",
-  declaracao_atividade_rural: "Declaracao de atividade rural",
-  procuracao: "Procuracao",
+  certidao_casamento: "Certidão de casamento",
+  certidao_obito: "Certidão de óbito",
+  certidao_nascimento: "Certidão de nascimento",
+  declaracao_uniao_estavel: "Declaração de união estável",
+  declaracao_atividade_rural: "Declaração de atividade rural",
+  procuracao: "Procuração",
   substabelecimento: "Substabelecimento",
-  contrato_honorarios: "Contrato de honorarios",
-  declaracao_hipossuficiencia: "Declaracao de hipossuficiencia",
+  contrato_honorarios: "Contrato de honorários",
+  declaracao_hipossuficiencia: "Declaração de hipossuficiência",
   declaracao_ausencia_duplicidade:
-    "Declaracao de ausencia de duplicidade de acao",
+    "Declaração de ausência de duplicidade de ação",
   outro: "Outro",
 };
 
@@ -504,7 +504,7 @@ function getDocGroup(tipo: string): number {
 const GRUPOS_ACCORDION = new Set<number>([6, 7, 8]);
 
 const GRUPO_LABELS: Record<number, string> = {
-  6: "Laudos medicos",
+  6: "Laudos médicos",
   7: "Laudos do INSS",
   8: "Holerites e comprovantes de pagamento",
 };
@@ -535,7 +535,7 @@ const STATUS_SOLICITACAO_LABEL: Record<string, string> = {
 };
 
 const ORIGEM_SOLICITACAO_LABEL: Record<string, string> = {
-  interna: "Interna (escritorio)",
+  interna: "Interna (escritório)",
   externa: "Externa (parceiro/cliente)",
 };
 
@@ -660,7 +660,7 @@ function CasoDetalhePage() {
       if (casoResp.error) throw casoResp.error;
       const casoData = casoResp.data as Caso | null;
       if (!casoData) {
-        setErro("Caso nao encontrado ou voce nao tem permissao para visualiza-lo.");
+        setErro("Caso não encontrado ou você não tem permissão para visualizá-lo.");
         setLoading(false);
         return;
       }
@@ -834,7 +834,7 @@ function CasoDetalhePage() {
           <CardContent className="py-12 text-center">
             <AlertCircle className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
             <p className="text-sm text-muted-foreground">
-              {erro || "Caso nao encontrado"}
+              {erro || "Caso não encontrado"}
             </p>
           </CardContent>
         </Card>
@@ -876,7 +876,7 @@ function CasoDetalhePage() {
           <TabsList className="w-full flex justify-start overflow-x-auto">
             <TabsTrigger value="visao_geral" className="flex items-center gap-1 shrink-0">
               <Activity className="h-4 w-4" />
-              <span>Visao geral</span>
+              <span>Visão geral</span>
             </TabsTrigger>
             <TabsTrigger value="andamentos" className="flex items-center gap-1 shrink-0">
               <ClipboardList className="h-4 w-4" />
@@ -889,12 +889,12 @@ function CasoDetalhePage() {
             {isInterno && (
               <TabsTrigger value="analise" className="flex items-center gap-1 shrink-0">
                 <FileText className="h-4 w-4" />
-                <span>Analise</span>
+                <span>Análise</span>
               </TabsTrigger>
             )}
             <TabsTrigger value="comentarios" className="flex items-center gap-1 shrink-0">
               <MessageSquare className="h-4 w-4" />
-              <span>Comentarios</span>
+              <span>Comentários</span>
             </TabsTrigger>
             {REPASSES_ATIVO && (
               <TabsTrigger value="repasses" className="flex items-center gap-1 shrink-0">
@@ -1035,7 +1035,7 @@ function CasoHeader(props: CasoHeaderProps) {
         motivo?: string;
       };
       if (!r.achou_no_ti) {
-        toast.error("Cliente nao encontrado no Tramitacao Inteligente");
+        toast.error("Cliente não encontrado no Tramitação Inteligente");
       } else if (r.atualizado) {
         const tags = r.tags_aplicadas || 0;
         const notasNovas = r.notas_importadas || 0;
@@ -1058,7 +1058,7 @@ function CasoHeader(props: CasoHeaderProps) {
           window.dispatchEvent(new CustomEvent("msc:sync-done"));
         }
       } else {
-        toast.error(r.motivo || "Nao foi possivel sincronizar");
+        toast.error(r.motivo || "Não foi possível sincronizar");
       }
     } catch (err) {
       console.error(err);
@@ -1083,7 +1083,7 @@ function CasoHeader(props: CasoHeaderProps) {
       .map((p) => Number(p.legalmail_id))
       .filter((n) => !isNaN(n));
     if (idprocessos.length === 0) {
-      toast.error("Erro ao ler ids do Legalmail dos processos vinculados.");
+      toast.error("Erro ao ler IDs do Legalmail dos processos vinculados.");
       return;
     }
     setSyncingLM(true);
@@ -1111,10 +1111,10 @@ function CasoHeader(props: CasoHeaderProps) {
       let msg =
         pa + " processo" + (pa === 1 ? "" : "s") + " atualizado" +
         (pa === 1 ? "" : "s") + ". " +
-        mi + " movimentaca" + (mi === 1 ? "o" : "oes") + " nova" +
+        mi + " movimentaç" + (mi === 1 ? "ão" : "ões") + " nova" +
         (mi === 1 ? "" : "s");
       if (mj > 0) {
-        msg += " (" + mj + " ja existia" + (mj === 1 ? "" : "m") + ")";
+        msg += " (" + mj + " já existia" + (mj === 1 ? "" : "m") + ")";
       }
       if (mig > 0) {
         msg += ". " + mig + " mov" + (mig === 1 ? "" : "s") +
@@ -1168,7 +1168,7 @@ function CasoHeader(props: CasoHeaderProps) {
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8 shrink-0"
-                  aria-label="Acoes do caso"
+                  aria-label="Ações do caso"
                   disabled={syncing || syncingLM}
                 >
                   {syncing || syncingLM ? (
@@ -1182,7 +1182,7 @@ function CasoHeader(props: CasoHeaderProps) {
                 <DropdownMenuItem
                   onClick={syncTI}
                   disabled={syncing}
-                  title="Sincronizar tags e dados com Tramitacao Inteligente"
+                  title="Sincronizar tags e dados com Tramitação Inteligente"
                 >
                   {syncing && (
                     <Loader2 className="h-3 w-3 mr-2 animate-spin" />
@@ -1192,7 +1192,7 @@ function CasoHeader(props: CasoHeaderProps) {
                 <DropdownMenuItem
                   onClick={syncLegalmail}
                   disabled={syncingLM}
-                  title="Atualizar movimentacoes dos processos Legalmail vinculados"
+                  title="Atualizar movimentações dos processos Legalmail vinculados"
                 >
                   {syncingLM && (
                     <Loader2 className="h-3 w-3 mr-2 animate-spin" />
@@ -1218,7 +1218,7 @@ function CasoHeader(props: CasoHeaderProps) {
                   borderColor: t.color,
                   color: "#1f2937",
                 }}
-                title={"Tag do Tramitacao Inteligente"}
+                title={"Tag do Tramitação Inteligente"}
               >
                 {t.name}
               </Badge>
@@ -1296,11 +1296,11 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
 
   async function salvarCliente() {
     if (!clNome.trim()) {
-      toast.error("Nome obrigatorio");
+      toast.error("Nome obrigatório");
       return;
     }
     if (!csTipoBeneficio) {
-      toast.error("Tipo de beneficio obrigatorio");
+      toast.error("Tipo de benefício obrigatório");
       return;
     }
     if (!csInterno && !csParceiroId) {
@@ -1337,7 +1337,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
         .select();
       if (resp.error) throw resp.error;
       if (!resp.data || resp.data.length === 0) {
-        toast.error("Atualizacao nao foi aplicada. Possivel bloqueio de RLS.");
+        toast.error("Atualização não foi aplicada. Possível bloqueio de RLS.");
         return;
       }
       // Se preencheu campo de senha, atualiza via RPC criptografada.
@@ -1350,11 +1350,11 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
         });
         if (senhaResp.error) {
           toast.warning(
-            "Cliente atualizado, mas a senha MEU INSS nao foi salva: " +
+            "Cliente atualizado, mas a senha MEU INSS não foi salva: " +
               (senhaResp.error.message || "erro desconhecido"),
           );
         } else {
-          toast.success(clTemSenha ? "Senha MEU INSS substituida" : "Senha MEU INSS cadastrada");
+          toast.success(clTemSenha ? "Senha MEU INSS substituída" : "Senha MEU INSS cadastrada");
         }
       }
       toast.success("Cliente e caso atualizados");
@@ -1398,7 +1398,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
         }
       }
 
-      toast.success("Cliente e dados vinculados excluidos.");
+      toast.success("Cliente e dados vinculados excluídos.");
       setConfExcluirCliente(false);
       setAbrirEditCliente(false);
       navigate({ to: "/" });
@@ -1454,7 +1454,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
       if (resp.error) throw resp.error;
       toast.success(
         senhaParcTemSenha
-          ? "Senha MEU INSS substituida"
+          ? "Senha MEU INSS substituída"
           : "Senha MEU INSS cadastrada",
       );
       setAbrirSenhaParc(false);
@@ -1502,7 +1502,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
       toast.success("Senha copiada");
     } catch (err) {
       console.error(err);
-      toast.error("Nao foi possivel copiar (clipboard bloqueado)");
+      toast.error("Não foi possível copiar (clipboard bloqueado)");
     }
   }
 
@@ -1526,7 +1526,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
 
   async function salvarCaso() {
     if (!csTipoBeneficio) {
-      toast.error("Tipo de beneficio obrigatorio");
+      toast.error("Tipo de benefício obrigatório");
       return;
     }
     if (!csInterno && !csParceiroId) {
@@ -1547,7 +1547,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
         .select();
       if (resp.error) throw resp.error;
       if (!resp.data || resp.data.length === 0) {
-        toast.error("Atualizacao nao foi aplicada. Possivel bloqueio de RLS.");
+        toast.error("Atualização não foi aplicada. Possível bloqueio de RLS.");
         return;
       }
       toast.success("Caso atualizado");
@@ -1642,7 +1642,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
           )}
           {cliente.observacoes && (
             <div className="pt-2 border-t">
-              <p className="text-xs text-muted-foreground mb-1">Observacoes</p>
+              <p className="text-xs text-muted-foreground mb-1">Observações</p>
               <p className="text-sm whitespace-pre-wrap">{cliente.observacoes}</p>
             </div>
           )}
@@ -1656,8 +1656,8 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
               <DialogHeader>
                 <DialogTitle>Editar cliente e caso</DialogTitle>
                 <DialogDescription>
-                  Dados do cliente e do caso num so lugar. CPF nao pode ser
-                  alterado (chave unica vinculada ao TI).
+                  Dados do cliente e do caso num só lugar. CPF não pode ser
+                  alterado (chave única vinculada ao TI).
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3">
@@ -1696,7 +1696,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                   />
                 </div>
                 <div>
-                  <Label className="text-xs">Observacoes</Label>
+                  <Label className="text-xs">Observações</Label>
                   <Textarea
                     rows={3}
                     value={clObservacoes}
@@ -1708,7 +1708,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                 <div className="border-t pt-3 space-y-3">
                   <p className="text-sm font-medium">Dados do caso</p>
                   <div>
-                    <Label className="text-xs">Tipo de beneficio</Label>
+                    <Label className="text-xs">Tipo de benefício</Label>
                     <Select
                       value={csTipoBeneficio}
                       onValueChange={setCsTipoBeneficio}
@@ -1737,7 +1737,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                       className="h-4 w-4 mt-0.5"
                     />
                     <Label htmlFor="cl-cs-interno" className="text-sm">
-                      Cliente interno do escritorio (sem parceiro indicador)
+                      Cliente interno do escritório (sem parceiro indicador)
                     </Label>
                   </div>
                   {!csInterno && (
@@ -1807,7 +1807,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                     <KeyRound className="h-3.5 w-3.5" />
                     Senha MEU INSS{" "}
                     <span className="text-muted-foreground font-normal">
-                      ({clTemSenha ? "ja cadastrada - sera substituida" : "nao cadastrada"})
+                      ({clTemSenha ? "já cadastrada - será substituída" : "não cadastrada"})
                     </span>
                   </Label>
                   <Input
@@ -1876,17 +1876,17 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                 <AlertDialogDescription asChild>
                   <div className="space-y-2 text-sm">
                     <p>
-                      Esta acao e <strong>irreversivel</strong>. Sera removido:
+                      Esta ação é <strong>irreversível</strong>. Será removido:
                     </p>
                     <ul className="list-disc pl-5 space-y-0.5 text-muted-foreground">
                       <li>O cliente e todos os dados cadastrais</li>
                       <li>Todos os casos vinculados</li>
-                      <li>Todos os documentos, andamentos e solicitacoes</li>
+                      <li>Todos os documentos, andamentos e solicitações</li>
                       <li>Conversas, repasses e processos do caso</li>
                       <li>Senha MEU INSS criptografada (se houver)</li>
                     </ul>
                     <p className="text-xs text-muted-foreground">
-                      O log de auditoria do acesso a senhas e preservado.
+                      O log de auditoria do acesso a senhas é preservado.
                     </p>
                   </div>
                 </AlertDialogDescription>
@@ -1928,7 +1928,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                   Senha MEU INSS
                 </DialogTitle>
                 <DialogDescription className="text-xs text-warning bg-warning/10 border border-warning/30 rounded p-2 mt-1">
-                  Acesso registrado em auditoria. A senha e confidencial -
+                  Acesso registrado em auditoria. A senha é confidencial -
                   use apenas no portal MEU INSS do cliente.
                 </DialogDescription>
               </DialogHeader>
@@ -1946,7 +1946,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                 )}
                 {!carregandoSenha && !erroSenha && senhaValor === null && (
                   <p className="text-sm text-muted-foreground">
-                    Este cliente nao tem senha do MEU INSS cadastrada.
+                    Este cliente não tem senha do MEU INSS cadastrada.
                   </p>
                 )}
                 {!carregandoSenha && !erroSenha && senhaValor !== null && (
@@ -1999,8 +1999,8 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                 </DialogTitle>
                 <DialogDescription className="text-xs text-warning bg-warning/10 border border-warning/30 rounded p-2 mt-1">
                   {senhaParcTemSenha
-                    ? "Ja existe uma senha cadastrada para este cliente. Ao salvar, ela sera SUBSTITUIDA pela nova. Esta acao fica registrada em auditoria."
-                    : "A senha sera criptografada no banco. Voce nao podera consultar depois - apenas substituir. Acao registrada em auditoria."}
+                    ? "Já existe uma senha cadastrada para este cliente. Ao salvar, ela será SUBSTITUÍDA pela nova. Esta ação fica registrada em auditoria."
+                    : "A senha será criptografada no banco. Você não poderá consultar depois - apenas substituir. Ação registrada em auditoria."}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3">
@@ -2087,10 +2087,10 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                     />
                     <div>
                       <Label htmlFor="cs-interno" className="text-sm">
-                        Cliente interno do escritorio (sem parceiro indicador)
+                        Cliente interno do escritório (sem parceiro indicador)
                       </Label>
                       <p className="text-xs text-muted-foreground">
-                        Marque se nao ha advogado parceiro captando este caso.
+                        Marque se não há advogado parceiro captando este caso.
                       </p>
                     </div>
                   </div>
@@ -2242,7 +2242,7 @@ function TabAndamentos(props: TabAndamentosProps) {
         .eq("id", a.id);
       if (resp.error) throw resp.error;
       toast.success(
-        novo ? "Andamento agora visivel ao parceiro" : "Andamento marcado como interno",
+        novo ? "Andamento agora visível ao parceiro" : "Andamento marcado como interno",
       );
       onChange();
     } catch (err) {
@@ -2347,7 +2347,7 @@ function TabAndamentos(props: TabAndamentosProps) {
     } else if (destino.startsWith("judicial:")) {
       processoJudicialId = destino.slice("judicial:".length);
     } else {
-      toast.error("Destino invalido");
+      toast.error("Destino inválido");
       return;
     }
     setTransferindo(true);
@@ -2364,7 +2364,7 @@ function TabAndamentos(props: TabAndamentosProps) {
       const n = resp.data?.length || 0;
       if (n === 0) {
         toast.error(
-          "Transferencia nao aplicada. Possivel bloqueio de permissao.",
+          "Transferência não aplicada. Possível bloqueio de permissão.",
         );
         return;
       }
@@ -2406,11 +2406,11 @@ function TabAndamentos(props: TabAndamentosProps) {
   function descricaoProcesso(a: Andamento): string | null {
     if (a.processo_admin_id) {
       const p = processosAdmin.find((x) => x.id === a.processo_admin_id);
-      return "Admin: " + (p?.numero_requerimento || "(sem numero)");
+      return "Admin: " + (p?.numero_requerimento || "(sem número)");
     }
     if (a.processo_judicial_id) {
       const p = processosJudiciais.find((x) => x.id === a.processo_judicial_id);
-      return "Judicial: " + (p?.numero_processo || "(sem numero)");
+      return "Judicial: " + (p?.numero_processo || "(sem número)");
     }
     return null;
   }
@@ -2440,7 +2440,7 @@ function TabAndamentos(props: TabAndamentosProps) {
   async function salvarEdicao() {
     if (!editando) return;
     if (!editTitulo.trim()) {
-      toast.error("Titulo obrigatorio");
+      toast.error("Título obrigatório");
       return;
     }
     setEditSalvando(true);
@@ -2467,7 +2467,7 @@ function TabAndamentos(props: TabAndamentosProps) {
       if (!resp.data || resp.data.length === 0) {
         // RLS bloqueou silenciosamente (0 linhas atualizadas)
         toast.error(
-          "Atualizacao nao foi aplicada. Possivel bloqueio de permissao. Avise o admin.",
+          "Atualização não foi aplicada. Possível bloqueio de permissão. Avise o admin.",
         );
         return;
       }
@@ -2488,7 +2488,7 @@ function TabAndamentos(props: TabAndamentosProps) {
     const ok = window.confirm(
       "Tem certeza que deseja excluir este andamento?\n\n" +
         (resumo ? '"' + resumo + '"\n\n' : "") +
-        "Essa acao nao pode ser desfeita.",
+        "Essa ação não pode ser desfeita.",
     );
     if (!ok) return;
     try {
@@ -2502,13 +2502,13 @@ function TabAndamentos(props: TabAndamentosProps) {
       if (resp.error) throw resp.error;
       if (!resp.data || resp.data.length === 0) {
         toast.error(
-          "Exclusao nao foi aplicada. Possivel bloqueio de permissao " +
+          "Exclusão não foi aplicada. Possível bloqueio de permissão " +
             "(andamento sem dono ou RLS). Tente fazer Sync TI novamente " +
-            "para corrigir o vinculo de criador.",
+            "para corrigir o vínculo de criador.",
         );
         return;
       }
-      toast.success("Andamento excluido");
+      toast.success("Andamento excluído");
       onChange();
     } catch (err) {
       console.error(err);
@@ -2645,15 +2645,15 @@ function TabAndamentos(props: TabAndamentosProps) {
                 disabled={togglandoVisId === a.id}
                 onClick={() => toggleVisivelParceiro(a)}
                 title={a.visivel_parceiro
-                  ? "Visivel ao parceiro - clique para tornar interno"
-                  : "Interno - clique para tornar visivel ao parceiro"}
+                  ? "Visível ao parceiro - clique para tornar interno"
+                  : "Interno - clique para tornar visível ao parceiro"}
               >
                 {togglandoVisId === a.id
                   ? <Loader2 className="h-3 w-3 mr-1 animate-spin" />
                   : a.visivel_parceiro
                   ? <Eye className="h-3 w-3 mr-1" />
                   : <EyeOff className="h-3 w-3 mr-1" />}
-                {a.visivel_parceiro ? "visivel parceiro" : "interno"}
+                {a.visivel_parceiro ? "visível parceiro" : "interno"}
               </Button>
             )}
           </div>
@@ -2799,7 +2799,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                 Andamentos Administrativos
               </CardTitle>
               <CardDescription>
-                Movimentacoes vinculadas a processos do INSS.
+                Movimentações vinculadas a processos do INSS.
               </CardDescription>
             </div>
             {isInterno && (
@@ -2838,7 +2838,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                   Boolean,
                 );
                 const label =
-                  "Admin: " + (p.numero_requerimento || "(sem numero)") +
+                  "Admin: " + (p.numero_requerimento || "(sem número)") +
                   (extras.length ? " · " + extras.join(" · ") : "");
                 return renderAccordion(
                   label,
@@ -2905,7 +2905,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                                     value={"admin:" + p.id}
                                   >
                                     Admin:{" "}
-                                    {p.numero_requerimento || "(sem numero)"}
+                                    {p.numero_requerimento || "(sem número)"}
                                   </SelectItem>
                                 ))}
                               </SelectContent>
@@ -2980,7 +2980,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                   Andamentos Judiciais
                 </CardTitle>
                 <CardDescription>
-                  Movimentacoes vinculadas a processos judiciais.
+                  Movimentações vinculadas a processos judiciais.
                 </CardDescription>
               </div>
               {isInterno && (
@@ -3003,7 +3003,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                     (a) => a.processo_judicial_id === p.id,
                   );
                   const label =
-                    "Judicial: " + (p.numero_processo || "(sem numero)") +
+                    "Judicial: " + (p.numero_processo || "(sem número)") +
                     (p.etapa_tipo ? " · " + p.etapa_tipo : "");
                   return renderAccordion(
                     label,
@@ -3026,8 +3026,8 @@ function TabAndamentos(props: TabAndamentosProps) {
           <CardHeader>
             <CardTitle className="text-base">Andamentos Gerais</CardTitle>
             <CardDescription>
-              Movimentacoes manuais sem vinculo a processo. Selecione e
-              transfira para um processo, ou edite individualmente pelo lapis.
+              Movimentações manuais sem vínculo a processo. Selecione e
+              transfira para um processo, ou edite individualmente pelo lápis.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -3053,7 +3053,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                             value={"admin:" + p.id}
                           >
                             Admin:{" "}
-                            {p.numero_requerimento || "(sem numero)"}
+                            {p.numero_requerimento || "(sem número)"}
                           </SelectItem>
                         ))}
                         {processosJudiciais.map((p) => (
@@ -3062,7 +3062,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                             value={"judicial:" + p.id}
                           >
                             Judicial:{" "}
-                            {p.numero_processo || "(sem numero)"}
+                            {p.numero_processo || "(sem número)"}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -3136,12 +3136,12 @@ function TabAndamentos(props: TabAndamentosProps) {
                 {isAdminDialog ? "administrativo" : isJudDialog ? "judicial" : ""}
               </DialogTitle>
               <DialogDescription>
-                Registre uma movimentacao manual no caso.
+                Registre uma movimentação manual no caso.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
               <div>
-                <Label className="text-xs">Titulo</Label>
+                <Label className="text-xs">Título</Label>
                 <Input
                   placeholder="Ex.: Documentos recebidos"
                   value={titulo}
@@ -3149,10 +3149,10 @@ function TabAndamentos(props: TabAndamentosProps) {
                 />
               </div>
               <div>
-                <Label className="text-xs">Descricao (opcional)</Label>
+                <Label className="text-xs">Descrição (opcional)</Label>
                 <Textarea
                   rows={4}
-                  placeholder="Detalhe da movimentacao..."
+                  placeholder="Detalhe da movimentação..."
                   value={descricao}
                   onChange={(e) => setDescricao(e.target.value)}
                 />
@@ -3169,7 +3169,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value={PROCESSO_NENHUM}>
-                        Nenhum (sem vinculo)
+                        Nenhum (sem vínculo)
                       </SelectItem>
                       {isAdminDialog &&
                         processosAdmin.map((p) => (
@@ -3177,7 +3177,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                             key={"a-" + p.id}
                             value={"admin:" + p.id}
                           >
-                            Admin: {p.numero_requerimento || "(sem numero)"}
+                            Admin: {p.numero_requerimento || "(sem número)"}
                           </SelectItem>
                         ))}
                       {isJudDialog &&
@@ -3186,7 +3186,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                             key={"j-" + p.id}
                             value={"judicial:" + p.id}
                           >
-                            Judicial: {p.numero_processo || "(sem numero)"}
+                            Judicial: {p.numero_processo || "(sem número)"}
                           </SelectItem>
                         ))}
                     </SelectContent>
@@ -3203,7 +3203,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                     className="h-4 w-4"
                   />
                   <Label htmlFor="visivel-parceiro" className="text-sm">
-                    Visivel para o parceiro indicador
+                    Visível para o parceiro indicador
                   </Label>
                 </div>
               )}
@@ -3239,19 +3239,19 @@ function TabAndamentos(props: TabAndamentosProps) {
             <DialogHeader>
               <DialogTitle>Editar andamento</DialogTitle>
               <DialogDescription>
-                Altere o conteudo, vinculacao com processo e visibilidade.
+                Altere o conteúdo, vinculação com processo e visibilidade.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
               <div>
-                <Label className="text-xs">Titulo</Label>
+                <Label className="text-xs">Título</Label>
                 <Input
                   value={editTitulo}
                   onChange={(e) => setEditTitulo(e.target.value)}
                 />
               </div>
               <div>
-                <Label className="text-xs">Descricao (opcional)</Label>
+                <Label className="text-xs">Descrição (opcional)</Label>
                 <Textarea
                   rows={5}
                   value={editDescricao}
@@ -3275,7 +3275,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                           key={"a-" + p.id}
                           value={"admin:" + p.id}
                         >
-                          Admin: {p.numero_requerimento || "(sem numero)"}
+                          Admin: {p.numero_requerimento || "(sem número)"}
                         </SelectItem>
                       ))}
                       {processosJudiciais.map((p) => (
@@ -3283,7 +3283,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                           key={"j-" + p.id}
                           value={"judicial:" + p.id}
                         >
-                          Judicial: {p.numero_processo || "(sem numero)"}
+                          Judicial: {p.numero_processo || "(sem número)"}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -3303,7 +3303,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                     htmlFor="edit-visivel-parceiro"
                     className="text-sm"
                   >
-                    Visivel para o parceiro indicador
+                    Visível para o parceiro indicador
                   </Label>
                 </div>
               )}
@@ -3450,7 +3450,7 @@ function TabDocumentos(props: TabDocumentosProps) {
   }
 
   async function handleDesvincularPasta() {
-    if (!confirm("Desvincular pasta do Drive? Arquivos ja importados continuam no caso.")) {
+    if (!confirm("Desvincular pasta do Drive? Arquivos já importados continuam no caso.")) {
       return;
     }
     try {
@@ -3504,14 +3504,14 @@ function TabDocumentos(props: TabDocumentosProps) {
       const ignorados = arquivosDrive.length - novos.length;
       if (novos.length === 0) {
         toast.success(
-          arquivosDrive.length + " arquivo(s) na pasta, todos ja no caso.",
+          arquivosDrive.length + " arquivo(s) na pasta, todos já no caso.",
         );
         return;
       }
       // 4) Passa pro DrivePickerDialog (mesmo fluxo de Importar)
       setDrivePicked({ files: novos, accessToken });
       const msg = novos.length + " novo(s) encontrado(s)" +
-        (ignorados > 0 ? " (" + ignorados + " ja existiam, ignorados)" : "");
+        (ignorados > 0 ? " (" + ignorados + " já existiam, ignorados)" : "");
       toast.success(msg);
     } catch (err) {
       const msg = (err as { message?: string })?.message ||
@@ -3530,7 +3530,7 @@ function TabDocumentos(props: TabDocumentosProps) {
     arquivos: Array<DriveImportedFile>,
   ): Promise<void> {
     if (!usuarioId) {
-      toast.error("Sessao invalida.");
+      toast.error("Sessão inválida.");
       return;
     }
     let okCount = 0;
@@ -3702,7 +3702,7 @@ function TabDocumentos(props: TabDocumentosProps) {
         .createSignedUrl(d.storage_path, 300); // 5 min de TTL
       if (resp.error) throw resp.error;
       const signedUrl = resp.data ? resp.data.signedUrl : null;
-      if (!signedUrl) throw new Error("Nao foi possivel gerar link de visualizacao");
+      if (!signedUrl) throw new Error("Não foi possível gerar link de visualização");
 
       // Buscamos o arquivo e convertemos para blob: URL same-origin.
       // Sem isso, o Chrome bloqueia iframes apontados direto para o
@@ -3821,7 +3821,7 @@ function TabDocumentos(props: TabDocumentosProps) {
     }
     if (okCount > 0) {
       toast.success(
-        okCount + " documento" + (okCount === 1 ? "" : "s") + " excluido" +
+        okCount + " documento" + (okCount === 1 ? "" : "s") + " excluído" +
           (okCount === 1 ? "" : "s"),
       );
     }
@@ -3885,7 +3885,7 @@ function TabDocumentos(props: TabDocumentosProps) {
 
   async function deletarDoc(d: Documento) {
     const ok = window.confirm(
-      "Tem certeza que deseja deletar o documento '" + d.nome_arquivo + "'?\n\nEssa acao remove o arquivo do storage e o registro do banco, e nao pode ser desfeita.",
+      "Tem certeza que deseja deletar o documento '" + d.nome_arquivo + "'?\n\nEssa ação remove o arquivo do storage e o registro do banco, e não pode ser desfeita.",
     );
     if (!ok) return;
     try {
@@ -3933,12 +3933,12 @@ function TabDocumentos(props: TabDocumentosProps) {
         .update(update)
         .eq("id", s.id);
       if (resp.error) throw resp.error;
-      toast.success("Solicitacao atualizada");
+      toast.success("Solicitação atualizada");
       onChange();
     } catch (err) {
       console.error(err);
       const errObj = err as { message?: string };
-      toast.error(errObj.message || "Erro ao atualizar solicitacao");
+      toast.error(errObj.message || "Erro ao atualizar solicitação");
     }
   }
 
@@ -4045,7 +4045,7 @@ function TabDocumentos(props: TabDocumentosProps) {
           tipo: documentoId ? "documento" : "solicitacao",
           titulo: documentoId
             ? `Documento enviado por ${usuario.nome || "parceiro"}`
-            : `Solicitacao atualizada por ${usuario.nome || "parceiro"}`,
+            : `Solicitação atualizada por ${usuario.nome || "parceiro"}`,
           descricao: acaoAlvo.solic.tipo,
           caso_id: casoId,
           foco_id: documentoId || acaoAlvo.solic.id,
@@ -4053,14 +4053,14 @@ function TabDocumentos(props: TabDocumentosProps) {
       }
       toast.success(
         documentoId
-          ? "Solicitacao cumprida e documento anexado"
-          : "Solicitacao atualizada",
+          ? "Solicitação cumprida e documento anexado"
+          : "Solicitação atualizada",
       );
       onChange();
     } catch (err) {
       console.error(err);
       const errObj = err as { message?: string };
-      toast.error(errObj.message || "Erro ao atualizar solicitacao");
+      toast.error(errObj.message || "Erro ao atualizar solicitação");
     } finally {
       setSalvandoModal(false);
       setAcaoAlvo(null);
@@ -4403,7 +4403,7 @@ function TabDocumentos(props: TabDocumentosProps) {
           )}
           {!isInterno && lista.length > 0 && (
             <p className="text-xs text-muted-foreground mt-3">
-              Precisa que um documento seja removido? Avise o escritorio pelo
+              Precisa que um documento seja removido? Avise o escritório pelo
               chat do caso.
             </p>
           )}
@@ -4426,8 +4426,8 @@ function TabDocumentos(props: TabDocumentosProps) {
               </CardTitle>
               <CardDescription>
                 {isInterno
-                  ? "Historico de pedidos abertos pelo escritorio."
-                  : "Documentos que o escritorio precisa. Envie por 'Adicionar' abaixo."}
+                  ? "Histórico de pedidos abertos pelo escritório."
+                  : "Documentos que o escritório precisa. Envie por 'Adicionar' abaixo."}
               </CardDescription>
             </div>
             {isInterno && (
@@ -4504,10 +4504,10 @@ function TabDocumentos(props: TabDocumentosProps) {
                         <div className="mt-2 pt-2 border-t border-dashed">
                           <p className="text-xs text-muted-foreground mb-1">
                             {isAtendido
-                              ? "Observacao do atendimento"
+                              ? "Observação do atendimento"
                               : isDispensado
                                 ? "Motivo da dispensa"
-                                : "Comentario"}
+                                : "Comentário"}
                           </p>
                           <p className="text-sm whitespace-pre-wrap italic">
                             {s.comentario}
@@ -4561,7 +4561,7 @@ function TabDocumentos(props: TabDocumentosProps) {
             if (solicitacoesOrdenadas.length === 0) {
               return (
                 <p className="text-sm text-muted-foreground text-center py-6">
-                  Nenhuma solicitacao registrada.
+                  Nenhuma solicitação registrada.
                 </p>
               );
             }
@@ -4627,14 +4627,14 @@ function TabDocumentos(props: TabDocumentosProps) {
               {acaoAlvo && acaoAlvo.novoStatus === "atendido"
                 ? isInterno
                   ? "Marcar como atendido"
-                  : "Cumprir solicitacao"
-                : "Dispensar solicitacao"}
+                  : "Cumprir solicitação"
+                : "Dispensar solicitação"}
             </DialogTitle>
             <DialogDescription>
               {acaoAlvo && acaoAlvo.novoStatus === "atendido"
                 ? isInterno
                   ? "Marque sem arquivo (recebeu pessoalmente) ou anexe o documento."
-                  : "Anexe o documento solicitado. Sera renomeado automaticamente."
+                  : "Anexe o documento solicitado. Será renomeado automaticamente."
                 : "Informe o motivo da dispensa (recomendado)."}
             </DialogDescription>
           </DialogHeader>
@@ -4670,7 +4670,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                         className="h-4 w-4 mt-0.5"
                       />
                       <span className="text-sm">
-                        Anexar arquivo (sera renomeado para o tipo solicitado)
+                        Anexar arquivo (será renomeado para o tipo solicitado)
                       </span>
                     </label>
                   </div>
@@ -4683,7 +4683,7 @@ function TabDocumentos(props: TabDocumentosProps) {
               comAnexo && (
                 <div>
                   <Label className="text-xs">
-                    Arquivo {!isInterno && "(obrigatorio)"}
+                    Arquivo {!isInterno && "(obrigatório)"}
                   </Label>
                   <input
                     type="file"
@@ -4704,12 +4704,12 @@ function TabDocumentos(props: TabDocumentosProps) {
                     accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
                   />
                   <p className="text-xs text-muted-foreground mt-1">
-                    Tamanho maximo: {MAX_FILE_SIZE_MB} MB por arquivo.
+                    Tamanho máximo: {MAX_FILE_SIZE_MB} MB por arquivo.
                   </p>
                   {arquivoUpload && (
                     <div className="mt-2">
                       <Label className="text-xs">
-                        Nome do arquivo (obrigatorio)
+                        Nome do arquivo (obrigatório)
                       </Label>
                       <Input
                         value={nomeArquivoEdit}
@@ -4718,8 +4718,8 @@ function TabDocumentos(props: TabDocumentosProps) {
                         className="text-sm"
                       />
                       <p className="text-xs text-muted-foreground mt-1">
-                        Pre-preenchido com nome padrao - voce pode editar.
-                        Mantenha a extensao (.pdf, .jpg, etc.).
+                        Pré-preenchido com nome padrão - você pode editar.
+                        Mantenha a extensão (.pdf, .jpg, etc.).
                       </p>
                     </div>
                   )}
@@ -4729,15 +4729,15 @@ function TabDocumentos(props: TabDocumentosProps) {
             <div>
               <Label className="text-xs">
                 {acaoAlvo && acaoAlvo.novoStatus === "atendido"
-                  ? "Observacao (opcional)"
+                  ? "Observação (opcional)"
                   : "Motivo"}
               </Label>
               <Textarea
                 rows={3}
                 placeholder={
                   acaoAlvo && acaoAlvo.novoStatus === "atendido"
-                    ? "Ex.: documento ja consta no CNIS"
-                    : "Ex.: cliente nao consegue obter; documento nao necessario para esse beneficio"
+                    ? "Ex.: documento já consta no CNIS"
+                    : "Ex.: cliente não consegue obter; documento não necessário para esse benefício"
                 }
                 value={comentarioModal}
                 onChange={(e) => setComentarioModal(e.target.value)}
@@ -5185,7 +5185,7 @@ function SolicitarDocBotao(props: {
         .select("id")
         .single();
       if (resp.error) throw resp.error;
-      toast.success("Solicitacao criada");
+      toast.success("Solicitação criada");
 
       // Notifica parceiro por email (fire-and-forget; nao bloqueia UI).
       // A edge function checa as regras (origem=externa, caso com parceiro)
@@ -5208,7 +5208,7 @@ function SolicitarDocBotao(props: {
     } catch (err) {
       console.error(err);
       const errObj = err as { message?: string };
-      toast.error(errObj.message || "Erro ao criar solicitacao");
+      toast.error(errObj.message || "Erro ao criar solicitação");
     } finally {
       setEnviando(false);
     }
@@ -5219,7 +5219,7 @@ function SolicitarDocBotao(props: {
       <DialogTrigger asChild>
         <Button size="sm" variant="outline">
           <Plus className="h-4 w-4 mr-2" />
-          Nova solicitacao
+          Nova solicitação
         </Button>
       </DialogTrigger>
       <DialogContent>
@@ -5259,7 +5259,7 @@ function SolicitarDocBotao(props: {
                   Externa - parceiro ou cliente envia
                 </SelectItem>
                 <SelectItem value="interna">
-                  Interna - escritorio providencia
+                  Interna - escritório providencia
                 </SelectItem>
               </SelectContent>
             </Select>
@@ -5338,7 +5338,7 @@ function TabAnaliseTecnica(props: TabAnaliseTecnicaProps) {
         criado_por: usuarioId,
       });
       if (resp.error) throw resp.error;
-      toast.success("Analise tecnica versao " + proximaVersao + " salva");
+      toast.success("Análise técnica versão " + proximaVersao + " salva");
       setBeneficio("");
       setRmi("");
       setValorAcao("");
@@ -5349,7 +5349,7 @@ function TabAnaliseTecnica(props: TabAnaliseTecnicaProps) {
     } catch (err) {
       console.error(err);
       const errObj = err as { message?: string };
-      toast.error(errObj.message || "Erro ao salvar analise");
+      toast.error(errObj.message || "Erro ao salvar análise");
     } finally {
       setSalvando(false);
     }
@@ -5368,29 +5368,29 @@ function TabAnaliseTecnica(props: TabAnaliseTecnicaProps) {
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="text-base">Analise tecnica</CardTitle>
+            <CardTitle className="text-base">Análise técnica</CardTitle>
             <CardDescription>
-              Historico versionado. Nao visivel ao parceiro (exceto o resumo).
+              Histórico versionado. Não visível ao parceiro (exceto o resumo).
             </CardDescription>
           </div>
           <Dialog open={aberto} onOpenChange={setAberto}>
             <DialogTrigger asChild>
               <Button size="sm">
                 <Plus className="h-4 w-4 mr-2" />
-                Nova versao
+                Nova versão
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-2xl">
               <DialogHeader>
                 <DialogTitle>
-                  Nova analise tecnica (versao {proximaVersao})
+                  Nova análise técnica (versão {proximaVersao})
                 </DialogTitle>
               </DialogHeader>
               <div className="space-y-3">
                 <div>
-                  <Label className="text-xs">Beneficio recomendado *</Label>
+                  <Label className="text-xs">Benefício recomendado *</Label>
                   <Input
-                    placeholder="Ex.: Aposentadoria por tempo de contribuicao"
+                    placeholder="Ex.: Aposentadoria por tempo de contribuição"
                     value={beneficio}
                     onChange={(e) => setBeneficio(e.target.value)}
                   />
@@ -5408,7 +5408,7 @@ function TabAnaliseTecnica(props: TabAnaliseTecnicaProps) {
                   </div>
                   <div>
                     <Label className="text-xs">
-                      Valor estimado da acao (R$)
+                      Valor estimado da ação (R$)
                     </Label>
                     <Input
                       type="text"
@@ -5420,10 +5420,10 @@ function TabAnaliseTecnica(props: TabAnaliseTecnicaProps) {
                   </div>
                 </div>
                 <div>
-                  <Label className="text-xs">Observacoes (interno)</Label>
+                  <Label className="text-xs">Observações (interno)</Label>
                   <Textarea
                     rows={6}
-                    placeholder="Raciocinio juridico, calculos, fundamentacao..."
+                    placeholder="Raciocínio jurídico, cálculos, fundamentação..."
                     value={observacoes}
                     onChange={(e) => setObservacoes(e.target.value)}
                   />
@@ -5434,7 +5434,7 @@ function TabAnaliseTecnica(props: TabAnaliseTecnicaProps) {
                   </Label>
                   <Textarea
                     rows={3}
-                    placeholder="Versao simplificada exibida ao parceiro..."
+                    placeholder="Versão simplificada exibida ao parceiro..."
                     value={resumoParceiro}
                     onChange={(e) => setResumoParceiro(e.target.value)}
                   />
@@ -5450,7 +5450,7 @@ function TabAnaliseTecnica(props: TabAnaliseTecnicaProps) {
                 </Button>
                 <Button onClick={salvar} disabled={salvando}>
                   {salvando && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
-                  Salvar versao
+                  Salvar versão
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -5460,7 +5460,7 @@ function TabAnaliseTecnica(props: TabAnaliseTecnicaProps) {
       <CardContent>
         {analises.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-6">
-            Nenhuma analise registrada. Crie a primeira versao.
+            Nenhuma análise registrada. Crie a primeira versão.
           </p>
         ) : (
           <div className="space-y-3">
@@ -5494,7 +5494,7 @@ function TabAnaliseTecnica(props: TabAnaliseTecnicaProps) {
                     {a.valor_estimado_acao !== null && (
                       <div>
                         <span className="text-muted-foreground">
-                          Valor da acao:{" "}
+                          Valor da ação:{" "}
                         </span>
                         <span>{formatMoney(a.valor_estimado_acao)}</span>
                       </div>
@@ -5503,7 +5503,7 @@ function TabAnaliseTecnica(props: TabAnaliseTecnicaProps) {
                   {obs && (
                     <div className="mt-2 pt-2 border-t">
                       <p className="text-xs text-muted-foreground mb-1">
-                        Observacoes
+                        Observações
                       </p>
                       <p className="text-sm whitespace-pre-wrap">{obs}</p>
                     </div>
@@ -5654,7 +5654,7 @@ function TabComentarios(props: TabComentariosProps) {
       if (usuario?.tipo === "parceiro") {
         notificarEquipe({
           tipo: "comentario",
-          titulo: `Comentario de ${usuario.nome || "parceiro"}`,
+          titulo: `Comentário de ${usuario.nome || "parceiro"}`,
           descricao: texto.trim().slice(0, 140),
           caso_id: casoId,
           foco_id: novoId,
@@ -5669,18 +5669,18 @@ function TabComentarios(props: TabComentariosProps) {
         setRespondendoEm(null);
       }
       await recarregar();
-      toast.success(parentId === null ? "Comentario enviado" : "Resposta enviada");
+      toast.success(parentId === null ? "Comentário enviado" : "Resposta enviada");
     } catch (err) {
       console.error(err);
       const errObj = err as { message?: string };
-      toast.error(errObj.message || "Erro ao enviar comentario");
+      toast.error(errObj.message || "Erro ao enviar comentário");
     } finally {
       setEnviando(false);
     }
   }
 
   async function excluirComentario(id: string) {
-    if (!confirm("Excluir este comentario? Replies tambem serao removidas.")) {
+    if (!confirm("Excluir este comentário? Replies também serão removidas.")) {
       return;
     }
     setExcluindoId(id);
@@ -5688,7 +5688,7 @@ function TabComentarios(props: TabComentariosProps) {
       const resp = await supabase.from("comentarios").delete().eq("id", id);
       if (resp.error) throw resp.error;
       await recarregar();
-      toast.success("Comentario excluido");
+      toast.success("Comentário excluído");
     } catch (err) {
       console.error(err);
       const errObj = err as { message?: string };
@@ -5703,17 +5703,17 @@ function TabComentarios(props: TabComentariosProps) {
       {/* Input pra novo comentario top-level */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Novo comentario</CardTitle>
+          <CardTitle className="text-base">Novo comentário</CardTitle>
           <CardDescription>
             {temParceiro
-              ? "Inicie um novo topico. O destinatario (parceiro ou equipe) recebe email avisando."
-              : "Caso sem parceiro vinculado - comentarios funcionam como notas internas da equipe. Outros internos sao notificados por email."}
+              ? "Inicie um novo tópico. O destinatário (parceiro ou equipe) recebe email avisando."
+              : "Caso sem parceiro vinculado - comentários funcionam como notas internas da equipe. Outros internos são notificados por email."}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Textarea
             rows={3}
-            placeholder="Escreva um comentario..."
+            placeholder="Escreva um comentário..."
             value={novoTexto}
             onChange={(e) => setNovoTexto(e.target.value)}
           />
@@ -5727,7 +5727,7 @@ function TabComentarios(props: TabComentariosProps) {
               ) : (
                 <Send className="h-4 w-4 mr-2" />
               )}
-              Publicar comentario
+              Publicar comentário
             </Button>
           </div>
         </CardContent>
@@ -5737,7 +5737,7 @@ function TabComentarios(props: TabComentariosProps) {
       {threads.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-sm text-muted-foreground">
-            Nenhum comentario ainda. Inicie um novo topico acima.
+            Nenhum comentário ainda. Inicie um novo tópico acima.
           </CardContent>
         </Card>
       ) : (
@@ -5937,7 +5937,7 @@ function TabRepasses(props: TabRepassesProps) {
     }
     const valorNumero = parseFloat(valor.replace(",", "."));
     if (isNaN(valorNumero) || valorNumero <= 0) {
-      toast.error("Informe um valor valido");
+      toast.error("Informe um valor válido");
       return;
     }
     setSalvando(true);
@@ -5991,7 +5991,7 @@ function TabRepasses(props: TabRepassesProps) {
           <div>
             <CardTitle className="text-base">Repasses</CardTitle>
             <CardDescription>
-              Honorarios do parceiro indicador (30%).
+              Honorários do parceiro indicador (30%).
             </CardDescription>
           </div>
           {isInterno && parceiroId && (
@@ -6254,7 +6254,7 @@ function TabProcessos(props: TabProcessosProps) {
 
   function nodeLabel(n: ProcNode): string {
     const t = n.tipo === "admin" ? "Adm" : "Jud";
-    const num = n.numero || "(sem numero)";
+    const num = n.numero || "(sem número)";
     return t + " . " + num + (n.etapa_tipo ? " . " + n.etapa_tipo : "");
   }
 
@@ -6427,10 +6427,10 @@ function TabProcessos(props: TabProcessosProps) {
       let msg = "Importado: ";
       msg += pc + " novo" + (pc === 1 ? "" : "s") + ", ";
       msg += pa + " atualizado" + (pa === 1 ? "" : "s") + ". ";
-      msg += mi + " movimentaca" + (mi === 1 ? "o" : "oes") + " importada" +
+      msg += mi + " movimentaç" + (mi === 1 ? "ão" : "ões") + " importada" +
         (mi === 1 ? "" : "s");
       if (mj > 0) {
-        msg += " (" + mj + " ja existia" + (mj === 1 ? "" : "m") + ")";
+        msg += " (" + mj + " já existia" + (mj === 1 ? "" : "m") + ")";
       }
       if (mig > 0) {
         msg += ". " + mig + " mov" + (mig === 1 ? "" : "s") +
@@ -6440,7 +6440,7 @@ function TabProcessos(props: TabProcessosProps) {
       toast.success(msg);
       if (r.erros && r.erros.length > 0) {
         console.warn("erros no import legalmail:", r.erros);
-        toast.warning(r.erros.length + " erro(s) durante importacao. Ver console.");
+        toast.warning(r.erros.length + " erro(s) durante importação. Ver console.");
       }
       setAbrirBuscaLM(false);
       setResultadosLM([]);
@@ -6466,8 +6466,8 @@ function TabProcessos(props: TabProcessosProps) {
       if (dup) {
         toast.error(
           dup.caso_id === casoId
-            ? "Ja existe um processo administrativo com esse numero neste caso."
-            : "Esse numero de requerimento ja esta cadastrado em outro caso.",
+            ? "Já existe um processo administrativo com esse número neste caso."
+            : "Esse número de requerimento já está cadastrado em outro caso.",
         );
         return;
       }
@@ -6508,7 +6508,7 @@ function TabProcessos(props: TabProcessosProps) {
       const errObj = err as { message?: string; code?: string };
       toast.error(
         errObj.code === "23505"
-          ? "Numero ja cadastrado no sistema: esse requerimento ja existe."
+          ? "Número já cadastrado no sistema: esse requerimento já existe."
           : errObj.message || "Erro ao registrar processo",
       );
     } finally {
@@ -6518,13 +6518,13 @@ function TabProcessos(props: TabProcessosProps) {
 
   async function salvarJud() {
     const faltando: Array<string> = [];
-    if (!numProcesso.trim()) faltando.push("Numero do processo");
+    if (!numProcesso.trim()) faltando.push("Número do processo");
     if (!vara.trim()) faltando.push("Tribunal");
     if (!comarca.trim()) faltando.push("Comarca");
     if (!uf.trim()) faltando.push("UF");
-    if (!dataDist) faltando.push("Data da distribuicao");
+    if (!dataDist) faltando.push("Data da distribuição");
     if (faltando.length > 0) {
-      toast.error("Preencha os campos obrigatorios: " + faltando.join(", "));
+      toast.error("Preencha os campos obrigatórios: " + faltando.join(", "));
       return;
     }
     if (numProcesso.trim()) {
@@ -6537,8 +6537,8 @@ function TabProcessos(props: TabProcessosProps) {
       if (dup) {
         toast.error(
           dup.caso_id === casoId
-            ? "Ja existe um processo judicial com esse numero neste caso."
-            : "Esse numero de processo ja esta cadastrado em outro caso.",
+            ? "Já existe um processo judicial com esse número neste caso."
+            : "Esse número de processo já está cadastrado em outro caso.",
         );
         return;
       }
@@ -6577,7 +6577,7 @@ function TabProcessos(props: TabProcessosProps) {
       const errObj = err as { message?: string; code?: string };
       toast.error(
         errObj.code === "23505"
-          ? "Numero ja cadastrado no sistema: esse processo ja existe."
+          ? "Número já cadastrado no sistema: esse processo já existe."
           : errObj.message || "Erro ao registrar processo",
       );
     } finally {
@@ -6609,7 +6609,7 @@ function TabProcessos(props: TabProcessosProps) {
         node.tipo === "admin" ? "processos_admin" : "processos_judiciais";
       const del = await supabase.from(tabela).delete().eq("id", node.id);
       if (del.error) throw del.error;
-      toast.success("Processo excluido");
+      toast.success("Processo excluído");
       setExcluindo(null);
       onChange();
     } catch (err) {
@@ -6679,7 +6679,7 @@ function TabProcessos(props: TabProcessosProps) {
                   {node.judicial?.comarca ? node.judicial.comarca : ""}
                   {node.judicial?.uf ? "/" + node.judicial.uf : ""}
                   {node.judicial?.data_distribuicao
-                    ? " - Distribuido em " +
+                    ? " - Distribuído em " +
                       formatDate(node.judicial.data_distribuicao)
                     : ""}
                 </p>
@@ -6769,7 +6769,7 @@ function TabProcessos(props: TabProcessosProps) {
                 </DialogHeader>
                 <div className="space-y-3">
                   <div>
-                    <Label className="text-xs">Numero do requerimento</Label>
+                    <Label className="text-xs">Número do requerimento</Label>
                     <Input
                       value={numReq}
                       onChange={(e) => setNumReq(e.target.value)}
@@ -6777,17 +6777,17 @@ function TabProcessos(props: TabProcessosProps) {
                     />
                   </div>
                   <div>
-                    <Label className="text-xs">Tipo de beneficio</Label>
+                    <Label className="text-xs">Tipo de benefício</Label>
                     <Select
                       value={tipoBeneficioAdmin || "__none__"}
                       onValueChange={(v) =>
                         setTipoBeneficioAdmin(v === "__none__" ? "" : v)}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Selecione o beneficio" />
+                        <SelectValue placeholder="Selecione o benefício" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="__none__">Nao informado</SelectItem>
+                        <SelectItem value="__none__">Não informado</SelectItem>
                         {TIPOS_BENEFICIO.map((b) => (
                           <SelectItem key={b} value={b}>
                             {b}
@@ -6804,11 +6804,11 @@ function TabProcessos(props: TabProcessosProps) {
                         setEtapaAdmin(v === "__none__" ? "" : v)}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Sem classificacao" />
+                        <SelectValue placeholder="Sem classificação" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__none__">
-                          Sem classificacao
+                          Sem classificação
                         </SelectItem>
                         {ETAPAS_ADMIN.map((e) => (
                           <SelectItem key={e} value={e}>
@@ -6849,15 +6849,15 @@ function TabProcessos(props: TabProcessosProps) {
                     />
                   </div>
                   <div>
-                    <Label className="text-xs">Decisao (se houver)</Label>
+                    <Label className="text-xs">Decisão (se houver)</Label>
                     <Input
                       value={decisao}
                       onChange={(e) => setDecisao(e.target.value)}
-                      placeholder="Ex.: deferido, indeferido, em exigencia..."
+                      placeholder="Ex.: deferido, indeferido, em exigência..."
                     />
                   </div>
                   <div>
-                    <Label className="text-xs">Data da decisao</Label>
+                    <Label className="text-xs">Data da decisão</Label>
                     <Input
                       type="date"
                       value={dataDecisao}
@@ -6903,7 +6903,7 @@ function TabProcessos(props: TabProcessosProps) {
             <div>
               <CardTitle className="text-base">Processos judiciais</CardTitle>
               <CardDescription>
-                Acoes ajuizadas relacionadas ao caso.
+                Ações ajuizadas relacionadas ao caso.
               </CardDescription>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
@@ -6939,7 +6939,7 @@ function TabProcessos(props: TabProcessosProps) {
                 </DialogHeader>
                 <div className="space-y-3">
                   <div>
-                    <Label className="text-xs">Numero do processo *</Label>
+                    <Label className="text-xs">Número do processo *</Label>
                     <Input
                       value={numProcesso}
                       onChange={(e) => setNumProcesso(e.target.value)}
@@ -6954,11 +6954,11 @@ function TabProcessos(props: TabProcessosProps) {
                         setEtapaJud(v === "__none__" ? "" : v)}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Sem classificacao" />
+                        <SelectValue placeholder="Sem classificação" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__none__">
-                          Sem classificacao
+                          Sem classificação
                         </SelectItem>
                         {ETAPAS_JUDICIAL.map((e) => (
                           <SelectItem key={e} value={e}>
@@ -7004,7 +7004,7 @@ function TabProcessos(props: TabProcessosProps) {
                           <SelectItem value={vara}>{vara} (atual)</SelectItem>
                         )}
                         <SelectGroup>
-                          <SelectLabel>Justica Federal</SelectLabel>
+                          <SelectLabel>Justiça Federal</SelectLabel>
                           {TRIBUNAIS_FEDERAIS.map((t) => (
                             <SelectItem key={t} value={t}>
                               {t}
@@ -7012,7 +7012,7 @@ function TabProcessos(props: TabProcessosProps) {
                           ))}
                         </SelectGroup>
                         <SelectGroup>
-                          <SelectLabel>Justica Estadual</SelectLabel>
+                          <SelectLabel>Justiça Estadual</SelectLabel>
                           {TRIBUNAIS_ESTADUAIS.map((t) => (
                             <SelectItem key={t} value={t}>
                               {t}
@@ -7028,7 +7028,7 @@ function TabProcessos(props: TabProcessosProps) {
                       <Input
                         value={comarca}
                         onChange={(e) => setComarca(e.target.value)}
-                        placeholder="Ex.: Sao Paulo"
+                        placeholder="Ex.: São Paulo"
                       />
                     </div>
                     <div>
@@ -7044,7 +7044,7 @@ function TabProcessos(props: TabProcessosProps) {
                     </div>
                   </div>
                   <div>
-                    <Label className="text-xs">Data da distribuicao *</Label>
+                    <Label className="text-xs">Data da distribuição *</Label>
                     <Input
                       type="date"
                       value={dataDist}
@@ -7196,8 +7196,8 @@ function TabProcessos(props: TabProcessosProps) {
               {excluindo && childrenOf(excluindo.id).length > 0
                 ? "Este processo tem " +
                   childrenOf(excluindo.id).length +
-                  " sub-processo(s). Eles serao mantidos e religados ao processo de origem deste. Esta acao nao pode ser desfeita."
-                : "Esta acao nao pode ser desfeita."}
+                  " sub-processo(s). Eles serão mantidos e religados ao processo de origem deste. Esta ação não pode ser desfeita."
+                : "Esta ação não pode ser desfeita."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

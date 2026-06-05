@@ -68,7 +68,7 @@ function LoginPage() {
             className="h-36 w-auto object-contain"
           />
           <p className="text-sm text-muted-foreground">
-            Plataforma interna · Previdenciario
+            Plataforma interna · Previdenciário
           </p>
         </div>
 

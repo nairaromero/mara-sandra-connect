@@ -31,11 +31,11 @@ interface CasoRow {
 //   - Arquivado: muted (cinza marfim)
 const STATUS_VARIANT: Record<string, { label: string; className: string }> = {
   aguardando_documentos: { label: "Aguardando documentos", className: "bg-warning text-warning-foreground hover:bg-warning" },
-  em_analise: { label: "Em analise", className: "bg-secondary text-secondary-foreground hover:bg-secondary border border-border" },
-  em_revisao: { label: "Em revisao", className: "bg-warning text-warning-foreground hover:bg-warning" },
+  em_analise: { label: "Em análise", className: "bg-secondary text-secondary-foreground hover:bg-secondary border border-border" },
+  em_revisao: { label: "Em revisão", className: "bg-warning text-warning-foreground hover:bg-warning" },
   em_andamento: { label: "Em andamento", className: "bg-secondary text-secondary-foreground hover:bg-secondary border border-border" },
-  concluido_exito: { label: "Concluido com exito", className: "bg-success text-success-foreground hover:bg-success" },
-  concluido_sem_exito: { label: "Concluido sem exito", className: "bg-destructive text-destructive-foreground hover:bg-destructive" },
+  concluido_exito: { label: "Concluído com êxito", className: "bg-success text-success-foreground hover:bg-success" },
+  concluido_sem_exito: { label: "Concluído sem êxito", className: "bg-destructive text-destructive-foreground hover:bg-destructive" },
   arquivado: { label: "Arquivado", className: "bg-muted text-muted-foreground hover:bg-muted" },
 };
 
@@ -183,11 +183,11 @@ function DashboardPage() {
         {spinnerTimedOut && (
           <div className="max-w-md text-center text-sm text-muted-foreground space-y-1">
             <p>
-              Demorou demais carregando seu perfil. Verifique no console se ha
+              Demorou demais carregando seu perfil. Verifique no console se há
               erro de coluna inexistente em <code>usuarios</code>.
             </p>
             <p className="text-xs">
-              Provavelmente alguma migration SQL ainda nao foi aplicada.
+              Provavelmente alguma migration SQL ainda não foi aplicada.
             </p>
           </div>
         )}
@@ -201,11 +201,11 @@ function DashboardPage() {
     <div className="space-y-6">
       <div>
         <h1 className="font-serif text-3xl font-semibold tracking-tight">
-          Ola, {usuario.nome ?? "advogado(a)"}
+          Olá, {usuario.nome ?? "advogado(a)"}
         </h1>
         <p className="text-sm text-muted-foreground">
           {isInterno
-            ? "Visao geral de todos os casos do escritorio."
+            ? "Visão geral de todos os casos do escritório."
             : "Acompanhe seus casos."}
         </p>
       </div>
@@ -213,13 +213,13 @@ function DashboardPage() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <MetricCard title="Casos totais" value={metrics.total} icon={Briefcase} />
           <MetricCard title="Em andamento" value={metrics.andamento} icon={Clock} />
-          <MetricCard title="Aguardando revisao" value={metrics.aguardandoRevisao} icon={FileSearch} />
-          <MetricCard title="Exitos no mes" value={metrics.exitosMes} icon={TrendingUp} />
+          <MetricCard title="Aguardando revisão" value={metrics.aguardandoRevisao} icon={FileSearch} />
+          <MetricCard title="Êxitos no mês" value={metrics.exitosMes} icon={TrendingUp} />
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           <MetricCard title="Casos ativos" value={metrics.ativos} icon={Briefcase} />
-          <MetricCard title="Exitos no ano" value={metrics.exitosAno} icon={CheckCircle2} />
+          <MetricCard title="Êxitos no ano" value={metrics.exitosAno} icon={CheckCircle2} />
         </div>
       )}
       <Card>
@@ -241,7 +241,7 @@ function DashboardPage() {
                 <p className="text-xs text-muted-foreground">
                   {isInterno
                     ? "Cadastre o primeiro caso ou importe clientes do TI na tela Clientes."
-                    : "Cadastre seu primeiro caso para comecar a acompanhar."}
+                    : "Cadastre seu primeiro caso para começar a acompanhar."}
                 </p>
               </div>
               <Button
@@ -259,7 +259,7 @@ function DashboardPage() {
                 <TableRow>
                   <TableHead>Cliente</TableHead>
                   {isInterno && <TableHead>Parceiro</TableHead>}
-                  <TableHead>Tipo de beneficio</TableHead>
+                  <TableHead>Tipo de benefício</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Criado em</TableHead>
                 </TableRow>

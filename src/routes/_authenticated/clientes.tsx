@@ -81,12 +81,12 @@ const STATUS_VARIANT: Record<string, { label: string; className: string }> = {
     className: "bg-warning text-warning-foreground hover:bg-warning",
   },
   em_analise: {
-    label: "Em analise",
+    label: "Em análise",
     className:
       "bg-secondary text-secondary-foreground hover:bg-secondary border border-border",
   },
   em_revisao: {
-    label: "Em revisao",
+    label: "Em revisão",
     className: "bg-warning text-warning-foreground hover:bg-warning",
   },
   em_andamento: {
@@ -95,11 +95,11 @@ const STATUS_VARIANT: Record<string, { label: string; className: string }> = {
       "bg-secondary text-secondary-foreground hover:bg-secondary border border-border",
   },
   concluido_exito: {
-    label: "Concluido com exito",
+    label: "Concluído com êxito",
     className: "bg-success text-success-foreground hover:bg-success",
   },
   concluido_sem_exito: {
-    label: "Sem exito",
+    label: "Sem êxito",
     className: "bg-destructive text-destructive-foreground hover:bg-destructive",
   },
   arquivado: {
@@ -246,7 +246,7 @@ function ClientesPage() {
           </h1>
           <p className="text-sm text-muted-foreground">
             Lista de todos os clientes com seus casos. Busque por nome, CPF ou
-            numero de processo.
+            número de processo.
           </p>
         </div>
         {usuario?.tipo === "interno" && (
@@ -265,7 +265,7 @@ function ClientesPage() {
           <CardHeader>
             <CardTitle className="text-base">Busca</CardTitle>
             <CardDescription>
-              Filtra por nome (parcial), CPF (so digitos) ou numero de processo
+              Filtra por nome (parcial), CPF (só dígitos) ou número de processo
               (admin ou judicial).
             </CardDescription>
           </CardHeader>
@@ -275,7 +275,7 @@ function ClientesPage() {
               <Input
                 value={busca}
                 onChange={(e) => setBusca(e.target.value)}
-                placeholder="Ex: Joao, 123.456.789-00, 0001234-56.2024.4.03.6100"
+                placeholder="Ex: João, 123.456.789-00, 0001234-56.2024.4.03.6100"
                 className="pl-9"
               />
             </div>

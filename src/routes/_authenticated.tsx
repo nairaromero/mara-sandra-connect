@@ -73,7 +73,7 @@ function AuthenticatedLayout() {
                   esta colapsada. */}
               <Link
                 to="/"
-                aria-label="Mara Sandra Vian Advocacia - inicio"
+                aria-label="Mara Sandra Vian Advocacia - início"
                 className="hidden sm:flex items-center hover:opacity-80 transition-opacity"
               >
                 <img
@@ -107,9 +107,9 @@ function AuthenticatedLayout() {
                   funcionando como atalho redundante. */}
               <Link
                 to="/configuracoes"
-                aria-label="Abrir configuracoes do perfil"
+                aria-label="Abrir configurações do perfil"
                 className="flex items-center gap-2 rounded-md px-1.5 py-0.5 hover:bg-muted/60 transition-colors"
-                title="Configuracoes do perfil"
+                title="Configurações do perfil"
               >
                 <Avatar className="h-8 w-8 ring-1 ring-transparent hover:ring-[var(--gold)]/40 transition-all">
                   <AvatarFallback className="bg-primary text-primary-foreground text-xs">

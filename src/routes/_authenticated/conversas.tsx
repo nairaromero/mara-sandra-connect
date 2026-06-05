@@ -81,11 +81,11 @@ function formatRelativo(iso: string): string {
   const diffMs = Date.now() - d.getTime();
   const min = Math.floor(diffMs / (1000 * 60));
   if (min < 1) return "agora";
-  if (min < 60) return min + " min atras";
+  if (min < 60) return min + " min atrás";
   const horas = Math.floor(min / 60);
-  if (horas < 24) return horas + "h atras";
+  if (horas < 24) return horas + "h atrás";
   const dias = Math.floor(horas / 24);
-  if (dias < 7) return dias + "d atras";
+  if (dias < 7) return dias + "d atrás";
   return d.toLocaleDateString("pt-BR");
 }
 
@@ -95,7 +95,7 @@ function truncar(texto: string, max: number): string {
 }
 
 const FASE_LABEL: Record<string, string> = {
-  analise: "Em analise",
+  analise: "Em análise",
   admin: "Administrativo",
   judicial: "Judicial",
   finalizado: "Finalizado",
@@ -218,7 +218,7 @@ function ConversasPage() {
               Conversas
               {totalNaoLidas > 0 && (
                 <Badge className="bg-destructive hover:bg-destructive text-destructive-foreground">
-                  {totalNaoLidas} nao lida
+                  {totalNaoLidas} não lida
                   {totalNaoLidas > 1 ? "s" : ""}
                 </Badge>
               )}
@@ -236,7 +236,7 @@ function ConversasPage() {
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 className="pl-8"
-                placeholder="Cliente, beneficio ou trecho da mensagem..."
+                placeholder="Cliente, benefício ou trecho da mensagem..."
                 value={busca}
                 onChange={(e) => setBusca(e.target.value)}
               />
@@ -346,7 +346,7 @@ function ConversaItem(props: ConversaItemProps) {
             </p>
             <p className="text-[10px] text-muted-foreground mt-1">
               {totalMensagens} mensagem
-              {totalMensagens > 1 ? "ns" : ""} - ultima em{" "}
+              {totalMensagens > 1 ? "ns" : ""} - última em{" "}
               {formatDateTime(ultimaMensagem.created_at)}
             </p>
           </div>

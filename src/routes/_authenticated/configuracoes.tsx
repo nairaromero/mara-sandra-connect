@@ -111,7 +111,7 @@ function ConfiguracoesPage() {
       if (resp.error) throw resp.error;
       const u = resp.data as UsuarioCompleto | null;
       if (!u) {
-        setErro("Usuario nao encontrado");
+        setErro("Usuário não encontrado");
         return;
       }
       setDados(u);
@@ -135,7 +135,7 @@ function ConfiguracoesPage() {
   async function salvarPerfil() {
     if (!usuarioId) return;
     if (!nome.trim()) {
-      toast.error("Nome e obrigatorio");
+      toast.error("Nome é obrigatório");
       return;
     }
     setSalvando(true);
@@ -176,7 +176,7 @@ function ConfiguracoesPage() {
       return;
     }
     if (novaSenha !== confirmaSenha) {
-      toast.error("As senhas nao conferem");
+      toast.error("As senhas não conferem");
       return;
     }
     setSalvandoSenha(true);
@@ -206,7 +206,7 @@ function ConfiguracoesPage() {
       toast.success(
         global
           ? "Deslogado de todos os dispositivos"
-          : "Sessao encerrada",
+          : "Sessão encerrada",
       );
       navigate({ to: "/login" });
     } catch (err) {
@@ -231,7 +231,7 @@ function ConfiguracoesPage() {
       <Card>
         <CardContent className="py-12 text-center">
           <p className="text-sm text-destructive">
-            {erro || "Nao foi possivel carregar suas configuracoes"}
+            {erro || "Não foi possível carregar suas configurações"}
           </p>
         </CardContent>
       </Card>
@@ -250,10 +250,10 @@ function ConfiguracoesPage() {
         <div>
           <h1 className="font-serif text-3xl font-semibold tracking-tight flex items-center gap-2">
             <Settings className="h-6 w-6" />
-            Configuracoes
+            Configurações
           </h1>
           <p className="text-sm text-muted-foreground">
-            Gerencie seu perfil, senha e sessao.
+            Gerencie seu perfil, senha e sessão.
           </p>
         </div>
 
@@ -267,7 +267,7 @@ function ConfiguracoesPage() {
                   Meu perfil
                 </CardTitle>
                 <CardDescription>
-                  Suas informacoes pessoais. O e-mail nao pode ser alterado por
+                  Suas informações pessoais. O e-mail não pode ser alterado por
                   aqui.
                 </CardDescription>
               </div>
@@ -304,7 +304,7 @@ function ConfiguracoesPage() {
           <CardContent className="space-y-3">
             <div className="flex items-center gap-2">
               <Badge variant="outline">
-                {dados.tipo === "interno" ? "Interno (escritorio)" : "Parceiro"}
+                {dados.tipo === "interno" ? "Interno (escritório)" : "Parceiro"}
               </Badge>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -380,7 +380,7 @@ function ConfiguracoesPage() {
                   <DialogHeader>
                     <DialogTitle>Alterar senha</DialogTitle>
                     <DialogDescription>
-                      Escolha uma nova senha com no minimo 8 caracteres.
+                      Escolha uma nova senha com no mínimo 8 caracteres.
                     </DialogDescription>
                   </DialogHeader>
                   <div className="space-y-3">
@@ -391,7 +391,7 @@ function ConfiguracoesPage() {
                           type={mostrarSenha ? "text" : "password"}
                           value={novaSenha}
                           onChange={(e) => setNovaSenha(e.target.value)}
-                          placeholder="Minimo 8 caracteres"
+                          placeholder="Mínimo 8 caracteres"
                           autoComplete="new-password"
                         />
                         <button
@@ -452,10 +452,10 @@ function ConfiguracoesPage() {
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <LogOut className="h-4 w-4" />
-              Sessao
+              Sessão
             </CardTitle>
             <CardDescription>
-              Encerre a sessao atual ou desconecte-se de todos os dispositivos.
+              Encerre a sessão atual ou desconecte-se de todos os dispositivos.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">
@@ -487,8 +487,8 @@ function ConfiguracoesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground space-y-1">
-            <p>Mara Sandra Connect - app interno do escritorio</p>
-            <p className="text-xs">Versao beta</p>
+            <p>Mara Sandra Connect - app interno do escritório</p>
+            <p className="text-xs">Versão beta</p>
           </CardContent>
         </Card>
       </div>

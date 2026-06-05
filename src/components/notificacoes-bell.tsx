@@ -137,7 +137,7 @@ export function NotificacoesBell() {
         clientes_sincronizados?: number;
       };
       toast.success(
-        `Sync concluido: ${r.andamentos_novos || 0} andamento(s) novo(s), ` +
+        `Sync concluído: ${r.andamentos_novos || 0} andamento(s) novo(s), ` +
           `${r.clientes_ti_novos || 0} cliente(s) novo(s) no TI, ` +
           `${r.tags_alteradas || 0} tag(s) alterada(s).`,
       );
@@ -169,7 +169,7 @@ export function NotificacoesBell() {
           variant="ghost"
           size="icon"
           className="relative"
-          aria-label="Notificacoes"
+          aria-label="Notificações"
         >
           <Bell className="h-5 w-5" />
           {naoLidas > 0 && (
@@ -181,7 +181,7 @@ export function NotificacoesBell() {
       </PopoverTrigger>
       <PopoverContent align="end" className="w-[22rem] p-0">
         <div className="flex items-center justify-between gap-2 border-b p-3">
-          <span className="text-sm font-semibold">Notificacoes</span>
+          <span className="text-sm font-semibold">Notificações</span>
           <div className="flex items-center gap-1">
             <Button
               size="sm"
@@ -189,7 +189,7 @@ export function NotificacoesBell() {
               className="h-7 px-2 text-xs"
               onClick={sincronizarTudo}
               disabled={sincronizando}
-              title="Sincronizar todos os clientes com o Tramitacao Inteligente"
+              title="Sincronizar todos os clientes com o Tramitação Inteligente"
             >
               {sincronizando
                 ? <Loader2 className="h-3 w-3 animate-spin" />
@@ -213,7 +213,7 @@ export function NotificacoesBell() {
           {itens.length === 0
             ? (
               <p className="p-6 text-center text-sm text-muted-foreground">
-                Nenhuma notificacao.
+                Nenhuma notificação.
               </p>
             )
             : (

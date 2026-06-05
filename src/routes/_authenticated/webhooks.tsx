@@ -71,18 +71,18 @@ export const Route = createFileRoute("/_authenticated/webhooks")({
 // descricao sao so de UI; o value e o que vai pra coluna eventos[] e bate com
 // o tipo gravado em webhook_eventos pelos triggers.
 const EVENTOS: { value: string; label: string; desc: string }[] = [
-  { value: "caso.created", label: "Caso criado", desc: "Novo caso aberto no escritorio" },
-  { value: "caso.status_changed", label: "Status do caso", desc: "Mudanca de status do caso" },
-  { value: "caso.fase_changed", label: "Fase do caso", desc: "Mudanca de fase do caso" },
+  { value: "caso.created", label: "Caso criado", desc: "Novo caso aberto no escritório" },
+  { value: "caso.status_changed", label: "Status do caso", desc: "Mudança de status do caso" },
+  { value: "caso.fase_changed", label: "Fase do caso", desc: "Mudança de fase do caso" },
   { value: "andamento.created", label: "Novo andamento", desc: "Andamento registrado no caso" },
   { value: "documento.uploaded", label: "Documento enviado", desc: "Documento anexado ao caso" },
-  { value: "solicitacao_documento.created", label: "Solicitacao de documento", desc: "Pedido de documento ao cliente" },
-  { value: "solicitacao_documento.status_changed", label: "Status da solicitacao", desc: "Solicitacao de documento mudou de status" },
+  { value: "solicitacao_documento.created", label: "Solicitação de documento", desc: "Pedido de documento ao cliente" },
+  { value: "solicitacao_documento.status_changed", label: "Status da solicitação", desc: "Solicitação de documento mudou de status" },
   // Repasse pausado na UI (mantido no backend) - ver todo list.
   // { value: "repasse.status_changed", label: "Status de repasse", desc: "Mudanca no status de um repasse" },
-  { value: "processo_admin.decisao", label: "Decisao administrativa", desc: "Decisao em processo administrativo" },
+  { value: "processo_admin.decisao", label: "Decisão administrativa", desc: "Decisão em processo administrativo" },
   { value: "processo_judicial.created", label: "Processo judicial", desc: "Novo processo judicial cadastrado" },
-  { value: "analise_tecnica.disponivel", label: "Analise tecnica", desc: "Analise tecnica disponibilizada" },
+  { value: "analise_tecnica.disponivel", label: "Análise técnica", desc: "Análise técnica disponibilizada" },
 ];
 
 interface ParceiroOption {
@@ -156,7 +156,7 @@ function WebhooksPage() {
 
   useEffect(() => {
     if (usuario && !isInterno) {
-      toast.error("Acesso restrito a equipe interna.");
+      toast.error("Acesso restrito à equipe interna.");
       navigate({ to: "/" });
     }
   }, [usuario, isInterno, navigate]);
@@ -210,7 +210,7 @@ function WebhooksPage() {
       marcar(true);
       setTimeout(() => marcar(false), 2000);
     } catch {
-      toast.error("Nao foi possivel copiar. Selecione e copie manualmente.");
+      toast.error("Não foi possível copiar. Selecione e copie manualmente.");
     }
   }
 
@@ -220,7 +220,7 @@ function WebhooksPage() {
       return;
     }
     if (!isHttpsUrl(novaUrl)) {
-      toast.error("Informe uma URL https valida.");
+      toast.error("Informe uma URL https válida.");
       return;
     }
     if (novosEventos.length === 0) {
@@ -262,7 +262,7 @@ function WebhooksPage() {
       }
 
       toast.success(
-        "Webhook criado. Copie o segredo agora - ele nao sera mostrado de novo.",
+        "Webhook criado. Copie o segredo agora - ele não será mostrado de novo.",
       );
       setNovoParceiro("");
       setNovaUrl("");
@@ -302,7 +302,7 @@ function WebhooksPage() {
   async function salvarEdit() {
     if (!editAlvo) return;
     if (!isHttpsUrl(editUrl)) {
-      toast.error("Informe uma URL https valida.");
+      toast.error("Informe uma URL https válida.");
       return;
     }
     if (editEventos.length === 0) {
@@ -348,7 +348,7 @@ function WebhooksPage() {
       });
       if (resp.error) throw resp.error;
       toast.success(
-        "Segredo atualizado. Copie agora - nao sera mostrado de novo.",
+        "Segredo atualizado. Copie agora - não será mostrado de novo.",
       );
       setSegredoAlvo(null);
       await loadDados();
@@ -370,7 +370,7 @@ function WebhooksPage() {
         .delete()
         .eq("id", excluirAlvo.id);
       if (resp.error) throw resp.error;
-      toast.success("Webhook excluido.");
+      toast.success("Webhook excluído.");
       setExcluirAlvo(null);
       await loadDados();
     } catch (err) {
@@ -390,7 +390,7 @@ function WebhooksPage() {
     return (
       <div className="flex h-96 flex-col items-center justify-center gap-2 text-muted-foreground">
         <ShieldAlert className="h-8 w-8" />
-        <p className="text-sm">Acesso restrito a equipe interna.</p>
+        <p className="text-sm">Acesso restrito à equipe interna.</p>
       </div>
     );
   }
@@ -402,9 +402,9 @@ function WebhooksPage() {
           Webhooks
         </h1>
         <p className="text-sm text-muted-foreground">
-          Notificacoes enviadas a parceiros externos quando algo muda no caso.
+          Notificações enviadas a parceiros externos quando algo muda no caso.
           O segredo assina cada entrega (HMAC-SHA256) e fica guardado cifrado -
-          so e mostrado no momento da criacao.
+          só é mostrado no momento da criação.
         </p>
       </div>
 
@@ -522,8 +522,8 @@ function WebhooksPage() {
                 </Button>
               </div>
               <p className="text-xs text-[var(--gold)] font-medium">
-                Copie e entregue ao parceiro com seguranca. Apos salvar, o
-                segredo nao podera mais ser visto - so redefinido.
+                Copie e entregue ao parceiro com segurança. Após salvar, o
+                segredo não poderá mais ser visto - só redefinido.
               </p>
             </div>
 
@@ -552,7 +552,7 @@ function WebhooksPage() {
               </div>
             ) : destinos.length === 0 ? (
               <p className="text-sm text-muted-foreground py-8 text-center">
-                Nenhum webhook cadastrado ainda. Use o formulario acima para
+                Nenhum webhook cadastrado ainda. Use o formulário acima para
                 criar o primeiro.
               </p>
             ) : (
@@ -564,7 +564,7 @@ function WebhooksPage() {
                     <TableHead className="w-20 text-center">Eventos</TableHead>
                     <TableHead className="w-24">Segredo</TableHead>
                     <TableHead className="w-20 text-center">Ativo</TableHead>
-                    <TableHead className="w-32 text-right">Acoes</TableHead>
+                    <TableHead className="w-32 text-right">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -646,7 +646,7 @@ function WebhooksPage() {
             <DialogHeader>
               <DialogTitle>Editar webhook</DialogTitle>
               <DialogDescription>
-                Ajuste a URL de entrega e os eventos. O segredo nao muda aqui -
+                Ajuste a URL de entrega e os eventos. O segredo não muda aqui -
                 use "Redefinir segredo".
               </DialogDescription>
             </DialogHeader>
@@ -759,7 +759,7 @@ function WebhooksPage() {
                 </Button>
               </div>
               <p className="text-xs text-[var(--gold)] font-medium">
-                Copie antes de salvar - nao sera mostrado de novo.
+                Copie antes de salvar - não será mostrado de novo.
               </p>
             </div>
             <DialogFooter>
@@ -797,12 +797,12 @@ function WebhooksPage() {
                     <strong>
                       {excluirAlvo ? nomeParceiro(excluirAlvo) : ""}
                     </strong>{" "}
-                    deixara de receber notificacoes. Esta acao e{" "}
-                    <strong>irreversivel</strong> e o segredo associado e
+                    deixará de receber notificações. Esta ação é{" "}
+                    <strong>irreversível</strong> e o segredo associado é
                     descartado.
                   </p>
                   <p className="text-muted-foreground">
-                    O historico de entregas (webhook_eventos) e preservado para
+                    O histórico de entregas (webhook_eventos) é preservado para
                     auditoria.
                   </p>
                 </div>

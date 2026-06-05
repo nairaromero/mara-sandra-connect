@@ -158,7 +158,7 @@ export function ImportarTiDialog({ onImported }: { onImported: () => void }) {
       if (erros.length > 0) {
         console.warn("erros import TI:", erros);
         toast.warning(
-          `${erros.length} cliente(s) falharam na importacao. Ver console.`,
+          `${erros.length} cliente(s) falharam na importação. Ver console.`,
         );
       }
       // Remove os importados com sucesso da lista e da selecao.
@@ -183,11 +183,11 @@ export function ImportarTiDialog({ onImported }: { onImported: () => void }) {
       </Button>
       <DialogContent className="max-h-[90vh] overflow-hidden flex flex-col sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Importar clientes do Tramitacao Inteligente</DialogTitle>
+          <DialogTitle>Importar clientes do Tramitação Inteligente</DialogTitle>
           <DialogDescription>
             {resumo
-              ? `${lista.length} cliente(s) no TI ainda nao cadastrado(s)` +
-                ` (de ${resumo.total_ti}; ${resumo.ja_cadastrados} ja existem).` +
+              ? `${lista.length} cliente(s) no TI ainda não cadastrado(s)` +
+                ` (de ${resumo.total_ti}; ${resumo.ja_cadastrados} já existem).` +
                 " Marque os que quer importar."
               : "Buscando clientes no TI..."}
           </DialogDescription>

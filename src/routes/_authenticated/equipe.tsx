@@ -62,7 +62,7 @@ function EquipePage() {
       return;
     }
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(emailNorm)) {
-      toast.error("E-mail invalido");
+      toast.error("E-mail inválido");
       return;
     }
     setEnviando(true);
@@ -86,7 +86,7 @@ function EquipePage() {
       }
       toast.success(
         r.ja_existia
-          ? "Esse e-mail ja tem cadastro."
+          ? "Esse e-mail já tem cadastro."
           : `Convite enviado para ${emailNorm}. Peça para verificar a caixa de entrada.`,
       );
       setNome("");
@@ -107,7 +107,7 @@ function EquipePage() {
       <div className="flex h-64 flex-col items-center justify-center gap-2 text-center">
         <ShieldAlert className="h-8 w-8 text-muted-foreground" />
         <p className="text-sm text-muted-foreground">
-          Area restrita a usuarios internos.
+          Área restrita a usuários internos.
         </p>
       </div>
     );
@@ -121,7 +121,7 @@ function EquipePage() {
           Equipe interna
         </h1>
         <p className="text-sm text-muted-foreground">
-          Convide pessoas da equipe para acessar a plataforma como usuario
+          Convide pessoas da equipe para acessar a plataforma como usuário
           interno (acesso total).
         </p>
       </div>
@@ -137,7 +137,7 @@ function EquipePage() {
           <CardHeader>
             <CardTitle className="text-base">Convidar novo interno</CardTitle>
             <CardDescription>
-              Cria o acesso e envia um link de login por e-mail. O interno ja
+              Cria o acesso e envia um link de login por e-mail. O interno já
               entra com acesso total (sem onboarding de parceiro).
             </CardDescription>
           </CardHeader>
@@ -173,10 +173,10 @@ function EquipePage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">
-              Usuarios internos ({lista.length})
+              Usuários internos ({lista.length})
             </CardTitle>
             <CardDescription>
-              Pessoas com acesso interno (total) a plataforma.
+              Pessoas com acesso interno (total) à plataforma.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -189,7 +189,7 @@ function EquipePage() {
               : lista.length === 0
               ? (
                 <p className="text-sm text-muted-foreground text-center py-6">
-                  Nenhum usuario interno.
+                  Nenhum usuário interno.
                 </p>
               )
               : (
@@ -204,7 +204,7 @@ function EquipePage() {
                           {u.nome || "(sem nome)"}
                           {u.id === usuario?.id && (
                             <span className="text-xs text-muted-foreground">
-                              {" "}(voce)
+                              {" "}(você)
                             </span>
                           )}
                         </p>

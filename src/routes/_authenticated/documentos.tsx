@@ -89,35 +89,35 @@ interface SolicitacaoComCaso {
 const TIPOS_DOCUMENTO_LABEL: Record<string, string> = {
   cnis: "CNIS",
   rg_cpf: "RG / CPF",
-  comprovante_residencia: "Comprovante de residencia",
+  comprovante_residencia: "Comprovante de residência",
   ctps: "CTPS",
   holerite: "Holerite / contracheque",
   ppp: "PPP",
-  laudo_medico: "Laudo medico",
+  laudo_medico: "Laudo médico",
   ltcat: "LTCAT",
-  atestado_medico: "Atestado medico",
+  atestado_medico: "Atestado médico",
   cat: "CAT",
-  carne_gps: "Carne de contribuicao (GPS)",
+  carne_gps: "Carnê de contribuição (GPS)",
   ctc: "CTC",
-  carta_concessao_inss: "Carta de concessao/indeferimento INSS",
+  carta_concessao_inss: "Carta de concessão/indeferimento INSS",
   hiscre: "HISCRE",
-  certidao_casamento: "Certidao de casamento",
-  certidao_obito: "Certidao de obito",
-  certidao_nascimento: "Certidao de nascimento",
-  declaracao_uniao_estavel: "Declaracao de uniao estavel",
-  declaracao_atividade_rural: "Declaracao de atividade rural",
-  procuracao: "Procuracao",
-  contrato_honorarios: "Contrato de honorarios",
+  certidao_casamento: "Certidão de casamento",
+  certidao_obito: "Certidão de óbito",
+  certidao_nascimento: "Certidão de nascimento",
+  declaracao_uniao_estavel: "Declaração de união estável",
+  declaracao_atividade_rural: "Declaração de atividade rural",
+  procuracao: "Procuração",
+  contrato_honorarios: "Contrato de honorários",
   outro: "Outro",
 };
 
 const ORIGEM_SOLICITACAO_LABEL: Record<string, string> = {
-  interna: "Interna (escritorio)",
+  interna: "Interna (escritório)",
   externa: "Externa (parceiro/cliente)",
 };
 
 const STATUS_FASE_CASO_LABEL: Record<string, string> = {
-  analise: "Em analise",
+  analise: "Em análise",
   admin: "Administrativo",
   judicial: "Judicial",
   finalizado: "Finalizado",
@@ -193,7 +193,7 @@ function DocumentosPendentesPage() {
     } catch (err) {
       console.error(err);
       const errObj = err as { message?: string };
-      setErro(errObj.message || "Erro ao carregar solicitacoes");
+      setErro(errObj.message || "Erro ao carregar solicitações");
     } finally {
       setLoading(false);
       jaCarregouRef.current = true;
@@ -373,14 +373,14 @@ function DocumentosPendentesPage() {
       if (resp.error) throw resp.error;
       toast.success(
         documentoId
-          ? "Solicitacao cumprida e documento anexado"
-          : "Solicitacao atualizada",
+          ? "Solicitação cumprida e documento anexado"
+          : "Solicitação atualizada",
       );
       await carregar();
     } catch (err) {
       console.error(err);
       const errObj = err as { message?: string };
-      toast.error(errObj.message || "Erro ao atualizar solicitacao");
+      toast.error(errObj.message || "Erro ao atualizar solicitação");
     } finally {
       setSalvandoModal(false);
       setAcaoAlvo(null);
@@ -414,8 +414,8 @@ function DocumentosPendentesPage() {
           </h1>
           <p className="text-sm text-muted-foreground">
             {isInterno
-              ? "Visao consolidada de todas as solicitacoes do escritorio."
-              : "Documentos que voce precisa providenciar para os casos."}
+              ? "Visão consolidada de todas as solicitações do escritório."
+              : "Documentos que você precisa providenciar para os casos."}
           </p>
         </div>
 
@@ -429,7 +429,7 @@ function DocumentosPendentesPage() {
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardDescription>Interna (escritorio)</CardDescription>
+              <CardDescription>Interna (escritório)</CardDescription>
               <CardTitle className="text-3xl">
                 {totalInterna}
               </CardTitle>
@@ -454,7 +454,7 @@ function DocumentosPendentesPage() {
                 <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
                   className="pl-8"
-                  placeholder="Cliente, tipo de documento, beneficio..."
+                  placeholder="Cliente, tipo de documento, benefício..."
                   value={busca}
                   onChange={(e) => setBusca(e.target.value)}
                 />
@@ -506,7 +506,7 @@ function DocumentosPendentesPage() {
             <CardContent className="py-12 text-center">
               <ClipboardList className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
               <p className="text-sm text-muted-foreground">
-                Nenhuma solicitacao encontrada com os filtros aplicados.
+                Nenhuma solicitação encontrada com os filtros aplicados.
               </p>
             </CardContent>
           </Card>
@@ -537,14 +537,14 @@ function DocumentosPendentesPage() {
                 {acaoAlvo && acaoAlvo.novoStatus === "atendido"
                   ? isInterno
                     ? "Marcar como atendido"
-                    : "Cumprir solicitacao"
-                  : "Dispensar solicitacao"}
+                    : "Cumprir solicitação"
+                  : "Dispensar solicitação"}
               </DialogTitle>
               <DialogDescription>
                 {acaoAlvo && acaoAlvo.novoStatus === "atendido"
                   ? isInterno
                     ? "Marque sem arquivo (recebeu pessoalmente) ou anexe o documento."
-                    : "Anexe o documento solicitado. Sera renomeado automaticamente."
+                    : "Anexe o documento solicitado. Será renomeado automaticamente."
                   : "Informe o motivo da dispensa (recomendado)."}
               </DialogDescription>
             </DialogHeader>
@@ -580,7 +580,7 @@ function DocumentosPendentesPage() {
                           className="h-4 w-4 mt-0.5"
                         />
                         <span className="text-sm">
-                          Anexar arquivo (sera renomeado para o tipo
+                          Anexar arquivo (será renomeado para o tipo
                           solicitado)
                         </span>
                       </label>
@@ -594,7 +594,7 @@ function DocumentosPendentesPage() {
                 comAnexo && (
                   <div>
                     <Label className="text-xs">
-                      Arquivo {!isInterno && "(obrigatorio)"}
+                      Arquivo {!isInterno && "(obrigatório)"}
                     </Label>
                     <input
                       type="file"
@@ -614,12 +614,12 @@ function DocumentosPendentesPage() {
                       accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
                     />
                     <p className="text-xs text-muted-foreground mt-1">
-                      Tamanho maximo: {MAX_FILE_SIZE_MB} MB por arquivo.
+                      Tamanho máximo: {MAX_FILE_SIZE_MB} MB por arquivo.
                     </p>
                     {arquivoUpload && (
                       <div className="mt-2">
                         <Label className="text-xs">
-                          Nome do arquivo (obrigatorio)
+                          Nome do arquivo (obrigatório)
                         </Label>
                         <Input
                           value={nomeArquivoEdit}
@@ -628,8 +628,8 @@ function DocumentosPendentesPage() {
                           className="text-sm"
                         />
                         <p className="text-xs text-muted-foreground mt-1">
-                          Pre-preenchido com nome padrao - voce pode editar.
-                          Mantenha a extensao (.pdf, .jpg, etc.).
+                          Pré-preenchido com nome padrão - você pode editar.
+                          Mantenha a extensão (.pdf, .jpg, etc.).
                         </p>
                       </div>
                     )}
@@ -639,15 +639,15 @@ function DocumentosPendentesPage() {
               <div>
                 <Label className="text-xs">
                   {acaoAlvo && acaoAlvo.novoStatus === "atendido"
-                    ? "Observacao (opcional)"
+                    ? "Observação (opcional)"
                     : "Motivo"}
                 </Label>
                 <Textarea
                   rows={3}
                   placeholder={
                     acaoAlvo && acaoAlvo.novoStatus === "atendido"
-                      ? "Ex.: documento ja consta no CNIS"
-                      : "Ex.: cliente nao consegue obter; nao necessario para o beneficio"
+                      ? "Ex.: documento já consta no CNIS"
+                      : "Ex.: cliente não consegue obter; não necessário para o benefício"
                   }
                   value={comentarioModal}
                   onChange={(e) => setComentarioModal(e.target.value)}
@@ -853,10 +853,10 @@ function SolicitacaoItem(props: SolicitacaoItemProps) {
             <div className="mt-2 pt-2 border-t border-dashed">
               <p className="text-xs text-muted-foreground mb-1">
                 {isAtendido
-                  ? "Observacao do atendimento"
+                  ? "Observação do atendimento"
                   : isDispensado
                   ? "Motivo da dispensa"
-                  : "Comentario"}
+                  : "Comentário"}
               </p>
               <p className="text-sm whitespace-pre-wrap italic">
                 {s.comentario}

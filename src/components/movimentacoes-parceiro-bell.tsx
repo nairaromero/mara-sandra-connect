@@ -41,10 +41,10 @@ const CFG: Record<
   { tab: string; label: string; icon: any }
 > = {
   andamento: { tab: "andamentos", label: "andamento", icon: ClipboardList },
-  comentario: { tab: "comentarios", label: "comentario", icon: MessageSquare },
+  comentario: { tab: "comentarios", label: "comentário", icon: MessageSquare },
   solicitacao: {
     tab: "documentos",
-    label: "solicitacao de documento",
+    label: "solicitação de documento",
     icon: FileText,
   },
   documento: { tab: "documentos", label: "documento", icon: FileCheck },
@@ -168,10 +168,10 @@ export function MovimentacoesParceiroBell() {
     };
     add(and.data, "andamento", "a", (r) => r.titulo || "Novo andamento", (r) =>
       r.created_at);
-    add(com.data, "comentario", "c", (r) => r.texto || "Novo comentario", (r) =>
+    add(com.data, "comentario", "c", (r) => r.texto || "Novo comentário", (r) =>
       r.created_at);
     add(sol.data, "solicitacao", "s", (r) =>
-      "Solicitacao: " + (r.tipo || "documento"), (r) => r.data_solicitacao);
+      "Solicitação: " + (r.tipo || "documento"), (r) => r.data_solicitacao);
     add(doc.data, "documento", "d", (r) => r.nome_arquivo || "Documento", (r) =>
       r.created_at);
     add(pa.data, "processo", "pa", (r) =>
@@ -240,7 +240,7 @@ export function MovimentacoesParceiroBell() {
           variant="ghost"
           size="icon"
           className="relative"
-          aria-label="Movimentacoes"
+          aria-label="Movimentações"
         >
           <Bell className="h-5 w-5" />
           {novos > 0 && (
@@ -253,7 +253,7 @@ export function MovimentacoesParceiroBell() {
       <PopoverContent align="end" className="w-[22rem] p-0">
         <div className="flex items-center justify-between gap-2 border-b p-3">
           <div>
-            <span className="text-sm font-semibold">Movimentacoes</span>
+            <span className="text-sm font-semibold">Movimentações</span>
             <p className="text-xs text-muted-foreground">
               Novidades dos seus casos.
             </p>
@@ -274,7 +274,7 @@ export function MovimentacoesParceiroBell() {
           {itens.length === 0
             ? (
               <p className="p-6 text-center text-sm text-muted-foreground">
-                Nenhuma movimentacao nova.
+                Nenhuma movimentação nova.
               </p>
             )
             : (
