@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/form";
 import { DocTypeCombobox } from "@/components/doc-type-combobox";
 import { NovoParceiroDialog } from "@/components/novo-parceiro-dialog";
+import { notificarEquipe } from "@/lib/notificar";
 import {
   DrivePickerDialog,
   type DriveImportedFile,
@@ -617,6 +618,18 @@ function NovoCasoPage() {
             );
           }
         }
+      }
+
+      // Se quem cadastrou foi o PARCEIRO, avisa o sino da equipe (interno).
+      if (!isInterno) {
+        notificarEquipe({
+          tipo: "caso",
+          titulo: `Novo caso de ${usuario.nome || "parceiro"}: ${
+            values.nome.trim()
+          }`,
+          descricao: values.tipo_beneficio,
+          caso_id: casoId,
+        });
       }
 
       toast.success("Caso cadastrado com sucesso!");
