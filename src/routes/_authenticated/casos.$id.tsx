@@ -5573,6 +5573,9 @@ function TabComentarios(props: TabComentariosProps) {
   const { casoId, comentarios, setComentarios, usuarioId, temParceiro, focoId } =
     props;
   const { usuario } = useAuth();
+  // Interno pode excluir QUALQUER comentario (moderacao) - a RLS ja permite.
+  // Autor pode excluir o proprio. Parceiro so ve excluir nos seus.
+  const isInterno = usuario?.tipo === "interno";
   const foco = useFocoItem(focoId);
 
   // Estado: textos por thread (chave = parent_id ou "novo")
@@ -5747,7 +5750,7 @@ function TabComentarios(props: TabComentariosProps) {
               {/* Top-level */}
               <ComentarioItem
                 comentario={top}
-                isMine={top.autor_id === usuarioId}
+                podeExcluir={top.autor_id === usuarioId || isInterno}
                 onExcluir={() => excluirComentario(top.id)}
                 excluindo={excluindoId === top.id}
                 destacado={foco === top.id}
@@ -5760,7 +5763,7 @@ function TabComentarios(props: TabComentariosProps) {
                     <ComentarioItem
                       key={r.id}
                       comentario={r}
-                      isMine={r.autor_id === usuarioId}
+                      podeExcluir={r.autor_id === usuarioId || isInterno}
                       onExcluir={() => excluirComentario(r.id)}
                       excluindo={excluindoId === r.id}
                       destacado={foco === r.id}
@@ -5835,12 +5838,12 @@ function TabComentarios(props: TabComentariosProps) {
 
 function ComentarioItem(props: {
   comentario: ComentarioRow;
-  isMine: boolean;
+  podeExcluir: boolean;
   onExcluir: () => void;
   excluindo: boolean;
   destacado?: boolean;
 }) {
-  const { comentario, isMine, onExcluir, excluindo, destacado } = props;
+  const { comentario, podeExcluir, onExcluir, excluindo, destacado } = props;
   const autorNome =
     comentario.autor?.nome || comentario.autor?.email || "(sem nome)";
   const tipo = comentario.autor?.tipo;
@@ -5872,7 +5875,7 @@ function ComentarioItem(props: {
           <span className="text-xs text-muted-foreground">
             {formatDateTime(comentario.created_at)}
           </span>
-          {isMine && (
+          {podeExcluir && (
             <Button
               size="sm"
               variant="ghost"
