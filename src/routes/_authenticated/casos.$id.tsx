@@ -109,6 +109,11 @@ import {
 
 export const Route = createFileRoute("/_authenticated/casos/$id")({
   component: CasoDetalhePage,
+  // Permite deep-link pra uma aba especifica: /casos/<id>?tab=andamentos
+  validateSearch: (search: Record<string, unknown>): { tab?: string } => {
+    const tab = typeof search.tab === "string" ? search.tab : undefined;
+    return tab ? { tab } : {};
+  },
 });
 
 // ===========================================================================
@@ -600,8 +605,16 @@ function labelFromList(
 function CasoDetalhePage() {
   const params = useParams({ from: "/_authenticated/casos/$id" });
   const casoId = params.id;
+  const search = Route.useSearch();
   const { usuario } = useAuth();
   const isInterno = usuario?.tipo === "interno";
+
+  // Aba ativa controlada — permite deep-link via ?tab= (ex.: clicar numa
+  // notificacao de andamento abre o caso ja na aba Andamentos).
+  const [aba, setAba] = useState(search.tab || "visao_geral");
+  useEffect(() => {
+    if (search.tab) setAba(search.tab);
+  }, [search.tab]);
 
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
@@ -850,7 +863,7 @@ function CasoDetalhePage() {
           onChange={carregar}
         />
 
-        <Tabs defaultValue="visao_geral" className="w-full">
+        <Tabs value={aba} onValueChange={setAba} className="w-full">
           {/* Tabs em uma unica linha com scroll horizontal em telas estreitas.
               Evita o efeito de "linhas quebradas" desorganizadas. */}
           <TabsList className="w-full flex justify-start overflow-x-auto">

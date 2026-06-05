@@ -234,6 +234,9 @@ export function NotificacoesBell() {
                           <Link
                             to="/casos/$id"
                             params={{ id: n.caso_id }}
+                            search={n.tipo === "andamento"
+                              ? { tab: "andamentos" }
+                              : {}}
                             onClick={() => {
                               marcarLida(n.id);
                               setOpen(false);
