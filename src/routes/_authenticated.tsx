@@ -10,6 +10,7 @@ import { Loader2, LogOut, Plus } from "lucide-react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { NotificacoesBell } from "@/components/notificacoes-bell";
+import { MovimentacoesParceiroBell } from "@/components/movimentacoes-parceiro-bell";
 import { useAuth } from "@/hooks/use-auth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -90,6 +91,7 @@ function AuthenticatedLayout() {
                 </Link>
               </Button>
               {usuario?.tipo === "interno" && <NotificacoesBell />}
+              {usuario?.tipo === "parceiro" && <MovimentacoesParceiroBell />}
               {usuario?.tipo && (
                 // Badge em dourado quebra a monotonia do navy (botao Novo
                 // caso + avatar + Sair) e reforca a identidade visual.
