@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Newspaper, Search } from "lucide-react";
+import { CheckCircle2, Loader2, Newspaper, Search, AlertCircle } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
@@ -22,56 +22,111 @@ export const Route = createFileRoute("/_authenticated/publicacoes")({
 
 // Marcador de "visto" (badge no sidebar) — por dispositivo.
 const VISTO_KEY = "msc:publicacoes_visto";
+// Janela da aba: publicações da última semana.
+const DIAS_JANELA = 7;
+const PREVIEW_CHARS = 600;
 
-interface PubMeta {
-  tipo_comunicacao?: string;
-  tipo_documento?: string;
-  nome_orgao?: string;
-  sigla_tribunal?: string;
-  numero_processo?: string;
-  certidao_url?: string;
-  link?: string;
-  djen_id?: number | string;
-}
+type PubStatus = "vinculada" | "sem_processo";
 
-interface Pub {
+// Shape comum renderizado, vindo de publicacoes_dje (interno) ou andamentos (parceiro).
+interface PubView {
   id: string;
-  titulo: string | null;
-  descricao: string | null;
-  data_evento: string | null;
-  created_at: string;
-  caso_id: string;
-  metadata: PubMeta | null;
-  casos: { cliente: { nome: string | null } | null } | null;
+  cliente_nome: string | null;
+  numero_processo: string | null;
+  tribunal: string | null;
+  orgao: string | null;
+  tipo: string | null;
+  data: string | null;
+  texto: string | null;
+  status: PubStatus;
+  caso_id: string | null;
+  foco_id: string | null; // andamento p/ destacar na timeline do caso
 }
 
 function fmt(iso: string | null): string {
   if (!iso) return "-";
-  return new Date(iso).toLocaleDateString("pt-BR");
+  const d = new Date(iso.length <= 10 ? iso + "T00:00:00" : iso);
+  return d.toLocaleDateString("pt-BR");
 }
 
 function PublicacoesPage() {
   const { usuario } = useAuth();
   const isInterno = usuario?.tipo === "interno";
-  const [pubs, setPubs] = useState<Array<Pub>>([]);
+  const [pubs, setPubs] = useState<Array<PubView>>([]);
   const [loading, setLoading] = useState(true);
   const [busca, setBusca] = useState("");
+  const [expandido, setExpandido] = useState<Record<string, boolean>>({});
 
   const carregar = useCallback(async () => {
     setLoading(true);
-    let q = supabase
-      .from("andamentos")
-      .select(
-        "id, titulo, descricao, data_evento, created_at, caso_id, metadata, casos:caso_id(cliente:cliente_id(nome))",
-      )
-      .eq("origem", "djen")
-      .order("data_evento", { ascending: false, nullsFirst: false })
-      .limit(200);
-    // Parceiro so ve publicacoes marcadas visiveis (RLS ja restringe aos casos
-    // dele); interno ve todas.
-    if (!isInterno) q = q.eq("visivel_parceiro", true);
-    const { data, error } = await q;
-    if (!error) setPubs((data || []) as unknown as Array<Pub>);
+
+    if (isInterno) {
+      // Interno: fonte da verdade = publicacoes_dje (vinculadas + órfãs), semana.
+      const desde = new Date(Date.now() - DIAS_JANELA * 86400000)
+        .toISOString()
+        .slice(0, 10);
+      const { data, error } = await supabase
+        .from("publicacoes_dje")
+        .select(
+          "id, numero_processo, sigla_tribunal, nome_orgao, tipo_comunicacao, data_disponibilizacao, texto, status, caso_id, andamento_id, casos:caso_id(cliente:cliente_id(nome))",
+        )
+        .gte("data_disponibilizacao", desde)
+        .order("data_disponibilizacao", { ascending: false, nullsFirst: false })
+        .limit(500);
+      if (!error) {
+        setPubs(
+          ((data || []) as Array<Record<string, unknown>>).map((r) => ({
+            id: String(r.id),
+            cliente_nome:
+              (r.casos as { cliente?: { nome?: string | null } } | null)
+                ?.cliente?.nome ?? null,
+            numero_processo: (r.numero_processo as string | null) ?? null,
+            tribunal: (r.sigla_tribunal as string | null) ?? null,
+            orgao: (r.nome_orgao as string | null) ?? null,
+            tipo: (r.tipo_comunicacao as string | null) ?? null,
+            data: (r.data_disponibilizacao as string | null) ?? null,
+            texto: (r.texto as string | null) ?? null,
+            status: (r.status as PubStatus) ?? "sem_processo",
+            caso_id: (r.caso_id as string | null) ?? null,
+            foco_id: (r.andamento_id as string | null) ?? null,
+          })),
+        );
+      }
+    } else {
+      // Parceiro: vê só as vinculadas dos casos dele (via andamentos). RLS restringe.
+      const { data, error } = await supabase
+        .from("andamentos")
+        .select(
+          "id, titulo, descricao, data_evento, caso_id, metadata, casos:caso_id(cliente:cliente_id(nome))",
+        )
+        .eq("origem", "djen")
+        .eq("visivel_parceiro", true)
+        .order("data_evento", { ascending: false, nullsFirst: false })
+        .limit(200);
+      if (!error) {
+        setPubs(
+          ((data || []) as Array<Record<string, unknown>>).map((r) => {
+            const m = (r.metadata as Record<string, unknown> | null) || {};
+            return {
+              id: String(r.id),
+              cliente_nome:
+                (r.casos as { cliente?: { nome?: string | null } } | null)
+                  ?.cliente?.nome ?? null,
+              numero_processo: (m.numero_processo as string | null) ?? null,
+              tribunal: (m.sigla_tribunal as string | null) ?? null,
+              orgao: (m.nome_orgao as string | null) ?? null,
+              tipo: (m.tipo_comunicacao as string | null) ?? null,
+              data: (r.data_evento as string | null) ?? null,
+              texto: (r.descricao as string | null) ?? null,
+              status: "vinculada" as PubStatus,
+              caso_id: (r.caso_id as string | null) ?? null,
+              foco_id: String(r.id),
+            };
+          }),
+        );
+      }
+    }
+
     setLoading(false);
   }, [isInterno]);
 
@@ -89,16 +144,26 @@ function PublicacoesPage() {
     if (!q) return pubs;
     const d = q.replace(/\D/g, "");
     return pubs.filter((p) => {
-      const nome = (p.casos?.cliente?.nome || "").toLowerCase();
-      const num = (p.metadata?.numero_processo || "").replace(/\D/g, "");
-      const trib = (p.metadata?.sigla_tribunal || "").toLowerCase();
-      const txt = (p.descricao || "").toLowerCase();
+      const nome = (p.cliente_nome || "").toLowerCase();
+      const num = (p.numero_processo || "").replace(/\D/g, "");
+      const trib = (p.tribunal || "").toLowerCase();
+      const txt = (p.texto || "").toLowerCase();
       if (nome.includes(q)) return true;
       if (d && num.includes(d)) return true;
       if (trib.includes(q)) return true;
       return txt.includes(q);
     });
   }, [pubs, busca]);
+
+  const resumo = useMemo(() => {
+    let vinc = 0;
+    let orfa = 0;
+    for (const p of pubs) {
+      if (p.status === "vinculada") vinc++;
+      else orfa++;
+    }
+    return { total: pubs.length, vinc, orfa };
+  }, [pubs]);
 
   return (
     <div className="space-y-6">
@@ -108,9 +173,24 @@ function PublicacoesPage() {
           Publicacoes
         </h1>
         <p className="text-sm text-muted-foreground">
-          Publicacoes do Diario de Justica (DJEN) vinculadas aos processos dos
-          seus clientes.
+          {isInterno
+            ? `Publicacoes do Diario de Justica (DJEN) dos ultimos ${DIAS_JANELA} dias. As vinculadas viram andamento no caso; as sem processo cadastrado ficam aqui para triagem.`
+            : "Publicacoes do Diario de Justica (DJEN) vinculadas aos processos dos seus clientes."}
         </p>
+        {isInterno && pubs.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+            <Badge variant="secondary">{resumo.total} na semana</Badge>
+            <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">
+              {resumo.vinc} vinculada{resumo.vinc === 1 ? "" : "s"}
+            </Badge>
+            <Badge
+              variant="outline"
+              className="border-amber-500 text-amber-700 dark:text-amber-400"
+            >
+              {resumo.orfa} sem processo
+            </Badge>
+          </div>
+        )}
       </div>
 
       <ClientOnly
@@ -151,51 +231,101 @@ function PublicacoesPage() {
           : (
             <div className="space-y-3">
               {filtradas.map((p) => {
-                const m = p.metadata || {};
+                const vinculada = p.status === "vinculada";
+                const texto = p.texto || "";
+                const longo = texto.length > PREVIEW_CHARS;
+                const aberto = expandido[p.id];
+                const exibir = !longo || aberto
+                  ? texto
+                  : texto.slice(0, PREVIEW_CHARS) + "…";
                 return (
                   <Card key={p.id}>
                     <CardHeader className="pb-2">
                       <div className="flex items-start justify-between gap-2 flex-wrap">
                         <div className="min-w-0">
-                          <CardTitle className="text-base">
-                            {p.casos?.cliente?.nome || "Cliente"}
+                          <CardTitle className="text-base flex items-center gap-2">
+                            {vinculada
+                              ? (p.cliente_nome || "Cliente")
+                              : (
+                                <span className="font-mono text-sm">
+                                  {p.numero_processo || "Processo"}
+                                </span>
+                              )}
                           </CardTitle>
                           <CardDescription className="flex flex-wrap items-center gap-1.5 mt-1">
-                            {m.tipo_comunicacao && (
+                            {vinculada
+                              ? (
+                                <Badge className="bg-emerald-600 text-white hover:bg-emerald-600 gap-1">
+                                  <CheckCircle2 className="h-3 w-3" />
+                                  Vinculada
+                                </Badge>
+                              )
+                              : (
+                                <Badge
+                                  variant="outline"
+                                  className="border-amber-500 text-amber-700 dark:text-amber-400 gap-1"
+                                >
+                                  <AlertCircle className="h-3 w-3" />
+                                  Sem processo
+                                </Badge>
+                              )}
+                            {p.tipo && (
                               <Badge variant="secondary" className="text-xs">
-                                {m.tipo_comunicacao}
+                                {p.tipo}
                               </Badge>
                             )}
-                            {m.sigla_tribunal && (
+                            {p.tribunal && (
                               <Badge variant="outline" className="text-xs">
-                                {m.sigla_tribunal}
+                                {p.tribunal}
                               </Badge>
                             )}
-                            <span className="text-xs">{fmt(p.data_evento)}</span>
+                            <span className="text-xs">{fmt(p.data)}</span>
                           </CardDescription>
                         </div>
-                        <Button size="sm" variant="outline" asChild>
-                          <Link
-                            to="/casos/$id"
-                            params={{ id: p.caso_id }}
-                            search={{ tab: "andamentos", foco: p.id }}
-                          >
-                            Ver no caso
-                          </Link>
-                        </Button>
+                        {vinculada && p.caso_id && (
+                          <Button size="sm" variant="outline" asChild>
+                            <Link
+                              to="/casos/$id"
+                              params={{ id: p.caso_id }}
+                              search={{
+                                tab: "andamentos",
+                                foco: p.foco_id || undefined,
+                              }}
+                            >
+                              Ver no caso
+                            </Link>
+                          </Button>
+                        )}
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-2">
-                      {m.numero_processo && (
+                      {vinculada && p.numero_processo && (
                         <p className="text-xs text-muted-foreground font-mono">
-                          {m.numero_processo}
-                          {m.nome_orgao ? " · " + m.nome_orgao : ""}
+                          {p.numero_processo}
+                          {p.orgao ? " · " + p.orgao : ""}
                         </p>
                       )}
-                      {p.descricao && (
-                        <p className="text-sm whitespace-pre-wrap text-muted-foreground">
-                          {p.descricao}
+                      {!vinculada && p.orgao && (
+                        <p className="text-xs text-muted-foreground">
+                          {p.orgao}
                         </p>
+                      )}
+                      {texto && (
+                        <>
+                          <p className="text-sm whitespace-pre-wrap text-muted-foreground">
+                            {exibir}
+                          </p>
+                          {longo && (
+                            <button
+                              type="button"
+                              className="text-xs font-medium text-[var(--gold)] hover:underline"
+                              onClick={() =>
+                                setExpandido((s) => ({ ...s, [p.id]: !aberto }))}
+                            >
+                              {aberto ? "ver menos" : "ver publicacao completa"}
+                            </button>
+                          )}
+                        </>
                       )}
                     </CardContent>
                   </Card>

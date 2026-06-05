@@ -412,6 +412,7 @@ const ORIGEM_LABEL: Record<string, string> = {
   interno: "Interno",
   tramitacao: "Tramitacao Inteligente",
   legalmail: "Legalmail",
+  djen: "Diario (DJEN)",
   sistema: "Sistema",
 };
 
