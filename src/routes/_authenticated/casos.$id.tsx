@@ -38,6 +38,7 @@ import {
 
 import { useAuth } from "@/hooks/use-auth";
 import { DESTAQUE_CLASSE, useFocoItem } from "@/hooks/use-foco-item";
+import { notificarEquipe } from "@/lib/notificar";
 import { supabase } from "@/lib/supabase";
 import {
   MAX_FILE_SIZE_MB,
@@ -4033,6 +4034,18 @@ function TabDocumentos(props: TabDocumentosProps) {
         .update(update)
         .eq("id", acaoAlvo.solic.id);
       if (resp.error) throw resp.error;
+      // Se quem cumpriu foi o PARCEIRO, avisa o sino da equipe (interno).
+      if (usuario?.tipo === "parceiro") {
+        notificarEquipe({
+          tipo: documentoId ? "documento" : "solicitacao",
+          titulo: documentoId
+            ? `Documento enviado por ${usuario.nome || "parceiro"}`
+            : `Solicitacao atualizada por ${usuario.nome || "parceiro"}`,
+          descricao: acaoAlvo.solic.tipo,
+          caso_id: casoId,
+          foco_id: documentoId || acaoAlvo.solic.id,
+        });
+      }
       toast.success(
         documentoId
           ? "Solicitacao cumprida e documento anexado"
@@ -5530,6 +5543,7 @@ function tipoBadgeLabel(tipo: string | undefined | null): string {
 function TabComentarios(props: TabComentariosProps) {
   const { casoId, comentarios, setComentarios, usuarioId, temParceiro, focoId } =
     props;
+  const { usuario } = useAuth();
   const foco = useFocoItem(focoId);
 
   // Estado: textos por thread (chave = parent_id ou "novo")
@@ -5606,6 +5620,17 @@ function TabComentarios(props: TabComentariosProps) {
         .then((r) => {
           if (r.error) console.warn("notify-novo-comentario:", r.error);
         });
+
+      // Se quem comentou foi o PARCEIRO, avisa o sino da equipe (interno).
+      if (usuario?.tipo === "parceiro") {
+        notificarEquipe({
+          tipo: "comentario",
+          titulo: `Comentario de ${usuario.nome || "parceiro"}`,
+          descricao: texto.trim().slice(0, 140),
+          caso_id: casoId,
+          foco_id: novoId,
+        });
+      }
 
       // Limpa input e recarrega lista
       if (parentId === null) {

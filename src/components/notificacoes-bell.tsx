@@ -27,8 +27,27 @@ interface Notificacao {
   descricao: string | null;
   caso_id: string | null;
   cliente_id: string | null;
+  metadata: { foco_id?: string } | null;
   lida: boolean;
   created_at: string;
+}
+
+const TAB_POR_TIPO: Record<string, string> = {
+  andamento: "andamentos",
+  comentario: "comentarios",
+  documento: "documentos",
+  solicitacao: "documentos",
+  processo: "processos",
+  caso: "visao_geral",
+  tags: "visao_geral",
+};
+
+function destinoSearch(n: Notificacao): { tab?: string; foco?: string } {
+  const s: { tab?: string; foco?: string } = {};
+  const tab = TAB_POR_TIPO[n.tipo];
+  if (tab) s.tab = tab;
+  if (n.metadata?.foco_id) s.foco = n.metadata.foco_id;
+  return s;
 }
 
 function tempoRelativo(iso: string): string {
@@ -61,7 +80,7 @@ export function NotificacoesBell() {
     const { data, error } = await supabase
       .from("notificacoes")
       .select(
-        "id, tipo, titulo, descricao, caso_id, cliente_id, lida, created_at",
+        "id, tipo, titulo, descricao, caso_id, cliente_id, metadata, lida, created_at",
       )
       .order("lida", { ascending: true })
       .order("created_at", { ascending: false })
@@ -239,9 +258,7 @@ export function NotificacoesBell() {
                           <Link
                             to="/casos/$id"
                             params={{ id: n.caso_id }}
-                            search={n.tipo === "andamento"
-                              ? { tab: "andamentos" }
-                              : {}}
+                            search={destinoSearch(n)}
                             onClick={() => {
                               dispensar(n.id);
                               setOpen(false);
