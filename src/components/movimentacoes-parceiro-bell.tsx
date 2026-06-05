@@ -53,6 +53,7 @@ const CFG: Record<
 
 interface Mov {
   id: string;
+  refId: string; // id real do registro (sem prefixo) p/ destaque ?foco=
   tipo: TipoMov;
   texto: string;
   created_at: string;
@@ -156,6 +157,7 @@ export function MovimentacoesParceiroBell() {
         if (!data(r)) continue;
         movs.push({
           id: prefix + ":" + r.id,
+          refId: String(r.id),
           tipo,
           texto: texto(r),
           created_at: data(r),
@@ -288,7 +290,7 @@ export function MovimentacoesParceiroBell() {
                       <Link
                         to="/casos/$id"
                         params={{ id: m.caso_id }}
-                        search={{ tab: cfg.tab }}
+                        search={{ tab: cfg.tab, foco: m.refId }}
                         onClick={() => {
                           dispensar(m.id);
                           setOpen(false);

@@ -37,6 +37,7 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
+import { DESTAQUE_CLASSE, useFocoItem } from "@/hooks/use-foco-item";
 import { supabase } from "@/lib/supabase";
 import {
   MAX_FILE_SIZE_MB,
@@ -109,10 +110,14 @@ import {
 
 export const Route = createFileRoute("/_authenticated/casos/$id")({
   component: CasoDetalhePage,
-  // Permite deep-link pra uma aba especifica: /casos/<id>?tab=andamentos
-  validateSearch: (search: Record<string, unknown>): { tab?: string } => {
-    const tab = typeof search.tab === "string" ? search.tab : undefined;
-    return tab ? { tab } : {};
+  // Deep-link pra aba (?tab=) e item a destacar (?foco=<id>) — usado pelo sino.
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { tab?: string; foco?: string } => {
+    const out: { tab?: string; foco?: string } = {};
+    if (typeof search.tab === "string") out.tab = search.tab;
+    if (typeof search.foco === "string") out.foco = search.foco;
+    return out;
   },
 });
 
@@ -921,6 +926,7 @@ function CasoDetalhePage() {
               isInterno={isInterno}
               temParceiro={caso.parceiro_id !== null}
               usuarioId={usuario ? usuario.id : null}
+              focoId={search.foco}
               onChange={carregar}
             />
           </TabsContent>
@@ -934,6 +940,7 @@ function CasoDetalhePage() {
               usuarioId={usuario ? usuario.id : null}
               gdriveFolderId={caso.gdrive_folder_id ?? null}
               gdriveFolderName={caso.gdrive_folder_name ?? null}
+              focoId={search.foco}
               onChange={carregar}
             />
           </TabsContent>
@@ -956,6 +963,7 @@ function CasoDetalhePage() {
               setComentarios={setComentarios}
               usuarioId={usuario ? usuario.id : null}
               temParceiro={caso.parceiro_id !== null}
+              focoId={search.foco}
             />
           </TabsContent>
 
@@ -979,6 +987,7 @@ function CasoDetalhePage() {
               isInterno={isInterno}
               processosAdmin={processosAdmin}
               processosJudiciais={processosJudiciais}
+              focoId={search.foco}
               onChange={carregar}
             />
           </TabsContent>
@@ -2187,6 +2196,7 @@ interface TabAndamentosProps {
   isInterno: boolean;
   temParceiro: boolean;
   usuarioId: string | null;
+  focoId?: string;
   onChange: () => void;
 }
 
@@ -2203,8 +2213,10 @@ function TabAndamentos(props: TabAndamentosProps) {
     isInterno,
     temParceiro,
     usuarioId,
+    focoId,
     onChange,
   } = props;
+  const foco = useFocoItem(focoId);
   // States do dialog "Novo andamento"
   // tipoDialogoNovo: null = fechado; "admin" ou "judicial" = aberto com tipo pre-definido
   const [tipoDialogoNovo, setTipoDialogoNovo] = useState<
@@ -2248,6 +2260,23 @@ function TabAndamentos(props: TabAndamentosProps) {
   // Accordions especiais "Sem processo" / "Sem vinculo" (1 unico bool cada)
   const [abertoSemProcessoAdmin, setAbertoSemProcessoAdmin] = useState(false);
   const [abertoSemVinculoGerais, setAbertoSemVinculoGerais] = useState(false);
+
+  // Ao chegar via notificacao (?foco=<andamento>), expande o accordion que
+  // contem o andamento pra ele ficar visivel (e o destaque rola ate ele).
+  useEffect(() => {
+    if (!focoId) return;
+    const a = andamentos.find((x) => x.id === focoId);
+    if (!a) return;
+    if (a.processo_admin_id) {
+      setExpandidosAdmin((prev) => new Set(prev).add(a.processo_admin_id!));
+    } else if (a.processo_judicial_id) {
+      setExpandidosJud((prev) => new Set(prev).add(a.processo_judicial_id!));
+    } else if (a.origem === "tramitacao") {
+      setAbertoSemProcessoAdmin(true);
+    } else {
+      setAbertoSemVinculoGerais(true);
+    }
+  }, [focoId, andamentos]);
 
   // Multi-select para transferencia de andamentos sem vinculo
   const [selecionadosSemProc, setSelecionadosSemProc] = useState<Set<string>>(
@@ -2662,7 +2691,12 @@ function TabAndamentos(props: TabAndamentosProps) {
   // Helper: renderiza um item de andamento (usado nos accordions de processo)
   function renderItemAndamento(a: Andamento) {
     return (
-      <li key={a.id} className="border-l-2 border-muted pl-3 py-1">
+      <li
+        key={a.id}
+        id={"foco-" + a.id}
+        className={"border-l-2 border-muted pl-3 py-1 " +
+          (foco === a.id ? DESTAQUE_CLASSE : "")}
+      >
         {renderItemAndamentoInner(a)}
       </li>
     );
@@ -3302,11 +3336,13 @@ interface TabDocumentosProps {
   usuarioId: string | null;
   gdriveFolderId: string | null;
   gdriveFolderName: string | null;
+  focoId?: string;
   onChange: () => void;
 }
 
 function TabDocumentos(props: TabDocumentosProps) {
-  const { casoId, documentos, solicitacoes, isInterno, usuarioId, gdriveFolderId, gdriveFolderName, onChange } = props;
+  const { casoId, documentos, solicitacoes, isInterno, usuarioId, gdriveFolderId, gdriveFolderName, focoId, onChange } = props;
+  const foco = useFocoItem(focoId);
   // Usuario logado (usado pelo preview do parceiro para watermark)
   const { usuario } = useAuth();
 
@@ -4228,7 +4264,9 @@ function TabDocumentos(props: TabDocumentosProps) {
                   return (
                     <li
                       key={d.id}
-                      className="flex items-center justify-between gap-2 border rounded-md p-3"
+                      id={"foco-" + d.id}
+                      className={"flex items-center justify-between gap-2 border rounded-md p-3 " +
+                        (foco === d.id ? DESTAQUE_CLASSE : "")}
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         {isInterno && (
@@ -4399,9 +4437,11 @@ function TabDocumentos(props: TabDocumentosProps) {
               return (
                 <li
                   key={s.id}
+                  id={"foco-" + s.id}
                   className={
                     "border rounded-md p-3 " +
-                    (isAtendido || isDispensado ? "bg-muted/30" : "")
+                    (isAtendido || isDispensado ? "bg-muted/30 " : "") +
+                    (foco === s.id ? DESTAQUE_CLASSE : "")
                   }
                 >
                   <div className="flex items-start justify-between gap-2 flex-wrap">
@@ -5468,6 +5508,7 @@ interface TabComentariosProps {
   // Se false, caso nao tem parceiro vinculado - comentarios funcionam como
   // notas internas (so equipe ve). UI muda copy pra refletir isso.
   temParceiro: boolean;
+  focoId?: string;
 }
 
 function tipoBadgeClasses(tipo: string | undefined | null): string {
@@ -5487,7 +5528,9 @@ function tipoBadgeLabel(tipo: string | undefined | null): string {
 }
 
 function TabComentarios(props: TabComentariosProps) {
-  const { casoId, comentarios, setComentarios, usuarioId, temParceiro } = props;
+  const { casoId, comentarios, setComentarios, usuarioId, temParceiro, focoId } =
+    props;
+  const foco = useFocoItem(focoId);
 
   // Estado: textos por thread (chave = parent_id ou "novo")
   const [novoTexto, setNovoTexto] = useState("");
@@ -5653,6 +5696,7 @@ function TabComentarios(props: TabComentariosProps) {
                 isMine={top.autor_id === usuarioId}
                 onExcluir={() => excluirComentario(top.id)}
                 excluindo={excluindoId === top.id}
+                destacado={foco === top.id}
               />
 
               {/* Replies (recuadas) */}
@@ -5665,6 +5709,7 @@ function TabComentarios(props: TabComentariosProps) {
                       isMine={r.autor_id === usuarioId}
                       onExcluir={() => excluirComentario(r.id)}
                       excluindo={excluindoId === r.id}
+                      destacado={foco === r.id}
                     />
                   ))}
                 </div>
@@ -5739,14 +5784,18 @@ function ComentarioItem(props: {
   isMine: boolean;
   onExcluir: () => void;
   excluindo: boolean;
+  destacado?: boolean;
 }) {
-  const { comentario, isMine, onExcluir, excluindo } = props;
+  const { comentario, isMine, onExcluir, excluindo, destacado } = props;
   const autorNome =
     comentario.autor?.nome || comentario.autor?.email || "(sem nome)";
   const tipo = comentario.autor?.tipo;
 
   return (
-    <div className="flex gap-3">
+    <div
+      id={"foco-" + comentario.id}
+      className={"flex gap-3 " + (destacado ? DESTAQUE_CLASSE + " p-2" : "")}
+    >
       <Avatar className="h-8 w-8 shrink-0">
         <AvatarFallback className="bg-primary text-primary-foreground text-xs">
           {autorNome
@@ -6041,6 +6090,7 @@ interface TabProcessosProps {
   isInterno: boolean;
   processosAdmin: Array<ProcessoAdmin>;
   processosJudiciais: Array<ProcessoJudicial>;
+  focoId?: string;
   onChange: () => void;
 }
 
@@ -6063,8 +6113,10 @@ function TabProcessos(props: TabProcessosProps) {
     isInterno,
     processosAdmin,
     processosJudiciais,
+    focoId,
     onChange,
   } = props;
+  const foco = useFocoItem(focoId);
 
   const [abrirAdmin, setAbrirAdmin] = useState(false);
   const [editAdminId, setEditAdminId] = useState<string | null>(null);
@@ -6520,7 +6572,9 @@ function TabProcessos(props: TabProcessosProps) {
     return (
       <li key={node.tipo + ":" + node.id} className="space-y-2">
         <div
-          className="border rounded-md p-3"
+          id={"foco-" + node.id}
+          className={"border rounded-md p-3 " +
+            (foco === node.id ? DESTAQUE_CLASSE : "")}
           style={{ marginLeft: depth * 16 }}
         >
           <div className="flex items-start justify-between gap-2">
