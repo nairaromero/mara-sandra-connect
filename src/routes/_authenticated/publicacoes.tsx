@@ -170,12 +170,12 @@ function PublicacoesPage() {
       <div>
         <h1 className="font-serif text-3xl font-semibold tracking-tight flex items-center gap-2">
           <Newspaper className="h-7 w-7 text-[var(--gold)]" />
-          Publicacoes
+          Publicações
         </h1>
         <p className="text-sm text-muted-foreground">
           {isInterno
-            ? `Publicacoes do Diario de Justica (DJEN) dos ultimos ${DIAS_JANELA} dias. As vinculadas viram andamento no caso; as sem processo cadastrado ficam aqui para triagem.`
-            : "Publicacoes do Diario de Justica (DJEN) vinculadas aos processos dos seus clientes."}
+            ? `Publicações do Diário de Justiça (DJEN) dos últimos ${DIAS_JANELA} dias. As vinculadas viram andamento no caso; as sem processo cadastrado ficam aqui para triagem.`
+            : "Publicações do Diário de Justiça (DJEN) vinculadas aos processos dos seus clientes."}
         </p>
         {isInterno && pubs.length > 0 && (
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
@@ -205,7 +205,7 @@ function PublicacoesPage() {
           <Input
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
-            placeholder="Filtrar por cliente, numero do processo ou tribunal"
+            placeholder="Filtrar por cliente, número do processo ou tribunal"
             className="pl-9"
           />
         </div>
@@ -221,9 +221,9 @@ function PublicacoesPage() {
             <Card>
               <CardContent className="flex flex-col items-center justify-center gap-2 py-12 text-center">
                 <Newspaper className="h-8 w-8 text-muted-foreground" />
-                <p className="text-sm font-medium">Nenhuma publicacao</p>
+                <p className="text-sm font-medium">Nenhuma publicação</p>
                 <p className="text-xs text-muted-foreground">
-                  Publicacoes do DJEN dos seus processos aparecerao aqui.
+                  Publicações do DJEN dos seus processos aparecerão aqui.
                 </p>
               </CardContent>
             </Card>
@@ -322,7 +322,7 @@ function PublicacoesPage() {
                               onClick={() =>
                                 setExpandido((s) => ({ ...s, [p.id]: !aberto }))}
                             >
-                              {aberto ? "ver menos" : "ver publicacao completa"}
+                              {aberto ? "ver menos" : "ver publicação completa"}
                             </button>
                           )}
                         </>
