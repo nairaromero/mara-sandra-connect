@@ -89,6 +89,23 @@ function reqCpf(v: unknown): string {
   return d;
 }
 
+// Pre-checagem de obrigatorios: em vez de erro seco, devolve a lista amigavel
+// do que falta para o assistente PERGUNTAR ao usuario antes de criar. Garante
+// que nada seja criado pela metade (evita cliente orfao).
+function faltamCampos(checks: Array<[boolean, string]>): string[] {
+  return checks.filter(([ok]) => !ok).map(([, label]) => label);
+}
+
+function respostaFaltam(faltam: string[]) {
+  return {
+    ok: false,
+    faltam_campos_obrigatorios: faltam,
+    mensagem:
+      "Faltam campos obrigatorios. Pergunte ao usuario e informe antes de cadastrar: " +
+      faltam.join("; "),
+  };
+}
+
 function mapCliente(c: Record<string, unknown> | null | undefined) {
   if (!c) return null;
   return {
@@ -468,7 +485,8 @@ export const WRITE_TOOLS: ToolSpec[] = [
       "Cadastra um CASO NOVO de uma vez so: cria o cliente (ou reaproveita se ja existir, casando por " +
       "CPF) e ABRE o caso vinculado, atomicamente. Use SEMPRE que for cliente/caso novo. NAO use " +
       "criar_cliente sozinho para isso (deixaria um cliente sem caso). E a forma natural de 'cadastrar " +
-      "um novo cliente/caso'.",
+      "um novo cliente/caso'. Obrigatorios: nome, cpf, tipo_beneficio. Se faltar algum, a ferramenta " +
+      "retorna 'faltam_campos_obrigatorios' -- pergunte ao usuario e so entao cadastre.",
     schema: {
       type: "object",
       properties: {
@@ -487,6 +505,14 @@ export const WRITE_TOOLS: ToolSpec[] = [
     preview: (a) =>
       "Cadastrar caso novo: " + String(a.nome ?? "") + " (" + String(a.tipo_beneficio ?? "") + ")",
     execute: async (client, args, ctx) => {
+      // Pre-checagem: se faltar obrigatorio, devolve a lista (nao cria nada).
+      const faltam = faltamCampos([
+        [!!String(args.nome ?? "").trim(), "nome (completo)"],
+        [String(args.cpf ?? "").replace(/\D/g, "").length === 11, "cpf (11 digitos)"],
+        [!!String(args.tipo_beneficio ?? "").trim(), "tipo_beneficio (beneficio pretendido)"],
+      ]);
+      if (faltam.length) return respostaFaltam(faltam);
+
       const nome = reqStr(args.nome, "nome", 200);
       const cpf = reqCpf(args.cpf);
       const tipo_beneficio = reqStr(args.tipo_beneficio, "tipo_beneficio", 100);
@@ -556,6 +582,12 @@ export const WRITE_TOOLS: ToolSpec[] = [
     },
     preview: (a) => "Criar cliente " + String(a.nome ?? ""),
     execute: async (client, args) => {
+      const faltam = faltamCampos([
+        [!!String(args.nome ?? "").trim(), "nome (completo)"],
+        [String(args.cpf ?? "").replace(/\D/g, "").length === 11, "cpf (11 digitos)"],
+      ]);
+      if (faltam.length) return respostaFaltam(faltam);
+
       const row: Record<string, unknown> = {
         nome: reqStr(args.nome, "nome", 200),
         cpf: reqCpf(args.cpf),
