@@ -106,7 +106,7 @@ export function AppSidebar() {
       >
         {/* Logo do escritorio. Clicar volta para a home (lista de casos). */}
         <Link
-          to="/"
+          to="/casos"
           aria-label="Mara Sandra Vian Advocacia - voltar para a página inicial"
           className="flex items-center justify-center px-2 py-3 hover:opacity-80 transition-opacity"
         >

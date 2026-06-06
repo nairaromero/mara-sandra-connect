@@ -23,7 +23,7 @@ function LoginPage() {
 
   useEffect(() => {
     if (!authLoading && session) {
-      navigate({ to: "/" });
+      navigate({ to: "/casos" });
     }
   }, [authLoading, session, navigate]);
 
@@ -37,7 +37,7 @@ function LoginPage() {
       return;
     }
     toast.success("Bem-vindo(a)!");
-    navigate({ to: "/" });
+    navigate({ to: "/casos" });
   }
 
   async function handleMagicLink() {

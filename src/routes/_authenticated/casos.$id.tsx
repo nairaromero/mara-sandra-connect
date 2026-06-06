@@ -825,7 +825,7 @@ function CasoDetalhePage() {
     return (
       <div className="mx-auto max-w-3xl space-y-4">
         <Button variant="ghost" size="sm" asChild>
-          <Link to="/">
+          <Link to="/casos">
             <ArrowLeft className="h-4 w-4 mr-2" />
             Voltar
           </Link>
@@ -853,7 +853,7 @@ function CasoDetalhePage() {
       <div className="mx-auto max-w-6xl space-y-6">
         <div className="flex items-center justify-between">
           <Button variant="ghost" size="sm" asChild>
-            <Link to="/">
+            <Link to="/casos">
               <ArrowLeft className="h-4 w-4 mr-2" />
               Voltar
             </Link>
@@ -1401,7 +1401,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
       toast.success("Cliente e dados vinculados excluídos.");
       setConfExcluirCliente(false);
       setAbrirEditCliente(false);
-      navigate({ to: "/" });
+      navigate({ to: "/casos" });
     } catch (err) {
       console.error(err);
       const errObj = err as { message?: string };

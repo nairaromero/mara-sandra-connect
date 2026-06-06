@@ -720,7 +720,7 @@ function NovoCasoPage() {
           </p>
         </div>
         <Button variant="ghost" size="sm" asChild>
-          <Link to="/">
+          <Link to="/casos">
             <ArrowLeft className="h-4 w-4 mr-2" />
             Voltar
           </Link>
@@ -1198,7 +1198,7 @@ function NovoCasoPage() {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => navigate({ to: "/" })}
+                onClick={() => navigate({ to: "/casos" })}
                 disabled={submitting}
               >
                 Cancelar

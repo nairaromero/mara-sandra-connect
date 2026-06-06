@@ -72,7 +72,7 @@ function AuthenticatedLayout() {
                   No mobile fica como reforco da marca quando a sidebar
                   esta colapsada. */}
               <Link
-                to="/"
+                to="/casos"
                 aria-label="Mara Sandra Vian Advocacia - início"
                 className="hidden sm:flex items-center hover:opacity-80 transition-opacity"
               >

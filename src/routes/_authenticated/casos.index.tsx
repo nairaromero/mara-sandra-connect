@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Briefcase, Clock, FileSearch, TrendingUp, Wallet, CheckCircle2, Loader2, Plus } from "lucide-react";
 
-export const Route = createFileRoute("/_authenticated/")({
+export const Route = createFileRoute("/_authenticated/casos/")({
   component: DashboardPage,
 });
 

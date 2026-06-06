@@ -157,7 +157,7 @@ function WebhooksPage() {
   useEffect(() => {
     if (usuario && !isInterno) {
       toast.error("Acesso restrito à equipe interna.");
-      navigate({ to: "/" });
+      navigate({ to: "/casos" });
     }
   }, [usuario, isInterno, navigate]);
 

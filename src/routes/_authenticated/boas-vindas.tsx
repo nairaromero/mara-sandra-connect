@@ -93,7 +93,7 @@ function BoasVindasPage() {
 
       await refreshUsuario();
       toast.success("Bem-vindo(a)! Boa jornada.");
-      navigate({ to: "/" });
+      navigate({ to: "/casos" });
     } catch (err) {
       console.error(err);
       const msg =
