@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mara Sandra Connect — Plugin de IA: superficies, workflow e exemplos</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --line:#30363d;
+    --txt:#e6edf3; --mut:#9aa7b4; --acc:#7c9cff; --acc2:#36c08a;
+    --warn:#f0a23c; --danger:#f06a6a; --interno:#7c9cff; --parceiro:#36c08a;
+    --chip:#222a36;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(180deg,#0b0f15,#0d1117);color:var(--txt);
+    font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:28px}
+  h1{font-size:22px;margin:0 0 4px}
+  h2{font-size:17px;margin:34px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  .sub{color:var(--mut);margin:0 0 18px}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;margin:10px 0 4px}
+  .legend span{display:inline-flex;align-items:center;gap:7px;color:var(--mut);font-size:13px}
+  .dot{width:11px;height:11px;border-radius:50%}
+  .wrap{max-width:1180px;margin:0 auto}
+
+  /* MIND MAP */
+  .map{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:10px}
+  @media(max-width:820px){.map{grid-template-columns:1fr}}
+  .branch{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:0;overflow:hidden}
+  .branch h3{margin:0;padding:14px 16px;font-size:15px;display:flex;align-items:center;gap:9px}
+  .branch.interno h3{background:rgba(124,156,255,.12);border-bottom:1px solid var(--line)}
+  .branch.parceiro h3{background:rgba(54,192,138,.12);border-bottom:1px solid var(--line)}
+  .branch .body{padding:14px 16px}
+  .node{background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--acc);
+    border-radius:10px;padding:10px 12px;margin:10px 0}
+  .parceiro .node{border-left-color:var(--parceiro)}
+  .node b{display:block;margin-bottom:4px}
+  .node small{color:var(--mut)}
+  ul.flow{list-style:none;margin:8px 0 0;padding:0}
+  ul.flow li{position:relative;padding:6px 0 6px 26px;color:var(--mut);font-size:13.5px}
+  ul.flow li:before{content:attr(data-n);position:absolute;left:0;top:5px;width:18px;height:18px;
+    background:var(--chip);border:1px solid var(--line);border-radius:50%;color:var(--txt);
+    font-size:11px;display:flex;align-items:center;justify-content:center}
+  .can{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .can .t{font-size:12px;padding:3px 9px;border-radius:20px;border:1px solid var(--line);background:var(--chip)}
+  .t.yes{color:var(--acc2);border-color:rgba(54,192,138,.4)}
+  .t.no{color:var(--danger);border-color:rgba(240,106,106,.35);text-decoration:line-through;opacity:.85}
+
+  /* SURFACES diagram */
+  .surf{display:grid;grid-template-columns:1fr auto 1fr;gap:14px;align-items:stretch;margin-top:6px}
+  @media(max-width:820px){.surf{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .card h4{margin:0 0 6px;font-size:14px}
+  .card p{margin:0;color:var(--mut);font-size:13px}
+  .core{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+    background:radial-gradient(circle at 50% 0,rgba(124,156,255,.14),transparent 70%);
+    border:1px dashed var(--acc);border-radius:14px;padding:16px;text-align:center;min-width:170px}
+  .core b{font-size:13px}.core small{color:var(--mut);font-size:12px}
+
+  /* CHAT */
+  .chat{background:var(--panel);border:1px solid var(--line);border-radius:14px;max-width:760px;margin:8px auto 0;overflow:hidden}
+  .chat .head{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:9px;font-size:13px;color:var(--mut)}
+  .chat .body{padding:16px}
+  .msg{margin:12px 0;display:flex;gap:10px}
+  .msg .av{width:28px;height:28px;border-radius:8px;flex:0 0 28px;display:flex;align-items:center;justify-content:center;font-size:13px}
+  .av.u{background:rgba(124,156,255,.18)}.av.a{background:rgba(54,192,138,.18)}
+  .bub{padding:10px 13px;border-radius:12px;max-width:84%;font-size:14px}
+  .msg.user{flex-direction:row-reverse}
+  .msg.user .bub{background:#243049;border:1px solid #2f3e5e}
+  .msg.ai .bub{background:var(--panel2);border:1px solid var(--line)}
+  .tool{margin:6px 0;border:1px solid var(--line);border-radius:10px;background:#11161f;font-size:12.5px;color:var(--mut)}
+  .tool .tl{padding:7px 11px;border-bottom:1px solid var(--line);color:var(--acc);font-family:ui-monospace,monospace}
+  .tool .tb{padding:9px 11px;font-family:ui-monospace,monospace;white-space:pre-wrap}
+  .confirm{margin:6px 0;border:1px solid rgba(240,162,60,.5);border-radius:12px;background:rgba(240,162,60,.08)}
+  .confirm .ch{padding:9px 12px;border-bottom:1px solid rgba(240,162,60,.3);color:var(--warn);font-weight:600;font-size:13px}
+  .confirm .cb{padding:11px 12px;font-size:13px}
+  .confirm dl{margin:0;display:grid;grid-template-columns:130px 1fr;gap:4px 12px}
+  .confirm dt{color:var(--mut)}.confirm dd{margin:0}
+  .btns{display:flex;gap:8px;margin-top:11px}
+  .btn{font-size:12.5px;padding:6px 13px;border-radius:8px;border:1px solid var(--line);cursor:default}
+  .btn.ok{background:var(--acc2);color:#06281c;border-color:transparent;font-weight:600}
+  .btn.no{background:transparent;color:var(--mut)}
+  .note{background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--acc2);border-radius:10px;padding:12px 14px;margin-top:14px;font-size:13.5px;color:var(--mut)}
+  .note b{color:var(--txt)}
+  .pill{display:inline-block;font-size:11px;color:#06281c;background:var(--acc2);border-radius:6px;padding:1px 7px;font-weight:700;vertical-align:middle}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Mara Sandra Connect &mdash; Plugin de IA</h1>
+  <p class="sub">Overview de experiencia e workflow &middot; CRUD por conversa, sem acoes destrutivas &middot; gerado a partir do plano de implementacao.</p>
+  <div class="legend">
+    <span><i class="dot" style="background:var(--interno)"></i> Interno (Naira/equipe) &mdash; acesso total</span>
+    <span><i class="dot" style="background:var(--parceiro)"></i> Parceiro &mdash; restrito ao RLS (so os casos dele)</span>
+    <span><i class="dot" style="background:var(--warn)"></i> Confirmacao humana antes de escrever</span>
+  </div>
+
+  <!-- ===================== ARQUITETURA: 2 SUPERFICIES ===================== -->
+  <h2>Um nucleo, duas superficies</h2>
+  <div class="surf">
+    <div class="card">
+      <h4>Superficie A &mdash; Chat no nosso app <span class="pill">BYOK</span></h4>
+      <p>Painel de chat dentro do Mara Sandra Connect. Cada usuario cola a chave do provider dele (Claude/OpenAI). Multiprovider via adapter. Auth = sessao Supabase.</p>
+    </div>
+    <div class="core">
+      <b>Nucleo compartilhado</b>
+      <small>Registry de tools (whitelist)<br>RLS por usuario<br>Auditoria <code>ia_acoes</code><br>0 acoes destrutivas</small>
+    </div>
+    <div class="card">
+      <h4>Superficie B &mdash; Claude / ChatGPT do usuario</h4>
+      <p>Nosso sistema vira <b>ferramenta conectada</b>: servidor <b>MCP</b> para o Claude e <b>connector (OpenAPI)</b> para o ChatGPT. Auth por <b>token pessoal (PAT)</b> que preserva o RLS.</p>
+    </div>
+  </div>
+
+  <!-- ===================== MIND MAP: SUPERFICIE B ===================== -->
+  <h2>Mind map &mdash; experiencia nos clientes externos (Claude / ChatGPT)</h2>
+  <div class="map">
+
+    <!-- INTERNO -->
+    <div class="branch interno">
+      <h3><i class="dot" style="background:var(--interno)"></i> Interno &mdash; dentro do Claude/ChatGPT dele</h3>
+      <div class="body">
+        <div class="node">
+          <b>Conectar (uma vez)</b>
+          <ul class="flow">
+            <li data-n="1">Em Configuracoes do app, gera um <b>Personal Access Token</b> (mostrado 1x).</li>
+            <li data-n="2">No Claude: adiciona o connector <b>MCP</b> (URL + token). No ChatGPT: ativa a Action.</li>
+            <li data-n="3">O token mapeia para o usuario interno &rarr; acesso total via RLS.</li>
+          </ul>
+        </div>
+        <div class="node">
+          <b>O que ele pede em linguagem natural</b>
+          <small>"Crie um caso pra cliente nova Maria Silva, CPF X, aposentadoria por idade."<br>
+          "Atualize o caso #123 pra fase judicial."<br>
+          "Abra uma solicitacao de CNIS no caso da Joana."</small>
+          <div class="can">
+            <span class="t yes">criar/editar cliente</span>
+            <span class="t yes">criar/atualizar caso</span>
+            <span class="t yes">andamento + comentario</span>
+            <span class="t yes">criar e responder solicitacao</span>
+            <span class="t yes">anexar documento</span>
+          </div>
+        </div>
+        <div class="node">
+          <b>Guarda-corpos</b>
+          <ul class="flow">
+            <li data-n="&#10003;">Escrita = preview + confirmar (host + nossa tool).</li>
+            <li data-n="&#10003;">Nenhuma tool de deletar existe.</li>
+            <li data-n="&#10003;">Tudo auditado em <code>ia_acoes</code>.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- PARCEIRO -->
+    <div class="branch parceiro">
+      <h3><i class="dot" style="background:var(--parceiro)"></i> Parceiro &mdash; dentro do Claude/ChatGPT dele</h3>
+      <div class="body">
+        <div class="node">
+          <b>Conectar (uma vez)</b>
+          <ul class="flow">
+            <li data-n="1">Gera o <b>PAT</b> dele na tela de Configuracoes.</li>
+            <li data-n="2">Conecta no Claude/ChatGPT igual ao interno.</li>
+            <li data-n="3">Token mapeia para o parceiro &rarr; <b>RLS limita aos casos dele</b>.</li>
+          </ul>
+        </div>
+        <div class="node">
+          <b>O que ele pede</b>
+          <small>"Comente no caso do meu cliente que protocolei o documento."<br>
+          "Anexe este RG ao caso do Pedro."<br>
+          "Marque a solicitacao de CNIS como atendida."</small>
+          <div class="can">
+            <span class="t yes">criar cliente (ao abrir caso)</span>
+            <span class="t yes">criar/atualizar caso dele</span>
+            <span class="t yes">andamento + comentario</span>
+            <span class="t yes">responder solicitacao</span>
+            <span class="t yes">anexar documento</span>
+            <span class="t no">editar dados do cliente</span>
+            <span class="t no">criar solicitacao</span>
+            <span class="t no">qualquer caso de outro parceiro</span>
+          </div>
+        </div>
+        <div class="node">
+          <b>Por que alguns ficam riscados</b>
+          <small>Reflete o RLS real de producao: <code>clientes_update</code> e <code>solicitacoes_modify</code> sao <code>is_interno()</code> apenas. A IA nem mostra essas ferramentas ao parceiro.</small>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== CONVERSA NO NOSSO AMBIENTE ===================== -->
+  <h2>Exemplo de conversa &mdash; chatbot dentro do nosso ambiente</h2>
+  <div class="chat">
+    <div class="head"><i class="dot" style="background:var(--parceiro)"></i> Assistente de IA &middot; Mara Sandra Connect &middot; sessao de <b>Naira (interno)</b></div>
+    <div class="body">
+
+      <div class="msg user"><div class="av u">N</div>
+        <div class="bub">No caso da Joana Pereira, registra um andamento dizendo que protocolei o requerimento de aposentadoria por idade hoje, e deixa visivel pro parceiro.</div>
+      </div>
+
+      <div class="msg ai"><div class="av a">IA</div>
+        <div class="bub">
+          Encontrei o caso. Vou so confirmar antes de gravar:
+          <div class="tool">
+            <div class="tl">&#8627; buscar_casos(cliente="Joana Pereira")</div>
+            <div class="tb">1 resultado &middot; caso #481 &middot; fase: admin &middot; status: em_andamento</div>
+          </div>
+          <div class="confirm">
+            <div class="ch">&#9888; Confirmar criacao de andamento</div>
+            <div class="cb">
+              <dl>
+                <dt>Caso</dt><dd>#481 &mdash; Joana Pereira</dd>
+                <dt>Origem</dt><dd>interno</dd>
+                <dt>Titulo</dt><dd>Requerimento protocolado</dd>
+                <dt>Descricao</dt><dd>Protocolado requerimento de aposentadoria por idade no INSS.</dd>
+                <dt>Visivel ao parceiro</dt><dd>Sim</dd>
+              </dl>
+              <div class="btns"><span class="btn ok">Confirmar</span><span class="btn no">Cancelar</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="msg user"><div class="av u">N</div><div class="bub">Confirmar &#10003;</div></div>
+
+      <div class="msg ai"><div class="av a">IA</div>
+        <div class="bub">
+          Feito &#9989; Andamento criado no caso #481 e marcado como visivel ao parceiro.
+          <div class="tool">
+            <div class="tl">&#8627; criar_andamento(caso_id=481, &hellip;)  &rarr;  ok (id 9f2a)</div>
+            <div class="tb">auditado em ia_acoes &middot; executado sob RLS de Naira</div>
+          </div>
+          Quer que eu notifique o parceiro ou registre tambem a data de protocolo no processo administrativo?
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="note">
+    <b>Mesmo fluxo na Superficie B:</b> no Claude/ChatGPT do usuario a conversa e igual &mdash; a diferenca e que o cartao de confirmacao aparece como a <b>aprovacao de tool</b> do proprio host, e a identidade vem do <b>PAT</b> (nao da sessao do app). Leituras rodam direto; escritas sempre passam por "propor &rarr; confirmar".
+  </div>
+
+</div>
+</body>
+</html>

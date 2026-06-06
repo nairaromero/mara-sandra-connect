@@ -11,6 +11,7 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { NotificacoesBell } from "@/components/notificacoes-bell";
 import { MovimentacoesParceiroBell } from "@/components/movimentacoes-parceiro-bell";
+import { IaLauncher } from "@/components/ia/ia-launcher";
 import { useAuth } from "@/hooks/use-auth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -130,6 +131,7 @@ function AuthenticatedLayout() {
             <Outlet />
           </main>
         </div>
+        <IaLauncher />
       </div>
     </SidebarProvider>
   );

@@ -16,6 +16,8 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import { ClientOnly } from "@/components/client-only";
+import { IntegracaoIaCard } from "@/components/ia/integracao-ia-card";
+import { ConexaoClaudeCard } from "@/components/ia/conexao-claude-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -477,6 +479,12 @@ function ConfiguracoesPage() {
             </Button>
           </CardContent>
         </Card>
+
+        {/* Card: Integracao de IA */}
+        <IntegracaoIaCard />
+
+        {/* Card: Conectar Claude/ChatGPT (Superficie B) */}
+        <ConexaoClaudeCard />
 
         {/* Card: Sobre */}
         <Card>

@@ -1,1 +1,8 @@
 project_id = "nngikgxhdqawyxedzjpu"
+
+# ia-mcp autentica por Personal Access Token (PAT) proprio, nao por JWT do
+# Supabase. Por isso a verificacao de JWT do gateway fica desligada -- a propria
+# function valida o token (hash + expiracao/revogacao). Mesmo padrao do
+# whatsapp-inbound.
+[functions.ia-mcp]
+verify_jwt = false
