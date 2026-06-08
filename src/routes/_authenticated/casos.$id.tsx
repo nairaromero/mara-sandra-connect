@@ -905,6 +905,7 @@ function CasoDetalhePage() {
                       key={oc.id}
                       to="/casos/$id"
                       params={{ id: oc.id }}
+                      search={{ tab: "andamentos" }}
                       className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/50"
                     >
                       <span className="font-medium">{oc.tipo_beneficio ?? "(sem benefício)"}</span>

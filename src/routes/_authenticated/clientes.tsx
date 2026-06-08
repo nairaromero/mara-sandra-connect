@@ -219,8 +219,12 @@ function ClientesPage() {
     });
   }, [clientes, buscaNormalizada, buscaDigits]);
 
-  function abrirCaso(id: string) {
-    navigate({ to: "/casos/$id", params: { id } });
+  function abrirCaso(id: string, tab?: string) {
+    navigate({
+      to: "/casos/$id",
+      params: { id },
+      search: tab ? { tab } : undefined,
+    });
   }
 
   return (
@@ -338,7 +342,7 @@ function ClientesPage() {
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    abrirCaso(ca.id);
+                                    abrirCaso(ca.id, "andamentos");
                                   }}
                                   className="rounded border border-border bg-muted/40 px-1.5 py-0.5 text-[11px] font-normal text-muted-foreground hover:bg-muted hover:text-foreground"
                                   title={"Abrir caso: " + (ca.tipo_beneficio ?? "(sem beneficio)")}
