@@ -221,12 +221,41 @@ export const READ_TOOLS: ToolSpec[] = [
       const id = reqUuid(args.caso_id, "caso_id");
       const { data, error } = await client
         .from("andamentos")
-        .select("titulo,descricao,origem,data_evento,visivel_parceiro")
+        .select(
+          "titulo,descricao,origem,data_evento,visivel_parceiro,processo_admin_id,processo_judicial_id," +
+            "processos_admin(tipo_beneficio,numero_requerimento),processos_judiciais(numero_processo)",
+        )
         .eq("caso_id", id)
         .order("data_evento", { ascending: false })
         .limit(clampLimite(args.limite));
       if (error) throw new Error(error.message);
-      return data ?? [];
+      return (data ?? []).map((a: Record<string, unknown>) => {
+        const adm = a.processos_admin as Record<string, unknown> | null;
+        const jud = a.processos_judiciais as Record<string, unknown> | null;
+        let processo: Record<string, unknown> | string = "Geral (sem processo)";
+        if (adm) {
+          processo = {
+            tipo: "administrativo",
+            processo_admin_id: a.processo_admin_id,
+            beneficio: adm.tipo_beneficio,
+            numero_requerimento: adm.numero_requerimento,
+          };
+        } else if (jud) {
+          processo = {
+            tipo: "judicial",
+            processo_judicial_id: a.processo_judicial_id,
+            numero_processo: jud.numero_processo,
+          };
+        }
+        return {
+          titulo: a.titulo,
+          descricao: a.descricao,
+          origem: a.origem,
+          data_evento: a.data_evento,
+          visivel_parceiro: a.visivel_parceiro,
+          processo,
+        };
+      });
     },
   },
 
