@@ -51,6 +51,8 @@ function buildSystem(
     "  NAO e aplicada na hora; o sistema mostra um card para o usuario confirmar. Entao, ao propor",
     "  uma escrita, deixe claro o que sera feito e aguarde a confirmacao (nao repita a chamada).",
     "- Antes de criar/atualizar, busque o id correto (ex.: buscar_casos/buscar_clientes).",
+    "- Para ATUALIZAR pelo nome: busque o id primeiro. Se houver mais de um resultado parecido",
+    "  (homonimos), NAO altere nada - pergunte qual e o certo confirmando o CPF antes.",
     "- GATILHO: se o usuario pedir para criar/registrar/cadastrar/abrir/incluir/inserir/lancar/",
     "  adicionar/iniciar um cliente, caso, processo ou atendimento novo (ou qualquer sinonimo), use",
     "  cadastrar_caso (cria cliente + caso de uma vez). Nunca crie um cliente sem caso (vira orfao).",

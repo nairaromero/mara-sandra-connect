@@ -585,7 +585,11 @@ export const WRITE_TOOLS: ToolSpec[] = [
     name: "atualizar_cliente",
     tipo: "write",
     papeis: ["interno"],
-    description: "Atualiza dados de um cliente (nao altera o CPF).",
+    description:
+      "Atualiza dados de um cliente: nome, telefone, email, data_nascimento, endereco, observacoes. " +
+      "NAO altera o CPF. Exige cliente_id (UUID). Se o usuario der o NOME, use buscar_clientes antes " +
+      "para achar o id. ATENCAO: se houver mais de um cliente com nome parecido, NAO atualize - " +
+      "pergunte ao usuario qual e o certo confirmando pelo CPF antes de alterar.",
     schema: {
       type: "object",
       properties: {
