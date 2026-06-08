@@ -16,7 +16,28 @@ import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { decryptSecret } from "../_shared/crypto.ts";
 import { chatWith } from "../_shared/ia-providers.ts";
 import { maskCpf } from "../_shared/ia-redact.ts";
-import { extractText, getDocumentProxy } from "https://esm.sh/unpdf@0.12.0";
+import { configureUnPDF, extractText, getDocumentProxy } from "https://esm.sh/unpdf@0.12.0";
+// O unpdf carrega o pdf.js via import() dinamico, que o bundler do Supabase Edge
+// (eszip) NAO empacota -> em runtime da "PDF.js is not available". Importamos o
+// build serverless do pdf.js ESTATICAMENTE (eszip empacota imports estaticos) e
+// injetamos no unpdf. O pdfjs.mjs traz o pdf.js inline (~1.6MB).
+import { resolvePDFJS } from "https://esm.sh/unpdf@0.12.0/pdfjs";
+await configureUnPDF({ pdfjs: () => resolvePDFJS() });
+
+// O pdf.js usa Promise.withResolvers(), ausente em runtimes mais antigos (Deno do
+// Supabase Edge). Polyfill defensivo p/ extrair texto sem quebrar. (no-op onde ja existe.)
+const _P = Promise as unknown as { withResolvers?: () => unknown };
+if (typeof _P.withResolvers !== "function") {
+  _P.withResolvers = function () {
+    let resolve!: (v?: unknown) => void;
+    let reject!: (e?: unknown) => void;
+    const promise = new Promise((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  };
+}
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -144,45 +165,71 @@ serve(async (req) => {
     .eq("caso_id", casoId);
 
   // ---- Nivel 2: le o CONTEUDO dos documentos (defensivo) ----
+  // Prioriza os documentos que importam para viabilidade: CNIS (tempo/carencia),
+  // depois laudos medicos (incapacidade) e "outro" (ex.: Laudo INSS); o restante
+  // (RG, procuracao, certidao - normalmente scans pouco uteis) vem por ultimo.
+  const PRIO: Record<string, number> = { cnis: 0, laudo_medico: 1, outro: 2 };
+  const docsOrdenados = [...(docs ?? [])].sort((a, b) => {
+    const pa = PRIO[String((a as Record<string, unknown>).tipo)] ?? 9;
+    const pb = PRIO[String((b as Record<string, unknown>).tipo)] ?? 9;
+    return pa - pb;
+  });
   const documentos_conteudo: Array<{ tipo: unknown; nome: string; texto: string }> = [];
+  const debug_docs: Array<{ nome: string; via: string; len: number }> = [];
   let totalChars = 0;
-  const MAX_CHARS = 35000;
-  for (const d of (docs ?? []).slice(0, 8)) {
+  const MAX_CHARS = 60000;
+  for (const d of docsOrdenados.slice(0, 14)) {
     if (totalChars >= MAX_CHARS) break;
     const dd = d as Record<string, unknown>;
     const path = typeof dd.storage_path === "string" ? dd.storage_path : "";
     const nome = String(dd.nome_arquivo ?? "");
     const low = nome.toLowerCase();
     let texto = "";
+    let via = "?";
     try {
       if (!path) {
         texto = "[sem caminho de arquivo]";
+        via = "sem_path";
       } else {
         const dl = await admin.storage.from("documentos").download(path);
         if (dl.error || !dl.data) {
           texto = "[arquivo ainda nao enviado ou indisponivel]";
+          via = "download_err:" + (dl.error ? String(dl.error.message || dl.error) : "sem_data");
         } else if (low.endsWith(".pdf")) {
           const buf = new Uint8Array(await dl.data.arrayBuffer());
           const pdf = await getDocumentProxy(buf);
           const r = await extractText(pdf, { mergePages: true });
           texto = Array.isArray(r?.text) ? r.text.join("\n") : String(r?.text ?? "");
-          if (!texto.trim()) {
+          via = "pdf_ok(bytes=" + buf.length + ")";
+          const limpo = texto.trim();
+          if (!limpo) {
             texto = "[PDF sem texto extraivel (provavel imagem/scan; precisa OCR ou leitura manual)]";
+            via = "pdf_vazio(bytes=" + buf.length + ")";
+          } else if (limpo.length < 120) {
+            texto = limpo + "\n[ATENCAO: pouquissimo texto extraido - documento provavelmente " +
+              "escaneado/imagem; conteudo NAO confiavel sem OCR/leitura manual]";
+            via = "pdf_curto(" + limpo.length + ")";
           }
         } else if (low.endsWith(".txt")) {
           texto = await dl.data.text();
+          via = "txt";
         } else {
           texto = "[arquivo nao textual (imagem?) - nao lido automaticamente]";
+          via = "nao_textual";
         }
       }
     } catch (e) {
-      texto = "[erro ao ler o documento: " + (e instanceof Error ? e.message : "") + "]";
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[ia-analise] falha lendo doc", path, "->", msg);
+      texto = "[erro ao ler o documento: " + msg + "]";
+      via = "EXC:" + msg.slice(0, 160);
     }
     texto = texto.replace(/[ \t\r]+/g, " ").trim();
     const restante = MAX_CHARS - totalChars;
     if (texto.length > restante) texto = texto.slice(0, restante) + " [...truncado]";
     totalChars += texto.length;
     documentos_conteudo.push({ tipo: dd.tipo, nome, texto });
+    debug_docs.push({ nome, via, len: texto.length });
   }
 
   const idade = idadeDe(cliente?.data_nascimento ?? null);
@@ -276,6 +323,7 @@ serve(async (req) => {
         documentos_faltantes: docsFaltantes,
         proximos_passos: proximos,
         observacoes: obsTexto,
+        debug_docs,
       },
       resumo_parceiro: resumoParceiro,
       modelo_ia: integ.modelo,
