@@ -583,12 +583,17 @@ function NovoCasoPage() {
         }
       }
 
-      // Se quem cadastrou foi o PARCEIRO, avisa o sino da equipe (interno).
+      // Se quem cadastrou foi o PARCEIRO, avisa o sino da equipe (interno):
+      // caso novo pronto para analise (com a contagem de documentos anexados).
       if (!isInterno) {
+        const qtdDocs = docsToUpload.length;
         notificarEquipe({
           tipo: "caso",
-          titulo: `Novo caso de ${usuario.nome || "parceiro"}: ${values.nome.trim()}`,
-          descricao: values.tipo_beneficio,
+          titulo: `Novo caso para análise: ${values.nome.trim()}`,
+          descricao:
+            `${values.tipo_beneficio}` +
+            (qtdDocs > 0 ? ` · ${qtdDocs} documento(s)` : " · sem documentos") +
+            ` · por ${usuario.nome || "parceiro"}`,
           caso_id: casoId,
         });
       }
