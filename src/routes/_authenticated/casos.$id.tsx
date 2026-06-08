@@ -1,9 +1,4 @@
-import {
-  createFileRoute,
-  useParams,
-  useNavigate,
-  Link,
-} from "@tanstack/react-router";
+import { createFileRoute, useParams, useNavigate, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -40,11 +35,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { DESTAQUE_CLASSE, useFocoItem } from "@/hooks/use-foco-item";
 import { notificarEquipe } from "@/lib/notificar";
 import { supabase } from "@/lib/supabase";
-import {
-  MAX_FILE_SIZE_MB,
-  validateFileSize,
-  validateFileSizes,
-} from "@/lib/upload-limits";
+import { MAX_FILE_SIZE_MB, validateFileSize, validateFileSizes } from "@/lib/upload-limits";
 import {
   abrirDrivePicker,
   abrirDrivePickerPasta,
@@ -55,10 +46,7 @@ import {
 } from "@/lib/google-drive";
 import { ClientOnly } from "@/components/client-only";
 import { DocTypeCombobox } from "@/components/doc-type-combobox";
-import {
-  DrivePickerDialog,
-  type DriveImportedFile,
-} from "@/components/drive-picker-dialog";
+import { DrivePickerDialog, type DriveImportedFile } from "@/components/drive-picker-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -72,13 +60,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
@@ -112,9 +94,7 @@ import {
 export const Route = createFileRoute("/_authenticated/casos/$id")({
   component: CasoDetalhePage,
   // Deep-link pra aba (?tab=) e item a destacar (?foco=<id>) — usado pelo sino.
-  validateSearch: (
-    search: Record<string, unknown>,
-  ): { tab?: string; foco?: string } => {
+  validateSearch: (search: Record<string, unknown>): { tab?: string; foco?: string } => {
     const out: { tab?: string; foco?: string } = {};
     if (typeof search.tab === "string") out.tab = search.tab;
     if (typeof search.foco === "string") out.foco = search.foco;
@@ -440,8 +420,7 @@ const TIPOS_DOCUMENTO_LABEL: Record<string, string> = {
   substabelecimento: "Substabelecimento",
   contrato_honorarios: "Contrato de honorários",
   declaracao_hipossuficiencia: "Declaração de hipossuficiência",
-  declaracao_ausencia_duplicidade:
-    "Declaração de ausência de duplicidade de ação",
+  declaracao_ausencia_duplicidade: "Declaração de ausência de duplicidade de ação",
   outro: "Outro",
 };
 
@@ -595,10 +574,7 @@ function sanitizeFileName(name: string): string {
     .replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
-function labelFromList(
-  list: Array<{ value: string; label: string }>,
-  value: string,
-): string {
+function labelFromList(list: Array<{ value: string; label: string }>, value: string): string {
   for (const item of list) {
     if (item.value === value) return item.label;
   }
@@ -629,10 +605,11 @@ function CasoDetalhePage() {
 
   const [caso, setCaso] = useState<Caso | null>(null);
   const [cliente, setCliente] = useState<Cliente | null>(null);
-  const [parceiro, setParceiro] = useState<ParceiroLite | null>(null);
-  const [parceirosDisponiveis, setParceirosDisponiveis] = useState<
-    Array<ParceiroLite>
+  const [outrosCasos, setOutrosCasos] = useState<
+    Array<{ id: string; tipo_beneficio: string | null; status: string | null }>
   >([]);
+  const [parceiro, setParceiro] = useState<ParceiroLite | null>(null);
+  const [parceirosDisponiveis, setParceirosDisponiveis] = useState<Array<ParceiroLite>>([]);
   const [andamentos, setAndamentos] = useState<Array<Andamento>>([]);
   const [documentos, setDocumentos] = useState<Array<Documento>>([]);
   const [solicitacoes, setSolicitacoes] = useState<Array<SolicitacaoDocumento>>([]);
@@ -641,9 +618,7 @@ function CasoDetalhePage() {
   const [comentarios, setComentarios] = useState<Array<ComentarioRow>>([]);
   const [repasses, setRepasses] = useState<Array<Repasse>>([]);
   const [processosAdmin, setProcessosAdmin] = useState<Array<ProcessoAdmin>>([]);
-  const [processosJudiciais, setProcessosJudiciais] = useState<
-    Array<ProcessoJudicial>
-  >([]);
+  const [processosJudiciais, setProcessosJudiciais] = useState<Array<ProcessoJudicial>>([]);
 
   const carregar = useCallback(async () => {
     // So mostra loading global na primeira carga, depois recarregamentos sao silenciosos
@@ -652,11 +627,7 @@ function CasoDetalhePage() {
     }
     setErro(null);
     try {
-      const casoResp = await supabase
-        .from("casos")
-        .select("*")
-        .eq("id", casoId)
-        .maybeSingle();
+      const casoResp = await supabase.from("casos").select("*").eq("id", casoId).maybeSingle();
       if (casoResp.error) throw casoResp.error;
       const casoData = casoResp.data as Caso | null;
       if (!casoData) {
@@ -675,6 +646,22 @@ function CasoDetalhePage() {
         .maybeSingle();
       if (clienteResp.error) throw clienteResp.error;
       setCliente((clienteResp.data || null) as Cliente | null);
+
+      // Outros casos do mesmo cliente (exclui o atual). RLS ja filtra o que o
+      // usuario pode ver (parceiro so os dele).
+      const outrosResp = await supabase
+        .from("casos")
+        .select("id, tipo_beneficio, status")
+        .eq("cliente_id", casoData.cliente_id)
+        .neq("id", casoData.id)
+        .order("created_at", { ascending: false });
+      setOutrosCasos(
+        (outrosResp.data as Array<{
+          id: string;
+          tipo_beneficio: string | null;
+          status: string | null;
+        }>) ?? [],
+      );
 
       if (casoData.parceiro_id) {
         const parceiroResp = await supabase
@@ -697,9 +684,7 @@ function CasoDetalhePage() {
       if (parceirosResp.error) {
         console.error("erro listar parceiros", parceirosResp.error);
       } else {
-        setParceirosDisponiveis(
-          (parceirosResp.data || []) as Array<ParceiroLite>,
-        );
+        setParceirosDisponiveis((parceirosResp.data || []) as Array<ParceiroLite>);
       }
 
       const andamentosResp = await supabase
@@ -752,9 +737,7 @@ function CasoDetalhePage() {
         .eq("caso_id", casoId)
         .order("created_at", { ascending: true });
       if (!comentariosResp.error) {
-        setComentarios(
-          (comentariosResp.data || []) as unknown as Array<ComentarioRow>,
-        );
+        setComentarios((comentariosResp.data || []) as unknown as Array<ComentarioRow>);
       }
 
       const repassesResp = await supabase
@@ -785,9 +768,7 @@ function CasoDetalhePage() {
         .eq("caso_id", casoId)
         .order("created_at", { ascending: false });
       if (!procJudResp.error) {
-        setProcessosJudiciais(
-          (procJudResp.data || []) as Array<ProcessoJudicial>,
-        );
+        setProcessosJudiciais((procJudResp.data || []) as Array<ProcessoJudicial>);
       }
     } catch (err) {
       console.error(err);
@@ -833,9 +814,7 @@ function CasoDetalhePage() {
         <Card>
           <CardContent className="py-12 text-center">
             <AlertCircle className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
-            <p className="text-sm text-muted-foreground">
-              {erro || "Caso não encontrado"}
-            </p>
+            <p className="text-sm text-muted-foreground">{erro || "Caso não encontrado"}</p>
           </CardContent>
         </Card>
       </div>
@@ -917,6 +896,26 @@ function CasoDetalhePage() {
               isInterno={isInterno}
               onChange={carregar}
             />
+            {outrosCasos.length > 0 && (
+              <div className="mt-4 rounded-lg border border-border bg-card p-4">
+                <h3 className="mb-2 text-sm font-semibold">Outros casos deste cliente</h3>
+                <div className="space-y-2">
+                  {outrosCasos.map((oc) => (
+                    <Link
+                      key={oc.id}
+                      to="/casos/$id"
+                      params={{ id: oc.id }}
+                      className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/50"
+                    >
+                      <span className="font-medium">{oc.tipo_beneficio ?? "(sem benefício)"}</span>
+                      <span className="text-xs capitalize text-muted-foreground">
+                        {(oc.status ?? "").replace(/_/g, " ")}
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="andamentos" className="mt-4">
@@ -1014,8 +1013,7 @@ interface CasoHeaderProps {
 }
 
 function CasoHeader(props: CasoHeaderProps) {
-  const { caso, cliente, isInterno, usuarioId, processosJudiciais, onChange } =
-    props;
+  const { caso, cliente, isInterno, usuarioId, processosJudiciais, onChange } = props;
   const [syncing, setSyncing] = useState(false);
   const [syncingLM, setSyncingLM] = useState(false);
 
@@ -1041,16 +1039,27 @@ function CasoHeader(props: CasoHeaderProps) {
         const notasNovas = r.notas_importadas || 0;
         const notasJa = r.notas_ja_existentes || 0;
         let msg =
-          "Sincronizado com TI. " + tags + " tag" + (tags === 1 ? "" : "s") +
-          " aplicada" + (tags === 1 ? "" : "s") + ".";
+          "Sincronizado com TI. " +
+          tags +
+          " tag" +
+          (tags === 1 ? "" : "s") +
+          " aplicada" +
+          (tags === 1 ? "" : "s") +
+          ".";
         if (notasNovas > 0) {
-          msg += " " + notasNovas + " nota" + (notasNovas === 1 ? "" : "s") +
-            " do TI importada" + (notasNovas === 1 ? "" : "s") +
-            " como andamento" + (notasNovas === 1 ? "" : "s") + ".";
+          msg +=
+            " " +
+            notasNovas +
+            " nota" +
+            (notasNovas === 1 ? "" : "s") +
+            " do TI importada" +
+            (notasNovas === 1 ? "" : "s") +
+            " como andamento" +
+            (notasNovas === 1 ? "" : "s") +
+            ".";
         }
         if (notasJa > 0) {
-          msg += " " + notasJa + " ja existia" + (notasJa === 1 ? "" : "m") +
-            " (dedup).";
+          msg += " " + notasJa + " ja existia" + (notasJa === 1 ? "" : "m") + " (dedup).";
         }
         toast.success(msg);
         onChange();
@@ -1079,9 +1088,7 @@ function CasoHeader(props: CasoHeaderProps) {
       );
       return;
     }
-    const idprocessos = procsComLM
-      .map((p) => Number(p.legalmail_id))
-      .filter((n) => !isNaN(n));
+    const idprocessos = procsComLM.map((p) => Number(p.legalmail_id)).filter((n) => !isNaN(n));
     if (idprocessos.length === 0) {
       toast.error("Erro ao ler IDs do Legalmail dos processos vinculados.");
       return;
@@ -1109,24 +1116,35 @@ function CasoHeader(props: CasoHeaderProps) {
       const mj = r.movimentacoes_ja_existentes || 0;
       const mig = r.movimentacoes_ignoradas || 0;
       let msg =
-        pa + " processo" + (pa === 1 ? "" : "s") + " atualizado" +
-        (pa === 1 ? "" : "s") + ". " +
-        mi + " movimentaç" + (mi === 1 ? "ão" : "ões") + " nova" +
+        pa +
+        " processo" +
+        (pa === 1 ? "" : "s") +
+        " atualizado" +
+        (pa === 1 ? "" : "s") +
+        ". " +
+        mi +
+        " movimentaç" +
+        (mi === 1 ? "ão" : "ões") +
+        " nova" +
         (mi === 1 ? "" : "s");
       if (mj > 0) {
         msg += " (" + mj + " já existia" + (mj === 1 ? "" : "m") + ")";
       }
       if (mig > 0) {
-        msg += ". " + mig + " mov" + (mig === 1 ? "" : "s") +
-          " ignorada" + (mig === 1 ? "" : "s") + " pela whitelist";
+        msg +=
+          ". " +
+          mig +
+          " mov" +
+          (mig === 1 ? "" : "s") +
+          " ignorada" +
+          (mig === 1 ? "" : "s") +
+          " pela whitelist";
       }
       msg += ".";
       toast.success(msg);
       if (r.erros && r.erros.length > 0) {
         console.warn("erros no sync Legalmail:", r.erros);
-        toast.warning(
-          r.erros.length + " erro(s) durante sync. Ver console.",
-        );
+        toast.warning(r.erros.length + " erro(s) durante sync. Ver console.");
       }
       onChange();
     } catch (err) {
@@ -1145,9 +1163,7 @@ function CasoHeader(props: CasoHeaderProps) {
     ? tagsTodas
     : tagsTodas.filter((t) => !/^[A-Za-z_]+\/[A-Z]{2}$/.test(t.name.trim()));
 
-  const cpfFormatado = isInterno
-    ? maskCPF(cliente.cpf)
-    : maskCPFParceiro(cliente.cpf);
+  const cpfFormatado = isInterno ? maskCPF(cliente.cpf) : maskCPFParceiro(cliente.cpf);
 
   return (
     <Card>
@@ -1184,9 +1200,7 @@ function CasoHeader(props: CasoHeaderProps) {
                   disabled={syncing}
                   title="Sincronizar tags e dados com Tramitação Inteligente"
                 >
-                  {syncing && (
-                    <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                  )}
+                  {syncing && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
                   Sync TI
                 </DropdownMenuItem>
                 <DropdownMenuItem
@@ -1194,9 +1208,7 @@ function CasoHeader(props: CasoHeaderProps) {
                   disabled={syncingLM}
                   title="Atualizar movimentações dos processos Legalmail vinculados"
                 >
-                  {syncingLM && (
-                    <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                  )}
+                  {syncingLM && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
                   Sync Legal
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -1244,8 +1256,7 @@ interface TabVisaoGeralProps {
 }
 
 function TabVisaoGeral(props: TabVisaoGeralProps) {
-  const { caso, cliente, parceiro, parceirosDisponiveis, isInterno, onChange } =
-    props;
+  const { caso, cliente, parceiro, parceirosDisponiveis, isInterno, onChange } = props;
   const navigate = useNavigate();
 
   // ---- AlertDialog: confirmar excluir cliente ----
@@ -1304,9 +1315,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
       return;
     }
     if (!csInterno && !csParceiroId) {
-      toast.error(
-        "Selecione um parceiro indicador ou marque como cliente interno",
-      );
+      toast.error("Selecione um parceiro indicador ou marque como cliente interno");
       return;
     }
     setClSalvando(true);
@@ -1388,13 +1397,10 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
       // RPC retorna array de paths. Apaga do storage.
       const paths = (rpcResp.data as string[] | null) ?? [];
       if (paths.length > 0) {
-        const remResp = await supabase.storage
-          .from("documentos")
-          .remove(paths);
+        const remResp = await supabase.storage.from("documentos").remove(paths);
         if (remResp.error) {
           // Banco ja apagado - so deixa warning sobre lixo no storage.
-          console.warn("Cliente excluido, mas arquivos do storage falharam:",
-            remResp.error);
+          console.warn("Cliente excluido, mas arquivos do storage falharam:", remResp.error);
         }
       }
 
@@ -1452,11 +1458,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
         p_senha: senhaNova,
       });
       if (resp.error) throw resp.error;
-      toast.success(
-        senhaParcTemSenha
-          ? "Senha MEU INSS substituída"
-          : "Senha MEU INSS cadastrada",
-      );
+      toast.success(senhaParcTemSenha ? "Senha MEU INSS substituída" : "Senha MEU INSS cadastrada");
       setAbrirSenhaParc(false);
       setSenhaParcValor("");
     } catch (err) {
@@ -1565,611 +1567,546 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
   return (
     <div className="space-y-3">
       <div className="grid gap-4 lg:grid-cols-2">
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between gap-2">
-            <CardTitle className="text-base">Dados do cliente</CardTitle>
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle className="text-base">Dados do cliente</CardTitle>
+              {isInterno && (
+                <Button size="sm" variant="outline" onClick={abrirDialogCliente}>
+                  <Pencil className="h-3.5 w-3.5 mr-1" />
+                  Editar
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <Linha label="Nome" valor={cliente.nome} />
+            <Linha
+              label="CPF"
+              valor={isInterno ? maskCPF(cliente.cpf) : maskCPFParceiro(cliente.cpf)}
+            />
+            <Linha label="Nascimento" valor={formatDate(cliente.data_nascimento)} />
+            {isInterno && <Linha label="Telefone" valor={cliente.telefone || "-"} />}
+            {isInterno && <Linha label="E-mail" valor={cliente.email || "-"} />}
             {isInterno && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={abrirDialogCliente}
-              >
-                <Pencil className="h-3.5 w-3.5 mr-1" />
-                Editar
-              </Button>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-2 text-sm">
-          <Linha label="Nome" valor={cliente.nome} />
-          <Linha
-            label="CPF"
-            valor={
-              isInterno
-                ? maskCPF(cliente.cpf)
-                : maskCPFParceiro(cliente.cpf)
-            }
-          />
-          <Linha
-            label="Nascimento"
-            valor={formatDate(cliente.data_nascimento)}
-          />
-          {isInterno && (
-            <Linha label="Telefone" valor={cliente.telefone || "-"} />
-          )}
-          {isInterno && (
-            <Linha label="E-mail" valor={cliente.email || "-"} />
-          )}
-          {isInterno && (
-            // Botao Ver senha MEU INSS. O clique dispara RPC com audit.
-            <div className="pt-2 border-t flex items-center justify-between">
-              <span className="text-xs text-muted-foreground flex items-center gap-1">
-                <KeyRound className="h-3.5 w-3.5" />
-                Senha MEU INSS
-              </span>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={abrirVerSenha}
-                disabled={carregandoSenha}
-              >
-                {carregandoSenha ? (
-                  <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-                ) : (
-                  <Eye className="h-3.5 w-3.5 mr-1" />
-                )}
-                Ver senha
-              </Button>
-            </div>
-          )}
-          {!isInterno && (
-            // Parceiro: write-only. Nao tem botao "Ver", so "Alterar".
-            <div className="pt-2 border-t flex items-center justify-between">
-              <span className="text-xs text-muted-foreground flex items-center gap-1">
-                <KeyRound className="h-3.5 w-3.5" />
-                Senha MEU INSS
-              </span>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={abrirAlterarSenhaParceiro}
-              >
-                <Pencil className="h-3.5 w-3.5 mr-1" />
-                Alterar
-              </Button>
-            </div>
-          )}
-          {cliente.observacoes && (
-            <div className="pt-2 border-t">
-              <p className="text-xs text-muted-foreground mb-1">Observações</p>
-              <p className="text-sm whitespace-pre-wrap">{cliente.observacoes}</p>
-            </div>
-          )}
-        </CardContent>
-        {isInterno && (
-          <Dialog
-            open={abrirEditCliente}
-            onOpenChange={setAbrirEditCliente}
-          >
-            <DialogContent className="max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>Editar cliente e caso</DialogTitle>
-                <DialogDescription>
-                  Dados do cliente e do caso num só lugar. CPF não pode ser
-                  alterado (chave única vinculada ao TI).
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-xs">Nome</Label>
-                  <Input
-                    value={clNome}
-                    onChange={(e) => setClNome(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">CPF</Label>
-                  <Input value={maskCPF(cliente.cpf)} disabled />
-                </div>
-                <div>
-                  <Label className="text-xs">Data de nascimento</Label>
-                  <Input
-                    type="date"
-                    value={clDataNascimento}
-                    onChange={(e) => setClDataNascimento(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Telefone</Label>
-                  <Input
-                    value={clTelefone}
-                    onChange={(e) => setClTelefone(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">E-mail</Label>
-                  <Input
-                    type="email"
-                    value={clEmail}
-                    onChange={(e) => setClEmail(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Observações</Label>
-                  <Textarea
-                    rows={3}
-                    value={clObservacoes}
-                    onChange={(e) => setClObservacoes(e.target.value)}
-                  />
-                </div>
-
-                {/* ---- Dados do caso (edicao unificada) ---- */}
-                <div className="border-t pt-3 space-y-3">
-                  <p className="text-sm font-medium">Dados do caso</p>
-                  <div>
-                    <Label className="text-xs">Tipo de benefício</Label>
-                    <Select
-                      value={csTipoBeneficio}
-                      onValueChange={setCsTipoBeneficio}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {TIPOS_BENEFICIO.map((t) => (
-                          <SelectItem key={t} value={t}>
-                            {t}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <input
-                      id="cl-cs-interno"
-                      type="checkbox"
-                      checked={csInterno}
-                      onChange={(e) => {
-                        setCsInterno(e.target.checked);
-                        if (e.target.checked) setCsParceiroId("");
-                      }}
-                      className="h-4 w-4 mt-0.5"
-                    />
-                    <Label htmlFor="cl-cs-interno" className="text-sm">
-                      Cliente interno do escritório (sem parceiro indicador)
-                    </Label>
-                  </div>
-                  {!csInterno && (
-                    <div>
-                      <Label className="text-xs">Parceiro indicador</Label>
-                      <Select
-                        value={csParceiroId}
-                        onValueChange={setCsParceiroId}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecione um parceiro..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {parceirosDisponiveis.length === 0 && (
-                            <SelectItem value="__vazio__" disabled>
-                              Nenhum parceiro cadastrado
-                            </SelectItem>
-                          )}
-                          {parceirosDisponiveis.map((p) => (
-                            <SelectItem key={p.id} value={p.id}>
-                              {p.nome || p.email || "(sem nome)"}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+              // Botao Ver senha MEU INSS. O clique dispara RPC com audit.
+              <div className="pt-2 border-t flex items-center justify-between">
+                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                  <KeyRound className="h-3.5 w-3.5" />
+                  Senha MEU INSS
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={abrirVerSenha}
+                  disabled={carregandoSenha}
+                >
+                  {carregandoSenha ? (
+                    <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                  ) : (
+                    <Eye className="h-3.5 w-3.5 mr-1" />
                   )}
-                  <div className="grid grid-cols-2 gap-3">
+                  Ver senha
+                </Button>
+              </div>
+            )}
+            {!isInterno && (
+              // Parceiro: write-only. Nao tem botao "Ver", so "Alterar".
+              <div className="pt-2 border-t flex items-center justify-between">
+                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                  <KeyRound className="h-3.5 w-3.5" />
+                  Senha MEU INSS
+                </span>
+                <Button size="sm" variant="outline" onClick={abrirAlterarSenhaParceiro}>
+                  <Pencil className="h-3.5 w-3.5 mr-1" />
+                  Alterar
+                </Button>
+              </div>
+            )}
+            {cliente.observacoes && (
+              <div className="pt-2 border-t">
+                <p className="text-xs text-muted-foreground mb-1">Observações</p>
+                <p className="text-sm whitespace-pre-wrap">{cliente.observacoes}</p>
+              </div>
+            )}
+          </CardContent>
+          {isInterno && (
+            <Dialog open={abrirEditCliente} onOpenChange={setAbrirEditCliente}>
+              <DialogContent className="max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>Editar cliente e caso</DialogTitle>
+                  <DialogDescription>
+                    Dados do cliente e do caso num só lugar. CPF não pode ser alterado (chave única
+                    vinculada ao TI).
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-3">
+                  <div>
+                    <Label className="text-xs">Nome</Label>
+                    <Input value={clNome} onChange={(e) => setClNome(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">CPF</Label>
+                    <Input value={maskCPF(cliente.cpf)} disabled />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Data de nascimento</Label>
+                    <Input
+                      type="date"
+                      value={clDataNascimento}
+                      onChange={(e) => setClDataNascimento(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Telefone</Label>
+                    <Input value={clTelefone} onChange={(e) => setClTelefone(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">E-mail</Label>
+                    <Input
+                      type="email"
+                      value={clEmail}
+                      onChange={(e) => setClEmail(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Observações</Label>
+                    <Textarea
+                      rows={3}
+                      value={clObservacoes}
+                      onChange={(e) => setClObservacoes(e.target.value)}
+                    />
+                  </div>
+
+                  {/* ---- Dados do caso (edicao unificada) ---- */}
+                  <div className="border-t pt-3 space-y-3">
+                    <p className="text-sm font-medium">Dados do caso</p>
                     <div>
-                      <Label className="text-xs">Fase</Label>
-                      <Select value={csFase} onValueChange={setCsFase}>
+                      <Label className="text-xs">Tipo de benefício</Label>
+                      <Select value={csTipoBeneficio} onValueChange={setCsTipoBeneficio}>
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {FASES_CASO.map((f) => (
-                            <SelectItem key={f.value} value={f.value}>
-                              {f.label}
+                          {TIPOS_BENEFICIO.map((t) => (
+                            <SelectItem key={t} value={t}>
+                              {t}
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
-                    <div>
-                      <Label className="text-xs">Status</Label>
-                      <Select value={csStatus} onValueChange={setCsStatus}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {STATUS_CASO.map((s) => (
-                            <SelectItem key={s.value} value={s.value}>
-                              {s.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                    <div className="flex items-start gap-2">
+                      <input
+                        id="cl-cs-interno"
+                        type="checkbox"
+                        checked={csInterno}
+                        onChange={(e) => {
+                          setCsInterno(e.target.checked);
+                          if (e.target.checked) setCsParceiroId("");
+                        }}
+                        className="h-4 w-4 mt-0.5"
+                      />
+                      <Label htmlFor="cl-cs-interno" className="text-sm">
+                        Cliente interno do escritório (sem parceiro indicador)
+                      </Label>
+                    </div>
+                    {!csInterno && (
+                      <div>
+                        <Label className="text-xs">Parceiro indicador</Label>
+                        <Select value={csParceiroId} onValueChange={setCsParceiroId}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecione um parceiro..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {parceirosDisponiveis.length === 0 && (
+                              <SelectItem value="__vazio__" disabled>
+                                Nenhum parceiro cadastrado
+                              </SelectItem>
+                            )}
+                            {parceirosDisponiveis.map((p) => (
+                              <SelectItem key={p.id} value={p.id}>
+                                {p.nome || p.email || "(sem nome)"}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-xs">Fase</Label>
+                        <Select value={csFase} onValueChange={setCsFase}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {FASES_CASO.map((f) => (
+                              <SelectItem key={f.value} value={f.value}>
+                                {f.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-xs">Status</Label>
+                        <Select value={csStatus} onValueChange={setCsStatus}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {STATUS_CASO.map((s) => (
+                              <SelectItem key={s.value} value={s.value}>
+                                {s.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Senha MEU INSS - sempre vazio. Vazio = manter, preenchido =
+                  {/* Senha MEU INSS - sempre vazio. Vazio = manter, preenchido =
                     substituir via RPC criptografada. Status atual (ja tem ou
                     nao) eh mostrado em texto auxiliar. */}
-                <div className="pt-3 border-t">
-                  <Label className="text-xs flex items-center gap-1">
-                    <KeyRound className="h-3.5 w-3.5" />
-                    Senha MEU INSS{" "}
-                    <span className="text-muted-foreground font-normal">
-                      ({clTemSenha ? "já cadastrada - será substituída" : "não cadastrada"})
-                    </span>
-                  </Label>
-                  <Input
-                    type="password"
-                    value={clSenhaMeuInss}
-                    onChange={(e) => setClSenhaMeuInss(e.target.value)}
-                    placeholder={
-                      clTemSenha
-                        ? "Deixe vazio pra manter a senha atual"
-                        : "Senha do MEU INSS do cliente"
-                    }
-                    autoComplete="off"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Criptografada no banco. Toda escrita e leitura ficam
-                    registradas em auditoria.
-                  </p>
+                  <div className="pt-3 border-t">
+                    <Label className="text-xs flex items-center gap-1">
+                      <KeyRound className="h-3.5 w-3.5" />
+                      Senha MEU INSS{" "}
+                      <span className="text-muted-foreground font-normal">
+                        ({clTemSenha ? "já cadastrada - será substituída" : "não cadastrada"})
+                      </span>
+                    </Label>
+                    <Input
+                      type="password"
+                      value={clSenhaMeuInss}
+                      onChange={(e) => setClSenhaMeuInss(e.target.value)}
+                      placeholder={
+                        clTemSenha
+                          ? "Deixe vazio pra manter a senha atual"
+                          : "Senha do MEU INSS do cliente"
+                      }
+                      autoComplete="off"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Criptografada no banco. Toda escrita e leitura ficam registradas em auditoria.
+                    </p>
+                  </div>
                 </div>
-              </div>
-              <DialogFooter className="sm:justify-between gap-2">
-                {/* Excluir vai a esquerda - separacao visual clara da acao
+                <DialogFooter className="sm:justify-between gap-2">
+                  {/* Excluir vai a esquerda - separacao visual clara da acao
                     primaria (Salvar). Espacamento sm:justify-between joga
                     o destrutivo pra ponta. */}
-                <Button
-                  variant="destructive"
-                  onClick={() => setConfExcluirCliente(true)}
-                  disabled={clSalvando || excluindoCliente}
-                  className="sm:mr-auto"
-                >
-                  <Trash2 className="h-3.5 w-3.5 mr-1" />
-                  Excluir cliente
-                </Button>
-                <div className="flex gap-2">
+                  <Button
+                    variant="destructive"
+                    onClick={() => setConfExcluirCliente(true)}
+                    disabled={clSalvando || excluindoCliente}
+                    className="sm:mr-auto"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-1" />
+                    Excluir cliente
+                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="ghost"
+                      onClick={() => setAbrirEditCliente(false)}
+                      disabled={clSalvando}
+                    >
+                      Cancelar
+                    </Button>
+                    <Button onClick={salvarCliente} disabled={clSalvando}>
+                      {clSalvando && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
+                      Salvar
+                    </Button>
+                  </div>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
+          {/* AlertDialog de confirmacao de exclusao. Acao destrutiva amplia o
+            consentimento explicito do usuario - lista o que vai sumir. */}
+          {isInterno && (
+            <AlertDialog
+              open={confExcluirCliente}
+              onOpenChange={(o) => {
+                if (!excluindoCliente) setConfExcluirCliente(o);
+              }}
+            >
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Excluir {cliente.nome}?</AlertDialogTitle>
+                  <AlertDialogDescription asChild>
+                    <div className="space-y-2 text-sm">
+                      <p>
+                        Esta ação é <strong>irreversível</strong>. Será removido:
+                      </p>
+                      <ul className="list-disc pl-5 space-y-0.5 text-muted-foreground">
+                        <li>O cliente e todos os dados cadastrais</li>
+                        <li>Todos os casos vinculados</li>
+                        <li>Todos os documentos, andamentos e solicitações</li>
+                        <li>Conversas, repasses e processos do caso</li>
+                        <li>Senha MEU INSS criptografada (se houver)</li>
+                      </ul>
+                      <p className="text-xs text-muted-foreground">
+                        O log de auditoria do acesso a senhas é preservado.
+                      </p>
+                    </div>
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={excluindoCliente}>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={(e) => {
+                      e.preventDefault();
+                      excluirCliente();
+                    }}
+                    disabled={excluindoCliente}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    {excluindoCliente && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
+                    Sim, excluir tudo
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+          {isInterno && (
+            // Dialog para exibir a senha MEU INSS decifrada.
+            // O backend ja registrou audit antes de retornar a senha.
+            <Dialog
+              open={abrirSenha}
+              onOpenChange={(o) => {
+                if (!o) fecharSenha();
+              }}
+            >
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <KeyRound className="h-4 w-4" />
+                    Senha MEU INSS
+                  </DialogTitle>
+                  <DialogDescription className="text-xs text-warning bg-warning/10 border border-warning/30 rounded p-2 mt-1">
+                    Acesso registrado em auditoria. A senha é confidencial - use apenas no portal
+                    MEU INSS do cliente.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-3">
+                  {carregandoSenha && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Decifrando senha...
+                    </div>
+                  )}
+                  {!carregandoSenha && erroSenha && (
+                    <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                      {erroSenha}
+                    </div>
+                  )}
+                  {!carregandoSenha && !erroSenha && senhaValor === null && (
+                    <p className="text-sm text-muted-foreground">
+                      Este cliente não tem senha do MEU INSS cadastrada.
+                    </p>
+                  )}
+                  {!carregandoSenha && !erroSenha && senhaValor !== null && (
+                    <div className="space-y-2">
+                      <Label className="text-xs">Senha</Label>
+                      <div className="flex items-center gap-2">
+                        <Input value={senhaValor} readOnly className="font-mono" />
+                        <Button
+                          onClick={copiarSenha}
+                          size="sm"
+                          variant="outline"
+                          title="Copiar senha"
+                        >
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={fecharSenha}>
+                    Fechar
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
+          {!isInterno && (
+            // Dialog write-only do parceiro. So input + Salvar.
+            <Dialog
+              open={abrirSenhaParc}
+              onOpenChange={(o) => {
+                if (!o) {
+                  setAbrirSenhaParc(false);
+                  setSenhaParcValor("");
+                }
+              }}
+            >
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <KeyRound className="h-4 w-4" />
+                    {senhaParcTemSenha ? "Substituir senha MEU INSS" : "Cadastrar senha MEU INSS"}
+                  </DialogTitle>
+                  <DialogDescription className="text-xs text-warning bg-warning/10 border border-warning/30 rounded p-2 mt-1">
+                    {senhaParcTemSenha
+                      ? "Já existe uma senha cadastrada para este cliente. Ao salvar, ela será SUBSTITUÍDA pela nova. Esta ação fica registrada em auditoria."
+                      : "A senha será criptografada no banco. Você não poderá consultar depois - apenas substituir. Ação registrada em auditoria."}
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-3">
+                  <div>
+                    <Label className="text-xs">Nova senha do MEU INSS</Label>
+                    <Input
+                      type="password"
+                      value={senhaParcValor}
+                      onChange={(e) => setSenhaParcValor(e.target.value)}
+                      placeholder="Senha do MEU INSS do cliente"
+                      autoComplete="off"
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
                   <Button
                     variant="ghost"
-                    onClick={() => setAbrirEditCliente(false)}
-                    disabled={clSalvando}
+                    onClick={() => {
+                      setAbrirSenhaParc(false);
+                      setSenhaParcValor("");
+                    }}
+                    disabled={senhaParcSalvando}
                   >
                     Cancelar
                   </Button>
-                  <Button onClick={salvarCliente} disabled={clSalvando}>
-                    {clSalvando && (
-                      <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                    )}
+                  <Button
+                    onClick={salvarSenhaParceiro}
+                    disabled={senhaParcSalvando || senhaParcValor.trim().length === 0}
+                  >
+                    {senhaParcSalvando && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
                     Salvar
                   </Button>
-                </div>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        )}
-        {/* AlertDialog de confirmacao de exclusao. Acao destrutiva amplia o
-            consentimento explicito do usuario - lista o que vai sumir. */}
-        {isInterno && (
-          <AlertDialog
-            open={confExcluirCliente}
-            onOpenChange={(o) => {
-              if (!excluindoCliente) setConfExcluirCliente(o);
-            }}
-          >
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>
-                  Excluir {cliente.nome}?
-                </AlertDialogTitle>
-                <AlertDialogDescription asChild>
-                  <div className="space-y-2 text-sm">
-                    <p>
-                      Esta ação é <strong>irreversível</strong>. Será removido:
-                    </p>
-                    <ul className="list-disc pl-5 space-y-0.5 text-muted-foreground">
-                      <li>O cliente e todos os dados cadastrais</li>
-                      <li>Todos os casos vinculados</li>
-                      <li>Todos os documentos, andamentos e solicitações</li>
-                      <li>Conversas, repasses e processos do caso</li>
-                      <li>Senha MEU INSS criptografada (se houver)</li>
-                    </ul>
-                    <p className="text-xs text-muted-foreground">
-                      O log de auditoria do acesso a senhas é preservado.
-                    </p>
-                  </div>
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel disabled={excluindoCliente}>
-                  Cancelar
-                </AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={(e) => {
-                    e.preventDefault();
-                    excluirCliente();
-                  }}
-                  disabled={excluindoCliente}
-                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                >
-                  {excluindoCliente && (
-                    <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                  )}
-                  Sim, excluir tudo
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        )}
-        {isInterno && (
-          // Dialog para exibir a senha MEU INSS decifrada.
-          // O backend ja registrou audit antes de retornar a senha.
-          <Dialog
-            open={abrirSenha}
-            onOpenChange={(o) => {
-              if (!o) fecharSenha();
-            }}
-          >
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <KeyRound className="h-4 w-4" />
-                  Senha MEU INSS
-                </DialogTitle>
-                <DialogDescription className="text-xs text-warning bg-warning/10 border border-warning/30 rounded p-2 mt-1">
-                  Acesso registrado em auditoria. A senha é confidencial -
-                  use apenas no portal MEU INSS do cliente.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-3">
-                {carregandoSenha && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Decifrando senha...
-                  </div>
-                )}
-                {!carregandoSenha && erroSenha && (
-                  <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-                    {erroSenha}
-                  </div>
-                )}
-                {!carregandoSenha && !erroSenha && senhaValor === null && (
-                  <p className="text-sm text-muted-foreground">
-                    Este cliente não tem senha do MEU INSS cadastrada.
-                  </p>
-                )}
-                {!carregandoSenha && !erroSenha && senhaValor !== null && (
-                  <div className="space-y-2">
-                    <Label className="text-xs">Senha</Label>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        value={senhaValor}
-                        readOnly
-                        className="font-mono"
-                      />
-                      <Button
-                        onClick={copiarSenha}
-                        size="sm"
-                        variant="outline"
-                        title="Copiar senha"
-                      >
-                        <Copy className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={fecharSenha}>
-                  Fechar
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        )}
-        {!isInterno && (
-          // Dialog write-only do parceiro. So input + Salvar.
-          <Dialog
-            open={abrirSenhaParc}
-            onOpenChange={(o) => {
-              if (!o) {
-                setAbrirSenhaParc(false);
-                setSenhaParcValor("");
-              }
-            }}
-          >
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <KeyRound className="h-4 w-4" />
-                  {senhaParcTemSenha
-                    ? "Substituir senha MEU INSS"
-                    : "Cadastrar senha MEU INSS"}
-                </DialogTitle>
-                <DialogDescription className="text-xs text-warning bg-warning/10 border border-warning/30 rounded p-2 mt-1">
-                  {senhaParcTemSenha
-                    ? "Já existe uma senha cadastrada para este cliente. Ao salvar, ela será SUBSTITUÍDA pela nova. Esta ação fica registrada em auditoria."
-                    : "A senha será criptografada no banco. Você não poderá consultar depois - apenas substituir. Ação registrada em auditoria."}
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-xs">Nova senha do MEU INSS</Label>
-                  <Input
-                    type="password"
-                    value={senhaParcValor}
-                    onChange={(e) => setSenhaParcValor(e.target.value)}
-                    placeholder="Senha do MEU INSS do cliente"
-                    autoComplete="off"
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    setAbrirSenhaParc(false);
-                    setSenhaParcValor("");
-                  }}
-                  disabled={senhaParcSalvando}
-                >
-                  Cancelar
-                </Button>
-                <Button
-                  onClick={salvarSenhaParceiro}
-                  disabled={senhaParcSalvando || senhaParcValor.trim().length === 0}
-                >
-                  {senhaParcSalvando && (
-                    <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                  )}
-                  Salvar
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        )}
-      </Card>
-
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
+        </Card>
       </div>
       {/* Dialog "Editar caso" - fora do grid pra ficar como overlay limpo.
           Trigger fica no botao "Editar caso" no topo da TabVisaoGeral. */}
       {isInterno && (
         <Dialog open={abrirEditCaso} onOpenChange={setAbrirEditCaso}>
-            <DialogContent className="max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>Editar caso</DialogTitle>
-                <DialogDescription>
-                  Altere os dados do caso, parceiro indicador, fase, status e
-                  valores estimados.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-3">
+          <DialogContent className="max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Editar caso</DialogTitle>
+              <DialogDescription>
+                Altere os dados do caso, parceiro indicador, fase, status e valores estimados.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div>
+                <Label className="text-xs">Tipo de beneficio</Label>
+                <Select value={csTipoBeneficio} onValueChange={setCsTipoBeneficio}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TIPOS_BENEFICIO.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {t}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="border-t pt-3 space-y-2">
+                <div className="flex items-start gap-2">
+                  <input
+                    id="cs-interno"
+                    type="checkbox"
+                    checked={csInterno}
+                    onChange={(e) => {
+                      setCsInterno(e.target.checked);
+                      if (e.target.checked) setCsParceiroId("");
+                    }}
+                    className="h-4 w-4 mt-0.5"
+                  />
+                  <div>
+                    <Label htmlFor="cs-interno" className="text-sm">
+                      Cliente interno do escritório (sem parceiro indicador)
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Marque se não há advogado parceiro captando este caso.
+                    </p>
+                  </div>
+                </div>
+                {!csInterno && (
+                  <div>
+                    <Label className="text-xs">Parceiro indicador</Label>
+                    <Select value={csParceiroId} onValueChange={setCsParceiroId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione um parceiro..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {parceirosDisponiveis.length === 0 && (
+                          <SelectItem value="__vazio__" disabled>
+                            Nenhum parceiro cadastrado
+                          </SelectItem>
+                        )}
+                        {parceirosDisponiveis.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.nome || p.email || "(sem nome)"}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-3 border-t pt-3">
                 <div>
-                  <Label className="text-xs">Tipo de beneficio</Label>
-                  <Select
-                    value={csTipoBeneficio}
-                    onValueChange={setCsTipoBeneficio}
-                  >
+                  <Label className="text-xs">Fase</Label>
+                  <Select value={csFase} onValueChange={setCsFase}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {TIPOS_BENEFICIO.map((t) => (
-                        <SelectItem key={t} value={t}>
-                          {t}
+                      {FASES_CASO.map((f) => (
+                        <SelectItem key={f.value} value={f.value}>
+                          {f.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="border-t pt-3 space-y-2">
-                  <div className="flex items-start gap-2">
-                    <input
-                      id="cs-interno"
-                      type="checkbox"
-                      checked={csInterno}
-                      onChange={(e) => {
-                        setCsInterno(e.target.checked);
-                        if (e.target.checked) setCsParceiroId("");
-                      }}
-                      className="h-4 w-4 mt-0.5"
-                    />
-                    <div>
-                      <Label htmlFor="cs-interno" className="text-sm">
-                        Cliente interno do escritório (sem parceiro indicador)
-                      </Label>
-                      <p className="text-xs text-muted-foreground">
-                        Marque se não há advogado parceiro captando este caso.
-                      </p>
-                    </div>
-                  </div>
-                  {!csInterno && (
-                    <div>
-                      <Label className="text-xs">Parceiro indicador</Label>
-                      <Select
-                        value={csParceiroId}
-                        onValueChange={setCsParceiroId}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecione um parceiro..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {parceirosDisponiveis.length === 0 && (
-                            <SelectItem value="__vazio__" disabled>
-                              Nenhum parceiro cadastrado
-                            </SelectItem>
-                          )}
-                          {parceirosDisponiveis.map((p) => (
-                            <SelectItem key={p.id} value={p.id}>
-                              {p.nome || p.email || "(sem nome)"}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-                </div>
-                <div className="grid grid-cols-2 gap-3 border-t pt-3">
-                  <div>
-                    <Label className="text-xs">Fase</Label>
-                    <Select value={csFase} onValueChange={setCsFase}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {FASES_CASO.map((f) => (
-                          <SelectItem key={f.value} value={f.value}>
-                            {f.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="text-xs">Status</Label>
-                    <Select value={csStatus} onValueChange={setCsStatus}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {STATUS_CASO.map((s) => (
-                          <SelectItem key={s.value} value={s.value}>
-                            {s.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                <div>
+                  <Label className="text-xs">Status</Label>
+                  <Select value={csStatus} onValueChange={setCsStatus}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STATUS_CASO.map((s) => (
+                        <SelectItem key={s.value} value={s.value}>
+                          {s.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
-              <DialogFooter>
-                <Button
-                  variant="ghost"
-                  onClick={() => setAbrirEditCaso(false)}
-                  disabled={csSalvando}
-                >
-                  Cancelar
-                </Button>
-                <Button onClick={salvarCaso} disabled={csSalvando}>
-                  {csSalvando && (
-                    <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                  )}
-                  Salvar
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setAbrirEditCaso(false)} disabled={csSalvando}>
+                Cancelar
+              </Button>
+              <Button onClick={salvarCaso} disabled={csSalvando}>
+                {csSalvando && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
+                Salvar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );
@@ -2178,9 +2115,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
 function Linha(props: { label: string; valor: string }) {
   return (
     <div className="flex items-baseline gap-2">
-      <span className="text-xs text-muted-foreground min-w-[7rem]">
-        {props.label}:
-      </span>
+      <span className="text-xs text-muted-foreground min-w-[7rem]">{props.label}:</span>
       <span className="text-sm">{props.valor}</span>
     </div>
   );
@@ -2221,9 +2156,7 @@ function TabAndamentos(props: TabAndamentosProps) {
   const foco = useFocoItem(focoId);
   // States do dialog "Novo andamento"
   // tipoDialogoNovo: null = fechado; "admin" ou "judicial" = aberto com tipo pre-definido
-  const [tipoDialogoNovo, setTipoDialogoNovo] = useState<
-    "admin" | "judicial" | null
-  >(null);
+  const [tipoDialogoNovo, setTipoDialogoNovo] = useState<"admin" | "judicial" | null>(null);
   const [titulo, setTitulo] = useState("");
   const [descricao, setDescricao] = useState("");
   const [visivelParceiro, setVisivelParceiro] = useState(true);
@@ -2255,9 +2188,7 @@ function TabAndamentos(props: TabAndamentosProps) {
   }
 
   // States dos accordions (qual processo esta expandido em cada card)
-  const [expandidosAdmin, setExpandidosAdmin] = useState<Set<string>>(
-    new Set(),
-  );
+  const [expandidosAdmin, setExpandidosAdmin] = useState<Set<string>>(new Set());
   const [expandidosJud, setExpandidosJud] = useState<Set<string>>(new Set());
   // Accordions especiais "Sem processo" / "Sem vinculo" (1 unico bool cada)
   const [abertoSemProcessoAdmin, setAbertoSemProcessoAdmin] = useState(false);
@@ -2281,12 +2212,8 @@ function TabAndamentos(props: TabAndamentosProps) {
   }, [focoId, andamentos]);
 
   // Multi-select para transferencia de andamentos sem vinculo
-  const [selecionadosSemProc, setSelecionadosSemProc] = useState<Set<string>>(
-    new Set(),
-  );
-  const [selecionadosGerais, setSelecionadosGerais] = useState<Set<string>>(
-    new Set(),
-  );
+  const [selecionadosSemProc, setSelecionadosSemProc] = useState<Set<string>>(new Set());
+  const [selecionadosGerais, setSelecionadosGerais] = useState<Set<string>>(new Set());
   const [destinoTransfSemProc, setDestinoTransfSemProc] = useState("");
   const [destinoTransfGerais, setDestinoTransfGerais] = useState("");
   const [transferindo, setTransferindo] = useState(false);
@@ -2327,11 +2254,7 @@ function TabAndamentos(props: TabAndamentosProps) {
 
   // Transfere andamentos selecionados para um processo destino.
   // destino: "admin:<id>" ou "judicial:<id>"
-  async function transferirAndamentos(
-    ids: Set<string>,
-    destino: string,
-    onSuccess: () => void,
-  ) {
+  async function transferirAndamentos(ids: Set<string>, destino: string, onSuccess: () => void) {
     if (ids.size === 0) {
       toast.error("Selecione ao menos um andamento");
       return;
@@ -2363,14 +2286,11 @@ function TabAndamentos(props: TabAndamentosProps) {
       if (resp.error) throw resp.error;
       const n = resp.data?.length || 0;
       if (n === 0) {
-        toast.error(
-          "Transferência não aplicada. Possível bloqueio de permissão.",
-        );
+        toast.error("Transferência não aplicada. Possível bloqueio de permissão.");
         return;
       }
       toast.success(
-        n + " andamento" + (n === 1 ? "" : "s") + " transferido" +
-          (n === 1 ? "" : "s") + ".",
+        n + " andamento" + (n === 1 ? "" : "s") + " transferido" + (n === 1 ? "" : "s") + ".",
       );
       onSuccess();
       onChange();
@@ -2466,9 +2386,7 @@ function TabAndamentos(props: TabAndamentosProps) {
       if (resp.error) throw resp.error;
       if (!resp.data || resp.data.length === 0) {
         // RLS bloqueou silenciosamente (0 linhas atualizadas)
-        toast.error(
-          "Atualização não foi aplicada. Possível bloqueio de permissão. Avise o admin.",
-        );
+        toast.error("Atualização não foi aplicada. Possível bloqueio de permissão. Avise o admin.");
         return;
       }
       toast.success("Andamento atualizado");
@@ -2494,11 +2412,7 @@ function TabAndamentos(props: TabAndamentosProps) {
     try {
       // .select() faz o Postgres retornar as linhas deletadas.
       // Se vier vazio, e porque RLS impediu silenciosamente o DELETE.
-      const resp = await supabase
-        .from("andamentos")
-        .delete()
-        .eq("id", a.id)
-        .select();
+      const resp = await supabase.from("andamentos").delete().eq("id", a.id).select();
       if (resp.error) throw resp.error;
       if (!resp.data || resp.data.length === 0) {
         toast.error(
@@ -2517,9 +2431,7 @@ function TabAndamentos(props: TabAndamentosProps) {
     }
   }
 
-  const lista = isInterno
-    ? andamentos
-    : andamentos.filter((a) => a.visivel_parceiro === true);
+  const lista = isInterno ? andamentos : andamentos.filter((a) => a.visivel_parceiro === true);
 
   async function adicionar() {
     if (!titulo.trim() || !usuarioId) return;
@@ -2591,15 +2503,11 @@ function TabAndamentos(props: TabAndamentosProps) {
   const andamentosJud = lista.filter((a) => a.processo_judicial_id !== null);
   const notasTISemVinculo = lista.filter(
     (a) =>
-      a.origem === "tramitacao" &&
-      a.processo_admin_id === null &&
-      a.processo_judicial_id === null,
+      a.origem === "tramitacao" && a.processo_admin_id === null && a.processo_judicial_id === null,
   );
   const andamentosManuaisSemVinculo = lista.filter(
     (a) =>
-      a.origem !== "tramitacao" &&
-      a.processo_admin_id === null &&
-      a.processo_judicial_id === null,
+      a.origem !== "tramitacao" && a.processo_admin_id === null && a.processo_judicial_id === null,
   );
 
   // Abre o dialog "Novo andamento" pre-configurado para um tipo
@@ -2644,15 +2552,19 @@ function TabAndamentos(props: TabAndamentosProps) {
                 className="h-6 px-2 text-xs"
                 disabled={togglandoVisId === a.id}
                 onClick={() => toggleVisivelParceiro(a)}
-                title={a.visivel_parceiro
-                  ? "Visível ao parceiro - clique para tornar interno"
-                  : "Interno - clique para tornar visível ao parceiro"}
+                title={
+                  a.visivel_parceiro
+                    ? "Visível ao parceiro - clique para tornar interno"
+                    : "Interno - clique para tornar visível ao parceiro"
+                }
               >
-                {togglandoVisId === a.id
-                  ? <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                  : a.visivel_parceiro
-                  ? <Eye className="h-3 w-3 mr-1" />
-                  : <EyeOff className="h-3 w-3 mr-1" />}
+                {togglandoVisId === a.id ? (
+                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                ) : a.visivel_parceiro ? (
+                  <Eye className="h-3 w-3 mr-1" />
+                ) : (
+                  <EyeOff className="h-3 w-3 mr-1" />
+                )}
                 {a.visivel_parceiro ? "visível parceiro" : "interno"}
               </Button>
             )}
@@ -2682,9 +2594,7 @@ function TabAndamentos(props: TabAndamentosProps) {
         </div>
         {a.titulo && <p className="text-sm font-medium mt-1">{a.titulo}</p>}
         {a.descricao && (
-          <p className="text-sm mt-1 whitespace-pre-wrap text-muted-foreground">
-            {a.descricao}
-          </p>
+          <p className="text-sm mt-1 whitespace-pre-wrap text-muted-foreground">{a.descricao}</p>
         )}
       </div>
     );
@@ -2696,8 +2606,7 @@ function TabAndamentos(props: TabAndamentosProps) {
       <li
         key={a.id}
         id={"foco-" + a.id}
-        className={"border-l-2 border-muted pl-3 py-1 " +
-          (foco === a.id ? DESTAQUE_CLASSE : "")}
+        className={"border-l-2 border-muted pl-3 py-1 " + (foco === a.id ? DESTAQUE_CLASSE : "")}
       >
         {renderItemAndamentoInner(a)}
       </li>
@@ -2707,9 +2616,9 @@ function TabAndamentos(props: TabAndamentosProps) {
   // Helper: renderiza um accordion de processo (header com chevron + lista de andamentos)
   // Ordena uma lista de processos por hierarquia (raiz primeiro, filhos
   // aninhados depois), retornando o nivel (depth) de cada um pra indentar.
-  function ordenarPorHierarquia<
-    T extends { id: string; parent_id: string | null },
-  >(lista: Array<T>): Array<{ item: T; depth: number }> {
+  function ordenarPorHierarquia<T extends { id: string; parent_id: string | null }>(
+    lista: Array<T>,
+  ): Array<{ item: T; depth: number }> {
     const ids = new Set(lista.map((x) => x.id));
     const filhosPorPai = new Map<string, Array<T>>();
     const raizes: Array<T> = [];
@@ -2785,8 +2694,7 @@ function TabAndamentos(props: TabAndamentosProps) {
     : isJudDialog
       ? processosJudiciais
       : [];
-  const mostrarSelectProcessoDialog =
-    tipoDialogoNovo !== null && processosDoTipoDialog.length >= 2;
+  const mostrarSelectProcessoDialog = tipoDialogoNovo !== null && processosDoTipoDialog.length >= 2;
 
   return (
     <div className="space-y-4">
@@ -2795,12 +2703,8 @@ function TabAndamentos(props: TabAndamentosProps) {
         <CardHeader>
           <div className="flex items-center justify-between gap-2">
             <div>
-              <CardTitle className="text-base">
-                Andamentos Administrativos
-              </CardTitle>
-              <CardDescription>
-                Movimentações vinculadas a processos do INSS.
-              </CardDescription>
+              <CardTitle className="text-base">Andamentos Administrativos</CardTitle>
+              <CardDescription>Movimentações vinculadas a processos do INSS.</CardDescription>
             </div>
             {isInterno && (
               <Button
@@ -2822,8 +2726,8 @@ function TabAndamentos(props: TabAndamentosProps) {
         <CardContent>
           {processosAdmin.length === 0 && notasTISemVinculo.length === 0 && (
             <p className="text-sm text-muted-foreground text-center py-6">
-              Nenhum processo administrativo cadastrado. Cadastre na aba
-              Processos para registrar andamentos.
+              Nenhum processo administrativo cadastrado. Cadastre na aba Processos para registrar
+              andamentos.
             </p>
           )}
           {(processosAdmin.length > 0 || notasTISemVinculo.length > 0) && (
@@ -2831,14 +2735,11 @@ function TabAndamentos(props: TabAndamentosProps) {
               {/* Accordion por processo admin, em ordem de hierarquia
                   (principal primeiro, sub-processos aninhados embaixo) */}
               {ordenarPorHierarquia(processosAdmin).map(({ item: p, depth }) => {
-                const ands = andamentosAdmin.filter(
-                  (a) => a.processo_admin_id === p.id,
-                );
-                const extras = [p.etapa_tipo, p.tipo_beneficio].filter(
-                  Boolean,
-                );
+                const ands = andamentosAdmin.filter((a) => a.processo_admin_id === p.id);
+                const extras = [p.etapa_tipo, p.tipo_beneficio].filter(Boolean);
                 const label =
-                  "Admin: " + (p.numero_requerimento || "(sem número)") +
+                  "Admin: " +
+                  (p.numero_requerimento || "(sem número)") +
                   (extras.length ? " · " + extras.join(" · ") : "");
                 return renderAccordion(
                   label,
@@ -2855,9 +2756,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                 <div className="border rounded-md overflow-hidden border-dashed">
                   <button
                     type="button"
-                    onClick={() =>
-                      setAbertoSemProcessoAdmin(!abertoSemProcessoAdmin)
-                    }
+                    onClick={() => setAbertoSemProcessoAdmin(!abertoSemProcessoAdmin)}
                     className="w-full flex items-center justify-between p-3 hover:bg-muted/50 transition-colors text-left"
                   >
                     <div className="flex items-center gap-2 min-w-0">
@@ -2866,9 +2765,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                       ) : (
                         <ChevronRight className="h-4 w-4 shrink-0" />
                       )}
-                      <span className="text-sm font-medium truncate">
-                        Sem processo
-                      </span>
+                      <span className="text-sm font-medium truncate">Sem processo</span>
                     </div>
                     <span className="text-xs text-muted-foreground shrink-0">
                       {notasTISemVinculo.length} andamento
@@ -2881,9 +2778,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                       {isInterno && (
                         <div className="bg-muted/30 p-3 border-b flex items-end gap-2 flex-wrap">
                           <div className="flex-1 min-w-[200px]">
-                            <Label className="text-xs">
-                              Transferir selecionados para
-                            </Label>
+                            <Label className="text-xs">Transferir selecionados para</Label>
                             <Select
                               value={destinoTransfSemProc}
                               onValueChange={setDestinoTransfSemProc}
@@ -2900,12 +2795,8 @@ function TabAndamentos(props: TabAndamentosProps) {
                               </SelectTrigger>
                               <SelectContent>
                                 {processosAdmin.map((p) => (
-                                  <SelectItem
-                                    key={"a-" + p.id}
-                                    value={"admin:" + p.id}
-                                  >
-                                    Admin:{" "}
-                                    {p.numero_requerimento || "(sem número)"}
+                                  <SelectItem key={"a-" + p.id} value={"admin:" + p.id}>
+                                    Admin: {p.numero_requerimento || "(sem número)"}
                                   </SelectItem>
                                 ))}
                               </SelectContent>
@@ -2929,9 +2820,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                               !destinoTransfSemProc
                             }
                           >
-                            {transferindo && (
-                              <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                            )}
+                            {transferindo && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
                             Transferir ({selecionadosSemProc.size})
                           </Button>
                         </div>
@@ -2942,8 +2831,10 @@ function TabAndamentos(props: TabAndamentosProps) {
                           <li
                             key={a.id}
                             id={"foco-" + a.id}
-                            className={"border-l-2 border-muted pl-3 py-1 " +
-                              (foco === a.id ? DESTAQUE_CLASSE : "")}
+                            className={
+                              "border-l-2 border-muted pl-3 py-1 " +
+                              (foco === a.id ? DESTAQUE_CLASSE : "")
+                            }
                           >
                             <div className="flex items-start gap-2">
                               {isInterno && (
@@ -2954,9 +2845,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                                   className="h-4 w-4 mt-1 shrink-0"
                                 />
                               )}
-                              <div className="flex-1 min-w-0">
-                                {renderItemAndamentoInner(a)}
-                              </div>
+                              <div className="flex-1 min-w-0">{renderItemAndamentoInner(a)}</div>
                             </div>
                           </li>
                         ))}
@@ -2976,12 +2865,8 @@ function TabAndamentos(props: TabAndamentosProps) {
           <CardHeader>
             <div className="flex items-center justify-between gap-2">
               <div>
-                <CardTitle className="text-base">
-                  Andamentos Judiciais
-                </CardTitle>
-                <CardDescription>
-                  Movimentações vinculadas a processos judiciais.
-                </CardDescription>
+                <CardTitle className="text-base">Andamentos Judiciais</CardTitle>
+                <CardDescription>Movimentações vinculadas a processos judiciais.</CardDescription>
               </div>
               {isInterno && (
                 <Button
@@ -2997,24 +2882,21 @@ function TabAndamentos(props: TabAndamentosProps) {
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {ordenarPorHierarquia(processosJudiciais).map(
-                ({ item: p, depth }) => {
-                  const ands = andamentosJud.filter(
-                    (a) => a.processo_judicial_id === p.id,
-                  );
-                  const label =
-                    "Judicial: " + (p.numero_processo || "(sem número)") +
-                    (p.etapa_tipo ? " · " + p.etapa_tipo : "");
-                  return renderAccordion(
-                    label,
-                    p.id,
-                    ands,
-                    expandidosJud.has(p.id),
-                    () => toggleAccordionJud(p.id),
-                    depth,
-                  );
-                },
-              )}
+              {ordenarPorHierarquia(processosJudiciais).map(({ item: p, depth }) => {
+                const ands = andamentosJud.filter((a) => a.processo_judicial_id === p.id);
+                const label =
+                  "Judicial: " +
+                  (p.numero_processo || "(sem número)") +
+                  (p.etapa_tipo ? " · " + p.etapa_tipo : "");
+                return renderAccordion(
+                  label,
+                  p.id,
+                  ands,
+                  expandidosJud.has(p.id),
+                  () => toggleAccordionJud(p.id),
+                  depth,
+                );
+              })}
             </div>
           </CardContent>
         </Card>
@@ -3026,80 +2908,57 @@ function TabAndamentos(props: TabAndamentosProps) {
           <CardHeader>
             <CardTitle className="text-base">Andamentos Gerais</CardTitle>
             <CardDescription>
-              Movimentações manuais sem vínculo a processo. Selecione e
-              transfira para um processo, ou edite individualmente pelo lápis.
+              Movimentações manuais sem vínculo a processo. Selecione e transfira para um processo,
+              ou edite individualmente pelo lápis.
             </CardDescription>
           </CardHeader>
           <CardContent>
             {/* Barra de transferencia */}
-            {isInterno &&
-              (processosAdmin.length > 0 || processosJudiciais.length > 0) && (
-                <div className="bg-muted/30 p-3 border rounded-md mb-3 flex items-end gap-2 flex-wrap">
-                  <div className="flex-1 min-w-[200px]">
-                    <Label className="text-xs">
-                      Transferir selecionados para
-                    </Label>
-                    <Select
-                      value={destinoTransfGerais}
-                      onValueChange={setDestinoTransfGerais}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecione um processo..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {processosAdmin.map((p) => (
-                          <SelectItem
-                            key={"a-" + p.id}
-                            value={"admin:" + p.id}
-                          >
-                            Admin:{" "}
-                            {p.numero_requerimento || "(sem número)"}
-                          </SelectItem>
-                        ))}
-                        {processosJudiciais.map((p) => (
-                          <SelectItem
-                            key={"j-" + p.id}
-                            value={"judicial:" + p.id}
-                          >
-                            Judicial:{" "}
-                            {p.numero_processo || "(sem número)"}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <Button
-                    size="sm"
-                    onClick={() =>
-                      transferirAndamentos(
-                        selecionadosGerais,
-                        destinoTransfGerais,
-                        () => {
-                          setSelecionadosGerais(new Set());
-                          setDestinoTransfGerais("");
-                        },
-                      )
-                    }
-                    disabled={
-                      transferindo ||
-                      selecionadosGerais.size === 0 ||
-                      !destinoTransfGerais
-                    }
-                  >
-                    {transferindo && (
-                      <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                    )}
-                    Transferir ({selecionadosGerais.size})
-                  </Button>
+            {isInterno && (processosAdmin.length > 0 || processosJudiciais.length > 0) && (
+              <div className="bg-muted/30 p-3 border rounded-md mb-3 flex items-end gap-2 flex-wrap">
+                <div className="flex-1 min-w-[200px]">
+                  <Label className="text-xs">Transferir selecionados para</Label>
+                  <Select value={destinoTransfGerais} onValueChange={setDestinoTransfGerais}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione um processo..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {processosAdmin.map((p) => (
+                        <SelectItem key={"a-" + p.id} value={"admin:" + p.id}>
+                          Admin: {p.numero_requerimento || "(sem número)"}
+                        </SelectItem>
+                      ))}
+                      {processosJudiciais.map((p) => (
+                        <SelectItem key={"j-" + p.id} value={"judicial:" + p.id}>
+                          Judicial: {p.numero_processo || "(sem número)"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-              )}
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    transferirAndamentos(selecionadosGerais, destinoTransfGerais, () => {
+                      setSelecionadosGerais(new Set());
+                      setDestinoTransfGerais("");
+                    })
+                  }
+                  disabled={transferindo || selecionadosGerais.size === 0 || !destinoTransfGerais}
+                >
+                  {transferindo && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
+                  Transferir ({selecionadosGerais.size})
+                </Button>
+              </div>
+            )}
             <ul className="space-y-3">
               {andamentosManuaisSemVinculo.map((a) => (
                 <li
                   key={a.id}
                   id={"foco-" + a.id}
-                  className={"border-l-2 border-muted pl-3 py-1 " +
-                    (foco === a.id ? DESTAQUE_CLASSE : "")}
+                  className={
+                    "border-l-2 border-muted pl-3 py-1 " + (foco === a.id ? DESTAQUE_CLASSE : "")
+                  }
                 >
                   <div className="flex items-start gap-2">
                     {isInterno && (
@@ -3110,9 +2969,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                         className="h-4 w-4 mt-1 shrink-0"
                       />
                     )}
-                    <div className="flex-1 min-w-0">
-                      {renderItemAndamentoInner(a)}
-                    </div>
+                    <div className="flex-1 min-w-0">{renderItemAndamentoInner(a)}</div>
                   </div>
                 </li>
               ))}
@@ -3132,12 +2989,9 @@ function TabAndamentos(props: TabAndamentosProps) {
           <DialogContent className="max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>
-                Novo andamento{" "}
-                {isAdminDialog ? "administrativo" : isJudDialog ? "judicial" : ""}
+                Novo andamento {isAdminDialog ? "administrativo" : isJudDialog ? "judicial" : ""}
               </DialogTitle>
-              <DialogDescription>
-                Registre uma movimentação manual no caso.
-              </DialogDescription>
+              <DialogDescription>Registre uma movimentação manual no caso.</DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
               <div>
@@ -3160,32 +3014,21 @@ function TabAndamentos(props: TabAndamentosProps) {
               {mostrarSelectProcessoDialog && (
                 <div>
                   <Label className="text-xs">Processo</Label>
-                  <Select
-                    value={processoVinculo}
-                    onValueChange={setProcessoVinculo}
-                  >
+                  <Select value={processoVinculo} onValueChange={setProcessoVinculo}>
                     <SelectTrigger>
                       <SelectValue placeholder="Selecione o processo..." />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={PROCESSO_NENHUM}>
-                        Nenhum (sem vínculo)
-                      </SelectItem>
+                      <SelectItem value={PROCESSO_NENHUM}>Nenhum (sem vínculo)</SelectItem>
                       {isAdminDialog &&
                         processosAdmin.map((p) => (
-                          <SelectItem
-                            key={"a-" + p.id}
-                            value={"admin:" + p.id}
-                          >
+                          <SelectItem key={"a-" + p.id} value={"admin:" + p.id}>
                             Admin: {p.numero_requerimento || "(sem número)"}
                           </SelectItem>
                         ))}
                       {isJudDialog &&
                         processosJudiciais.map((p) => (
-                          <SelectItem
-                            key={"j-" + p.id}
-                            value={"judicial:" + p.id}
-                          >
+                          <SelectItem key={"j-" + p.id} value={"judicial:" + p.id}>
                             Judicial: {p.numero_processo || "(sem número)"}
                           </SelectItem>
                         ))}
@@ -3209,17 +3052,11 @@ function TabAndamentos(props: TabAndamentosProps) {
               )}
             </div>
             <DialogFooter>
-              <Button
-                variant="ghost"
-                onClick={() => setTipoDialogoNovo(null)}
-                disabled={salvando}
-              >
+              <Button variant="ghost" onClick={() => setTipoDialogoNovo(null)} disabled={salvando}>
                 Cancelar
               </Button>
               <Button onClick={adicionar} disabled={salvando}>
-                {salvando && (
-                  <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                )}
+                {salvando && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
                 Adicionar
               </Button>
             </DialogFooter>
@@ -3245,10 +3082,7 @@ function TabAndamentos(props: TabAndamentosProps) {
             <div className="space-y-3">
               <div>
                 <Label className="text-xs">Título</Label>
-                <Input
-                  value={editTitulo}
-                  onChange={(e) => setEditTitulo(e.target.value)}
-                />
+                <Input value={editTitulo} onChange={(e) => setEditTitulo(e.target.value)} />
               </div>
               <div>
                 <Label className="text-xs">Descrição (opcional)</Label>
@@ -3261,28 +3095,19 @@ function TabAndamentos(props: TabAndamentosProps) {
               {temProcessos && !processoUnico && (
                 <div>
                   <Label className="text-xs">Processo (opcional)</Label>
-                  <Select
-                    value={editProcessoVinculo}
-                    onValueChange={setEditProcessoVinculo}
-                  >
+                  <Select value={editProcessoVinculo} onValueChange={setEditProcessoVinculo}>
                     <SelectTrigger>
                       <SelectValue placeholder="Vincular a um processo..." />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value={PROCESSO_NENHUM}>Nenhum</SelectItem>
                       {processosAdmin.map((p) => (
-                        <SelectItem
-                          key={"a-" + p.id}
-                          value={"admin:" + p.id}
-                        >
+                        <SelectItem key={"a-" + p.id} value={"admin:" + p.id}>
                           Admin: {p.numero_requerimento || "(sem número)"}
                         </SelectItem>
                       ))}
                       {processosJudiciais.map((p) => (
-                        <SelectItem
-                          key={"j-" + p.id}
-                          value={"judicial:" + p.id}
-                        >
+                        <SelectItem key={"j-" + p.id} value={"judicial:" + p.id}>
                           Judicial: {p.numero_processo || "(sem número)"}
                         </SelectItem>
                       ))}
@@ -3299,27 +3124,18 @@ function TabAndamentos(props: TabAndamentosProps) {
                     onChange={(e) => setEditVisivelParceiro(e.target.checked)}
                     className="h-4 w-4"
                   />
-                  <Label
-                    htmlFor="edit-visivel-parceiro"
-                    className="text-sm"
-                  >
+                  <Label htmlFor="edit-visivel-parceiro" className="text-sm">
                     Visível para o parceiro indicador
                   </Label>
                 </div>
               )}
             </div>
             <DialogFooter>
-              <Button
-                variant="ghost"
-                onClick={fecharEdicao}
-                disabled={editSalvando}
-              >
+              <Button variant="ghost" onClick={fecharEdicao} disabled={editSalvando}>
                 Cancelar
               </Button>
               <Button onClick={salvarEdicao} disabled={editSalvando}>
-                {editSalvando && (
-                  <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                )}
+                {editSalvando && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
                 Salvar
               </Button>
             </DialogFooter>
@@ -3347,7 +3163,17 @@ interface TabDocumentosProps {
 }
 
 function TabDocumentos(props: TabDocumentosProps) {
-  const { casoId, documentos, solicitacoes, isInterno, usuarioId, gdriveFolderId, gdriveFolderName, focoId, onChange } = props;
+  const {
+    casoId,
+    documentos,
+    solicitacoes,
+    isInterno,
+    usuarioId,
+    gdriveFolderId,
+    gdriveFolderName,
+    focoId,
+    onChange,
+  } = props;
   const foco = useFocoItem(focoId);
   // Usuario logado (usado pelo preview do parceiro para watermark)
   const { usuario } = useAuth();
@@ -3369,25 +3195,17 @@ function TabDocumentos(props: TabDocumentosProps) {
   // Estado do accordion "Solicitações cumpridas"
   const [cumpridasAberto, setCumpridasAberto] = useState(false);
   // Preview de documento (parceiro: visualizar sem baixar)
-  const [previewDoc, setPreviewDoc] = useState<
-    { doc: Documento; url: string } | null
-  >(null);
+  const [previewDoc, setPreviewDoc] = useState<{ doc: Documento; url: string } | null>(null);
   const [carregandoPreview, setCarregandoPreview] = useState(false);
   // Multi-select de documentos para deletar em batch (so interno usa)
-  const [docsSelecionados, setDocsSelecionados] = useState<Set<string>>(
-    new Set(),
-  );
+  const [docsSelecionados, setDocsSelecionados] = useState<Set<string>>(new Set());
   // Accordions dos grupos 6, 7, 8 (Laudos medicos, Laudos INSS, Holerites).
   // Por padrao recolhidos para nao poluir a tela quando ha muitos arquivos.
-  const [gruposExpandidos, setGruposExpandidos] = useState<Set<number>>(
-    new Set(),
-  );
+  const [gruposExpandidos, setGruposExpandidos] = useState<Set<number>>(new Set());
   // Pastas (Drive) expandidas na aba Documentos. Vazio = todas fechadas
   // exceto a raiz que abre por default. Usado quando ha pasta_relativa nos
   // documentos.
-  const [pastasDocExpandidas, setPastasDocExpandidas] = useState<Set<string>>(
-    new Set([""]),
-  );
+  const [pastasDocExpandidas, setPastasDocExpandidas] = useState<Set<string>>(new Set([""]));
 
   function togglePastaDoc(pasta: string) {
     setPastasDocExpandidas((prev) => {
@@ -3413,8 +3231,7 @@ function TabDocumentos(props: TabDocumentosProps) {
       if (result.files.length === 0) return; // cancelou
       setDrivePicked({ files: result.files, accessToken: result.accessToken });
     } catch (err) {
-      const msg = (err as { message?: string })?.message ||
-        "Erro ao abrir Google Drive";
+      const msg = (err as { message?: string })?.message || "Erro ao abrir Google Drive";
       toast.error(msg);
     }
   }
@@ -3441,8 +3258,7 @@ function TabDocumentos(props: TabDocumentosProps) {
       toast.success("Pasta vinculada: " + folder.name);
       onChange();
     } catch (err) {
-      const msg = (err as { message?: string })?.message ||
-        "Erro ao vincular pasta";
+      const msg = (err as { message?: string })?.message || "Erro ao vincular pasta";
       toast.error(msg);
     } finally {
       setVinculandoPasta(false);
@@ -3467,8 +3283,7 @@ function TabDocumentos(props: TabDocumentosProps) {
       toast.success("Pasta desvinculada");
       onChange();
     } catch (err) {
-      const msg = (err as { message?: string })?.message ||
-        "Erro ao desvincular";
+      const msg = (err as { message?: string })?.message || "Erro ao desvincular";
       toast.error(msg);
     }
   }
@@ -3480,22 +3295,15 @@ function TabDocumentos(props: TabDocumentosProps) {
       // 1) Pega access token (silencioso se ja autorizou antes)
       const accessToken = await obterAccessToken();
       // 2) Lista todos os arquivos da pasta no Drive
-      const arquivosDrive = await listarArquivosDaPasta(
-        gdriveFolderId,
-        accessToken,
-      );
+      const arquivosDrive = await listarArquivosDaPasta(gdriveFolderId, accessToken);
       // 3) Dedupe em 2 niveis:
       //    a) Por gdrive_file_id (forte) - funciona pra docs importados via app
       //    b) Por nome do arquivo (fallback) - cobre docs legacy uploadados antes
       //       da feature de file_id existir. Tambem cobre docs uploadados manual.
       const idsImportados = new Set(
-        documentos
-          .map((d) => d.gdrive_file_id)
-          .filter((id): id is string => !!id),
+        documentos.map((d) => d.gdrive_file_id).filter((id): id is string => !!id),
       );
-      const nomesImportados = new Set(
-        documentos.map((d) => d.nome_arquivo.toLowerCase().trim()),
-      );
+      const nomesImportados = new Set(documentos.map((d) => d.nome_arquivo.toLowerCase().trim()));
       const novos = arquivosDrive.filter((f) => {
         if (idsImportados.has(f.id)) return false; // dedupe forte
         if (nomesImportados.has(f.name.toLowerCase().trim())) return false; // fallback nome
@@ -3503,19 +3311,18 @@ function TabDocumentos(props: TabDocumentosProps) {
       });
       const ignorados = arquivosDrive.length - novos.length;
       if (novos.length === 0) {
-        toast.success(
-          arquivosDrive.length + " arquivo(s) na pasta, todos já no caso.",
-        );
+        toast.success(arquivosDrive.length + " arquivo(s) na pasta, todos já no caso.");
         return;
       }
       // 4) Passa pro DrivePickerDialog (mesmo fluxo de Importar)
       setDrivePicked({ files: novos, accessToken });
-      const msg = novos.length + " novo(s) encontrado(s)" +
+      const msg =
+        novos.length +
+        " novo(s) encontrado(s)" +
         (ignorados > 0 ? " (" + ignorados + " já existiam, ignorados)" : "");
       toast.success(msg);
     } catch (err) {
-      const msg = (err as { message?: string })?.message ||
-        "Erro ao sincronizar pasta";
+      const msg = (err as { message?: string })?.message || "Erro ao sincronizar pasta";
       toast.error(msg);
     } finally {
       setSincronizando(false);
@@ -3526,9 +3333,7 @@ function TabDocumentos(props: TabDocumentosProps) {
     label: TIPOS_DOCUMENTO_LABEL[k],
   }));
 
-  async function importarDriveParaCaso(
-    arquivos: Array<DriveImportedFile>,
-  ): Promise<void> {
+  async function importarDriveParaCaso(arquivos: Array<DriveImportedFile>): Promise<void> {
     if (!usuarioId) {
       toast.error("Sessão inválida.");
       return;
@@ -3539,20 +3344,16 @@ function TabDocumentos(props: TabDocumentosProps) {
       try {
         const fileName = Date.now() + "_" + sanitizeFileName(a.file.name);
         const storagePath = casoId + "/" + fileName;
-        const uploadResp = await supabase.storage
-          .from("documentos")
-          .upload(storagePath, a.file, {
-            cacheControl: "3600",
-            upsert: false,
-          });
+        const uploadResp = await supabase.storage.from("documentos").upload(storagePath, a.file, {
+          cacheControl: "3600",
+          upsert: false,
+        });
         if (uploadResp.error) throw uploadResp.error;
 
         const insertResp = await supabase.from("documentos").insert({
           caso_id: casoId,
           tipo: a.tipo,
-          tipo_personalizado: a.tipo === "outro"
-            ? a.tipoPersonalizado.trim()
-            : null,
+          tipo_personalizado: a.tipo === "outro" ? a.tipoPersonalizado.trim() : null,
           nome_arquivo: a.file.name,
           storage_path: storagePath,
           tamanho_bytes: a.file.size,
@@ -3637,9 +3438,7 @@ function TabDocumentos(props: TabDocumentosProps) {
       // Outros: ordem de upload (mais antigo primeiro)
       return a.created_at.localeCompare(b.created_at);
     }
-    return displayNomeArquivo(a.nome_arquivo).localeCompare(
-      displayNomeArquivo(b.nome_arquivo),
-    );
+    return displayNomeArquivo(a.nome_arquivo).localeCompare(displayNomeArquivo(b.nome_arquivo));
   });
 
   // Agrupa por pasta_relativa pra mostrar subpastas como secoes separadas.
@@ -3679,9 +3478,7 @@ function TabDocumentos(props: TabDocumentosProps) {
 
   async function baixar(doc: Documento) {
     try {
-      const resp = await supabase.storage
-        .from("documentos")
-        .createSignedUrl(doc.storage_path, 60);
+      const resp = await supabase.storage.from("documentos").createSignedUrl(doc.storage_path, 60);
       if (resp.error) throw resp.error;
       const url = resp.data ? resp.data.signedUrl : null;
       if (url) {
@@ -3697,9 +3494,7 @@ function TabDocumentos(props: TabDocumentosProps) {
   async function abrirPreview(d: Documento) {
     setCarregandoPreview(true);
     try {
-      const resp = await supabase.storage
-        .from("documentos")
-        .createSignedUrl(d.storage_path, 300); // 5 min de TTL
+      const resp = await supabase.storage.from("documentos").createSignedUrl(d.storage_path, 300); // 5 min de TTL
       if (resp.error) throw resp.error;
       const signedUrl = resp.data ? resp.data.signedUrl : null;
       if (!signedUrl) throw new Error("Não foi possível gerar link de visualização");
@@ -3755,9 +3550,7 @@ function TabDocumentos(props: TabDocumentosProps) {
     let errCount = 0;
     for (const d of alvos) {
       try {
-        const resp = await supabase.storage
-          .from("documentos")
-          .createSignedUrl(d.storage_path, 60);
+        const resp = await supabase.storage.from("documentos").createSignedUrl(d.storage_path, 60);
         if (resp.error) throw resp.error;
         const url = resp.data ? resp.data.signedUrl : null;
         if (url) {
@@ -3775,14 +3568,16 @@ function TabDocumentos(props: TabDocumentosProps) {
     }
     if (okCount > 0) {
       toast.success(
-        okCount + " download" + (okCount === 1 ? "" : "s") + " iniciado" +
+        okCount +
+          " download" +
+          (okCount === 1 ? "" : "s") +
+          " iniciado" +
           (okCount === 1 ? "" : "s"),
       );
     }
     if (errCount > 0) {
       toast.error(
-        errCount + " falha" + (errCount === 1 ? "" : "s") +
-          " ao gerar link. Ver console.",
+        errCount + " falha" + (errCount === 1 ? "" : "s") + " ao gerar link. Ver console.",
       );
     }
   }
@@ -3792,9 +3587,13 @@ function TabDocumentos(props: TabDocumentosProps) {
     const alvos = lista.filter((d) => docsSelecionados.has(d.id));
     if (alvos.length === 0) return;
     const ok = window.confirm(
-      "Excluir " + alvos.length + " documento" +
-        (alvos.length === 1 ? "" : "s") + " selecionado" +
-        (alvos.length === 1 ? "" : "s") + "?\n\n" +
+      "Excluir " +
+        alvos.length +
+        " documento" +
+        (alvos.length === 1 ? "" : "s") +
+        " selecionado" +
+        (alvos.length === 1 ? "" : "s") +
+        "?\n\n" +
         "Os arquivos serão removidos do storage e do banco. Essa ação não pode ser desfeita.",
     );
     if (!ok) return;
@@ -3802,16 +3601,11 @@ function TabDocumentos(props: TabDocumentosProps) {
     let errCount = 0;
     for (const d of alvos) {
       try {
-        const storageResp = await supabase.storage
-          .from("documentos")
-          .remove([d.storage_path]);
+        const storageResp = await supabase.storage.from("documentos").remove([d.storage_path]);
         if (storageResp.error) {
           console.error("Erro storage", d.nome_arquivo, storageResp.error);
         }
-        const delResp = await supabase
-          .from("documentos")
-          .delete()
-          .eq("id", d.id);
+        const delResp = await supabase.from("documentos").delete().eq("id", d.id);
         if (delResp.error) throw delResp.error;
         okCount++;
       } catch (err) {
@@ -3821,14 +3615,16 @@ function TabDocumentos(props: TabDocumentosProps) {
     }
     if (okCount > 0) {
       toast.success(
-        okCount + " documento" + (okCount === 1 ? "" : "s") + " excluído" +
+        okCount +
+          " documento" +
+          (okCount === 1 ? "" : "s") +
+          " excluído" +
           (okCount === 1 ? "" : "s"),
       );
     }
     if (errCount > 0) {
       toast.error(
-        errCount + " documento" + (errCount === 1 ? "" : "s") +
-          " falharam. Ver console.",
+        errCount + " documento" + (errCount === 1 ? "" : "s") + " falharam. Ver console.",
       );
     }
     setDocsSelecionados(new Set());
@@ -3851,16 +3647,11 @@ function TabDocumentos(props: TabDocumentosProps) {
     let errCount = 0;
     for (const d of lista) {
       try {
-        const storageResp = await supabase.storage
-          .from("documentos")
-          .remove([d.storage_path]);
+        const storageResp = await supabase.storage.from("documentos").remove([d.storage_path]);
         if (storageResp.error) {
           console.error("Erro storage", d.nome_arquivo, storageResp.error);
         }
-        const delResp = await supabase
-          .from("documentos")
-          .delete()
-          .eq("id", d.id);
+        const delResp = await supabase.from("documentos").delete().eq("id", d.id);
         if (delResp.error) throw delResp.error;
         okCount++;
       } catch (err) {
@@ -3870,14 +3661,16 @@ function TabDocumentos(props: TabDocumentosProps) {
     }
     if (okCount > 0) {
       toast.success(
-        okCount + " documento" + (okCount === 1 ? "" : "s") + " deletado" +
+        okCount +
+          " documento" +
+          (okCount === 1 ? "" : "s") +
+          " deletado" +
           (okCount === 1 ? "" : "s"),
       );
     }
     if (errCount > 0) {
       toast.error(
-        errCount + " documento" + (errCount === 1 ? "" : "s") +
-          " falharam. Ver console.",
+        errCount + " documento" + (errCount === 1 ? "" : "s") + " falharam. Ver console.",
       );
     }
     onChange();
@@ -3885,14 +3678,14 @@ function TabDocumentos(props: TabDocumentosProps) {
 
   async function deletarDoc(d: Documento) {
     const ok = window.confirm(
-      "Tem certeza que deseja deletar o documento '" + d.nome_arquivo + "'?\n\nEssa ação remove o arquivo do storage e o registro do banco, e não pode ser desfeita.",
+      "Tem certeza que deseja deletar o documento '" +
+        d.nome_arquivo +
+        "'?\n\nEssa ação remove o arquivo do storage e o registro do banco, e não pode ser desfeita.",
     );
     if (!ok) return;
     try {
       // 1) Remove arquivo do storage (best effort)
-      const storageResp = await supabase.storage
-        .from("documentos")
-        .remove([d.storage_path]);
+      const storageResp = await supabase.storage.from("documentos").remove([d.storage_path]);
       if (storageResp.error) {
         console.error("Erro ao remover do storage", storageResp.error);
         // segue para deletar o registro mesmo assim
@@ -3928,10 +3721,7 @@ function TabDocumentos(props: TabDocumentosProps) {
       if (comentario !== undefined) {
         update.comentario = comentario.trim() || null;
       }
-      const resp = await supabase
-        .from("solicitacoes_documento")
-        .update(update)
-        .eq("id", s.id);
+      const resp = await supabase.from("solicitacoes_documento").update(update).eq("id", s.id);
       if (resp.error) throw resp.error;
       toast.success("Solicitação atualizada");
       onChange();
@@ -3989,15 +3779,9 @@ function TabDocumentos(props: TabDocumentosProps) {
       let documentoId: string | null = null;
 
       // Upload + criacao de documento (se houver arquivo)
-      if (
-        acaoAlvo.novoStatus === "atendido" &&
-        comAnexo &&
-        arquivoUpload &&
-        usuarioId
-      ) {
+      if (acaoAlvo.novoStatus === "atendido" && comAnexo && arquivoUpload && usuarioId) {
         // Usa nome editado pelo usuario (ou fallback pra auto-rename)
-        const nomeArq = nomeArquivoEdit.trim() ||
-          nomearArquivo(acaoAlvo.solic.tipo, arquivoUpload);
+        const nomeArq = nomeArquivoEdit.trim() || nomearArquivo(acaoAlvo.solic.tipo, arquivoUpload);
         const path = casoId + "/" + nomeArq;
         const upResp = await supabase.storage
           .from("documentos")
@@ -4052,9 +3836,7 @@ function TabDocumentos(props: TabDocumentosProps) {
         });
       }
       toast.success(
-        documentoId
-          ? "Solicitação cumprida e documento anexado"
-          : "Solicitação atualizada",
+        documentoId ? "Solicitação cumprida e documento anexado" : "Solicitação atualizada",
       );
       onChange();
     } catch (err) {
@@ -4077,9 +3859,7 @@ function TabDocumentos(props: TabDocumentosProps) {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="text-base">Documentos do caso</CardTitle>
-              <CardDescription>
-                Arquivos anexados a este caso.
-              </CardDescription>
+              <CardDescription>Arquivos anexados a este caso.</CardDescription>
               {isInterno && gdriveFolderId && (
                 <div className="mt-1 text-xs text-muted-foreground flex items-center gap-1">
                   <span>Pasta vinculada:</span>
@@ -4177,11 +3957,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                   Drive
                 </Button>
               )}
-              <UploadDoc
-                casoId={casoId}
-                usuarioId={usuarioId}
-                onChange={onChange}
-              />
+              <UploadDoc casoId={casoId} usuarioId={usuarioId} onChange={onChange} />
             </div>
           </div>
         </CardHeader>
@@ -4196,10 +3972,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                 <label className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={
-                      lista.length > 0 &&
-                      docsSelecionados.size === lista.length
-                    }
+                    checked={lista.length > 0 && docsSelecionados.size === lista.length}
                     onChange={() => toggleSelecionarTodos(lista)}
                     className="h-4 w-4"
                   />
@@ -4218,11 +3991,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                     const g = getDocGroup(d.tipo);
                     if (GRUPOS_ACCORDION.has(g)) {
                       const ultima = secoes[secoes.length - 1];
-                      if (
-                        ultima &&
-                        ultima.kind === "accordion" &&
-                        ultima.grupo === g
-                      ) {
+                      if (ultima && ultima.kind === "accordion" && ultima.grupo === g) {
                         ultima.docs.push(d);
                       } else {
                         secoes.push({ kind: "accordion", grupo: g, docs: [d] });
@@ -4255,19 +4024,14 @@ function TabDocumentos(props: TabDocumentosProps) {
                                 ) : (
                                   <ChevronRight className="h-4 w-4 shrink-0" />
                                 )}
-                                <span className="text-sm font-medium truncate">
-                                  {label}
-                                </span>
+                                <span className="text-sm font-medium truncate">{label}</span>
                               </div>
                               <span className="text-xs text-muted-foreground shrink-0">
-                                {s.docs.length}{" "}
-                                {s.docs.length === 1 ? "arquivo" : "arquivos"}
+                                {s.docs.length} {s.docs.length === 1 ? "arquivo" : "arquivos"}
                               </span>
                             </button>
                             {aberto && (
-                              <ul className="space-y-2 p-3 border-t">
-                                {s.docs.map(renderDocLi)}
-                              </ul>
+                              <ul className="space-y-2 p-3 border-t">{s.docs.map(renderDocLi)}</ul>
                             )}
                           </li>
                         );
@@ -4283,8 +4047,10 @@ function TabDocumentos(props: TabDocumentosProps) {
                     <li
                       key={d.id}
                       id={"foco-" + d.id}
-                      className={"flex items-center justify-between gap-2 border rounded-md p-3 " +
-                        (foco === d.id ? DESTAQUE_CLASSE : "")}
+                      className={
+                        "flex items-center justify-between gap-2 border rounded-md p-3 " +
+                        (foco === d.id ? DESTAQUE_CLASSE : "")
+                      }
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         {isInterno && (
@@ -4305,19 +4071,13 @@ function TabDocumentos(props: TabDocumentosProps) {
                             {d.tipo === "outro" && d.tipo_personalizado
                               ? d.tipo_personalizado
                               : TIPOS_DOCUMENTO_LABEL[d.tipo] || d.tipo}{" "}
-                            -{" "}
-                            {formatBytes(d.tamanho_bytes)} -{" "}
-                            {formatDate(d.created_at)}
+                            - {formatBytes(d.tamanho_bytes)} - {formatDate(d.created_at)}
                           </p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
                         {isInterno && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => baixar(d)}
-                          >
+                          <Button size="sm" variant="outline" onClick={() => baixar(d)}>
                             <Download className="h-4 w-4 mr-2" />
                             Baixar
                           </Button>
@@ -4360,16 +4120,14 @@ function TabDocumentos(props: TabDocumentosProps) {
                   <div className="space-y-3">
                     {gruposPasta.map(([pasta, docs]) => {
                       const aberta = pastasDocExpandidas.has(pasta);
-                      const labelPasta = pasta === ""
-                        ? (gdriveFolderName || "(raiz)")
-                        : gdriveFolderName
-                          ? gdriveFolderName + "/" + pasta
-                          : pasta;
+                      const labelPasta =
+                        pasta === ""
+                          ? gdriveFolderName || "(raiz)"
+                          : gdriveFolderName
+                            ? gdriveFolderName + "/" + pasta
+                            : pasta;
                       return (
-                        <div
-                          key={pasta || "_raiz"}
-                          className="border rounded-md overflow-hidden"
-                        >
+                        <div key={pasta || "_raiz"} className="border rounded-md overflow-hidden">
                           <button
                             type="button"
                             onClick={() => togglePastaDoc(pasta)}
@@ -4384,15 +4142,10 @@ function TabDocumentos(props: TabDocumentosProps) {
                               📂 {labelPasta}
                             </span>
                             <span className="text-xs text-muted-foreground shrink-0">
-                              {docs.length}{" "}
-                              {docs.length === 1 ? "arquivo" : "arquivos"}
+                              {docs.length} {docs.length === 1 ? "arquivo" : "arquivos"}
                             </span>
                           </button>
-                          {aberta && (
-                            <div className="p-3 border-t">
-                              {renderSecoesDeDocs(docs)}
-                            </div>
-                          )}
+                          {aberta && <div className="p-3 border-t">{renderSecoesDeDocs(docs)}</div>}
                         </div>
                       );
                     })}
@@ -4403,8 +4156,7 @@ function TabDocumentos(props: TabDocumentosProps) {
           )}
           {!isInterno && lista.length > 0 && (
             <p className="text-xs text-muted-foreground mt-3">
-              Precisa que um documento seja removido? Avise o escritório pelo
-              chat do caso.
+              Precisa que um documento seja removido? Avise o escritório pelo chat do caso.
             </p>
           )}
         </CardContent>
@@ -4431,22 +4183,14 @@ function TabDocumentos(props: TabDocumentosProps) {
               </CardDescription>
             </div>
             {isInterno && (
-              <SolicitarDocBotao
-                casoId={casoId}
-                usuarioId={usuarioId}
-                onChange={onChange}
-              />
+              <SolicitarDocBotao casoId={casoId} usuarioId={usuarioId} onChange={onChange} />
             )}
           </div>
         </CardHeader>
         <CardContent>
           {(() => {
-            const pendentes = solicitacoesOrdenadas.filter(
-              (s) => s.status === "pendente",
-            );
-            const cumpridas = solicitacoesOrdenadas.filter(
-              (s) => s.status !== "pendente",
-            );
+            const pendentes = solicitacoesOrdenadas.filter((s) => s.status === "pendente");
+            const cumpridas = solicitacoesOrdenadas.filter((s) => s.status !== "pendente");
 
             function renderSolicLi(s: SolicitacaoDocumento) {
               const isPendente = s.status === "pendente";
@@ -4490,9 +4234,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                         </Badge>
                       </div>
                       {s.descricao && (
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {s.descricao}
-                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">{s.descricao}</p>
                       )}
                       <p className="text-xs text-muted-foreground mt-1">
                         Solicitado em {formatDate(s.data_solicitacao)}
@@ -4509,9 +4251,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                                 ? "Motivo da dispensa"
                                 : "Comentário"}
                           </p>
-                          <p className="text-sm whitespace-pre-wrap italic">
-                            {s.comentario}
-                          </p>
+                          <p className="text-sm whitespace-pre-wrap italic">{s.comentario}</p>
                         </div>
                       )}
                     </div>
@@ -4569,9 +4309,7 @@ function TabDocumentos(props: TabDocumentosProps) {
             return (
               <div className="space-y-3">
                 {pendentes.length > 0 && (
-                  <ul className="space-y-2">
-                    {pendentes.map(renderSolicLi)}
-                  </ul>
+                  <ul className="space-y-2">{pendentes.map(renderSolicLi)}</ul>
                 )}
                 {pendentes.length === 0 && cumpridas.length > 0 && (
                   <p className="text-sm text-muted-foreground text-center py-3">
@@ -4591,21 +4329,14 @@ function TabDocumentos(props: TabDocumentosProps) {
                         ) : (
                           <ChevronRight className="h-4 w-4 shrink-0" />
                         )}
-                        <span className="text-sm font-medium truncate">
-                          Solicitações cumpridas
-                        </span>
+                        <span className="text-sm font-medium truncate">Solicitações cumpridas</span>
                       </div>
                       <span className="text-xs text-muted-foreground shrink-0">
-                        {cumpridas.length}{" "}
-                        {cumpridas.length === 1
-                          ? "solicitação"
-                          : "solicitações"}
+                        {cumpridas.length} {cumpridas.length === 1 ? "solicitação" : "solicitações"}
                       </span>
                     </button>
                     {cumpridasAberto && (
-                      <ul className="space-y-2 p-3 border-t">
-                        {cumpridas.map(renderSolicLi)}
-                      </ul>
+                      <ul className="space-y-2 p-3 border-t">{cumpridas.map(renderSolicLi)}</ul>
                     )}
                   </div>
                 )}
@@ -4640,91 +4371,79 @@ function TabDocumentos(props: TabDocumentosProps) {
           </DialogHeader>
           <div className="space-y-3">
             {/* Radio "como atender" - so para interno + atendido */}
-            {isInterno &&
-              acaoAlvo &&
-              acaoAlvo.novoStatus === "atendido" && (
-                <div className="space-y-2">
-                  <Label className="text-xs">Como atender</Label>
-                  <div className="flex flex-col gap-2">
-                    <label className="flex items-start gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="comAnexoCaso"
-                        checked={!comAnexo}
-                        onChange={() => {
-                          setComAnexo(false);
-                          setArquivoUpload(null);
-                        }}
-                        className="h-4 w-4 mt-0.5"
-                      />
-                      <span className="text-sm">
-                        Sem arquivo (recebi pessoalmente)
-                      </span>
-                    </label>
-                    <label className="flex items-start gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="comAnexoCaso"
-                        checked={comAnexo}
-                        onChange={() => setComAnexo(true)}
-                        className="h-4 w-4 mt-0.5"
-                      />
-                      <span className="text-sm">
-                        Anexar arquivo (será renomeado para o tipo solicitado)
-                      </span>
-                    </label>
-                  </div>
+            {isInterno && acaoAlvo && acaoAlvo.novoStatus === "atendido" && (
+              <div className="space-y-2">
+                <Label className="text-xs">Como atender</Label>
+                <div className="flex flex-col gap-2">
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="comAnexoCaso"
+                      checked={!comAnexo}
+                      onChange={() => {
+                        setComAnexo(false);
+                        setArquivoUpload(null);
+                      }}
+                      className="h-4 w-4 mt-0.5"
+                    />
+                    <span className="text-sm">Sem arquivo (recebi pessoalmente)</span>
+                  </label>
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="comAnexoCaso"
+                      checked={comAnexo}
+                      onChange={() => setComAnexo(true)}
+                      className="h-4 w-4 mt-0.5"
+                    />
+                    <span className="text-sm">
+                      Anexar arquivo (será renomeado para o tipo solicitado)
+                    </span>
+                  </label>
                 </div>
-              )}
+              </div>
+            )}
 
             {/* File input */}
-            {acaoAlvo &&
-              acaoAlvo.novoStatus === "atendido" &&
-              comAnexo && (
-                <div>
-                  <Label className="text-xs">
-                    Arquivo {!isInterno && "(obrigatório)"}
-                  </Label>
-                  <input
-                    type="file"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0] || null;
-                      setArquivoUpload(f);
-                      // Pre-preenche o nome com a auto-renomeacao quando o
-                      // arquivo eh selecionado. Usuario pode editar.
-                      if (f && acaoAlvo) {
-                        setNomeArquivoEdit(
-                          nomearArquivo(acaoAlvo.solic.tipo, f),
-                        );
-                      } else {
-                        setNomeArquivoEdit("");
-                      }
-                    }}
-                    className="block w-full text-sm border rounded-md p-2"
-                    accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Tamanho máximo: {MAX_FILE_SIZE_MB} MB por arquivo.
-                  </p>
-                  {arquivoUpload && (
-                    <div className="mt-2">
-                      <Label className="text-xs">
-                        Nome do arquivo (obrigatório)
-                      </Label>
-                      <Input
-                        value={nomeArquivoEdit}
-                        onChange={(e) => setNomeArquivoEdit(e.target.value)}
-                        placeholder="Ex: RG_e_CPF_Joao.pdf"
-                        className="text-sm"
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Pré-preenchido com nome padrão - você pode editar.
-                        Mantenha a extensão (.pdf, .jpg, etc.).
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
+            {acaoAlvo && acaoAlvo.novoStatus === "atendido" && comAnexo && (
+              <div>
+                <Label className="text-xs">Arquivo {!isInterno && "(obrigatório)"}</Label>
+                <input
+                  type="file"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] || null;
+                    setArquivoUpload(f);
+                    // Pre-preenche o nome com a auto-renomeacao quando o
+                    // arquivo eh selecionado. Usuario pode editar.
+                    if (f && acaoAlvo) {
+                      setNomeArquivoEdit(nomearArquivo(acaoAlvo.solic.tipo, f));
+                    } else {
+                      setNomeArquivoEdit("");
+                    }
+                  }}
+                  className="block w-full text-sm border rounded-md p-2"
+                  accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Tamanho máximo: {MAX_FILE_SIZE_MB} MB por arquivo.
+                </p>
+                {arquivoUpload && (
+                  <div className="mt-2">
+                    <Label className="text-xs">Nome do arquivo (obrigatório)</Label>
+                    <Input
+                      value={nomeArquivoEdit}
+                      onChange={(e) => setNomeArquivoEdit(e.target.value)}
+                      placeholder="Ex: RG_e_CPF_Joao.pdf"
+                      className="text-sm"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Pré-preenchido com nome padrão - você pode editar. Mantenha a extensão (.pdf,
+                      .jpg, etc.).
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div>
               <Label className="text-xs">
@@ -4745,17 +4464,11 @@ function TabDocumentos(props: TabDocumentosProps) {
             </div>
           </div>
           <DialogFooter>
-            <Button
-              variant="ghost"
-              onClick={fecharAcaoModal}
-              disabled={salvandoModal}
-            >
+            <Button variant="ghost" onClick={fecharAcaoModal} disabled={salvandoModal}>
               Cancelar
             </Button>
             <Button onClick={confirmarAcaoModal} disabled={salvandoModal}>
-              {salvandoModal && (
-                <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-              )}
+              {salvandoModal && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
               Confirmar
             </Button>
           </DialogFooter>
@@ -4775,14 +4488,11 @@ function TabDocumentos(props: TabDocumentosProps) {
         >
           <DialogHeader className="px-4 pt-4 pb-2">
             <DialogTitle className="text-base">
-              {previewDoc
-                ? displayNomeArquivo(previewDoc.doc.nome_arquivo)
-                : ""}
+              {previewDoc ? displayNomeArquivo(previewDoc.doc.nome_arquivo) : ""}
             </DialogTitle>
             <DialogDescription className="text-xs text-destructive bg-destructive/10 border border-destructive/30 rounded p-2 mt-1">
-              <strong>Documento confidencial.</strong> Captura de tela, gravação
-              ou compartilhamento configura responsabilidade legal. Acesso
-              registrado para auditoria.
+              <strong>Documento confidencial.</strong> Captura de tela, gravação ou compartilhamento
+              configura responsabilidade legal. Acesso registrado para auditoria.
             </DialogDescription>
           </DialogHeader>
           {previewDoc && (
@@ -4855,11 +4565,7 @@ interface ArquivoComTipo {
   tipoPersonalizado: string;
 }
 
-function UploadDoc(props: {
-  casoId: string;
-  usuarioId: string | null;
-  onChange: () => void;
-}) {
+function UploadDoc(props: { casoId: string; usuarioId: string | null; onChange: () => void }) {
   const { casoId, usuarioId, onChange } = props;
   const { usuario } = useAuth();
   const souParceiro = usuario?.tipo === "parceiro";
@@ -4895,20 +4601,12 @@ function UploadDoc(props: {
 
   function atualizarTipo(id: string, novoTipo: string) {
     setItens((prev) =>
-      prev.map((it) =>
-        it.id === id
-          ? { ...it, tipo: novoTipo, tipoPersonalizado: "" }
-          : it,
-      ),
+      prev.map((it) => (it.id === id ? { ...it, tipo: novoTipo, tipoPersonalizado: "" } : it)),
     );
   }
 
   function atualizarPersonalizado(id: string, texto: string) {
-    setItens((prev) =>
-      prev.map((it) =>
-        it.id === id ? { ...it, tipoPersonalizado: texto } : it,
-      ),
-    );
+    setItens((prev) => prev.map((it) => (it.id === id ? { ...it, tipoPersonalizado: texto } : it)));
   }
 
   function fechar() {
@@ -4921,11 +4619,7 @@ function UploadDoc(props: {
   // Se tipo === "outro", precisa tambem ter tipoPersonalizado preenchido.
   const todosValidos =
     itens.length > 0 &&
-    itens.every(
-      (it) =>
-        it.tipo &&
-        (it.tipo !== "outro" || it.tipoPersonalizado.trim().length > 0),
-    );
+    itens.every((it) => it.tipo && (it.tipo !== "outro" || it.tipoPersonalizado.trim().length > 0));
 
   async function enviarTodos() {
     if (!usuarioId || !todosValidos) return;
@@ -4936,9 +4630,7 @@ function UploadDoc(props: {
     if (errosTamanho.length > 0) {
       errosTamanho.slice(0, 3).forEach((e) => toast.error(e));
       if (errosTamanho.length > 3) {
-        toast.error(
-          "Mais " + (errosTamanho.length - 3) + " arquivo(s) acima do limite.",
-        );
+        toast.error("Mais " + (errosTamanho.length - 3) + " arquivo(s) acima do limite.");
       }
       return;
     }
@@ -4950,8 +4642,7 @@ function UploadDoc(props: {
     try {
       for (const it of itens) {
         try {
-          const fileName = Date.now() + "_" +
-            sanitizeFileName(it.arquivo.name);
+          const fileName = Date.now() + "_" + sanitizeFileName(it.arquivo.name);
           const storagePath = casoId + "/" + fileName;
           const uploadResp = await supabase.storage
             .from("documentos")
@@ -4966,9 +4657,7 @@ function UploadDoc(props: {
             .insert({
               caso_id: casoId,
               tipo: it.tipo,
-              tipo_personalizado: it.tipo === "outro"
-                ? it.tipoPersonalizado.trim()
-                : null,
+              tipo_personalizado: it.tipo === "outro" ? it.tipoPersonalizado.trim() : null,
               nome_arquivo: it.arquivo.name,
               storage_path: storagePath,
               tamanho_bytes: it.arquivo.size,
@@ -4990,23 +4679,23 @@ function UploadDoc(props: {
       if (souParceiro && idsInseridos.length > 0) {
         notificarEquipe({
           tipo: "documento",
-          titulo: `${okCount} documento(s) enviado(s) por ${
-            usuario?.nome || "parceiro"
-          }`,
+          titulo: `${okCount} documento(s) enviado(s) por ${usuario?.nome || "parceiro"}`,
           caso_id: casoId,
           foco_id: idsInseridos[0],
         });
       }
       if (okCount > 0) {
         toast.success(
-          okCount + " documento" + (okCount === 1 ? "" : "s") +
-            " adicionado" + (okCount === 1 ? "" : "s"),
+          okCount +
+            " documento" +
+            (okCount === 1 ? "" : "s") +
+            " adicionado" +
+            (okCount === 1 ? "" : "s"),
         );
       }
       if (errCount > 0) {
         toast.error(
-          errCount + " arquivo" + (errCount === 1 ? "" : "s") +
-            " falharam. Ver console.",
+          errCount + " arquivo" + (errCount === 1 ? "" : "s") + " falharam. Ver console.",
         );
       }
       if (okCount > 0) {
@@ -5019,10 +4708,7 @@ function UploadDoc(props: {
   }
 
   return (
-    <Dialog
-      open={aberto}
-      onOpenChange={(o) => (o ? setAberto(true) : fechar())}
-    >
+    <Dialog open={aberto} onOpenChange={(o) => (o ? setAberto(true) : fechar())}>
       <DialogTrigger asChild>
         <Button size="sm">
           <Plus className="h-4 w-4 mr-2" />
@@ -5033,9 +4719,9 @@ function UploadDoc(props: {
         <DialogHeader>
           <DialogTitle>Adicionar documentos</DialogTitle>
           <DialogDescription>
-            Selecione um ou vários arquivos. Cada um precisa de um tipo. Se
-            escolher &quot;Outro&quot;, informe o nome do documento. Tamanho
-            máximo: {MAX_FILE_SIZE_MB} MB por arquivo.
+            Selecione um ou vários arquivos. Cada um precisa de um tipo. Se escolher
+            &quot;Outro&quot;, informe o nome do documento. Tamanho máximo: {MAX_FILE_SIZE_MB} MB
+            por arquivo.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
@@ -5065,9 +4751,7 @@ function UploadDoc(props: {
                 <li key={it.id} className="border rounded-md p-3 space-y-2">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate">
-                        {it.arquivo.name}
-                      </p>
+                      <p className="text-sm font-medium truncate">{it.arquivo.name}</p>
                       <p className="text-xs text-muted-foreground">
                         {formatBytes(it.arquivo.size)}
                       </p>
@@ -5093,15 +4777,11 @@ function UploadDoc(props: {
                   </div>
                   {it.tipo === "outro" && (
                     <div>
-                      <Label className="text-xs">
-                        Nome do documento (obrigatório)
-                      </Label>
+                      <Label className="text-xs">Nome do documento (obrigatório)</Label>
                       <Input
                         placeholder="Ex.: Cartão do INSS, Decisão do MS..."
                         value={it.tipoPersonalizado}
-                        onChange={(e) =>
-                          atualizarPersonalizado(it.id, e.target.value)
-                        }
+                        onChange={(e) => atualizarPersonalizado(it.id, e.target.value)}
                       />
                     </div>
                   )}
@@ -5159,9 +4839,7 @@ function SolicitarDocBotao(props: {
     label: TIPOS_DOCUMENTO_LABEL[k],
   }));
 
-  const valido =
-    !!tipo &&
-    (tipo !== "outro" || tipoPersonalizado.trim().length > 0);
+  const valido = !!tipo && (tipo !== "outro" || tipoPersonalizado.trim().length > 0);
 
   async function criar() {
     if (!usuarioId || !valido) return;
@@ -5169,9 +4847,10 @@ function SolicitarDocBotao(props: {
     try {
       // Se tipo=outro, usa o nome customizado como prefixo da descricao
       // (a tabela solicitacoes_documento nao tem coluna tipo_personalizado).
-      const descricaoFinal = tipo === "outro" && tipoPersonalizado.trim()
-        ? "[" + tipoPersonalizado.trim() + "] " + (descricao.trim() || "")
-        : descricao.trim() || null;
+      const descricaoFinal =
+        tipo === "outro" && tipoPersonalizado.trim()
+          ? "[" + tipoPersonalizado.trim() + "] " + (descricao.trim() || "")
+          : descricao.trim() || null;
       const resp = await supabase
         .from("solicitacoes_documento")
         .insert({
@@ -5238,9 +4917,7 @@ function SolicitarDocBotao(props: {
           </div>
           {tipo === "outro" && (
             <div>
-              <Label className="text-xs">
-                Nome do documento (obrigatório)
-              </Label>
+              <Label className="text-xs">Nome do documento (obrigatório)</Label>
               <Input
                 placeholder="Ex.: Cartão do INSS, Decisão do MS..."
                 value={tipoPersonalizado}
@@ -5255,12 +4932,8 @@ function SolicitarDocBotao(props: {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="externa">
-                  Externa - parceiro ou cliente envia
-                </SelectItem>
-                <SelectItem value="interna">
-                  Interna - escritório providencia
-                </SelectItem>
+                <SelectItem value="externa">Externa - parceiro ou cliente envia</SelectItem>
+                <SelectItem value="interna">Interna - escritório providencia</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -5275,11 +4948,7 @@ function SolicitarDocBotao(props: {
           </div>
         </div>
         <DialogFooter>
-          <Button
-            variant="ghost"
-            onClick={() => setAberto(false)}
-            disabled={enviando}
-          >
+          <Button variant="ghost" onClick={() => setAberto(false)} disabled={enviando}>
             Cancelar
           </Button>
           <Button onClick={criar} disabled={enviando || !valido}>
@@ -5382,9 +5051,7 @@ function TabAnaliseTecnica(props: TabAnaliseTecnicaProps) {
             </DialogTrigger>
             <DialogContent className="max-w-2xl">
               <DialogHeader>
-                <DialogTitle>
-                  Nova análise técnica (versão {proximaVersao})
-                </DialogTitle>
+                <DialogTitle>Nova análise técnica (versão {proximaVersao})</DialogTitle>
               </DialogHeader>
               <div className="space-y-3">
                 <div>
@@ -5407,9 +5074,7 @@ function TabAnaliseTecnica(props: TabAnaliseTecnicaProps) {
                     />
                   </div>
                   <div>
-                    <Label className="text-xs">
-                      Valor estimado da ação (R$)
-                    </Label>
+                    <Label className="text-xs">Valor estimado da ação (R$)</Label>
                     <Input
                       type="text"
                       inputMode="decimal"
@@ -5429,9 +5094,7 @@ function TabAnaliseTecnica(props: TabAnaliseTecnicaProps) {
                   />
                 </div>
                 <div>
-                  <Label className="text-xs">
-                    Resumo para o parceiro (opcional)
-                  </Label>
+                  <Label className="text-xs">Resumo para o parceiro (opcional)</Label>
                   <Textarea
                     rows={3}
                     placeholder="Versão simplificada exibida ao parceiro..."
@@ -5441,11 +5104,7 @@ function TabAnaliseTecnica(props: TabAnaliseTecnicaProps) {
                 </div>
               </div>
               <DialogFooter>
-                <Button
-                  variant="ghost"
-                  onClick={() => setAberto(false)}
-                  disabled={salvando}
-                >
+                <Button variant="ghost" onClick={() => setAberto(false)} disabled={salvando}>
                   Cancelar
                 </Button>
                 <Button onClick={salvar} disabled={salvando}>
@@ -5480,9 +5139,7 @@ function TabAnaliseTecnica(props: TabAnaliseTecnicaProps) {
                     )}
                   </div>
                   {a.beneficio_recomendado && (
-                    <p className="text-sm font-medium">
-                      {a.beneficio_recomendado}
-                    </p>
+                    <p className="text-sm font-medium">{a.beneficio_recomendado}</p>
                   )}
                   <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
                     {a.rmi_estimada !== null && (
@@ -5493,29 +5150,21 @@ function TabAnaliseTecnica(props: TabAnaliseTecnicaProps) {
                     )}
                     {a.valor_estimado_acao !== null && (
                       <div>
-                        <span className="text-muted-foreground">
-                          Valor da ação:{" "}
-                        </span>
+                        <span className="text-muted-foreground">Valor da ação: </span>
                         <span>{formatMoney(a.valor_estimado_acao)}</span>
                       </div>
                     )}
                   </div>
                   {obs && (
                     <div className="mt-2 pt-2 border-t">
-                      <p className="text-xs text-muted-foreground mb-1">
-                        Observações
-                      </p>
+                      <p className="text-xs text-muted-foreground mb-1">Observações</p>
                       <p className="text-sm whitespace-pre-wrap">{obs}</p>
                     </div>
                   )}
                   {a.resumo_parceiro && (
                     <div className="mt-2 pt-2 border-t">
-                      <p className="text-xs text-muted-foreground mb-1">
-                        Resumo para o parceiro
-                      </p>
-                      <p className="text-sm whitespace-pre-wrap">
-                        {a.resumo_parceiro}
-                      </p>
+                      <p className="text-xs text-muted-foreground mb-1">Resumo para o parceiro</p>
+                      <p className="text-sm whitespace-pre-wrap">{a.resumo_parceiro}</p>
                     </div>
                   )}
                 </div>
@@ -5570,8 +5219,7 @@ function tipoBadgeLabel(tipo: string | undefined | null): string {
 }
 
 function TabComentarios(props: TabComentariosProps) {
-  const { casoId, comentarios, setComentarios, usuarioId, temParceiro, focoId } =
-    props;
+  const { casoId, comentarios, setComentarios, usuarioId, temParceiro, focoId } = props;
   const { usuario } = useAuth();
   // Interno pode excluir QUALQUER comentario (moderacao) - a RLS ja permite.
   // Autor pode excluir o proprio. Parceiro so ve excluir nos seus.
@@ -5599,17 +5247,12 @@ function TabComentarios(props: TabComentariosProps) {
     // Top-level mais recente primeiro; replies cronologico (mais antigo primeiro)
     return tops
       .slice()
-      .sort(
-        (a, b) =>
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-      )
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       .map((top) => ({
         top,
-        replies: (byParent.get(top.id) || []).slice().sort(
-          (a, b) =>
-            new Date(a.created_at).getTime() -
-            new Date(b.created_at).getTime(),
-        ),
+        replies: (byParent.get(top.id) || [])
+          .slice()
+          .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()),
       }));
   }, [comentarios]);
 
@@ -5802,16 +5445,10 @@ function TabComentarios(props: TabComentariosProps) {
                     </Button>
                     <Button
                       size="sm"
-                      onClick={() =>
-                        enviarComentario(respostaTexto[top.id] || "", top.id)
-                      }
-                      disabled={
-                        enviando || !(respostaTexto[top.id] || "").trim()
-                      }
+                      onClick={() => enviarComentario(respostaTexto[top.id] || "", top.id)}
+                      disabled={enviando || !(respostaTexto[top.id] || "").trim()}
                     >
-                      {enviando && (
-                        <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                      )}
+                      {enviando && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
                       Responder
                     </Button>
                   </div>
@@ -5844,8 +5481,7 @@ function ComentarioItem(props: {
   destacado?: boolean;
 }) {
   const { comentario, podeExcluir, onExcluir, excluindo, destacado } = props;
-  const autorNome =
-    comentario.autor?.nome || comentario.autor?.email || "(sem nome)";
+  const autorNome = comentario.autor?.nome || comentario.autor?.email || "(sem nome)";
   const tipo = comentario.autor?.tipo;
 
   return (
@@ -5866,10 +5502,7 @@ function ComentarioItem(props: {
       <div className="flex-1 min-w-0">
         <div className="flex flex-wrap items-baseline gap-2 mb-1">
           <span className="text-sm font-medium">{autorNome}</span>
-          <Badge
-            variant="outline"
-            className={"text-[10px] font-normal " + tipoBadgeClasses(tipo)}
-          >
+          <Badge variant="outline" className={"text-[10px] font-normal " + tipoBadgeClasses(tipo)}>
             {tipoBadgeLabel(tipo)}
           </Badge>
           <span className="text-xs text-muted-foreground">
@@ -5891,9 +5524,7 @@ function ComentarioItem(props: {
             </Button>
           )}
         </div>
-        <p className="text-sm whitespace-pre-wrap text-foreground/90">
-          {comentario.texto}
-        </p>
+        <p className="text-sm whitespace-pre-wrap text-foreground/90">{comentario.texto}</p>
       </div>
     </div>
   );
@@ -5918,14 +5549,10 @@ function TabRepasses(props: TabRepassesProps) {
   const [statusInicial, setStatusInicial] = useState("previsto");
   const [salvando, setSalvando] = useState(false);
 
-  const lista = isInterno
-    ? repasses
-    : repasses.filter((r) => r.parceiro_id === parceiroId);
+  const lista = isInterno ? repasses : repasses.filter((r) => r.parceiro_id === parceiroId);
 
   const total = lista.reduce((acc, r) => acc + (r.valor || 0), 0);
-  const pago = lista
-    .filter((r) => r.status === "pago")
-    .reduce((acc, r) => acc + (r.valor || 0), 0);
+  const pago = lista.filter((r) => r.status === "pago").reduce((acc, r) => acc + (r.valor || 0), 0);
   const aPagar = lista
     .filter((r) => r.status === "a_pagar")
     .reduce((acc, r) => acc + (r.valor || 0), 0);
@@ -5973,10 +5600,7 @@ function TabRepasses(props: TabRepassesProps) {
       if (novoStatus === "pago") {
         update.data_pagamento = new Date().toISOString().slice(0, 10);
       }
-      const resp = await supabase
-        .from("repasses")
-        .update(update)
-        .eq("id", r.id);
+      const resp = await supabase.from("repasses").update(update).eq("id", r.id);
       if (resp.error) throw resp.error;
       toast.success("Repasse atualizado");
       onChange();
@@ -5993,9 +5617,7 @@ function TabRepasses(props: TabRepassesProps) {
         <div className="flex items-center justify-between">
           <div>
             <CardTitle className="text-base">Repasses</CardTitle>
-            <CardDescription>
-              Honorários do parceiro indicador (30%).
-            </CardDescription>
+            <CardDescription>Honorários do parceiro indicador (30%).</CardDescription>
           </div>
           {isInterno && parceiroId && (
             <Dialog open={aberto} onOpenChange={setAberto}>
@@ -6022,10 +5644,7 @@ function TabRepasses(props: TabRepassesProps) {
                   </div>
                   <div>
                     <Label className="text-xs">Status inicial</Label>
-                    <Select
-                      value={statusInicial}
-                      onValueChange={setStatusInicial}
-                    >
+                    <Select value={statusInicial} onValueChange={setStatusInicial}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
@@ -6038,17 +5657,11 @@ function TabRepasses(props: TabRepassesProps) {
                   </div>
                 </div>
                 <DialogFooter>
-                  <Button
-                    variant="ghost"
-                    onClick={() => setAberto(false)}
-                    disabled={salvando}
-                  >
+                  <Button variant="ghost" onClick={() => setAberto(false)} disabled={salvando}>
                     Cancelar
                   </Button>
                   <Button onClick={adicionar} disabled={salvando}>
-                    {salvando && (
-                      <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                    )}
+                    {salvando && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
                     Registrar
                   </Button>
                 </DialogFooter>
@@ -6065,21 +5678,15 @@ function TabRepasses(props: TabRepassesProps) {
           </div>
           <div className="border rounded-md p-3">
             <p className="text-xs text-muted-foreground">Previsto</p>
-            <p className="text-base font-medium text-muted-foreground">
-              {formatMoney(previsto)}
-            </p>
+            <p className="text-base font-medium text-muted-foreground">{formatMoney(previsto)}</p>
           </div>
           <div className="border rounded-md p-3">
             <p className="text-xs text-muted-foreground">A pagar</p>
-            <p className="text-base font-medium text-warning">
-              {formatMoney(aPagar)}
-            </p>
+            <p className="text-base font-medium text-warning">{formatMoney(aPagar)}</p>
           </div>
           <div className="border rounded-md p-3">
             <p className="text-xs text-muted-foreground">Pago</p>
-            <p className="text-base font-medium text-success">
-              {formatMoney(pago)}
-            </p>
+            <p className="text-base font-medium text-success">{formatMoney(pago)}</p>
           </div>
         </div>
 
@@ -6095,27 +5702,18 @@ function TabRepasses(props: TabRepassesProps) {
                 className="flex items-center justify-between gap-2 border rounded-md p-3 flex-wrap"
               >
                 <div>
-                  <p className="text-sm font-medium">
-                    {formatMoney(r.valor)}
-                  </p>
+                  <p className="text-sm font-medium">{formatMoney(r.valor)}</p>
                   <p className="text-xs text-muted-foreground">
                     Criado em {formatDate(r.created_at)}
-                    {r.data_pagamento
-                      ? " - Pago em " + formatDate(r.data_pagamento)
-                      : ""}
+                    {r.data_pagamento ? " - Pago em " + formatDate(r.data_pagamento) : ""}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge
-                    variant={r.status === "pago" ? "default" : "outline"}
-                  >
+                  <Badge variant={r.status === "pago" ? "default" : "outline"}>
                     {STATUS_REPASSE_LABEL[r.status] || r.status}
                   </Badge>
                   {isInterno && r.status !== "pago" && (
-                    <Select
-                      value={r.status}
-                      onValueChange={(v) => atualizarStatus(r, v)}
-                    >
+                    <Select value={r.status} onValueChange={(v) => atualizarStatus(r, v)}>
                       <SelectTrigger className="h-8 w-32 text-xs">
                         <SelectValue />
                       </SelectTrigger>
@@ -6326,15 +5924,9 @@ function TabProcessos(props: TabProcessosProps) {
   ): Promise<{ id: string; caso_id: string } | null> {
     const norm = numero.replace(/\D/g, "");
     if (!norm) return null;
-    const resp = await supabase
-      .from(tabela)
-      .select("id, caso_id")
-      .eq(colunaNorm, norm)
-      .limit(1);
+    const resp = await supabase.from(tabela).select("id, caso_id").eq(colunaNorm, norm).limit(1);
     if (resp.error) return null;
-    const found = (resp.data || [])[0] as
-      | { id: string; caso_id: string }
-      | undefined;
+    const found = (resp.data || [])[0] as { id: string; caso_id: string } | undefined;
     if (found && found.id !== ignoreId) return found;
     return null;
   }
@@ -6343,9 +5935,7 @@ function TabProcessos(props: TabProcessosProps) {
   const [abrirBuscaLM, setAbrirBuscaLM] = useState(false);
   const [buscandoLM, setBuscandoLM] = useState(false);
   const [resultadosLM, setResultadosLM] = useState<Array<ResultadoBuscaLM>>([]);
-  const [selecionadosLM, setSelecionadosLM] = useState<Set<string>>(
-    new Set(),
-  );
+  const [selecionadosLM, setSelecionadosLM] = useState<Set<string>>(new Set());
   const [importandoLM, setImportandoLM] = useState(false);
 
   async function buscarLegalmail() {
@@ -6372,9 +5962,14 @@ function TabProcessos(props: TabProcessosProps) {
         toast.message("Nenhum processo similar encontrado no Legalmail.");
       } else {
         toast.success(
-          lista.length + " processo" + (lista.length === 1 ? "" : "s") +
-            " similar" + (lista.length === 1 ? "" : "es") + " encontrado" +
-            (lista.length === 1 ? "" : "s") + ".",
+          lista.length +
+            " processo" +
+            (lista.length === 1 ? "" : "s") +
+            " similar" +
+            (lista.length === 1 ? "" : "es") +
+            " encontrado" +
+            (lista.length === 1 ? "" : "s") +
+            ".",
         );
       }
     } catch (err) {
@@ -6430,14 +6025,19 @@ function TabProcessos(props: TabProcessosProps) {
       let msg = "Importado: ";
       msg += pc + " novo" + (pc === 1 ? "" : "s") + ", ";
       msg += pa + " atualizado" + (pa === 1 ? "" : "s") + ". ";
-      msg += mi + " movimentaç" + (mi === 1 ? "ão" : "ões") + " importada" +
-        (mi === 1 ? "" : "s");
+      msg += mi + " movimentaç" + (mi === 1 ? "ão" : "ões") + " importada" + (mi === 1 ? "" : "s");
       if (mj > 0) {
         msg += " (" + mj + " já existia" + (mj === 1 ? "" : "m") + ")";
       }
       if (mig > 0) {
-        msg += ". " + mig + " mov" + (mig === 1 ? "" : "s") +
-          " ignorada" + (mig === 1 ? "" : "s") + " pela whitelist";
+        msg +=
+          ". " +
+          mig +
+          " mov" +
+          (mig === 1 ? "" : "s") +
+          " ignorada" +
+          (mig === 1 ? "" : "s") +
+          " pela whitelist";
       }
       msg += ".";
       toast.success(msg);
@@ -6478,7 +6078,7 @@ function TabProcessos(props: TabProcessosProps) {
     setSalvandoAdmin(true);
     try {
       const parentTipo = parentAdmin
-        ? allNodes.find((n) => n.id === parentAdmin)?.tipo ?? null
+        ? (allNodes.find((n) => n.id === parentAdmin)?.tipo ?? null)
         : null;
       const payload = {
         caso_id: casoId,
@@ -6492,16 +6092,11 @@ function TabProcessos(props: TabProcessosProps) {
         tipo_beneficio: tipoBeneficioAdmin || null,
       };
       const resp = editAdminId
-        ? await supabase
-          .from("processos_admin")
-          .update(payload)
-          .eq("id", editAdminId)
+        ? await supabase.from("processos_admin").update(payload).eq("id", editAdminId)
         : await supabase.from("processos_admin").insert(payload);
       if (resp.error) throw resp.error;
       toast.success(
-        editAdminId
-          ? "Processo administrativo atualizado"
-          : "Processo administrativo registrado",
+        editAdminId ? "Processo administrativo atualizado" : "Processo administrativo registrado",
       );
       resetAdmin();
       setAbrirAdmin(false);
@@ -6549,7 +6144,7 @@ function TabProcessos(props: TabProcessosProps) {
     setSalvandoJud(true);
     try {
       const parentTipo = parentJud
-        ? allNodes.find((n) => n.id === parentJud)?.tipo ?? null
+        ? (allNodes.find((n) => n.id === parentJud)?.tipo ?? null)
         : null;
       const payload = {
         caso_id: casoId,
@@ -6563,15 +6158,10 @@ function TabProcessos(props: TabProcessosProps) {
         parent_tipo: parentTipo,
       };
       const resp = editJudId
-        ? await supabase
-          .from("processos_judiciais")
-          .update(payload)
-          .eq("id", editJudId)
+        ? await supabase.from("processos_judiciais").update(payload).eq("id", editJudId)
         : await supabase.from("processos_judiciais").insert(payload);
       if (resp.error) throw resp.error;
-      toast.success(
-        editJudId ? "Processo judicial atualizado" : "Processo judicial registrado",
-      );
+      toast.success(editJudId ? "Processo judicial atualizado" : "Processo judicial registrado");
       resetJud();
       setAbrirJud(false);
       onChange();
@@ -6597,19 +6187,12 @@ function TabProcessos(props: TabProcessosProps) {
       const temFilhos = allNodes.some((n) => n.parent_id === node.id);
       if (temFilhos) {
         const upd = { parent_id: node.parent_id, parent_tipo: node.parent_tipo };
-        const r1 = await supabase
-          .from("processos_admin")
-          .update(upd)
-          .eq("parent_id", node.id);
+        const r1 = await supabase.from("processos_admin").update(upd).eq("parent_id", node.id);
         if (r1.error) throw r1.error;
-        const r2 = await supabase
-          .from("processos_judiciais")
-          .update(upd)
-          .eq("parent_id", node.id);
+        const r2 = await supabase.from("processos_judiciais").update(upd).eq("parent_id", node.id);
         if (r2.error) throw r2.error;
       }
-      const tabela =
-        node.tipo === "admin" ? "processos_admin" : "processos_judiciais";
+      const tabela = node.tipo === "admin" ? "processos_admin" : "processos_judiciais";
       const del = await supabase.from(tabela).delete().eq("id", node.id);
       if (del.error) throw del.error;
       toast.success("Processo excluído");
@@ -6630,8 +6213,7 @@ function TabProcessos(props: TabProcessosProps) {
       <li key={node.tipo + ":" + node.id} className="space-y-2">
         <div
           id={"foco-" + node.id}
-          className={"border rounded-md p-3 " +
-            (foco === node.id ? DESTAQUE_CLASSE : "")}
+          className={"border rounded-md p-3 " + (foco === node.id ? DESTAQUE_CLASSE : "")}
           style={{ marginLeft: depth * 16 }}
         >
           <div className="flex items-start justify-between gap-2">
@@ -6639,9 +6221,7 @@ function TabProcessos(props: TabProcessosProps) {
               <div className="flex items-center gap-2 flex-wrap">
                 <p className="text-sm font-medium">
                   {node.tipo === "admin" ? "Req.: " : "Processo: "}
-                  <span className="font-mono tabular-nums">
-                    {node.numero || "-"}
-                  </span>
+                  <span className="font-mono tabular-nums">{node.numero || "-"}</span>
                 </p>
                 <Badge
                   variant={node.tipo === "admin" ? "secondary" : "outline"}
@@ -6682,8 +6262,7 @@ function TabProcessos(props: TabProcessosProps) {
                   {node.judicial?.comarca ? node.judicial.comarca : ""}
                   {node.judicial?.uf ? "/" + node.judicial.uf : ""}
                   {node.judicial?.data_distribuicao
-                    ? " - Distribuído em " +
-                      formatDate(node.judicial.data_distribuicao)
+                    ? " - Distribuído em " + formatDate(node.judicial.data_distribuicao)
                     : ""}
                 </p>
               )}
@@ -6691,11 +6270,7 @@ function TabProcessos(props: TabProcessosProps) {
             {isInterno && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 shrink-0"
-                  >
+                  <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0">
                     <MoreVertical className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -6704,7 +6279,8 @@ function TabProcessos(props: TabProcessosProps) {
                     onClick={() =>
                       node.tipo === "admin"
                         ? abrirEditarAdmin(node.admin as ProcessoAdmin)
-                        : abrirEditarJud(node.judicial as ProcessoJudicial)}
+                        : abrirEditarJud(node.judicial as ProcessoJudicial)
+                    }
                   >
                     <Pencil className="h-4 w-4 mr-2" />
                     Editar
@@ -6731,9 +6307,7 @@ function TabProcessos(props: TabProcessosProps) {
           </div>
         </div>
         {filhos.length > 0 && (
-          <ul className="space-y-2">
-            {filhos.map((c) => renderNode(c, depth + 1))}
-          </ul>
+          <ul className="space-y-2">{filhos.map((c) => renderNode(c, depth + 1))}</ul>
         )}
       </li>
     );
@@ -6748,12 +6322,8 @@ function TabProcessos(props: TabProcessosProps) {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-base">
-                Processos administrativos
-              </CardTitle>
-              <CardDescription>
-                Requerimentos protocolados no INSS.
-              </CardDescription>
+              <CardTitle className="text-base">Processos administrativos</CardTitle>
+              <CardDescription>Requerimentos protocolados no INSS.</CardDescription>
             </div>
             {isInterno && (
               <Button size="sm" onClick={() => abrirNovoAdmin()}>
@@ -6783,8 +6353,7 @@ function TabProcessos(props: TabProcessosProps) {
                     <Label className="text-xs">Tipo de benefício</Label>
                     <Select
                       value={tipoBeneficioAdmin || "__none__"}
-                      onValueChange={(v) =>
-                        setTipoBeneficioAdmin(v === "__none__" ? "" : v)}
+                      onValueChange={(v) => setTipoBeneficioAdmin(v === "__none__" ? "" : v)}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Selecione o benefício" />
@@ -6803,16 +6372,13 @@ function TabProcessos(props: TabProcessosProps) {
                     <Label className="text-xs">Etapa</Label>
                     <Select
                       value={etapaAdmin || "__none__"}
-                      onValueChange={(v) =>
-                        setEtapaAdmin(v === "__none__" ? "" : v)}
+                      onValueChange={(v) => setEtapaAdmin(v === "__none__" ? "" : v)}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Sem classificação" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="__none__">
-                          Sem classificação
-                        </SelectItem>
+                        <SelectItem value="__none__">Sem classificação</SelectItem>
                         {ETAPAS_ADMIN.map((e) => (
                           <SelectItem key={e} value={e}>
                             {e}
@@ -6825,16 +6391,13 @@ function TabProcessos(props: TabProcessosProps) {
                     <Label className="text-xs">Processo de origem (pai)</Label>
                     <Select
                       value={parentAdmin || "__none__"}
-                      onValueChange={(v) =>
-                        setParentAdmin(v === "__none__" ? "" : v)}
+                      onValueChange={(v) => setParentAdmin(v === "__none__" ? "" : v)}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Nenhum (principal)" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="__none__">
-                          Nenhum (principal)
-                        </SelectItem>
+                        <SelectItem value="__none__">Nenhum (principal)</SelectItem>
                         {parentOptions(editAdminId).map((n) => (
                           <SelectItem key={n.tipo + ":" + n.id} value={n.id}>
                             {nodeLabel(n)}
@@ -6877,9 +6440,7 @@ function TabProcessos(props: TabProcessosProps) {
                     Cancelar
                   </Button>
                   <Button onClick={salvarAdmin} disabled={salvandoAdmin}>
-                    {salvandoAdmin && (
-                      <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                    )}
+                    {salvandoAdmin && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
                     Salvar
                   </Button>
                 </DialogFooter>
@@ -6893,9 +6454,7 @@ function TabProcessos(props: TabProcessosProps) {
               Nenhum processo administrativo registrado.
             </p>
           ) : (
-            <ul className="space-y-2">
-              {adminRaizes.map((n) => renderNode(n, 0))}
-            </ul>
+            <ul className="space-y-2">{adminRaizes.map((n) => renderNode(n, 0))}</ul>
           )}
         </CardContent>
       </Card>
@@ -6905,9 +6464,7 @@ function TabProcessos(props: TabProcessosProps) {
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
               <CardTitle className="text-base">Processos judiciais</CardTitle>
-              <CardDescription>
-                Ações ajuizadas relacionadas ao caso.
-              </CardDescription>
+              <CardDescription>Ações ajuizadas relacionadas ao caso.</CardDescription>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               {isInterno && (
@@ -6918,9 +6475,7 @@ function TabProcessos(props: TabProcessosProps) {
                   disabled={buscandoLM || !cliente.nome}
                   title="Buscar processos no Legalmail pelo nome do cliente"
                 >
-                  {buscandoLM && (
-                    <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                  )}
+                  {buscandoLM && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
                   <Search className="h-4 w-4 mr-1" />
                   Buscar no Legalmail
                 </Button>
@@ -6932,145 +6487,130 @@ function TabProcessos(props: TabProcessosProps) {
                 </Button>
               )}
               <Dialog open={abrirJud} onOpenChange={setAbrirJud}>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>
-                    {editJudId
-                      ? "Editar processo judicial"
-                      : "Novo processo judicial"}
-                  </DialogTitle>
-                </DialogHeader>
-                <div className="space-y-3">
-                  <div>
-                    <Label className="text-xs">Número do processo *</Label>
-                    <Input
-                      value={numProcesso}
-                      onChange={(e) => setNumProcesso(e.target.value)}
-                      placeholder="0000000-00.0000.0.00.0000"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Etapa</Label>
-                    <Select
-                      value={etapaJud || "__none__"}
-                      onValueChange={(v) =>
-                        setEtapaJud(v === "__none__" ? "" : v)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Sem classificação" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">
-                          Sem classificação
-                        </SelectItem>
-                        {ETAPAS_JUDICIAL.map((e) => (
-                          <SelectItem key={e} value={e}>
-                            {e}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="text-xs">Processo de origem (pai)</Label>
-                    <Select
-                      value={parentJud || "__none__"}
-                      onValueChange={(v) =>
-                        setParentJud(v === "__none__" ? "" : v)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Nenhum (principal)" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">
-                          Nenhum (principal)
-                        </SelectItem>
-                        {parentOptions(editJudId).map((n) => (
-                          <SelectItem key={n.tipo + ":" + n.id} value={n.id}>
-                            {nodeLabel(n)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="text-xs">Tribunal *</Label>
-                    <Select
-                      value={vara || undefined}
-                      onValueChange={setVara}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecione o tribunal" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {vara && !TRIBUNAIS.includes(vara) && (
-                          <SelectItem value={vara}>{vara} (atual)</SelectItem>
-                        )}
-                        <SelectGroup>
-                          <SelectLabel>Justiça Federal</SelectLabel>
-                          {TRIBUNAIS_FEDERAIS.map((t) => (
-                            <SelectItem key={t} value={t}>
-                              {t}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                        <SelectGroup>
-                          <SelectLabel>Justiça Estadual</SelectLabel>
-                          {TRIBUNAIS_ESTADUAIS.map((t) => (
-                            <SelectItem key={t} value={t}>
-                              {t}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="col-span-2">
-                      <Label className="text-xs">Comarca *</Label>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>
+                      {editJudId ? "Editar processo judicial" : "Novo processo judicial"}
+                    </DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-3">
+                    <div>
+                      <Label className="text-xs">Número do processo *</Label>
                       <Input
-                        value={comarca}
-                        onChange={(e) => setComarca(e.target.value)}
-                        placeholder="Ex.: São Paulo"
+                        value={numProcesso}
+                        onChange={(e) => setNumProcesso(e.target.value)}
+                        placeholder="0000000-00.0000.0.00.0000"
                       />
                     </div>
                     <div>
-                      <Label className="text-xs">UF *</Label>
+                      <Label className="text-xs">Etapa</Label>
+                      <Select
+                        value={etapaJud || "__none__"}
+                        onValueChange={(v) => setEtapaJud(v === "__none__" ? "" : v)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Sem classificação" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">Sem classificação</SelectItem>
+                          {ETAPAS_JUDICIAL.map((e) => (
+                            <SelectItem key={e} value={e}>
+                              {e}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Processo de origem (pai)</Label>
+                      <Select
+                        value={parentJud || "__none__"}
+                        onValueChange={(v) => setParentJud(v === "__none__" ? "" : v)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Nenhum (principal)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">Nenhum (principal)</SelectItem>
+                          {parentOptions(editJudId).map((n) => (
+                            <SelectItem key={n.tipo + ":" + n.id} value={n.id}>
+                              {nodeLabel(n)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Tribunal *</Label>
+                      <Select value={vara || undefined} onValueChange={setVara}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione o tribunal" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {vara && !TRIBUNAIS.includes(vara) && (
+                            <SelectItem value={vara}>{vara} (atual)</SelectItem>
+                          )}
+                          <SelectGroup>
+                            <SelectLabel>Justiça Federal</SelectLabel>
+                            {TRIBUNAIS_FEDERAIS.map((t) => (
+                              <SelectItem key={t} value={t}>
+                                {t}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                          <SelectGroup>
+                            <SelectLabel>Justiça Estadual</SelectLabel>
+                            {TRIBUNAIS_ESTADUAIS.map((t) => (
+                              <SelectItem key={t} value={t}>
+                                {t}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="col-span-2">
+                        <Label className="text-xs">Comarca *</Label>
+                        <Input
+                          value={comarca}
+                          onChange={(e) => setComarca(e.target.value)}
+                          placeholder="Ex.: São Paulo"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs">UF *</Label>
+                        <Input
+                          value={uf}
+                          onChange={(e) => setUf(e.target.value.toUpperCase().slice(0, 2))}
+                          placeholder="SP"
+                          maxLength={2}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Data da distribuição *</Label>
                       <Input
-                        value={uf}
-                        onChange={(e) =>
-                          setUf(e.target.value.toUpperCase().slice(0, 2))
-                        }
-                        placeholder="SP"
-                        maxLength={2}
+                        type="date"
+                        value={dataDist}
+                        onChange={(e) => setDataDist(e.target.value)}
                       />
                     </div>
                   </div>
-                  <div>
-                    <Label className="text-xs">Data da distribuição *</Label>
-                    <Input
-                      type="date"
-                      value={dataDist}
-                      onChange={(e) => setDataDist(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button
-                    variant="ghost"
-                    onClick={() => setAbrirJud(false)}
-                    disabled={salvandoJud}
-                  >
-                    Cancelar
-                  </Button>
-                  <Button onClick={salvarJud} disabled={salvandoJud}>
-                    {salvandoJud && (
-                      <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                    )}
-                    Salvar
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
+                  <DialogFooter>
+                    <Button
+                      variant="ghost"
+                      onClick={() => setAbrirJud(false)}
+                      disabled={salvandoJud}
+                    >
+                      Cancelar
+                    </Button>
+                    <Button onClick={salvarJud} disabled={salvandoJud}>
+                      {salvandoJud && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
+                      Salvar
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
               </Dialog>
             </div>
           </div>
@@ -7081,9 +6621,7 @@ function TabProcessos(props: TabProcessosProps) {
               Nenhum processo judicial registrado.
             </p>
           ) : (
-            <ul className="space-y-2">
-              {judRaizes.map((n) => renderNode(n, 0))}
-            </ul>
+            <ul className="space-y-2">{judRaizes.map((n) => renderNode(n, 0))}</ul>
           )}
         </CardContent>
       </Card>
@@ -7093,8 +6631,7 @@ function TabProcessos(props: TabProcessosProps) {
           <DialogHeader>
             <DialogTitle>Processos no Legalmail</DialogTitle>
             <DialogDescription>
-              Resultados de busca por nome para "{cliente.nome}". Marque os que
-              quer importar.
+              Resultados de busca por nome para "{cliente.nome}". Marque os que quer importar.
             </DialogDescription>
           </DialogHeader>
           {buscandoLM && (
@@ -7116,10 +6653,7 @@ function TabProcessos(props: TabProcessosProps) {
                 const idStr = String(r.idprocessos);
                 const marcado = selecionadosLM.has(idStr);
                 return (
-                  <li
-                    key={idStr}
-                    className="border rounded-md p-3 flex items-start gap-3"
-                  >
+                  <li key={idStr} className="border rounded-md p-3 flex items-start gap-3">
                     <input
                       type="checkbox"
                       checked={marcado}
@@ -7128,14 +6662,8 @@ function TabProcessos(props: TabProcessosProps) {
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-sm font-medium">
-                          {r.numero_processo}
-                        </p>
-                        <Badge
-                          variant="outline"
-                          className="text-xs"
-                          title="Similaridade do nome"
-                        >
+                        <p className="text-sm font-medium">{r.numero_processo}</p>
+                        <Badge variant="outline" className="text-xs" title="Similaridade do nome">
                           score {(r.score * 100).toFixed(0)}%
                         </Badge>
                         {r.inbox_atual && (
@@ -7153,9 +6681,7 @@ function TabProcessos(props: TabProcessosProps) {
                         </p>
                       )}
                       {r.processo_tema && (
-                        <p className="text-xs text-muted-foreground">
-                          Tema: {r.processo_tema}
-                        </p>
+                        <p className="text-xs text-muted-foreground">Tema: {r.processo_tema}</p>
                       )}
                     </div>
                   </li>
@@ -7164,22 +6690,14 @@ function TabProcessos(props: TabProcessosProps) {
             </ul>
           )}
           <DialogFooter>
-            <Button
-              variant="ghost"
-              onClick={() => setAbrirBuscaLM(false)}
-              disabled={importandoLM}
-            >
+            <Button variant="ghost" onClick={() => setAbrirBuscaLM(false)} disabled={importandoLM}>
               Cancelar
             </Button>
             <Button
               onClick={importarSelecionadosLM}
-              disabled={
-                importandoLM || buscandoLM || selecionadosLM.size === 0
-              }
+              disabled={importandoLM || buscandoLM || selecionadosLM.size === 0}
             >
-              {importandoLM && (
-                <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-              )}
+              {importandoLM && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
               Importar selecionados ({selecionadosLM.size})
             </Button>
           </DialogFooter>
@@ -7204,9 +6722,7 @@ function TabProcessos(props: TabProcessosProps) {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={excluindoLoading}>
-              Cancelar
-            </AlertDialogCancel>
+            <AlertDialogCancel disabled={excluindoLoading}>Cancelar</AlertDialogCancel>
             <AlertDialogAction
               onClick={(e) => {
                 e.preventDefault();
@@ -7215,9 +6731,7 @@ function TabProcessos(props: TabProcessosProps) {
               disabled={excluindoLoading}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {excluindoLoading && (
-                <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-              )}
+              {excluindoLoading && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
               Excluir
             </AlertDialogAction>
           </AlertDialogFooter>
