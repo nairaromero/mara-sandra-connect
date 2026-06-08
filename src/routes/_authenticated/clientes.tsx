@@ -7,13 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { ClientOnly } from "@/components/client-only";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -70,9 +64,7 @@ function onlyDigits(s: string): string {
 function formatCPF(cpf: string | null): string {
   const d = onlyDigits(cpf ?? "");
   if (d.length !== 11) return cpf ?? "-";
-  return (
-    d.slice(0, 3) + "." + d.slice(3, 6) + "." + d.slice(6, 9) + "-" + d.slice(9)
-  );
+  return d.slice(0, 3) + "." + d.slice(3, 6) + "." + d.slice(6, 9) + "-" + d.slice(9);
 }
 
 const STATUS_VARIANT: Record<string, { label: string; className: string }> = {
@@ -82,8 +74,7 @@ const STATUS_VARIANT: Record<string, { label: string; className: string }> = {
   },
   em_analise: {
     label: "Em análise",
-    className:
-      "bg-secondary text-secondary-foreground hover:bg-secondary border border-border",
+    className: "bg-secondary text-secondary-foreground hover:bg-secondary border border-border",
   },
   em_revisao: {
     label: "Em revisão",
@@ -91,8 +82,7 @@ const STATUS_VARIANT: Record<string, { label: string; className: string }> = {
   },
   em_andamento: {
     label: "Em andamento",
-    className:
-      "bg-secondary text-secondary-foreground hover:bg-secondary border border-border",
+    className: "bg-secondary text-secondary-foreground hover:bg-secondary border border-border",
   },
   concluido_exito: {
     label: "Concluído com êxito",
@@ -200,12 +190,9 @@ function ClientesPage() {
         .flatMap((c) => c.numerosProcesso)
         .map((n) => onlyDigits(n))
         .join(" ");
-      e.searchHaystack =
-        nome + " | " + cpfDigits + " | " + processos.toLowerCase();
+      e.searchHaystack = nome + " | " + cpfDigits + " | " + processos.toLowerCase();
     }
-    return Array.from(map.values()).sort((a, b) =>
-      a.nome.localeCompare(b.nome),
-    );
+    return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome));
   }, [casos]);
 
   const buscaNormalizada = busca.trim().toLowerCase();
@@ -245,13 +232,10 @@ function ClientesPage() {
             Clientes
           </h1>
           <p className="text-sm text-muted-foreground">
-            Lista de todos os clientes com seus casos. Busque por nome, CPF ou
-            número de processo.
+            Lista de todos os clientes com seus casos. Busque por nome, CPF ou número de processo.
           </p>
         </div>
-        {usuario?.tipo === "interno" && (
-          <ImportarTiDialog onImported={loadData} />
-        )}
+        {usuario?.tipo === "interno" && <ImportarTiDialog onImported={loadData} />}
       </div>
 
       <ClientOnly
@@ -265,8 +249,7 @@ function ClientesPage() {
           <CardHeader>
             <CardTitle className="text-base">Busca</CardTitle>
             <CardDescription>
-              Filtra por nome (parcial), CPF (só dígitos) ou número de processo
-              (admin ou judicial).
+              Filtra por nome (parcial), CPF (só dígitos) ou número de processo (admin ou judicial).
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -287,11 +270,10 @@ function ClientesPage() {
             <CardTitle className="text-base">
               {loading
                 ? "Carregando..."
-                : clientesFiltrados.length + " cliente" +
-                    (clientesFiltrados.length === 1 ? "" : "s") +
-                    (busca.trim()
-                      ? " (filtrado de " + clientes.length + ")"
-                      : "")}
+                : clientesFiltrados.length +
+                  " cliente" +
+                  (clientesFiltrados.length === 1 ? "" : "s") +
+                  (busca.trim() ? " (filtrado de " + clientes.length + ")" : "")}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -328,54 +310,60 @@ function ClientesPage() {
                       );
                       const parceirosNomes = Array.from(
                         new Set(
-                          c.casos
-                            .map((ca) => ca.parceiroNome)
-                            .filter((n): n is string => !!n),
+                          c.casos.map((ca) => ca.parceiroNome).filter((n): n is string => !!n),
                         ),
                       );
                       return (
                         <TableRow
                           key={c.id}
                           className="cursor-pointer hover:bg-muted/40"
-                          onClick={() =>
-                            casoMaisRecente && abrirCaso(casoMaisRecente.id)
-                          }
+                          onClick={() => casoMaisRecente && abrirCaso(casoMaisRecente.id)}
                         >
                           <TableCell className="font-medium">
-                            <div>{c.nome}</div>
-                            {casoMaisRecente?.tipo_beneficio && (
-                              <div className="text-xs text-muted-foreground">
-                                {casoMaisRecente.tipo_beneficio}
-                              </div>
-                            )}
+                            <div className="flex items-center gap-2">
+                              <span>{c.nome}</span>
+                              {totalCasos > 1 && (
+                                <Badge variant="outline" className="text-[10px] tabular-nums">
+                                  {totalCasos} casos
+                                </Badge>
+                              )}
+                            </div>
+                            {/* Um chip por caso (beneficio). Clicar abre aquele
+                                caso especifico — assim cliente com varios casos
+                                nao esconde nenhum. */}
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {c.casos.map((ca) => (
+                                <button
+                                  key={ca.id}
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    abrirCaso(ca.id);
+                                  }}
+                                  className="rounded border border-border bg-muted/40 px-1.5 py-0.5 text-[11px] font-normal text-muted-foreground hover:bg-muted hover:text-foreground"
+                                  title={"Abrir caso: " + (ca.tipo_beneficio ?? "(sem beneficio)")}
+                                >
+                                  {ca.tipo_beneficio ?? "(sem benefício)"}
+                                </button>
+                              ))}
+                            </div>
                           </TableCell>
-                          <TableCell className="tabular-nums text-sm">
-                            {formatCPF(c.cpf)}
-                          </TableCell>
+                          <TableCell className="tabular-nums text-sm">{formatCPF(c.cpf)}</TableCell>
                           <TableCell>
                             {isInterno ? (
                               parceirosNomes.length > 0 ? (
-                                <span className="text-sm">
-                                  {parceirosNomes.join(", ")}
-                                </span>
+                                <span className="text-sm">{parceirosNomes.join(", ")}</span>
                               ) : (
-                                <span className="text-xs text-muted-foreground">
-                                  Interno
-                                </span>
+                                <span className="text-xs text-muted-foreground">Interno</span>
                               )
                             ) : (
-                              <Badge
-                                variant="outline"
-                                className="tabular-nums"
-                              >
+                              <Badge variant="outline" className="tabular-nums">
                                 {totalCasos}
                               </Badge>
                             )}
                           </TableCell>
                           <TableCell>
-                            {casoMaisRecente && (
-                              <StatusBadge status={casoMaisRecente.status} />
-                            )}
+                            {casoMaisRecente && <StatusBadge status={casoMaisRecente.status} />}
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground">
                             {totalProcessos > 0 ? (
@@ -384,10 +372,7 @@ function ClientesPage() {
                                   .flatMap((ca) => ca.numerosProcesso)
                                   .slice(0, 2)
                                   .map((n, i) => (
-                                    <div
-                                      key={i}
-                                      className="font-mono tabular-nums"
-                                    >
+                                    <div key={i} className="font-mono tabular-nums">
                                       {n}
                                     </div>
                                   ))}
