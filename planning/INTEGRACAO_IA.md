@@ -1,13 +1,16 @@
 # Plugin de IA (CRUD por conversa) — Documentacao do pacote
 
 > Estado: **Fases 0, 1 e 3 implementadas e no ar.** Leitura + escrita com confirmacao,
-> nas duas superficies (chat in-app e MCP no Claude). Sem delecao. Anexar documento (upload)
-> e edicao de cliente/solicitacao por parceiro continuam fora de escopo.
+> nas duas superficies (chat in-app e MCP no Claude). Sem delecao.
 >
-> Ferramentas de escrita (8): criar_comentario, criar_andamento (interno), responder_solicitacao_documento,
-> atualizar_caso, criar_caso, criar_cliente, atualizar_cliente (interno), criar_solicitacao_documento (interno).
-> No chat in-app a escrita pede confirmacao (card assinado por HMAC, a prova de TOCTOU). No MCP, a
-> aprovacao do tool no Claude e a confirmacao; o token precisa ter escopo 'completo'.
+> MODELO: cliente -> 1 PASTA (caso, 1 por cliente) -> PROCESSOS (cada beneficio) -> ANDAMENTOS.
+>
+> Ferramentas de escrita: cadastrar_caso (cliente+pasta+1o processo), cadastrar_processo,
+> criar_andamento (interno, vincula a processo), atualizar_caso, atualizar_cliente (interno),
+> criar_comentario, responder_solicitacao_documento, criar_solicitacao_documento (interno),
+> preparar_upload_documento (link de upload assinado, arquivo vai direto ao Storage sem passar pela IA).
+> Leitura inclui listar_processos. No chat in-app a escrita pede confirmacao (card HMAC, anti-TOCTOU).
+> No MCP, a aprovacao do tool no Claude e a confirmacao; o token precisa ter escopo 'completo'.
 > Plano completo aprovado: ver o arquivo de plano da sessao + `ia-overview.html` e
 > `ia-seguranca.html` nesta pasta.
 

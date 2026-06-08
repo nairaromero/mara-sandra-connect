@@ -792,6 +792,65 @@ export const WRITE_TOOLS: ToolSpec[] = [
       return { ok: true, id: data?.id };
     },
   },
+
+  {
+    name: "preparar_upload_documento",
+    tipo: "write",
+    papeis: ["interno", "parceiro"],
+    description:
+      "Prepara o anexo de um documento a um caso e devolve um LINK DE UPLOAD ASSINADO (valido por ~2h) " +
+      "para onde o arquivo deve ser enviado via HTTP PUT (corpo = binario). O arquivo vai DIRETO para o " +
+      "armazenamento, sem passar pela IA. Use quando quiserem anexar/enviar/juntar/subir um arquivo " +
+      "(CNIS, laudo, procuracao, etc.) ao caso. Informe caso_id, tipo e nome do arquivo (com extensao).",
+    schema: {
+      type: "object",
+      properties: {
+        caso_id: { type: "string", description: "Pasta (caso) do cliente" },
+        tipo: { type: "string", enum: TIPOS_DOC },
+        nome_arquivo: { type: "string", description: "Nome do arquivo com extensao, ex.: cnis.pdf" },
+        visivel_parceiro: { type: "boolean" },
+      },
+      required: ["caso_id", "tipo", "nome_arquivo"],
+    },
+    preview: (a) =>
+      "Preparar upload de documento (" + a.tipo + ") no caso " + a.caso_id,
+    execute: async (client, args, ctx) => {
+      const caso_id = reqUuid(args.caso_id, "caso_id");
+      const tipo = reqEnum(args.tipo, TIPOS_DOC, "tipo");
+      const nome = reqStr(args.nome_arquivo, "nome_arquivo", 200);
+      const safe = nome
+        .normalize("NFD")
+        .replace(/[̀-ͯ]/g, "")
+        .replace(/[^a-zA-Z0-9._-]/g, "_");
+      const path = caso_id + "/" + Date.now() + "_" + safe;
+
+      // 1) Link de upload assinado (arquivo vai direto ao Storage).
+      const signed = await client.storage.from("documentos").createSignedUploadUrl(path);
+      if (signed.error) throw new Error(signed.error.message);
+
+      // 2) Registro do documento (aponta para o path; arquivo chega pelo link).
+      const row: Record<string, unknown> = {
+        caso_id,
+        tipo,
+        nome_arquivo: nome,
+        storage_path: path,
+        uploaded_by: ctx.uid,
+        visivel_parceiro: args.visivel_parceiro === false ? false : true,
+      };
+      const ins = await client.from("documentos").insert(row).select("id").maybeSingle();
+      if (ins.error) throw new Error(ins.error.message);
+
+      return {
+        ok: true,
+        documento_id: ins.data?.id,
+        storage_path: path,
+        upload_url: signed.data?.signedUrl,
+        instrucoes:
+          "Envie o arquivo com HTTP PUT para upload_url (corpo = binario). O link expira em ~2h. " +
+          "Apos o upload, o documento aparece na aba Documentos do caso.",
+      };
+    },
+  },
 ];
 
 const ALL_TOOLS: ToolSpec[] = [...READ_TOOLS, ...WRITE_TOOLS];
