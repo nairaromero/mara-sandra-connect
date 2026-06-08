@@ -69,6 +69,39 @@ auditoria de tudo; zero ferramentas destrutivas.
 
 ## LGPD
 
-Usar LLM de terceiro com dado previdenciario tem exposicao inerente. Provedores enviados:
-Anthropic / OpenAI (Superficie A, chave do usuario). Habilitar modos de nao-treino /
-retencao-zero e minimizar campos. Decisao de habilitar e da controladora (Naira).
+> Para o jurídico/DPO bater o martelo antes de habilitar em produção para clientes reais.
+> Isto é um resumo técnico, não parecer jurídico.
+
+### Enviar dado ao MCP/IA é "data breach"? NÃO.
+
+- **Data breach** (incidente de segurança da LGPD) = acesso/vazamento/perda **não autorizado**.
+- Mandar dado ao provedor de IA é uma **transferência intencional e controlada** a um terceiro
+  (processador) que a controladora **escolheu integrar**. É **tratamento/compartilhamento** de dados,
+  não vazamento. Só viraria incidente se: **token vazar** (acesso indevido), provedor **reter/treinar**
+  contra os termos, ou enviar **sem base legal/DPA** (tratamento irregular).
+
+### O que JÁ minimiza a exposição (implementado)
+
+- **Mascaramento na leitura:** a IA recebe CPF, telefone (4 últimos), email (parcial) e endereço
+  (`Rua da ***`) mascarados — nunca o dado completo. Senha MEU INSS **fora do alcance** (cifrada).
+- **RLS + token por usuário:** só o usuário autorizado acessa, e só os dados dele.
+- **Confirmação humana** em toda escrita; **zero ações destrutivas**.
+
+### O que AINDA trafega (exposição inerente, honesto)
+
+- **O que o usuário digita** (ex.: ao cadastrar, o endereço/telefone que ele mesmo escreve no chat)
+  vai ao provedor como digitado — não há como mascarar o input do próprio usuário.
+- **Nome completo + dados do caso** (benefício, status) para identificar o registro. Dado
+  previdenciário pode tocar saúde (incapacidade) = dado sensível (art. 11).
+- Provedores destinatários: **Anthropic / OpenAI**, nos EUA = **transferência internacional**.
+
+### Checklist de conformidade (pendente — lado contratual/legal)
+
+- [ ] **Base legal** definida (ex.: legítimo interesse, execução de contrato, ou consentimento).
+- [ ] **DPA / Termos de Processamento de Dados** assinados com Anthropic e OpenAI.
+- [ ] **No-training / retenção-zero** habilitados na conta de cada provedor.
+- [ ] **Transparência:** aviso de privacidade informando que dados podem ser processados por IA.
+- [ ] **Governança de token:** expiração, revogação, não expor o token; kill-switch por usuário.
+- [ ] **Decisão de habilitar** registrada pela controladora (escritório Mara Sandra / Naira).
+
+Enquanto o checklist não fechar, o recomendável é usar **só com dados de teste**.
