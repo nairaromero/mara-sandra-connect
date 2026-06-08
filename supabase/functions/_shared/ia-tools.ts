@@ -231,6 +231,44 @@ export const READ_TOOLS: ToolSpec[] = [
   },
 
   {
+    name: "listar_processos",
+    description:
+      "Lista os processos (beneficios) de uma pasta/caso: administrativos e judiciais, com numero, " +
+      "tipo de beneficio e o id para vincular andamentos (criar_andamento).",
+    papeis: ["interno", "parceiro"],
+    tipo: "read",
+    schema: {
+      type: "object",
+      properties: { caso_id: { type: "string", description: "Pasta (caso) do cliente" } },
+      required: ["caso_id"],
+    },
+    execute: async (client, args) => {
+      const id = reqUuid(args.caso_id, "caso_id");
+      const adm = await client
+        .from("processos_admin")
+        .select("id,numero_requerimento,tipo_beneficio")
+        .eq("caso_id", id);
+      if (adm.error) throw new Error(adm.error.message);
+      const jud = await client
+        .from("processos_judiciais")
+        .select("id,numero_processo")
+        .eq("caso_id", id);
+      if (jud.error) throw new Error(jud.error.message);
+      return {
+        administrativos: (adm.data ?? []).map((p: Record<string, unknown>) => ({
+          processo_admin_id: p.id,
+          numero_requerimento: p.numero_requerimento,
+          tipo_beneficio: p.tipo_beneficio,
+        })),
+        judiciais: (jud.data ?? []).map((p: Record<string, unknown>) => ({
+          processo_judicial_id: p.id,
+          numero_processo: p.numero_processo,
+        })),
+      };
+    },
+  },
+
+  {
     name: "buscar_clientes",
     description:
       "Busca clientes por nome. CPF retorna mascarado. NAO retorna senha de nenhum sistema.",
@@ -351,13 +389,24 @@ export const WRITE_TOOLS: ToolSpec[] = [
     name: "criar_andamento",
     tipo: "write",
     papeis: ["interno"],
-    description: "Cria um andamento na timeline de um caso (origem interna).",
+    description:
+      "Cria um andamento na timeline. De preferencia VINCULE a um processo (use listar_processos para " +
+      "pegar processo_admin_id ou processo_judicial_id) para ele aparecer no processo certo. Sem vinculo, " +
+      "cai em 'Andamentos Gerais' da pasta.",
     schema: {
       type: "object",
       properties: {
-        caso_id: { type: "string" },
+        caso_id: { type: "string", description: "Pasta (caso) do cliente" },
         titulo: { type: "string" },
         descricao: { type: "string" },
+        processo_admin_id: {
+          type: "string",
+          description: "Vincula a um processo administrativo (ver listar_processos)",
+        },
+        processo_judicial_id: {
+          type: "string",
+          description: "Vincula a um processo judicial (ver listar_processos)",
+        },
         visivel_parceiro: { type: "boolean" },
       },
       required: ["caso_id", "titulo"],
@@ -366,17 +415,24 @@ export const WRITE_TOOLS: ToolSpec[] = [
     execute: async (client, args, ctx) => {
       const caso_id = reqUuid(args.caso_id, "caso_id");
       const titulo = reqStr(args.titulo, "titulo", 200);
+      const row: Record<string, unknown> = {
+        caso_id,
+        origem: "interno",
+        titulo,
+        descricao: optStr(args.descricao),
+        criado_por: ctx.uid,
+        data_evento: new Date().toISOString(),
+        visivel_parceiro: args.visivel_parceiro === false ? false : true,
+      };
+      if (args.processo_admin_id) {
+        row.processo_admin_id = reqUuid(args.processo_admin_id, "processo_admin_id");
+      }
+      if (args.processo_judicial_id) {
+        row.processo_judicial_id = reqUuid(args.processo_judicial_id, "processo_judicial_id");
+      }
       const { data, error } = await client
         .from("andamentos")
-        .insert({
-          caso_id,
-          origem: "interno",
-          titulo,
-          descricao: optStr(args.descricao),
-          criado_por: ctx.uid,
-          data_evento: new Date().toISOString(),
-          visivel_parceiro: args.visivel_parceiro === false ? false : true,
-        })
+        .insert(row)
         .select("id")
         .maybeSingle();
       if (error) throw new Error(error.message);
@@ -451,39 +507,56 @@ export const WRITE_TOOLS: ToolSpec[] = [
   },
 
   {
-    name: "criar_caso",
+    name: "cadastrar_processo",
     tipo: "write",
     papeis: ["interno", "parceiro"],
     description:
-      "Cria um caso para um cliente JA EXISTENTE (informe o cliente_id). Para cliente NOVO, use cadastrar_caso.",
+      "Adiciona um PROCESSO (um beneficio) a pasta de um cliente que JA EXISTE. Use para registrar mais " +
+      "beneficios do mesmo cliente. Informe caso_id (a pasta do cliente) e tipo_beneficio. Descubra o " +
+      "caso_id com buscar_casos/buscar_clientes. tipo padrao: administrativo (requerimento INSS); use " +
+      "judicial para acao na Justica.",
     schema: {
       type: "object",
       properties: {
-        cliente_id: { type: "string" },
-        tipo_beneficio: { type: "string" },
-        fase: { type: "string", enum: FASES },
-        status: { type: "string", enum: STATUS },
-        observacoes: { type: "string" },
+        caso_id: { type: "string", description: "Pasta (caso) do cliente" },
+        tipo_beneficio: { type: "string", description: "Ex.: Aposentadoria por idade, BPC/LOAS" },
+        numero_requerimento: {
+          type: "string",
+          description: "Numero do requerimento (admin) ou do processo (judicial)",
+        },
+        tipo: { type: "string", enum: ["administrativo", "judicial"] },
       },
-      required: ["cliente_id", "tipo_beneficio"],
+      required: ["caso_id", "tipo_beneficio"],
     },
     preview: (a) =>
-      "Criar caso (" + String(a.tipo_beneficio ?? "") + ") para cliente " + a.cliente_id,
-    execute: async (client, args, ctx) => {
-      const cliente_id = reqUuid(args.cliente_id, "cliente_id");
-      const row: Record<string, unknown> = {
-        cliente_id,
-        tipo_beneficio: reqStr(args.tipo_beneficio, "tipo_beneficio", 100),
-      };
-      if (args.fase !== undefined) row.fase = reqEnum(args.fase, FASES, "fase");
-      if (args.status !== undefined) row.status = reqEnum(args.status, STATUS, "status");
-      const obs = optStr(args.observacoes);
-      if (obs) row.observacoes = obs;
-      // parceiro: o caso e sempre dele. interno: fica sem parceiro (cliente interno).
-      if (ctx.tipo === "parceiro") row.parceiro_id = ctx.uid;
-      const { data, error } = await client.from("casos").insert(row).select("id").maybeSingle();
-      if (error) throw new Error(error.message);
-      return { ok: true, id: data?.id };
+      "Cadastrar processo (" + String(a.tipo_beneficio ?? "") + ") na pasta " + a.caso_id,
+    execute: async (client, args) => {
+      const caso_id = reqUuid(args.caso_id, "caso_id");
+      const tipo_beneficio = reqStr(args.tipo_beneficio, "tipo_beneficio", 100);
+      const tipo = oneOf(args.tipo, ["administrativo", "judicial"]) ?? "administrativo";
+      const numero = optStr(args.numero_requerimento);
+
+      if (tipo === "judicial") {
+        const row: Record<string, unknown> = { caso_id };
+        if (numero) row.numero_processo = numero;
+        const ins = await client
+          .from("processos_judiciais")
+          .insert(row)
+          .select("id")
+          .maybeSingle();
+        if (ins.error) throw new Error(ins.error.message);
+        return { ok: true, processo_id: ins.data?.id, tipo };
+      }
+
+      const row: Record<string, unknown> = { caso_id, tipo_beneficio };
+      if (numero) row.numero_requerimento = numero;
+      const ins = await client
+        .from("processos_admin")
+        .insert(row)
+        .select("id")
+        .maybeSingle();
+      if (ins.error) throw new Error(ins.error.message);
+      return { ok: true, processo_id: ins.data?.id, tipo };
     },
   },
 
@@ -492,31 +565,38 @@ export const WRITE_TOOLS: ToolSpec[] = [
     tipo: "write",
     papeis: ["interno", "parceiro"],
     description:
-      "PORTA DE ENTRADA para criar qualquer cliente/caso novo. Acione esta ferramenta para QUALQUER " +
-      "intencao de: criar, registrar, cadastrar, abrir, incluir, inserir, lancar, adicionar, iniciar " +
-      "ou dar entrada em um cliente, caso, processo, atendimento ou demanda novos (e quaisquer " +
-      "sinonimos). Ela cria o cliente (ou reaproveita se ja existir, casando por CPF) e ABRE o caso " +
-      "vinculado, atomicamente -- assim nunca fica um cliente sem caso. Obrigatorios: nome, cpf, " +
-      "tipo_beneficio. Se faltar algum, a ferramenta retorna 'faltam_campos_obrigatorios' -- pergunte " +
-      "ao usuario e so entao cadastre. Esta e a UNICA forma de criar um cliente (sempre com caso).",
+      "PORTA DE ENTRADA para cadastrar um cliente NOVO com o PRIMEIRO beneficio. Acione para qualquer " +
+      "intencao de criar/registrar/cadastrar/abrir/incluir/lancar/iniciar/dar entrada em cliente, " +
+      "processo, beneficio ou atendimento novo (e sinonimos). Cria o cliente (ou reusa por CPF), garante " +
+      "a PASTA do cliente (1 caso por cliente, reusando a existente) e registra o beneficio como PROCESSO " +
+      "administrativo. Para ADICIONAR mais beneficios a um cliente que ja tem pasta, use cadastrar_processo. " +
+      "Obrigatorios: nome, cpf, tipo_beneficio. Se faltar, retorna 'faltam_campos_obrigatorios'.",
     schema: {
       type: "object",
       properties: {
         nome: { type: "string" },
         cpf: { type: "string" },
-        tipo_beneficio: { type: "string", description: "Ex.: Aposentadoria por idade, BPC/LOAS" },
+        tipo_beneficio: {
+          type: "string",
+          description: "Beneficio do 1o processo. Ex.: Aposentadoria por idade, BPC/LOAS",
+        },
+        numero_requerimento: {
+          type: "string",
+          description: "Numero do requerimento INSS, se houver",
+        },
         telefone: { type: "string" },
         email: { type: "string" },
         data_nascimento: { type: "string", description: "AAAA-MM-DD" },
         endereco: { type: "string" },
-        fase: { type: "string", enum: FASES },
-        status: { type: "string", enum: STATUS },
-        observacoes: { type: "string", description: "Nota sobre o CASO (nao sobre o cliente)" },
+        observacoes: { type: "string", description: "Nota sobre o cliente" },
       },
       required: ["nome", "cpf", "tipo_beneficio"],
     },
     preview: (a) =>
-      "Cadastrar caso novo: " + String(a.nome ?? "") + " (" + String(a.tipo_beneficio ?? "") + ")",
+      "Cadastrar cliente " +
+      String(a.nome ?? "") +
+      " com processo: " +
+      String(a.tipo_beneficio ?? ""),
     execute: async (client, args, ctx) => {
       // Pre-checagem: se faltar obrigatorio, devolve a lista (nao cria nada).
       const faltam = faltamCampos([
@@ -545,6 +625,8 @@ export const WRITE_TOOLS: ToolSpec[] = [
         if (dn) row.data_nascimento = dn;
         const ender = optStr(args.endereco);
         if (ender) row.endereco = ender;
+        const obsCli = optStr(args.observacoes);
+        if (obsCli) row.observacoes = obsCli;
         const ins = await client.from("clientes").insert(row).select("id").maybeSingle();
         if (ins.error) {
           throw new Error(
@@ -557,29 +639,55 @@ export const WRITE_TOOLS: ToolSpec[] = [
       }
       if (!clienteId) throw new Error("falha ao obter o cliente");
 
-      // 2) Caso vinculado.
-      const casoRow: Record<string, unknown> = { cliente_id: clienteId, tipo_beneficio };
-      if (args.fase !== undefined) casoRow.fase = reqEnum(args.fase, FASES, "fase");
-      if (args.status !== undefined) casoRow.status = reqEnum(args.status, STATUS, "status");
-      const obs = optStr(args.observacoes);
-      if (obs) casoRow.observacoes = obs;
-      // parceiro: o caso e sempre dele.
-      if (ctx.tipo === "parceiro") casoRow.parceiro_id = ctx.uid;
-      const casoIns = await client.from("casos").insert(casoRow).select("id").maybeSingle();
-      if (casoIns.error) throw new Error(casoIns.error.message);
+      // 2) Pasta (caso) do cliente: reusa a existente ou cria 1 (1 por cliente).
+      const pastaResp = await client
+        .from("casos")
+        .select("id")
+        .eq("cliente_id", clienteId)
+        .order("created_at", { ascending: true })
+        .limit(1);
+      if (pastaResp.error) throw new Error(pastaResp.error.message);
+      let casoId: string | undefined =
+        pastaResp.data && pastaResp.data[0] ? pastaResp.data[0].id : undefined;
+      let pastaCriada = false;
+      if (!casoId) {
+        const casoRow: Record<string, unknown> = {
+          cliente_id: clienteId,
+          tipo_beneficio: "Pasta do cliente",
+        };
+        if (ctx.tipo === "parceiro") casoRow.parceiro_id = ctx.uid;
+        const casoIns = await client.from("casos").insert(casoRow).select("id").maybeSingle();
+        if (casoIns.error) throw new Error(casoIns.error.message);
+        casoId = casoIns.data?.id;
+        pastaCriada = true;
+      }
+      if (!casoId) throw new Error("falha ao obter a pasta do cliente");
+
+      // 3) Processo (beneficio) administrativo dentro da pasta.
+      const procRow: Record<string, unknown> = { caso_id: casoId, tipo_beneficio };
+      const numreq = optStr(args.numero_requerimento);
+      if (numreq) procRow.numero_requerimento = numreq;
+      const procIns = await client
+        .from("processos_admin")
+        .insert(procRow)
+        .select("id")
+        .maybeSingle();
+      if (procIns.error) throw new Error(procIns.error.message);
 
       return {
         ok: true,
         cliente_id: clienteId,
-        caso_id: casoIns.data?.id,
+        caso_id: casoId,
+        processo_id: procIns.data?.id,
         cliente_criado: clienteCriado,
+        pasta_criada: pastaCriada,
       };
     },
   },
 
-  // criar_cliente (avulso) foi REMOVIDO de proposito: cliente sempre nasce com
-  // um caso via cadastrar_caso, para nunca gerar cliente orfao. Para adicionar
-  // caso a um cliente ja existente, use criar_caso.
+  // criar_cliente (avulso) e criar_caso foram REMOVIDOS de proposito. Modelo:
+  // cliente -> 1 pasta (caso) -> processos (beneficios) -> andamentos. Cliente
+  // novo + 1o beneficio = cadastrar_caso; mais beneficios = cadastrar_processo.
 
   {
     name: "atualizar_cliente",
