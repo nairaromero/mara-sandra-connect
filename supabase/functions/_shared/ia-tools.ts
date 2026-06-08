@@ -840,14 +840,22 @@ export const WRITE_TOOLS: ToolSpec[] = [
       const ins = await client.from("documentos").insert(row).select("id").maybeSingle();
       if (ins.error) throw new Error(ins.error.message);
 
+      const signedUrl = signed.data?.signedUrl ?? "";
+      const pagina_upload =
+        "https://marasandraconnect.com/upload?u=" +
+        encodeURIComponent(signedUrl) +
+        "&n=" +
+        encodeURIComponent(nome);
       return {
         ok: true,
         documento_id: ins.data?.id,
         storage_path: path,
-        upload_url: signed.data?.signedUrl,
+        pagina_upload,
+        upload_url: signedUrl,
         instrucoes:
-          "Envie o arquivo com HTTP PUT para upload_url (corpo = binario). O link expira em ~2h. " +
-          "Apos o upload, o documento aparece na aba Documentos do caso.",
+          "Compartilhe ou abra 'pagina_upload': uma pagina onde se escolhe o arquivo e ele e enviado " +
+          "(serve para o advogado OU para o cliente). Alternativa tecnica: HTTP PUT direto em upload_url. " +
+          "O link expira em ~2h. Apos o upload, o documento aparece na aba Documentos do caso.",
       };
     },
   },
