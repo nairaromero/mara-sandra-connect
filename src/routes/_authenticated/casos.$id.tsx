@@ -16,6 +16,7 @@ import {
   DollarSign,
   Scale,
   Activity,
+  Sparkles,
   FileCheck,
   AlertCircle,
   Trash2,
@@ -34,6 +35,7 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { DESTAQUE_CLASSE, useFocoItem } from "@/hooks/use-foco-item";
 import { notificarEquipe } from "@/lib/notificar";
+import { iaAnalise } from "@/lib/ia/client";
 import { supabase } from "@/lib/supabase";
 import { MAX_FILE_SIZE_MB, validateFileSize, validateFileSizes } from "@/lib/upload-limits";
 import {
@@ -5032,6 +5034,24 @@ function TabAnaliseTecnica(props: TabAnaliseTecnicaProps) {
   const [observacoes, setObservacoes] = useState("");
   const [resumoParceiro, setResumoParceiro] = useState("");
   const [salvando, setSalvando] = useState(false);
+  const [analisandoIA, setAnalisandoIA] = useState(false);
+
+  async function analisarIA() {
+    setAnalisandoIA(true);
+    try {
+      const { data, error } = await iaAnalise.gerar(casoId);
+      if (data?.ok) {
+        toast.success("Análise por IA gerada (versão " + data.versao + ")");
+        onChange();
+      } else if (error?.code === "nao_configurado" || error?.code === "desativado") {
+        toast.error("Configure e ative a Integração de IA em Configurações.");
+      } else {
+        toast.error(error?.message || "Falha ao gerar análise");
+      }
+    } finally {
+      setAnalisandoIA(false);
+    }
+  }
 
   const proximaVersao =
     analises.length > 0
@@ -5093,78 +5113,88 @@ function TabAnaliseTecnica(props: TabAnaliseTecnicaProps) {
               Histórico versionado. Não visível ao parceiro (exceto o resumo).
             </CardDescription>
           </div>
-          <Dialog open={aberto} onOpenChange={setAberto}>
-            <DialogTrigger asChild>
-              <Button size="sm">
-                <Plus className="h-4 w-4 mr-2" />
-                Nova versão
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>Nova análise técnica (versão {proximaVersao})</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-xs">Benefício recomendado *</Label>
-                  <Input
-                    placeholder="Ex.: Aposentadoria por tempo de contribuição"
-                    value={beneficio}
-                    onChange={(e) => setBeneficio(e.target.value)}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
+          <div className="flex items-center gap-2 shrink-0">
+            <Button size="sm" variant="outline" onClick={analisarIA} disabled={analisandoIA}>
+              {analisandoIA ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4 mr-2" />
+              )}
+              Analisar com IA
+            </Button>
+            <Dialog open={aberto} onOpenChange={setAberto}>
+              <DialogTrigger asChild>
+                <Button size="sm">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Nova versão
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>Nova análise técnica (versão {proximaVersao})</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3">
                   <div>
-                    <Label className="text-xs">RMI estimada (R$)</Label>
+                    <Label className="text-xs">Benefício recomendado *</Label>
                     <Input
-                      type="text"
-                      inputMode="decimal"
-                      placeholder="0,00"
-                      value={rmi}
-                      onChange={(e) => setRmi(e.target.value)}
+                      placeholder="Ex.: Aposentadoria por tempo de contribuição"
+                      value={beneficio}
+                      onChange={(e) => setBeneficio(e.target.value)}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs">RMI estimada (R$)</Label>
+                      <Input
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="0,00"
+                        value={rmi}
+                        onChange={(e) => setRmi(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Valor estimado da ação (R$)</Label>
+                      <Input
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="0,00"
+                        value={valorAcao}
+                        onChange={(e) => setValorAcao(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Observações (interno)</Label>
+                    <Textarea
+                      rows={6}
+                      placeholder="Raciocínio jurídico, cálculos, fundamentação..."
+                      value={observacoes}
+                      onChange={(e) => setObservacoes(e.target.value)}
                     />
                   </div>
                   <div>
-                    <Label className="text-xs">Valor estimado da ação (R$)</Label>
-                    <Input
-                      type="text"
-                      inputMode="decimal"
-                      placeholder="0,00"
-                      value={valorAcao}
-                      onChange={(e) => setValorAcao(e.target.value)}
+                    <Label className="text-xs">Resumo para o parceiro (opcional)</Label>
+                    <Textarea
+                      rows={3}
+                      placeholder="Versão simplificada exibida ao parceiro..."
+                      value={resumoParceiro}
+                      onChange={(e) => setResumoParceiro(e.target.value)}
                     />
                   </div>
                 </div>
-                <div>
-                  <Label className="text-xs">Observações (interno)</Label>
-                  <Textarea
-                    rows={6}
-                    placeholder="Raciocínio jurídico, cálculos, fundamentação..."
-                    value={observacoes}
-                    onChange={(e) => setObservacoes(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Resumo para o parceiro (opcional)</Label>
-                  <Textarea
-                    rows={3}
-                    placeholder="Versão simplificada exibida ao parceiro..."
-                    value={resumoParceiro}
-                    onChange={(e) => setResumoParceiro(e.target.value)}
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="ghost" onClick={() => setAberto(false)} disabled={salvando}>
-                  Cancelar
-                </Button>
-                <Button onClick={salvar} disabled={salvando}>
-                  {salvando && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
-                  Salvar versão
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+                <DialogFooter>
+                  <Button variant="ghost" onClick={() => setAberto(false)} disabled={salvando}>
+                    Cancelar
+                  </Button>
+                  <Button onClick={salvar} disabled={salvando}>
+                    {salvando && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
+                    Salvar versão
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
         </div>
       </CardHeader>
       <CardContent>

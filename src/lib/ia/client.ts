@@ -98,6 +98,18 @@ export const iaConfig = {
 
 export type IaContexto = { caso_id?: string };
 
+export type IaAnaliseResposta = {
+  ok: boolean;
+  analise_id?: string;
+  versao?: number;
+  veredito?: string;
+  beneficio_recomendado?: string;
+};
+
+export const iaAnalise = {
+  gerar: (caso_id: string) => callFn<IaAnaliseResposta>("ia-analise", { caso_id }),
+};
+
 export const iaAssistant = {
   chat: (messages: IaChatMessage[], contexto?: IaContexto) =>
     callFn<IaChatResposta>("ia-assistant", { messages, contexto }),
