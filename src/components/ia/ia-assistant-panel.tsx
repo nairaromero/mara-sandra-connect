@@ -2,7 +2,7 @@
 // Fase 0: somente leitura. O texto do modelo e renderizado como TEXTO
 // (React escapa por padrao) — sem dangerouslySetInnerHTML (gap de seguranca #11).
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Loader2, SendHorizontal, Sparkles, Trash2, AlertTriangle, Check, X } from "lucide-react";
 
 import type { UseIaAssistant } from "@/hooks/use-ia-assistant";
@@ -20,6 +20,34 @@ const SUGESTOES_CASO = [
   "Liste os andamentos deste caso",
   "Quais solicitacoes de documento estao pendentes neste caso?",
 ];
+
+// Transforma URLs http(s) em links clicaveis. Seguro: nao usa
+// dangerouslySetInnerHTML e o regex so casa http/https (sem javascript:).
+function comLinks(texto: string): ReactNode[] {
+  const partes: ReactNode[] = [];
+  const re = /(https?:\/\/[^\s]+)/g;
+  let ultimo = 0;
+  let m: RegExpExecArray | null;
+  let i = 0;
+  while ((m = re.exec(texto)) !== null) {
+    if (m.index > ultimo) partes.push(texto.slice(ultimo, m.index));
+    const url = m[0];
+    partes.push(
+      <a
+        key={i++}
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="font-medium underline break-all"
+      >
+        {url}
+      </a>,
+    );
+    ultimo = m.index + url.length;
+  }
+  if (ultimo < texto.length) partes.push(texto.slice(ultimo));
+  return partes;
+}
 
 export function IaAssistantPanel({ ia, noCaso }: { ia: UseIaAssistant; noCaso?: boolean }) {
   const { messages, pendentes, loading, confirmando, erro, enviar, confirmar, cancelar, limpar } =
@@ -96,7 +124,7 @@ export function IaAssistantPanel({ ia, noCaso }: { ia: UseIaAssistant; noCaso?: 
                   : "max-w-[85%] rounded-2xl rounded-bl-sm bg-muted px-3 py-2 text-sm"
               }
             >
-              <p className="whitespace-pre-wrap break-words">{m.content}</p>
+              <p className="whitespace-pre-wrap break-words">{comLinks(m.content)}</p>
             </div>
           </div>
         ))}
