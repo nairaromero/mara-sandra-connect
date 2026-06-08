@@ -912,11 +912,11 @@ function CasoDetalhePage() {
                       return (
                         <span
                           key={oc.id}
-                          className="inline-flex items-center gap-2 rounded-md border border-primary bg-primary/10 px-3 py-1.5 text-sm font-medium text-foreground"
+                          className="inline-flex items-center gap-2 rounded-md border border-gold/50 bg-gold-soft/40 px-3 py-1.5 text-sm font-medium text-foreground shadow-sm"
                           title="Caso atual"
                         >
                           {label}
-                          <span className="text-[10px] uppercase tracking-wide text-primary">
+                          <span className="text-[10px] uppercase tracking-wide text-foreground/60">
                             atual
                           </span>
                         </span>
