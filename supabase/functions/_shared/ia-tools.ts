@@ -801,13 +801,19 @@ export const WRITE_TOOLS: ToolSpec[] = [
       "Prepara o anexo de um documento a um caso e devolve um LINK DE UPLOAD ASSINADO (valido por ~2h) " +
       "para onde o arquivo deve ser enviado via HTTP PUT (corpo = binario). O arquivo vai DIRETO para o " +
       "armazenamento, sem passar pela IA. Use quando quiserem anexar/enviar/juntar/subir um arquivo " +
-      "(CNIS, laudo, procuracao, etc.) ao caso. Informe caso_id, tipo e nome do arquivo (com extensao).",
+      "(CNIS, laudo, procuracao, etc.) ao caso. Informe caso_id, tipo e nome do arquivo (com extensao). " +
+      "Se for RESPOSTA a um pedido, passe solicitacao_id: a solicitacao e marcada como ATENDIDA e o " +
+      "documento e vinculado a ela (use listar_solicitacoes_documento para achar o id).",
     schema: {
       type: "object",
       properties: {
         caso_id: { type: "string", description: "Pasta (caso) do cliente" },
         tipo: { type: "string", enum: TIPOS_DOC },
         nome_arquivo: { type: "string", description: "Nome do arquivo com extensao, ex.: cnis.pdf" },
+        solicitacao_id: {
+          type: "string",
+          description: "Se for resposta a um pedido: marca a solicitacao como atendida e vincula o doc",
+        },
         visivel_parceiro: { type: "boolean" },
       },
       required: ["caso_id", "tipo", "nome_arquivo"],
@@ -840,6 +846,22 @@ export const WRITE_TOOLS: ToolSpec[] = [
       const ins = await client.from("documentos").insert(row).select("id").maybeSingle();
       if (ins.error) throw new Error(ins.error.message);
 
+      // 3) Se em resposta a uma solicitacao: marca ATENDIDA + vincula o documento.
+      let solicitacao_atendida = false;
+      if (args.solicitacao_id) {
+        const sid = reqUuid(args.solicitacao_id, "solicitacao_id");
+        const up = await client
+          .from("solicitacoes_documento")
+          .update({
+            status: "atendido",
+            data_atendimento: new Date().toISOString(),
+            documento_id: ins.data?.id,
+          })
+          .eq("id", sid);
+        if (up.error) throw new Error(up.error.message);
+        solicitacao_atendida = true;
+      }
+
       const signedUrl = signed.data?.signedUrl ?? "";
       const pagina_upload =
         "https://marasandraconnect.com/upload?u=" +
@@ -849,6 +871,7 @@ export const WRITE_TOOLS: ToolSpec[] = [
       return {
         ok: true,
         documento_id: ins.data?.id,
+        solicitacao_atendida,
         storage_path: path,
         pagina_upload,
         upload_url: signedUrl,
