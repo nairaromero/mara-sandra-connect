@@ -4,17 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import {
-  ArrowLeft,
-  Loader2,
-  Eye,
-  EyeOff,
-  Plus,
-  X,
-  FileText,
-  FileDown,
-  Search,
-} from "lucide-react";
+import { ArrowLeft, Loader2, Eye, EyeOff, Plus, X, FileText, FileDown, Search } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
@@ -36,10 +26,7 @@ import {
 import { DocTypeCombobox } from "@/components/doc-type-combobox";
 import { NovoParceiroDialog } from "@/components/novo-parceiro-dialog";
 import { notificarEquipe } from "@/lib/notificar";
-import {
-  DrivePickerDialog,
-  type DriveImportedFile,
-} from "@/components/drive-picker-dialog";
+import { DrivePickerDialog, type DriveImportedFile } from "@/components/drive-picker-dialog";
 import {
   abrirDrivePicker,
   isGoogleDriveConfigured,
@@ -168,14 +155,9 @@ const schema = z.object({
     .refine((v) => isValidCPF(v), "CPF inválido"),
   data_nascimento: z.string().min(1, "Informe a data de nascimento"),
   telefone: z.string().trim().min(14, "Telefone incompleto").max(16),
-  email: z
-    .string()
-    .trim()
-    .email("E-mail inválido")
-    .max(150)
-    .optional()
-    .or(z.literal("")),
+  email: z.string().trim().email("E-mail inválido").max(150).optional().or(z.literal("")),
   senha_meu_inss: z.string().max(100).optional().or(z.literal("")),
+  endereco: z.string().max(200).optional().or(z.literal("")),
   observacoes_cliente: z.string().max(1000).optional().or(z.literal("")),
   tipo_beneficio: z.string().min(1, "Selecione o tipo de benefício"),
   cliente_interno: z.boolean().optional(),
@@ -236,8 +218,7 @@ function NovoCasoPage() {
       if (result.files.length === 0) return; // cancelou
       setDrivePicked({ files: result.files, accessToken: result.accessToken });
     } catch (err) {
-      const msg = (err as { message?: string })?.message ||
-        "Erro ao abrir Google Drive";
+      const msg = (err as { message?: string })?.message || "Erro ao abrir Google Drive";
       toast.error(msg);
     }
   }
@@ -253,6 +234,7 @@ function NovoCasoPage() {
       telefone: "",
       email: "",
       senha_meu_inss: "",
+      endereco: "",
       observacoes_cliente: "",
       tipo_beneficio: "",
       cliente_interno: false,
@@ -305,9 +287,7 @@ function NovoCasoPage() {
       }
       const c = r.customer_ti;
       if (!c) {
-        toast.message(
-          r.motivo || "Cliente encontrado no TI, mas já existe no sistema.",
-        );
+        toast.message(r.motivo || "Cliente encontrado no TI, mas já existe no sistema.");
         return;
       }
       // Cliente existe no TI -> habilita import automatico ao salvar o caso.
@@ -333,7 +313,9 @@ function NovoCasoPage() {
         campos++;
       }
       toast.success(
-        "Dados do TI preenchidos (" + campos + " campo" +
+        "Dados do TI preenchidos (" +
+          campos +
+          " campo" +
           (campos === 1 ? "" : "s") +
           "). Ao salvar, os processos e andamentos serão importados automaticamente.",
       );
@@ -413,19 +395,11 @@ function NovoCasoPage() {
   }
 
   function updateDocTipo(id: string, tipo: TipoDocumento) {
-    setDocs((prev) =>
-      prev.map((d) =>
-        d.id === id ? { ...d, tipo, tipoPersonalizado: "" } : d,
-      ),
-    );
+    setDocs((prev) => prev.map((d) => (d.id === id ? { ...d, tipo, tipoPersonalizado: "" } : d)));
   }
 
   function updateDocPersonalizado(id: string, texto: string) {
-    setDocs((prev) =>
-      prev.map((d) =>
-        d.id === id ? { ...d, tipoPersonalizado: texto } : d,
-      ),
-    );
+    setDocs((prev) => prev.map((d) => (d.id === id ? { ...d, tipoPersonalizado: texto } : d)));
   }
 
   async function onSubmit(values: FormValues) {
@@ -433,18 +407,14 @@ function NovoCasoPage() {
 
     // Validacao de tamanho dos arquivos antes de qualquer insert.
     // Falha cedo evita criar cliente+caso e travar no upload depois.
-    const arquivosParaSubir = docs
-      .map((d) => d.file)
-      .filter((f): f is File => f !== null);
+    const arquivosParaSubir = docs.map((d) => d.file).filter((f): f is File => f !== null);
     if (arquivosParaSubir.length > 0) {
       const errosTamanho = validateFileSizes(arquivosParaSubir);
       if (errosTamanho.length > 0) {
         // Mostra ate 3 erros pra nao explodir a tela
         errosTamanho.slice(0, 3).forEach((e) => toast.error(e));
         if (errosTamanho.length > 3) {
-          toast.error(
-            "Mais " + (errosTamanho.length - 3) + " arquivo(s) acima do limite.",
-          );
+          toast.error("Mais " + (errosTamanho.length - 3) + " arquivo(s) acima do limite.");
         }
         return;
       }
@@ -476,6 +446,7 @@ function NovoCasoPage() {
           data_nascimento: values.data_nascimento,
           telefone: values.telefone.trim(),
           email: values.email ? values.email.trim() || null : null,
+          endereco: values.endereco ? values.endereco.trim() || null : null,
           observacoes: values.observacoes_cliente
             ? values.observacoes_cliente.trim() || null
             : null,
@@ -498,9 +469,7 @@ function NovoCasoPage() {
           const existente = existenteResp.data as ClienteExistenteRow | null;
           const casosExistente = existente ? existente.casos : null;
           const primeiroCaso =
-            casosExistente && casosExistente.length > 0
-              ? casosExistente[0]
-              : null;
+            casosExistente && casosExistente.length > 0 ? casosExistente[0] : null;
           const casoExistenteId = primeiroCaso ? primeiroCaso.id : null;
 
           await supabase.from("alertas_duplicidade").insert({
@@ -534,9 +503,7 @@ function NovoCasoPage() {
           tipo_beneficio: values.tipo_beneficio,
           fase: "analise",
           status: "em_analise",
-          observacoes: values.observacoes_caso
-            ? values.observacoes_caso.trim() || null
-            : null,
+          observacoes: values.observacoes_caso ? values.observacoes_caso.trim() || null : null,
         })
         .select("id")
         .single();
@@ -553,9 +520,7 @@ function NovoCasoPage() {
       // 2b) Grava a senha do MEU INSS criptografada via RPC.
       // Funcao backend cifra com pgcrypto e grava em senha_meu_inss (bytea).
       // Parceiro consegue chamar porque o caso ja existe vinculado a ele.
-      const senhaInformada = values.senha_meu_inss
-        ? values.senha_meu_inss.trim()
-        : "";
+      const senhaInformada = values.senha_meu_inss ? values.senha_meu_inss.trim() : "";
       if (senhaInformada.length > 0) {
         const setSenhaResp = await supabase.rpc("set_senha_meu_inss", {
           p_cliente_id: clienteId,
@@ -589,18 +554,14 @@ function NovoCasoPage() {
 
           if (uploadResp.error) {
             console.error("Falha no upload de", doc.file.name, uploadResp.error);
-            toast.error(
-              "Falha ao enviar " + doc.file.name + ": " + uploadResp.error.message,
-            );
+            toast.error("Falha ao enviar " + doc.file.name + ": " + uploadResp.error.message);
             continue;
           }
 
           const docInsertResp = await supabase.from("documentos").insert({
             caso_id: casoId,
             tipo: doc.tipo,
-            tipo_personalizado: doc.tipo === "outro"
-              ? doc.tipoPersonalizado.trim() || null
-              : null,
+            tipo_personalizado: doc.tipo === "outro" ? doc.tipoPersonalizado.trim() || null : null,
             nome_arquivo: doc.file.name,
             storage_path: storagePath,
             tamanho_bytes: doc.file.size,
@@ -617,12 +578,7 @@ function NovoCasoPage() {
 
           if (docInsertResp.error) {
             console.error("Falha ao registrar documento", docInsertResp.error);
-            toast.error(
-              "Falha ao registrar " +
-                doc.file.name +
-                ": " +
-                docInsertResp.error.message,
-            );
+            toast.error("Falha ao registrar " + doc.file.name + ": " + docInsertResp.error.message);
           }
         }
       }
@@ -631,9 +587,7 @@ function NovoCasoPage() {
       if (!isInterno) {
         notificarEquipe({
           tipo: "caso",
-          titulo: `Novo caso de ${usuario.nome || "parceiro"}: ${
-            values.nome.trim()
-          }`,
+          titulo: `Novo caso de ${usuario.nome || "parceiro"}: ${values.nome.trim()}`,
           descricao: values.tipo_beneficio,
           caso_id: casoId,
         });
@@ -661,9 +615,7 @@ function NovoCasoPage() {
           if (s.achou_no_ti) {
             toast.success(
               n > 0
-                ? `Importação concluída: ${n} andamento${
-                    n === 1 ? "" : "s"
-                  } do TI.`
+                ? `Importação concluída: ${n} andamento${n === 1 ? "" : "s"} do TI.`
                 : "Cliente sincronizado com o TI (nenhum andamento novo).",
               { id: toastSync },
             );
@@ -689,9 +641,7 @@ function NovoCasoPage() {
     } catch (err) {
       console.error(err);
       const errAsObj = err as PostgresError;
-      const msg =
-        (errAsObj && errAsObj.message) ||
-        "Erro ao cadastrar caso. Tente novamente.";
+      const msg = (errAsObj && errAsObj.message) || "Erro ao cadastrar caso. Tente novamente.";
       toast.error(msg);
     } finally {
       setSubmitting(false);
@@ -702,9 +652,7 @@ function NovoCasoPage() {
   // se tipo='outro', precisa de tipoPersonalizado preenchido.
   const docsComArquivo = docs.filter((d) => d.file !== null);
   const docsInvalidos = docsComArquivo.filter(
-    (d) =>
-      !d.tipo ||
-      (d.tipo === "outro" && d.tipoPersonalizado.trim().length === 0),
+    (d) => !d.tipo || (d.tipo === "outro" && d.tipoPersonalizado.trim().length === 0),
   );
   const todosDocumentosNomeados = docsInvalidos.length === 0;
 
@@ -712,9 +660,7 @@ function NovoCasoPage() {
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="font-serif text-3xl font-semibold tracking-tight">
-            Novo caso
-          </h1>
+          <h1 className="font-serif text-3xl font-semibold tracking-tight">Novo caso</h1>
           <p className="text-sm text-muted-foreground">
             Cadastre o cliente e abra o caso previdenciário.
           </p>
@@ -740,9 +686,7 @@ function NovoCasoPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Dados do cliente</CardTitle>
-                <CardDescription>
-                  Informações pessoais do segurado.
-                </CardDescription>
+                <CardDescription>Informações pessoais do segurado.</CardDescription>
               </CardHeader>
               <CardContent className="grid gap-4 sm:grid-cols-2">
                 <FormField
@@ -770,8 +714,7 @@ function NovoCasoPage() {
                             placeholder="000.000.000-00"
                             inputMode="numeric"
                             value={field.value}
-                            onChange={(e) =>
-                              field.onChange(maskCPF(e.target.value))}
+                            onChange={(e) => field.onChange(maskCPF(e.target.value))}
                           />
                           {/* "Buscar no TI" so para a equipe interna - o
                               Tramitacao Inteligente e ferramenta interna; o
@@ -786,12 +729,12 @@ function NovoCasoPage() {
                               disabled={buscandoTI}
                               title="Buscar dados do cliente no Tramitação Inteligente pelo CPF"
                             >
-                              {buscandoTI
-                                ? <Loader2 className="h-4 w-4 animate-spin" />
-                                : <Search className="h-4 w-4" />}
-                              <span className="ml-1 hidden sm:inline">
-                                Buscar no TI
-                              </span>
+                              {buscandoTI ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Search className="h-4 w-4" />
+                              )}
+                              <span className="ml-1 hidden sm:inline">Buscar no TI</span>
                             </Button>
                           )}
                         </div>
@@ -824,9 +767,7 @@ function NovoCasoPage() {
                           placeholder="(00) 00000-0000"
                           inputMode="tel"
                           value={field.value}
-                          onChange={(e) =>
-                            field.onChange(maskTelefone(e.target.value))
-                          }
+                          onChange={(e) => field.onChange(maskTelefone(e.target.value))}
                         />
                       </FormControl>
                       <FormMessage />
@@ -840,11 +781,20 @@ function NovoCasoPage() {
                     <FormItem>
                       <FormLabel>E-mail</FormLabel>
                       <FormControl>
-                        <Input
-                          type="email"
-                          placeholder="email@exemplo.com"
-                          {...field}
-                        />
+                        <Input type="email" placeholder="email@exemplo.com" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="endereco"
+                  render={({ field }) => (
+                    <FormItem className="sm:col-span-2">
+                      <FormLabel>Endereço (opcional)</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Rua, número, bairro, cidade - UF" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -868,22 +818,15 @@ function NovoCasoPage() {
                             type="button"
                             onClick={() => setShowPwd((v) => !v)}
                             className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                            aria-label={
-                              showPwd ? "Ocultar senha" : "Mostrar senha"
-                            }
+                            aria-label={showPwd ? "Ocultar senha" : "Mostrar senha"}
                           >
-                            {showPwd ? (
-                              <EyeOff className="h-4 w-4" />
-                            ) : (
-                              <Eye className="h-4 w-4" />
-                            )}
+                            {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                           </button>
                         </div>
                       </FormControl>
                       <p className="text-xs text-muted-foreground">
-                        Aviso temporário: armazenada em texto puro durante a
-                        fase de testes. Será criptografada antes do uso em
-                        produção.
+                        Aviso temporário: armazenada em texto puro durante a fase de testes. Será
+                        criptografada antes do uso em produção.
                       </p>
                       <FormMessage />
                     </FormItem>
@@ -896,11 +839,7 @@ function NovoCasoPage() {
                     <FormItem className="sm:col-span-2">
                       <FormLabel>Observações sobre o cliente</FormLabel>
                       <FormControl>
-                        <Textarea
-                          rows={3}
-                          placeholder="Notas opcionais..."
-                          {...field}
-                        />
+                        <Textarea rows={3} placeholder="Notas opcionais..." {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -913,23 +852,16 @@ function NovoCasoPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Dados do caso</CardTitle>
-                <CardDescription>
-                  Tipo de benefício e responsáveis.
-                </CardDescription>
+                <CardDescription>Tipo de benefício e responsáveis.</CardDescription>
               </CardHeader>
               <CardContent className="grid gap-4 sm:grid-cols-2">
                 <FormField
                   control={form.control}
                   name="tipo_beneficio"
                   render={({ field }) => (
-                    <FormItem
-                      className={isInterno ? "" : "sm:col-span-2"}
-                    >
+                    <FormItem className={isInterno ? "" : "sm:col-span-2"}>
                       <FormLabel>Tipo de benefício *</FormLabel>
-                      <Select
-                        value={field.value}
-                        onValueChange={field.onChange}
-                      >
+                      <Select value={field.value} onValueChange={field.onChange}>
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder="Selecione" />
@@ -972,8 +904,8 @@ function NovoCasoPage() {
                             Cliente interno do escritório (sem parceiro indicador)
                           </FormLabel>
                           <p className="text-xs text-muted-foreground">
-                            Marque se o cliente veio direto ao escritório,
-                            sem indicação de parceiro captador.
+                            Marque se o cliente veio direto ao escritório, sem indicação de parceiro
+                            captador.
                           </p>
                         </div>
                       </FormItem>
@@ -992,11 +924,9 @@ function NovoCasoPage() {
                           <NovoParceiroDialog
                             onCriado={(p) => {
                               setParceiros((prev) => {
-                                const semDup = prev.filter((x) =>
-                                  x.id !== p.id
-                                );
+                                const semDup = prev.filter((x) => x.id !== p.id);
                                 return [...semDup, p].sort((a, b) =>
-                                  (a.nome || "").localeCompare(b.nome || "")
+                                  (a.nome || "").localeCompare(b.nome || ""),
                                 );
                               });
                               form.setValue("parceiro_id", p.id, {
@@ -1005,10 +935,7 @@ function NovoCasoPage() {
                             }}
                           />
                         </div>
-                        <Select
-                          value={field.value}
-                          onValueChange={field.onChange}
-                        >
+                        <Select value={field.value} onValueChange={field.onChange}>
                           <FormControl>
                             <SelectTrigger>
                               <SelectValue placeholder="Selecione o parceiro" />
@@ -1039,9 +966,7 @@ function NovoCasoPage() {
                   name="observacoes_caso"
                   render={({ field }) => (
                     <FormItem className="sm:col-span-2">
-                      <FormLabel>
-                        Observações iniciais sobre o caso
-                      </FormLabel>
+                      <FormLabel>Observações iniciais sobre o caso</FormLabel>
                       <FormControl>
                         <Textarea
                           rows={4}
@@ -1061,9 +986,8 @@ function NovoCasoPage() {
               <CardHeader>
                 <CardTitle className="text-base">Documentos</CardTitle>
                 <CardDescription>
-                  Anexe documentos que já tem em mãos. Pode adicionar mais
-                  depois no caso. Tamanho máximo: {MAX_FILE_SIZE_MB} MB por
-                  arquivo.
+                  Anexe documentos que já tem em mãos. Pode adicionar mais depois no caso. Tamanho
+                  máximo: {MAX_FILE_SIZE_MB} MB por arquivo.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -1084,28 +1008,18 @@ function NovoCasoPage() {
                     documentos de clientes que ja tem pasta no Drive. */}
                 {isInterno && isGoogleDriveConfigured() && (
                   <div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={handleClickDrive}
-                    >
+                    <Button type="button" variant="outline" size="sm" onClick={handleClickDrive}>
                       <FileDown className="h-4 w-4 mr-2" />
                       Importar do Google Drive
                     </Button>
                   </div>
                 )}
                 {docs.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    Nenhum documento adicionado.
-                  </p>
+                  <p className="text-sm text-muted-foreground">Nenhum documento adicionado.</p>
                 ) : (
                   <div className="space-y-3">
                     {docs.map((d) => (
-                      <div
-                        key={d.id}
-                        className="border rounded-md p-3 bg-muted/30 space-y-2"
-                      >
+                      <div key={d.id} className="border rounded-md p-3 bg-muted/30 space-y-2">
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0 flex-1">
                             {d.file ? (
@@ -1122,9 +1036,7 @@ function NovoCasoPage() {
                                 accept="application/pdf,image/jpeg,image/png,image/jpg,.doc,.docx,.xls,.xlsx"
                                 onChange={(e) => {
                                   const files = e.target.files;
-                                  const file = files && files.length > 0
-                                    ? files[0]
-                                    : null;
+                                  const file = files && files.length > 0 ? files[0] : null;
                                   updateDocFile(d.id, file);
                                 }}
                               />
@@ -1151,15 +1063,11 @@ function NovoCasoPage() {
                         </div>
                         {d.tipo === "outro" && (
                           <div>
-                            <Label className="text-xs">
-                              Nome do documento (obrigatório)
-                            </Label>
+                            <Label className="text-xs">Nome do documento (obrigatório)</Label>
                             <Input
                               placeholder="Ex.: Cartão do INSS, Decisão do MS..."
                               value={d.tipoPersonalizado}
-                              onChange={(e) =>
-                                updateDocPersonalizado(d.id, e.target.value)
-                              }
+                              onChange={(e) => updateDocPersonalizado(d.id, e.target.value)}
                             />
                           </div>
                         )}
@@ -1167,12 +1075,7 @@ function NovoCasoPage() {
                     ))}
                   </div>
                 )}
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={addDocVazio}
-                >
+                <Button type="button" variant="outline" size="sm" onClick={addDocVazio}>
                   <Plus className="h-4 w-4 mr-2" />
                   Adicionar linha em branco
                 </Button>
@@ -1183,14 +1086,11 @@ function NovoCasoPage() {
               <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
                 <p className="font-medium">
                   Há {docsInvalidos.length}{" "}
-                  {docsInvalidos.length === 1
-                    ? "documento sem tipo"
-                    : "documentos sem tipo"}{" "}
+                  {docsInvalidos.length === 1 ? "documento sem tipo" : "documentos sem tipo"}{" "}
                   selecionado{docsInvalidos.length === 1 ? "" : "s"}.
                 </p>
                 <p className="text-xs mt-1">
-                  Selecione o tipo de cada arquivo. Se for &quot;Outro&quot;,
-                  informe o nome.
+                  Selecione o tipo de cada arquivo. Se for &quot;Outro&quot;, informe o nome.
                 </p>
               </div>
             )}
@@ -1206,11 +1106,7 @@ function NovoCasoPage() {
               <Button
                 type="submit"
                 disabled={submitting || !todosDocumentosNomeados}
-                title={
-                  !todosDocumentosNomeados
-                    ? "Há documentos sem tipo selecionado"
-                    : undefined
-                }
+                title={!todosDocumentosNomeados ? "Há documentos sem tipo selecionado" : undefined}
               >
                 {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 Cadastrar caso

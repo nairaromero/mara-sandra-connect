@@ -40,6 +40,14 @@ export function maskEmail(v: unknown): string | null {
   return maskLocal + "@" + maskDomain;
 }
 
+// Endereco: mostra so o inicio (ex.: "Rua da ***"). Esconde numero/complemento.
+export function maskEndereco(v: unknown): string | null {
+  if (v == null) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  return s.slice(0, 6) + " ***";
+}
+
 export function sanitizeBusca(input: unknown): string {
   return String(input ?? "")
     .replace(/[^\p{L}\p{N}\s.\-@]/gu, " ")

@@ -10,7 +10,13 @@
 //
 // Cada tool declara `papeis` (quem pode ver/usar). Writes entram na Fase 1.
 
-import { maskCpf, maskEmail, maskTelefone, sanitizeBusca } from "./ia-redact.ts";
+import {
+  maskCpf,
+  maskEmail,
+  maskEndereco,
+  maskTelefone,
+  sanitizeBusca,
+} from "./ia-redact.ts";
 import type { ToolDef } from "./ia-providers.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -113,6 +119,7 @@ function mapCliente(c: Record<string, unknown> | null | undefined) {
     cpf: maskCpf(c.cpf),
     telefone: maskTelefone(c.telefone),
     email: maskEmail(c.email),
+    endereco: maskEndereco(c.endereco),
     observacoes: c.observacoes ?? null,
   };
 }
@@ -177,7 +184,7 @@ export const READ_TOOLS: ToolSpec[] = [
         .from("casos")
         .select(
           "id,tipo_beneficio,fase,status,rmi_estimada,atrasados_estimados,observacoes,created_at,updated_at," +
-            "clientes(nome,cpf,telefone,email,observacoes)",
+            "clientes(nome,cpf,telefone,email,endereco,observacoes)",
         )
         .eq("id", id)
         .maybeSingle();
@@ -501,6 +508,7 @@ export const WRITE_TOOLS: ToolSpec[] = [
         telefone: { type: "string" },
         email: { type: "string" },
         data_nascimento: { type: "string", description: "AAAA-MM-DD" },
+        endereco: { type: "string" },
         fase: { type: "string", enum: FASES },
         status: { type: "string", enum: STATUS },
         observacoes: { type: "string", description: "Nota sobre o CASO (nao sobre o cliente)" },
@@ -535,6 +543,8 @@ export const WRITE_TOOLS: ToolSpec[] = [
         if (email) row.email = email;
         const dn = optStr(args.data_nascimento);
         if (dn) row.data_nascimento = dn;
+        const ender = optStr(args.endereco);
+        if (ender) row.endereco = ender;
         const ins = await client.from("clientes").insert(row).select("id").maybeSingle();
         if (ins.error) {
           throw new Error(
@@ -584,6 +594,7 @@ export const WRITE_TOOLS: ToolSpec[] = [
         telefone: { type: "string" },
         email: { type: "string" },
         data_nascimento: { type: "string" },
+        endereco: { type: "string" },
         observacoes: { type: "string" },
       },
       required: ["cliente_id"],
@@ -596,6 +607,7 @@ export const WRITE_TOOLS: ToolSpec[] = [
       if (args.telefone !== undefined) patch.telefone = optStr(args.telefone);
       if (args.email !== undefined) patch.email = optStr(args.email);
       if (args.data_nascimento !== undefined) patch.data_nascimento = optStr(args.data_nascimento);
+      if (args.endereco !== undefined) patch.endereco = optStr(args.endereco);
       if (args.observacoes !== undefined) patch.observacoes = optStr(args.observacoes);
       if (Object.keys(patch).length === 0) throw new Error("informe ao menos um campo");
       const { error } = await client.from("clientes").update(patch).eq("id", id);
