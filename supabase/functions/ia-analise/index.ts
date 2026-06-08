@@ -16,6 +16,7 @@ import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { decryptSecret } from "../_shared/crypto.ts";
 import { chatWith } from "../_shared/ia-providers.ts";
 import { maskCpf } from "../_shared/ia-redact.ts";
+import { extractText, getDocumentProxy } from "https://esm.sh/unpdf@0.12.0";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -48,9 +49,12 @@ function numOuNull(v: unknown): number | null {
 }
 
 const SYSTEM =
-  "Voce e um analista previdenciario brasileiro (RGPS). Faca uma TRIAGEM preliminar do caso a partir " +
-  "APENAS dos dados fornecidos (voce NAO tem o conteudo dos documentos, so a lista deles). Seja " +
-  "objetivo e cauteloso: e uma triagem, nao um parecer definitivo. Responda SOMENTE com um JSON valido " +
+  "Voce e um analista previdenciario brasileiro (RGPS). Recebe os DADOS do caso e o TEXTO extraido dos " +
+  "documentos anexados (campo 'documentos_conteudo'), quando disponivel. Faca uma ANALISE DE VIABILIDADE " +
+  "concreta: com base no conteudo (ex.: CNIS), avalie tempo de contribuicao, carencia, idade e os " +
+  "requisitos do beneficio pretendido; cite periodos/datas/valores quando o documento permitir. Se um " +
+  "documento vier como imagem/scan nao lido, diga que precisa de OCR/leitura manual e analise com o que " +
+  "houver. E analise tecnica de APOIO, nao substitui conferencia humana. Responda SOMENTE com um JSON valido " +
   "(sem markdown, sem texto fora do JSON), neste formato:\n" +
   "{\n" +
   '  "veredito": "viavel" | "precisa_mais_dados" | "inviavel",\n' +
@@ -124,7 +128,7 @@ serve(async (req) => {
 
   const { data: docs } = await admin
     .from("documentos")
-    .select("tipo,nome_arquivo")
+    .select("tipo,nome_arquivo,storage_path")
     .eq("caso_id", casoId);
 
   const { data: ands } = await admin
@@ -139,6 +143,48 @@ serve(async (req) => {
     .select("tipo,status")
     .eq("caso_id", casoId);
 
+  // ---- Nivel 2: le o CONTEUDO dos documentos (defensivo) ----
+  const documentos_conteudo: Array<{ tipo: unknown; nome: string; texto: string }> = [];
+  let totalChars = 0;
+  const MAX_CHARS = 35000;
+  for (const d of (docs ?? []).slice(0, 8)) {
+    if (totalChars >= MAX_CHARS) break;
+    const dd = d as Record<string, unknown>;
+    const path = typeof dd.storage_path === "string" ? dd.storage_path : "";
+    const nome = String(dd.nome_arquivo ?? "");
+    const low = nome.toLowerCase();
+    let texto = "";
+    try {
+      if (!path) {
+        texto = "[sem caminho de arquivo]";
+      } else {
+        const dl = await admin.storage.from("documentos").download(path);
+        if (dl.error || !dl.data) {
+          texto = "[arquivo ainda nao enviado ou indisponivel]";
+        } else if (low.endsWith(".pdf")) {
+          const buf = new Uint8Array(await dl.data.arrayBuffer());
+          const pdf = await getDocumentProxy(buf);
+          const r = await extractText(pdf, { mergePages: true });
+          texto = Array.isArray(r?.text) ? r.text.join("\n") : String(r?.text ?? "");
+          if (!texto.trim()) {
+            texto = "[PDF sem texto extraivel (provavel imagem/scan; precisa OCR ou leitura manual)]";
+          }
+        } else if (low.endsWith(".txt")) {
+          texto = await dl.data.text();
+        } else {
+          texto = "[arquivo nao textual (imagem?) - nao lido automaticamente]";
+        }
+      }
+    } catch (e) {
+      texto = "[erro ao ler o documento: " + (e instanceof Error ? e.message : "") + "]";
+    }
+    texto = texto.replace(/[ \t\r]+/g, " ").trim();
+    const restante = MAX_CHARS - totalChars;
+    if (texto.length > restante) texto = texto.slice(0, restante) + " [...truncado]";
+    totalChars += texto.length;
+    documentos_conteudo.push({ tipo: dd.tipo, nome, texto });
+  }
+
   const idade = idadeDe(cliente?.data_nascimento ?? null);
   const contexto = {
     cliente: {
@@ -150,7 +196,11 @@ serve(async (req) => {
     },
     pasta: { tipo_beneficio: caso.tipo_beneficio, fase: caso.fase, status: caso.status, observacoes: caso.observacoes },
     processos: procs ?? [],
-    documentos_anexados: docs ?? [],
+    documentos_anexados: (docs ?? []).map((d) => {
+      const dd = d as Record<string, unknown>;
+      return { tipo: dd.tipo, nome: dd.nome_arquivo };
+    }),
+    documentos_conteudo,
     solicitacoes_documento: solics ?? [],
     andamentos: ands ?? [],
   };
@@ -197,7 +247,7 @@ serve(async (req) => {
   const vereditoLabel =
     veredito === "viavel" ? "VIAVEL" : veredito === "inviavel" ? "INVIAVEL" : "PRECISA DE MAIS DADOS";
   const obsTexto =
-    "[Analise por IA - triagem preliminar]\n" +
+    "[Analise por IA - viabilidade]\n" +
     "Veredito: " + vereditoLabel + "\n\n" +
     resumo +
     (docsFaltantes.length ? "\n\nDocumentos faltantes:\n- " + docsFaltantes.join("\n- ") : "") +
