@@ -482,11 +482,13 @@ export const WRITE_TOOLS: ToolSpec[] = [
     tipo: "write",
     papeis: ["interno", "parceiro"],
     description:
-      "Cadastra um CASO NOVO de uma vez so: cria o cliente (ou reaproveita se ja existir, casando por " +
-      "CPF) e ABRE o caso vinculado, atomicamente. Use SEMPRE que for cliente/caso novo. NAO use " +
-      "criar_cliente sozinho para isso (deixaria um cliente sem caso). E a forma natural de 'cadastrar " +
-      "um novo cliente/caso'. Obrigatorios: nome, cpf, tipo_beneficio. Se faltar algum, a ferramenta " +
-      "retorna 'faltam_campos_obrigatorios' -- pergunte ao usuario e so entao cadastre.",
+      "PORTA DE ENTRADA para criar qualquer cliente/caso novo. Acione esta ferramenta para QUALQUER " +
+      "intencao de: criar, registrar, cadastrar, abrir, incluir, inserir, lancar, adicionar, iniciar " +
+      "ou dar entrada em um cliente, caso, processo, atendimento ou demanda novos (e quaisquer " +
+      "sinonimos). Ela cria o cliente (ou reaproveita se ja existir, casando por CPF) e ABRE o caso " +
+      "vinculado, atomicamente -- assim nunca fica um cliente sem caso. Obrigatorios: nome, cpf, " +
+      "tipo_beneficio. Se faltar algum, a ferramenta retorna 'faltam_campos_obrigatorios' -- pergunte " +
+      "ao usuario e so entao cadastre. Esta e a UNICA forma de criar um cliente (sempre com caso).",
     schema: {
       type: "object",
       properties: {
@@ -562,49 +564,9 @@ export const WRITE_TOOLS: ToolSpec[] = [
     },
   },
 
-  {
-    name: "criar_cliente",
-    tipo: "write",
-    papeis: ["interno"],
-    description:
-      "Cria um cliente AVULSO (sem caso). Apenas interno. Para cliente NOVO que vai ter caso, use cadastrar_caso.",
-    schema: {
-      type: "object",
-      properties: {
-        nome: { type: "string" },
-        cpf: { type: "string" },
-        telefone: { type: "string" },
-        email: { type: "string" },
-        data_nascimento: { type: "string", description: "AAAA-MM-DD" },
-        observacoes: { type: "string" },
-      },
-      required: ["nome", "cpf"],
-    },
-    preview: (a) => "Criar cliente " + String(a.nome ?? ""),
-    execute: async (client, args) => {
-      const faltam = faltamCampos([
-        [!!String(args.nome ?? "").trim(), "nome (completo)"],
-        [String(args.cpf ?? "").replace(/\D/g, "").length === 11, "cpf (11 digitos)"],
-      ]);
-      if (faltam.length) return respostaFaltam(faltam);
-
-      const row: Record<string, unknown> = {
-        nome: reqStr(args.nome, "nome", 200),
-        cpf: reqCpf(args.cpf),
-      };
-      const tel = optStr(args.telefone);
-      if (tel) row.telefone = tel;
-      const email = optStr(args.email);
-      if (email) row.email = email;
-      const dn = optStr(args.data_nascimento);
-      if (dn) row.data_nascimento = dn;
-      const obs = optStr(args.observacoes);
-      if (obs) row.observacoes = obs;
-      const { data, error } = await client.from("clientes").insert(row).select("id").maybeSingle();
-      if (error) throw new Error(error.message);
-      return { ok: true, id: data?.id };
-    },
-  },
+  // criar_cliente (avulso) foi REMOVIDO de proposito: cliente sempre nasce com
+  // um caso via cadastrar_caso, para nunca gerar cliente orfao. Para adicionar
+  // caso a um cliente ja existente, use criar_caso.
 
   {
     name: "atualizar_cliente",
