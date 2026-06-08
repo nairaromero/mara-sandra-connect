@@ -153,7 +153,10 @@ export const READ_TOOLS: ToolSpec[] = [
         fase: r.fase,
         status: r.status,
         criado_em: r.created_at,
-        cliente: mapCliente(r.clientes as Record<string, unknown>),
+        cliente: {
+          nome: (r.clientes as Record<string, unknown> | null)?.nome ?? null,
+          cpf: maskCpf((r.clientes as Record<string, unknown> | null)?.cpf),
+        },
       }));
     },
   },
@@ -500,7 +503,7 @@ export const WRITE_TOOLS: ToolSpec[] = [
         data_nascimento: { type: "string", description: "AAAA-MM-DD" },
         fase: { type: "string", enum: FASES },
         status: { type: "string", enum: STATUS },
-        observacoes: { type: "string" },
+        observacoes: { type: "string", description: "Nota sobre o CASO (nao sobre o cliente)" },
       },
       required: ["nome", "cpf", "tipo_beneficio"],
     },
