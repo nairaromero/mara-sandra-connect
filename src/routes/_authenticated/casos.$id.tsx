@@ -605,7 +605,8 @@ function CasoDetalhePage() {
 
   const [caso, setCaso] = useState<Caso | null>(null);
   const [cliente, setCliente] = useState<Cliente | null>(null);
-  const [outrosCasos, setOutrosCasos] = useState<
+  // TODOS os casos do cliente (inclui o atual) — para o seletor de casos.
+  const [casosCliente, setCasosCliente] = useState<
     Array<{ id: string; tipo_beneficio: string | null; status: string | null }>
   >([]);
   const [parceiro, setParceiro] = useState<ParceiroLite | null>(null);
@@ -647,16 +648,15 @@ function CasoDetalhePage() {
       if (clienteResp.error) throw clienteResp.error;
       setCliente((clienteResp.data || null) as Cliente | null);
 
-      // Outros casos do mesmo cliente (exclui o atual). RLS ja filtra o que o
+      // Todos os casos do cliente (inclui o atual). RLS ja filtra o que o
       // usuario pode ver (parceiro so os dele).
-      const outrosResp = await supabase
+      const casosResp = await supabase
         .from("casos")
-        .select("id, tipo_beneficio, status")
+        .select("id, tipo_beneficio, status, created_at")
         .eq("cliente_id", casoData.cliente_id)
-        .neq("id", casoData.id)
-        .order("created_at", { ascending: false });
-      setOutrosCasos(
-        (outrosResp.data as Array<{
+        .order("created_at", { ascending: true });
+      setCasosCliente(
+        (casosResp.data as Array<{
           id: string;
           tipo_beneficio: string | null;
           status: string | null;
@@ -896,24 +896,46 @@ function CasoDetalhePage() {
               isInterno={isInterno}
               onChange={carregar}
             />
-            {outrosCasos.length > 0 && (
+            {casosCliente.length > 1 && (
               <div className="mt-4 rounded-lg border border-border bg-card p-4">
-                <h3 className="mb-2 text-sm font-semibold">Outros casos deste cliente</h3>
-                <div className="space-y-2">
-                  {outrosCasos.map((oc) => (
-                    <Link
-                      key={oc.id}
-                      to="/casos/$id"
-                      params={{ id: oc.id }}
-                      search={{ tab: "andamentos" }}
-                      className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/50"
-                    >
-                      <span className="font-medium">{oc.tipo_beneficio ?? "(sem benefício)"}</span>
-                      <span className="text-xs capitalize text-muted-foreground">
-                        {(oc.status ?? "").replace(/_/g, " ")}
-                      </span>
-                    </Link>
-                  ))}
+                <h3 className="mb-1 text-sm font-semibold">Casos deste cliente</h3>
+                <p className="mb-3 text-xs text-muted-foreground">
+                  Clique em um benefício para ver os andamentos daquele caso. O destacado é o que
+                  você está vendo agora.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {casosCliente.map((oc) => {
+                    const atual = oc.id === casoId;
+                    const label = oc.tipo_beneficio ?? "(sem benefício)";
+                    const status = (oc.status ?? "").replace(/_/g, " ");
+                    if (atual) {
+                      return (
+                        <span
+                          key={oc.id}
+                          className="inline-flex items-center gap-2 rounded-md border border-primary bg-primary/10 px-3 py-1.5 text-sm font-medium text-foreground"
+                          title="Caso atual"
+                        >
+                          {label}
+                          <span className="text-[10px] uppercase tracking-wide text-primary">
+                            atual
+                          </span>
+                        </span>
+                      );
+                    }
+                    return (
+                      <Link
+                        key={oc.id}
+                        to="/casos/$id"
+                        params={{ id: oc.id }}
+                        search={{ tab: "andamentos" }}
+                        className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted/60"
+                        title={"Ver andamentos: " + label + " (" + status + ")"}
+                      >
+                        {label}
+                        <span className="text-xs capitalize text-muted-foreground">{status}</span>
+                      </Link>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -2532,6 +2554,16 @@ function TabAndamentos(props: TabAndamentosProps) {
     }
   }
 
+  // Abre o dialog "Novo andamento" ja vinculado a UM processo especifico
+  // (botao "+ Andamento" no cabecalho de cada card de processo).
+  function abrirNovoNoProcesso(tipo: "admin" | "judicial", processoId: string) {
+    setTipoDialogoNovo(tipo);
+    setTitulo("");
+    setDescricao("");
+    setVisivelParceiro(true);
+    setProcessoVinculo((tipo === "admin" ? "admin:" : "judicial:") + processoId);
+  }
+
   // Helper: conteudo interno de um item de andamento (sem o <li> envoltorio).
   // Usado pelo renderItemAndamento e tambem nas sub-secoes com checkbox.
   function renderItemAndamentoInner(a: Andamento) {
@@ -2647,6 +2679,7 @@ function TabAndamentos(props: TabAndamentosProps) {
     ands: Array<Andamento>,
     aberto: boolean,
     onToggle: () => void,
+    tipo: "admin" | "judicial",
     depth = 0,
   ) {
     return (
@@ -2655,23 +2688,38 @@ function TabAndamentos(props: TabAndamentosProps) {
         className="border rounded-md overflow-hidden"
         style={depth > 0 ? { marginLeft: depth * 16 } : undefined}
       >
-        <button
-          type="button"
-          onClick={onToggle}
-          className="w-full flex items-center justify-between p-3 hover:bg-muted/50 transition-colors text-left"
-        >
-          <div className="flex items-center gap-2 min-w-0">
+        <div className="w-full flex items-center justify-between gap-2 p-3 hover:bg-muted/50 transition-colors">
+          <button
+            type="button"
+            onClick={onToggle}
+            className="flex items-center gap-2 min-w-0 flex-1 text-left"
+          >
             {aberto ? (
               <ChevronDown className="h-4 w-4 shrink-0" />
             ) : (
               <ChevronRight className="h-4 w-4 shrink-0" />
             )}
             <span className="text-sm font-medium truncate">{label}</span>
+          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-xs text-muted-foreground">
+              {ands.length} andamento{ands.length === 1 ? "" : "s"}
+            </span>
+            {/* Botao "+ Andamento" por processo - so para a equipe interna. */}
+            {isInterno && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 px-2"
+                onClick={() => abrirNovoNoProcesso(tipo, processoId)}
+                title="Adicionar andamento a este processo"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span className="ml-1 hidden sm:inline text-xs">Andamento</span>
+              </Button>
+            )}
           </div>
-          <span className="text-xs text-muted-foreground shrink-0">
-            {ands.length} andamento{ands.length === 1 ? "" : "s"}
-          </span>
-        </button>
+        </div>
         {aberto && (
           <div className="border-t p-3">
             {ands.length === 0 ? (
@@ -2748,6 +2796,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                   ands,
                   expandidosAdmin.has(p.id),
                   () => toggleAccordionAdmin(p.id),
+                  "admin",
                   depth,
                 );
               })}
@@ -2895,6 +2944,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                   ands,
                   expandidosJud.has(p.id),
                   () => toggleAccordionJud(p.id),
+                  "judicial",
                   depth,
                 );
               })}
