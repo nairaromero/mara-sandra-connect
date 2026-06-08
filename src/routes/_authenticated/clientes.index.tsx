@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/table";
 import { ImportarTiDialog } from "@/components/importar-ti-dialog";
 
-export const Route = createFileRoute("/_authenticated/clientes")({
+export const Route = createFileRoute("/_authenticated/clientes/")({
   component: ClientesPage,
 });
 
@@ -321,7 +321,7 @@ function ClientesPage() {
                         <TableRow
                           key={c.id}
                           className="cursor-pointer hover:bg-muted/40"
-                          onClick={() => casoMaisRecente && abrirCaso(casoMaisRecente.id)}
+                          onClick={() => navigate({ to: "/clientes/$id", params: { id: c.id } })}
                         >
                           <TableCell className="font-medium">
                             <div className="flex items-center gap-2">
