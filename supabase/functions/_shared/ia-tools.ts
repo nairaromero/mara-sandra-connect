@@ -10,7 +10,7 @@
 //
 // Cada tool declara `papeis` (quem pode ver/usar). Writes entram na Fase 1.
 
-import { maskCpf, sanitizeBusca } from "./ia-redact.ts";
+import { maskCpf, maskEmail, maskTelefone, sanitizeBusca } from "./ia-redact.ts";
 import type { ToolDef } from "./ia-providers.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -111,8 +111,8 @@ function mapCliente(c: Record<string, unknown> | null | undefined) {
   return {
     nome: c.nome ?? null,
     cpf: maskCpf(c.cpf),
-    telefone: c.telefone ?? null,
-    email: c.email ?? null,
+    telefone: maskTelefone(c.telefone),
+    email: maskEmail(c.email),
     observacoes: c.observacoes ?? null,
   };
 }
@@ -249,8 +249,8 @@ export const READ_TOOLS: ToolSpec[] = [
         id: c.id,
         nome: c.nome,
         cpf: maskCpf(c.cpf),
-        telefone: c.telefone ?? null,
-        email: c.email ?? null,
+        telefone: maskTelefone(c.telefone),
+        email: maskEmail(c.email),
       }));
     },
   },

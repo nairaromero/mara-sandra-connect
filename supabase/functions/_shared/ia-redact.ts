@@ -14,6 +14,32 @@ export function maskCpf(cpf: unknown): string | null {
   return "***.***." + d.slice(6, 9) + "-**";
 }
 
+// Telefone: mostra so os 4 ultimos digitos (ex.: "(**) *****-4444").
+export function maskTelefone(v: unknown): string | null {
+  if (v == null) return null;
+  const d = String(v).replace(/\D/g, "");
+  if (!d) return null;
+  if (d.length <= 4) return "****";
+  return "(**) *****-" + d.slice(-4);
+}
+
+// Email: mostra so o comeco do local e a 1a letra do dominio (ex.: "te***@e***.com").
+export function maskEmail(v: unknown): string | null {
+  if (v == null) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  const at = s.indexOf("@");
+  if (at < 1) return "***";
+  const local = s.slice(0, at);
+  const domain = s.slice(at + 1);
+  const dot = domain.lastIndexOf(".");
+  const tld = dot > 0 ? domain.slice(dot + 1) : "";
+  const dname = dot > 0 ? domain.slice(0, dot) : domain;
+  const maskLocal = local.slice(0, 2) + "***";
+  const maskDomain = (dname ? dname.slice(0, 1) : "") + "***" + (tld ? "." + tld : "");
+  return maskLocal + "@" + maskDomain;
+}
+
 export function sanitizeBusca(input: unknown): string {
   return String(input ?? "")
     .replace(/[^\p{L}\p{N}\s.\-@]/gu, " ")
