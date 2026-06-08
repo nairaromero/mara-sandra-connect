@@ -792,7 +792,7 @@ function NovoCasoPage() {
                   name="endereco"
                   render={({ field }) => (
                     <FormItem className="sm:col-span-2">
-                      <FormLabel>Endereço (opcional)</FormLabel>
+                      <FormLabel>Endereço</FormLabel>
                       <FormControl>
                         <Input placeholder="Rua, número, bairro, cidade - UF" {...field} />
                       </FormControl>
