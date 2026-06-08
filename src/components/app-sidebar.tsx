@@ -27,7 +27,9 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 
 const itemsBase = [
-  { title: "Início", url: "/", icon: Home },
+  // "/" e o site publico (landing). A tela inicial do SISTEMA e /casos
+  // (mesmo destino do login e do logo do header).
+  { title: "Início", url: "/casos", icon: Home },
   { title: "Clientes", url: "/clientes", icon: UserCircle },
   { title: "Documentos pendentes", url: "/documentos", icon: FileWarning },
   { title: "Publicações", url: "/publicacoes", icon: Newspaper },
