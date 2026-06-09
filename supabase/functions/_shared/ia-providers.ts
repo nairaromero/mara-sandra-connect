@@ -44,11 +44,18 @@ export const PROVIDERS: Record<
 
 const MAX_TOKENS = 1536;
 
+export type ChatOpts = {
+  system: string;
+  messages: NormMsg[];
+  tools: ToolDef[];
+  maxTokens?: number; // teto de saida; default MAX_TOKENS (chat). Analise usa mais.
+};
+
 export async function chatWith(
   provider: string,
   apiKey: string,
   modelo: string,
-  opts: { system: string; messages: NormMsg[]; tools: ToolDef[] },
+  opts: ChatOpts,
 ): Promise<ChatResult> {
   if (provider === "anthropic") return anthropicChat(apiKey, modelo, opts);
   if (provider === "openai") return openaiChat(apiKey, modelo, opts);
@@ -61,7 +68,7 @@ export async function chatWith(
 async function anthropicChat(
   apiKey: string,
   modelo: string,
-  opts: { system: string; messages: NormMsg[]; tools: ToolDef[] },
+  opts: ChatOpts,
 ): Promise<ChatResult> {
   // Agrupa resultados de tool consecutivos num unico turno 'user' (exigencia da API).
   const msgs: Array<Record<string, unknown>> = [];
@@ -99,7 +106,7 @@ async function anthropicChat(
 
   const body = {
     model: modelo,
-    max_tokens: MAX_TOKENS,
+    max_tokens: opts.maxTokens ?? MAX_TOKENS,
     system: opts.system,
     messages: msgs,
     tools: opts.tools.map((t) => ({
@@ -148,7 +155,7 @@ async function anthropicChat(
 async function openaiChat(
   apiKey: string,
   modelo: string,
-  opts: { system: string; messages: NormMsg[]; tools: ToolDef[] },
+  opts: ChatOpts,
 ): Promise<ChatResult> {
   const msgs: Array<Record<string, unknown>> = [
     { role: "system", content: opts.system },
@@ -172,7 +179,7 @@ async function openaiChat(
 
   const body = {
     model: modelo,
-    max_tokens: MAX_TOKENS,
+    max_tokens: opts.maxTokens ?? MAX_TOKENS,
     messages: msgs,
     tools: opts.tools.map((t) => ({
       type: "function",
