@@ -152,7 +152,7 @@ Decisão da Naira: **BYOK/anexo** + escopo **só `cnis`/`laudo_medico`/`outro`**
 ### F. Notificação por e-mail (além do sino)
 - [ ] Opcional: e-mail ao interno quando o parceiro salva novo caso (hoje só notificação no sino).
 
-### G. Leitura de documentos via MCP — 🔬 IMPLEMENTADO, A VALIDAR (2026-06-09)
+### G. Leitura de documentos via MCP — ✅ VALIDADO (2026-06-09)
 Tool `ler_documentos_caso` no MCP (`ia-mcp` + `_shared/ia-docs.ts`). Ideia: a IA da
 própria pessoa (com as Skills) lê os documentos e redige análise/peça — o MCP só
 fornece o conteúdo (texto + scans como `resource` PDF). MVP: **só leitura** (não
@@ -160,10 +160,14 @@ salva de volta).
 - [x] Extrator compartilhado `_shared/ia-docs.ts` (unpdf lazy + tetos de memória).
 - [x] `ler_documentos_caso` (interno-only por LGPD; conteúdo bruto = PII/dados médicos).
 - [x] `ia-mcp` expande `_anexos` em blocos `resource`; `ia-assistant` descarta `_anexos`.
-- [ ] **VALIDAR com a Naira:** o claude.ai/ChatGPT conectado realmente LÊ o PDF
-      entregue como `resource`? (texto digital é certo; OCR do scan via resource é o teste.)
-      Se NÃO ler: alternativas = (a) rasterizar página→imagem (bloco `image`), (b)
-      devolver URL assinada de download. Reconectar o connector p/ a tool nova aparecer.
+- [x] **VALIDADO via cliente MCP real (Claude Code):** chamada `ler_documentos_caso`
+      no caso do José devolveu CNIS/Laudos/Laudo-INSS como texto e os 8 scans como
+      `resource` PDF; o modelo LEU um atestado escaneado por OCR nativo (CID H40.1,
+      CRM 9034, data). "13 - Documento.pdf" (8.3MB) corretamente pulado (`pdf_grande`).
+- [ ] (Nice-to-have) Naira dar o teste final no **claude.ai** dela p/ confirmar a UX
+      (claude.ai injeta o `resource` direto no contexto; mecanismo já provado).
+      Se algum cliente NÃO ler: plano B = (a) rasterizar página→imagem (bloco `image`),
+      (b) URL assinada de download. Reconectar o connector p/ a tool nova aparecer.
 - [ ] Futuro (fora do MVP): tool de ESCRITA p/ salvar a análise/peça de volta no caso
       (aba Análise como nova versão de `analises_tecnicas`, ou como documento/comentário).
 - Nota: `ia-docs.ts` duplica a extração que a `ia-analise` faz inline — dedup futura
