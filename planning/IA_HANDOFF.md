@@ -174,8 +174,13 @@ salva de volta).
       veredito + resumo_parceiro). Decisão da Naira: salvar na aba Análise, **aplicar
       direto** (no MCP, write com token escopo `completo` executa direto, auditado em
       `ia_acoes`; no chat in-app segue o propor→confirmar). Nunca sobrescreve versões.
-- [ ] **Testar `salvar_analise` no claude.ai** (reconectar connector p/ a tool aparecer):
-      pedir uma peça e mandar salvar; conferir nova versão na aba Análise.
+- [x] **Testado `salvar_analise`** (Naira): salvou o texto como nova versão na aba Análise.
+- [x] **Peça em .docx (2026-06-09):** tool `salvar_peca_docx` (write, interno-only) gera
+      um arquivo **Word** a partir de markdown (títulos #/##/###, **negrito**, listas '- ')
+      via `_shared/ia-docx.ts` (lib `docx@8.5.0`, `Packer.toBlob`), faz upload no Storage
+      e registra na aba **Documentos** (tipo `outro`). Boot OK; ⏳ falta exercitar o
+      runtime (`Packer.toBlob`) numa chamada real — testar via claude.ai/connector.
+      Visual Law (caixas coloridas/tabelas) fica para depois.
 - Nota: `ia-docs.ts` duplica a extração que a `ia-analise` faz inline — dedup futura
   possível (fazer a `ia-analise` usar `extractCasoDocs`), com re-teste.
 

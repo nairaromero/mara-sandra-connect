@@ -19,6 +19,7 @@ import {
 } from "./ia-redact.ts";
 import type { ToolDef } from "./ia-providers.ts";
 import { extractCasoDocs } from "./ia-docs.ts";
+import { markdownToDocx } from "./ia-docx.ts";
 
 // deno-lint-ignore no-explicit-any
 type SbClient = any;
@@ -1015,6 +1016,75 @@ export const WRITE_TOOLS: ToolSpec[] = [
         .maybeSingle();
       if (ins.error) throw new Error(ins.error.message);
       return { ok: true, analise_id: ins.data?.id, versao };
+    },
+  },
+
+  {
+    name: "salvar_peca_docx",
+    tipo: "write",
+    papeis: ["interno"],
+    description:
+      "Gera um arquivo WORD (.docx) a partir do texto da peca/analise e salva na aba DOCUMENTOS do caso " +
+      "(baixavel e editavel no Word). Use depois de redigir a peca. Para FORMATAR, escreva o texto em " +
+      "markdown: '# Titulo', '## Secao', '### Subsecao', '**negrito**', listas com '- '. Informe caso_id, " +
+      "titulo (vira nome do arquivo) e texto. NUNCA apaga nada (cada chamada cria um novo arquivo).",
+    schema: {
+      type: "object",
+      properties: {
+        caso_id: { type: "string", description: "UUID do caso" },
+        titulo: { type: "string", description: "Titulo da peca (vira o nome do arquivo .docx)" },
+        texto: {
+          type: "string",
+          description: "Conteudo em markdown (#/##/### titulos, **negrito**, listas '- ')",
+        },
+      },
+      required: ["caso_id", "titulo", "texto"],
+    },
+    preview: (a) =>
+      "Gerar .docx '" + String(a.titulo ?? "peca").slice(0, 80) + "' no caso " + a.caso_id,
+    execute: async (client, args, ctx) => {
+      const caso_id = reqUuid(args.caso_id, "caso_id");
+      const titulo = reqStr(args.titulo, "titulo", 200);
+      const texto = reqStr(args.texto, "texto", 200000);
+
+      const bytes = await markdownToDocx(texto, titulo);
+
+      const base = (titulo
+        .normalize("NFD")
+        .replace(/[̀-ͯ]/g, "")
+        .replace(/[^a-zA-Z0-9._-]/g, "_")
+        .slice(0, 80)) || "peca";
+      const nome = base + ".docx";
+      const path = caso_id + "/" + Date.now() + "_" + nome;
+      const CT = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+      const up = await client.storage.from("documentos").upload(
+        path,
+        new Blob([bytes], { type: CT }),
+        { contentType: CT, upsert: false },
+      );
+      if (up.error) throw new Error(up.error.message);
+
+      const ins = await client
+        .from("documentos")
+        .insert({
+          caso_id,
+          tipo: "outro",
+          nome_arquivo: nome,
+          storage_path: path,
+          uploaded_by: ctx.uid,
+          visivel_parceiro: false,
+        })
+        .select("id")
+        .maybeSingle();
+      if (ins.error) throw new Error(ins.error.message);
+      return {
+        ok: true,
+        documento_id: ins.data?.id,
+        nome_arquivo: nome,
+        storage_path: path,
+        instrucoes: "Arquivo .docx gerado e disponivel na aba Documentos do caso (baixe e edite no Word).",
+      };
     },
   },
 ];
