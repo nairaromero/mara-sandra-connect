@@ -933,6 +933,90 @@ export const WRITE_TOOLS: ToolSpec[] = [
       };
     },
   },
+
+  {
+    name: "salvar_analise",
+    tipo: "write",
+    papeis: ["interno"],
+    description:
+      "Salva uma ANALISE juridica ou PECA (texto) como NOVA VERSAO na aba Analise do caso. Use depois de " +
+      "ler os documentos (ler_documentos_caso) e produzir seu parecer/peca, para registra-lo no sistema. " +
+      "Informe caso_id e o texto completo. Opcional: veredito (viavel|precisa_mais_dados|inviavel), " +
+      "beneficio_recomendado, resumo_parceiro (1-2 frases simples p/ o parceiro), documentos_faltantes[], " +
+      "proximos_passos[], titulo (ex.: 'Peticao inicial', 'Parecer de viabilidade'). NUNCA apaga versoes " +
+      "anteriores - sempre cria uma nova versao.",
+    schema: {
+      type: "object",
+      properties: {
+        caso_id: { type: "string", description: "UUID do caso" },
+        texto: { type: "string", description: "Texto completo da analise ou peca" },
+        veredito: { type: "string", enum: ["viavel", "precisa_mais_dados", "inviavel"] },
+        beneficio_recomendado: { type: "string" },
+        resumo_parceiro: { type: "string", description: "1-2 frases simples para o advogado parceiro" },
+        documentos_faltantes: { type: "array", items: { type: "string" } },
+        proximos_passos: { type: "array", items: { type: "string" } },
+        titulo: { type: "string", description: "Rotulo opcional (ex.: 'Peticao inicial')" },
+      },
+      required: ["caso_id", "texto"],
+    },
+    preview: (a) =>
+      "Salvar analise/peca (nova versao) no caso " + a.caso_id +
+      (a.titulo ? " - " + String(a.titulo).slice(0, 80) : ""),
+    execute: async (client, args, ctx) => {
+      const caso_id = reqUuid(args.caso_id, "caso_id");
+      const texto = reqStr(args.texto, "texto", 60000);
+      const veredito = oneOf(args.veredito, ["viavel", "precisa_mais_dados", "inviavel"]) ??
+        "precisa_mais_dados";
+      const beneficio = optStr(args.beneficio_recomendado, 200);
+      const resumo = optStr(args.resumo_parceiro, 1000);
+      const titulo = optStr(args.titulo, 200);
+      const arr = (v: unknown) =>
+        Array.isArray(v) ? v.map((x) => String(x).slice(0, 300)).slice(0, 50) : [];
+      const docsFalt = arr(args.documentos_faltantes);
+      const proximos = arr(args.proximos_passos);
+
+      // Proxima versao (nunca sobrescreve; espelha a logica da ia-analise).
+      const vresp = await client
+        .from("analises_tecnicas")
+        .select("versao")
+        .eq("caso_id", caso_id)
+        .order("versao", { ascending: false })
+        .limit(1);
+      if (vresp.error) throw new Error(vresp.error.message);
+      const versao = vresp.data && vresp.data[0] ? Number(vresp.data[0].versao) + 1 : 1;
+
+      const vlabel = veredito === "viavel"
+        ? "VIAVEL"
+        : veredito === "inviavel"
+        ? "INVIAVEL"
+        : "PRECISA DE MAIS DADOS";
+      const cab = "[Analise/peca por IA externa (MCP) - apoio; nao substitui conferencia humana]\n" +
+        (titulo ? titulo + "\n" : "") + "Veredito: " + vlabel + "\n\n";
+
+      const ins = await client
+        .from("analises_tecnicas")
+        .insert({
+          caso_id,
+          versao,
+          beneficio_recomendado: beneficio,
+          resultado_json: {
+            gerado_por_ia: true,
+            origem: "mcp",
+            veredito,
+            documentos_faltantes: docsFalt,
+            proximos_passos: proximos,
+            observacoes: cab + texto,
+          },
+          resumo_parceiro: resumo,
+          modelo_ia: "externo (MCP)",
+          criado_por: ctx.uid,
+        })
+        .select("id,versao")
+        .maybeSingle();
+      if (ins.error) throw new Error(ins.error.message);
+      return { ok: true, analise_id: ins.data?.id, versao };
+    },
+  },
 ];
 
 const ALL_TOOLS: ToolSpec[] = [...READ_TOOLS, ...WRITE_TOOLS];

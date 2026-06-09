@@ -168,8 +168,14 @@ salva de volta).
       (claude.ai injeta o `resource` direto no contexto; mecanismo já provado).
       Se algum cliente NÃO ler: plano B = (a) rasterizar página→imagem (bloco `image`),
       (b) URL assinada de download. Reconectar o connector p/ a tool nova aparecer.
-- [ ] Futuro (fora do MVP): tool de ESCRITA p/ salvar a análise/peça de volta no caso
-      (aba Análise como nova versão de `analises_tecnicas`, ou como documento/comentário).
+- [x] **Write-back (2026-06-09):** tool `salvar_analise` (write, interno-only) grava a
+      análise/peça gerada pela IA como **nova versão** em `analises_tecnicas` (aba
+      Análise) — espelha o insert da `ia-analise` (`resultado_json.observacoes` +
+      veredito + resumo_parceiro). Decisão da Naira: salvar na aba Análise, **aplicar
+      direto** (no MCP, write com token escopo `completo` executa direto, auditado em
+      `ia_acoes`; no chat in-app segue o propor→confirmar). Nunca sobrescreve versões.
+- [ ] **Testar `salvar_analise` no claude.ai** (reconectar connector p/ a tool aparecer):
+      pedir uma peça e mandar salvar; conferir nova versão na aba Análise.
 - Nota: `ia-docs.ts` duplica a extração que a `ia-analise` faz inline — dedup futura
   possível (fazer a `ia-analise` usar `extractCasoDocs`), com re-teste.
 
