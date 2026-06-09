@@ -12,6 +12,16 @@ export type ToolDef = {
 
 export type ToolCall = { id: string; name: string; args: Record<string, unknown> };
 
+// Anexo binario (PDF/imagem) enviado junto da ultima mensagem 'user'. Usado pela
+// ia-analise p/ mandar PDFs escaneados direto ao provider (OCR nativo do modelo),
+// ja que o extrator de texto nao le imagem. base64 SEM o prefixo "data:".
+export type Attachment = {
+  kind: "pdf" | "image";
+  mediaType: string; // application/pdf, image/png, image/jpeg...
+  base64: string;
+  name?: string;
+};
+
 // Mensagem normalizada (interna ao agente).
 export type NormMsg =
   | { role: "user"; content: string }
@@ -49,7 +59,54 @@ export type ChatOpts = {
   messages: NormMsg[];
   tools: ToolDef[];
   maxTokens?: number; // teto de saida; default MAX_TOKENS (chat). Analise usa mais.
+  attachments?: Attachment[]; // anexados a ULTIMA mensagem 'user' (PDF/imagem).
 };
+
+// Blocos de anexo por provider. Anthropic le PDF/imagem nativamente (document/
+// image); OpenAI usa 'file' (file_data data URL) p/ PDF e 'image_url' p/ imagem.
+function anthropicAttBlock(att: Attachment): Record<string, unknown> {
+  if (att.kind === "pdf") {
+    return {
+      type: "document",
+      source: { type: "base64", media_type: att.mediaType, data: att.base64 },
+      ...(att.name ? { title: att.name } : {}),
+    };
+  }
+  return {
+    type: "image",
+    source: { type: "base64", media_type: att.mediaType, data: att.base64 },
+  };
+}
+
+function openaiAttPart(att: Attachment): Record<string, unknown> {
+  const dataUrl = "data:" + att.mediaType + ";base64," + att.base64;
+  if (att.kind === "pdf") {
+    return { type: "file", file: { filename: att.name ?? "documento.pdf", file_data: dataUrl } };
+  }
+  return { type: "image_url", image_url: { url: dataUrl } };
+}
+
+// Anexa os blocos a ULTIMA mensagem 'user' de `msgs`, convertendo o content de
+// string p/ array quando preciso. blockOf monta o bloco no formato do provider.
+function appendAttachments(
+  msgs: Array<Record<string, unknown>>,
+  attachments: Attachment[] | undefined,
+  blockOf: (att: Attachment) => Record<string, unknown>,
+): void {
+  if (!attachments?.length) return;
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    if (msgs[i].role !== "user") continue;
+    const cur = msgs[i].content;
+    const blocks: Array<unknown> = typeof cur === "string"
+      ? [{ type: "text", text: cur }]
+      : Array.isArray(cur)
+      ? [...cur]
+      : [];
+    for (const att of attachments) blocks.push(blockOf(att));
+    msgs[i].content = blocks;
+    return;
+  }
+}
 
 export async function chatWith(
   provider: string,
@@ -103,6 +160,7 @@ async function anthropicChat(
     }
   }
   flushTools();
+  appendAttachments(msgs, opts.attachments, anthropicAttBlock);
 
   const body = {
     model: modelo,
@@ -176,6 +234,7 @@ async function openaiChat(
       msgs.push(out);
     }
   }
+  appendAttachments(msgs, opts.attachments, openaiAttPart);
 
   const body = {
     model: modelo,

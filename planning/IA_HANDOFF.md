@@ -75,8 +75,15 @@ Tudo do cliente aparece numa tela só. **Nunca** existem tools destrutivas (sem 
      mais polyfill de `Promise.withResolvers`.
    - **Prioriza por tipo:** `cnis > laudo_medico > outro > resto`; orçamento de
      60k chars / 14 docs (o CNIS sempre entra).
-   - PDFs escaneados/imagem saem vazios ou com texto mínimo → **sinalizados como
-     "precisa OCR"** (campo `via` em `resultado_json.debug_docs`, p/ diagnóstico).
+   - **OCR via provider (BYOK) — implementado 2026-06-09:** PDFs escaneados
+     (`pdf_vazio`/`pdf_curto`) dos tipos `cnis`/`laudo_medico`/`outro` são
+     **anexados brutos** (base64) à chamada da IA, que os lê nativamente
+     (`chatWith` aceita `attachments`; Anthropic bloco `document`, OpenAI bloco
+     `file`/`file_data`). Tetos p/ não estourar o worker: 8 anexos, **5MB/arquivo**,
+     12MB total. PDFs **acima de 5MB NÃO são parseados nem anexados** (pdf.js em
+     scan grande estoura a memória → `WORKER_RESOURCE_LIMIT`): marcados
+     `pdf_grande` → leitura manual. `pdf.destroy()` por doc libera memória.
+     `debug_docs[].via` ganha sufixo `+anexado` quando o PDF foi anexado.
 4. **Persona Dr. Cláudio (adaptada p/ triagem):** o `SYSTEM` segue a estrutura de
    9 seções (resumo, questões, fundamentação legal, jurisprudência STF>STJ>TNU>TRF,
    análise aplicada, pontos fortes/fracos, riscos — decadência/prescrição/Tema 350/
@@ -89,36 +96,38 @@ Tudo do cliente aparece numa tela só. **Nunca** existem tools destrutivas (sem 
 ### Limites honestos (declarados ao usuário no resultado)
 - **NÃO** tem o índice de normas pós-maio/2025, **NÃO** gera peças, **NÃO** usa
   papéis timbrados. É **triagem de viabilidade**, não a Skill Dr. Cláudio completa.
-- **PDFs escaneados não são lidos** → recomenda OCR/leitura manual (não conclui sobre
-  o que não viu). É o gap mais sensível para casos de incapacidade (laudos são imagem).
+- **PDFs escaneados pequenos (≤5MB) agora SÃO lidos** via anexo (OCR do provider).
+  Scans **>5MB** ainda não (risco de memória) → recomenda leitura manual.
 
 ### Verificado em produção (caso José Fernandes, `da62337a-...`)
-CNIS lido (6552 chars), Laudos Periciais (29480), Laudo INSS (2190); scans
-corretamente marcados. Primeira análise saía genérica por causa do teto de 1536
-tokens (corrigido p/ 8000) e do prompt genérico (corrigido p/ Dr. Cláudio).
+- **v7** (texto-only): CNIS lido (6552), Laudos Periciais (29480), Laudo INSS (2190);
+  laudos particulares (scans) NÃO lidos → veredito `precisa_mais_dados`.
+- **v8** (com OCR/anexos, 2026-06-09): 8 laudos escaneados anexados (`+anexado`),
+  lidos por OCR nativo; a análise passou a citar CIDs (H40 glaucoma), datas e
+  procedimentos reais; **veredito virou `viavel`**. Input ~17k tokens (custo baixo).
+  Só "13 - Documento.pdf" (8.6MB) ficou `pdf_grande` (leitura manual). ✅
+- ⚠️ **gpt-4.1 será desligado na API OpenAI em ~14/out/2026** — planejar migração de
+  modelo da integração de análise antes disso (ex.: gpt-5.x ou Claude).
 
 ---
 
 ## 4. TODO — daqui por diante (prioridade)
 
-### A. Calibrar e validar o Dr. Cláudio na `ia-analise` (próximo passo imediato)
-- [ ] Naira testar "Analisar com IA" no caso do José e avaliar a profundidade.
-- [ ] Ler o resultado no banco e calibrar prompt/tamanho se necessário:
-      `node scripts/msc-sql.mjs "select versao, left(resultado_json->>'observacoes',4000), resultado_json->'debug_docs' from analises_tecnicas where caso_id='<id>' order by versao desc limit 1"`
-- [ ] Se aprovado, **commitar** (já commitado em 2026-06-09 — confirmar) e seguir.
+### A. Calibrar e validar o Dr. Cláudio na `ia-analise` — ✅ FEITO (2026-06-09)
+- [x] Naira testou no caso do José; persona aprovada (saída rica, 9 tópicos, usa
+      números do CNIS, marca `[JURISPRUDÊNCIA A VALIDAR]`, honesta sobre o não lido).
+- [x] v8 validada no banco; veredito coerente com a prova (virou `viavel` após OCR).
+- [ ] Pendente: commit + (eventual) ajuste fino futuro de prompt.
 
-### B. Ler PDFs escaneados (OCR) — fecha o caso do José
-Decisão pendente da Naira. Opção recomendada: **mandar o PDF escaneado direto
-ao provider do usuário (BYOK)** — Claude lê PDF escaneado nativamente (qualidade OCR),
-sem serviço novo.
-- [ ] Estender `ia-providers.chatWith` para aceitar **anexos** (document/image block).
-      Anthropic: bloco `document` base64 (PDF, até ~32MB/100 págs). OpenAI: vision/PDF
-      conforme modelo.
-- [ ] Em `ia-analise`, para docs `pdf_vazio`/`pdf_curto`, anexar o PDF bruto em vez de só texto.
-- [ ] Cuidar de custo (base64 é pesado) e de limite de páginas; talvez só p/ tipos
-      `cnis`/`laudo_medico`/`outro`.
-- Alternativa descartada por enquanto: serviço OCR dedicado (Google Vision/Textract) —
-  exige credencial/custo no escritório (não-BYOK).
+### B. Ler PDFs escaneados (OCR) — ✅ FEITO (2026-06-09), via BYOK/anexo
+Implementado conforme a opção recomendada (anexar PDF bruto ao provider; ver §3).
+Decisão da Naira: **BYOK/anexo** + escopo **só `cnis`/`laudo_medico`/`outro`**.
+- [x] `chatWith` aceita `attachments` (Anthropic `document`, OpenAI `file`).
+- [x] `ia-analise` anexa scans pequenos; tetos de memória; `pdf_grande` p/ >5MB.
+- [ ] **Próximo refino possível:** scans grandes (>5MB, ex. "13 - Documento.pdf")
+      ainda não lidos. Opções: dividir o PDF por página (anexar só algumas), ou
+      converter páginas em imagens menores. Avaliar custo/necessidade caso a caso.
+- Alternativa descartada: serviço OCR dedicado (Google Vision/Textract) — não-BYOK.
 
 ### C. Renderização do resultado na aba (qualidade de leitura)
 - [ ] Hoje a aba mostra `observacoes` com `whitespace-pre-wrap` (texto puro). A análise
