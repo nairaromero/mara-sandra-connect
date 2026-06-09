@@ -49,6 +49,32 @@ function httpJson(body: unknown, status = 200) {
   });
 }
 
+// Converte o retorno de uma tool em blocos de conteudo MCP. Caso a tool devolva
+// `_anexos` (PDFs base64, ex.: ler_documentos_caso), eles viram blocos `resource`
+// para o cliente (Claude/ChatGPT) ler o PDF por OCR nativo; o resto vira texto.
+function mcpContent(out: unknown): Array<Record<string, unknown>> {
+  if (out && typeof out === "object" && Array.isArray((out as Record<string, unknown>)._anexos)) {
+    const o = out as Record<string, unknown>;
+    const anexos = o._anexos as Array<{ nome: string; mediaType: string; base64: string }>;
+    const { _anexos: _omit, ...rest } = o;
+    const blocks: Array<Record<string, unknown>> = [
+      { type: "text", text: JSON.stringify(rest).slice(0, 60000) },
+    ];
+    for (const a of anexos) {
+      blocks.push({
+        type: "resource",
+        resource: {
+          uri: "mcp://documento/" + encodeURIComponent(a.nome),
+          mimeType: a.mediaType,
+          blob: a.base64,
+        },
+      });
+    }
+    return blocks;
+  }
+  return [{ type: "text", text: JSON.stringify(out).slice(0, 8000) }];
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   // GET simples: ajuda a depurar a URL no navegador.
@@ -189,9 +215,7 @@ serve(async (req) => {
           status: "aplicada",
           caso_id: typeof args.caso_id === "string" ? args.caso_id : null,
         });
-        return rpc(id, {
-          content: [{ type: "text", text: JSON.stringify(out).slice(0, 8000) }],
-        });
+        return rpc(id, { content: mcpContent(out) });
       } catch (e) {
         const m = e instanceof Error ? e.message : String(e);
         await admin.from("ia_acoes").insert({

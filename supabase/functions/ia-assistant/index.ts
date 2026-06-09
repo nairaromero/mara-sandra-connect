@@ -256,6 +256,11 @@ serve(async (req) => {
           let ok = true;
           try {
             const out = await tool.execute(rls, tc.args, ctx);
+            // _anexos (PDFs base64, ex.: ler_documentos_caso) so faz sentido no MCP
+            // (vira bloco resource). No chat in-app descartamos p/ nao inchar o texto.
+            if (out && typeof out === "object" && "_anexos" in (out as Record<string, unknown>)) {
+              delete (out as Record<string, unknown>)._anexos;
+            }
             resultStr = JSON.stringify(out).slice(0, 6000);
           } catch (e) {
             ok = false;

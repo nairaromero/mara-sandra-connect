@@ -17,6 +17,12 @@ registry de tools + RLS + auditoria:
   Claude/ChatGPT via Personal Access Token (PAT). Função: `ia-mcp`. Servidor MCP
   publica as mesmas tools. Usa service-role para interno; recusa parceiro (projeto
   está em chaves JWT assimétricas, sem segredo HS256).
+  - **Leitura de documentos (2026-06-09):** tool `ler_documentos_caso` (interno-only)
+    devolve o TEXTO dos PDFs/TXT digitais e os PDFs **escaneados como blocos
+    `resource`** (base64) — a IA da pessoa (Claude/ChatGPT, com Skill Dr. Cláudio +
+    Visual Law) faz a análise e redige a peça. Extração compartilhada em
+    `_shared/ia-docs.ts`. ⚠️ A renderização do `resource` PDF depende do cliente MCP
+    (claude.ai) — **a validar** (ver §4.G).
 - **Análise técnica por IA** ("Analisar com IA" na aba Análise do caso): função
   `ia-analise`. Hoje no **Nível 2 + persona Dr. Cláudio** (ver seção 3).
 
@@ -145,6 +151,23 @@ Decisão da Naira: **BYOK/anexo** + escopo **só `cnis`/`laudo_medico`/`outro`**
 
 ### F. Notificação por e-mail (além do sino)
 - [ ] Opcional: e-mail ao interno quando o parceiro salva novo caso (hoje só notificação no sino).
+
+### G. Leitura de documentos via MCP — 🔬 IMPLEMENTADO, A VALIDAR (2026-06-09)
+Tool `ler_documentos_caso` no MCP (`ia-mcp` + `_shared/ia-docs.ts`). Ideia: a IA da
+própria pessoa (com as Skills) lê os documentos e redige análise/peça — o MCP só
+fornece o conteúdo (texto + scans como `resource` PDF). MVP: **só leitura** (não
+salva de volta).
+- [x] Extrator compartilhado `_shared/ia-docs.ts` (unpdf lazy + tetos de memória).
+- [x] `ler_documentos_caso` (interno-only por LGPD; conteúdo bruto = PII/dados médicos).
+- [x] `ia-mcp` expande `_anexos` em blocos `resource`; `ia-assistant` descarta `_anexos`.
+- [ ] **VALIDAR com a Naira:** o claude.ai/ChatGPT conectado realmente LÊ o PDF
+      entregue como `resource`? (texto digital é certo; OCR do scan via resource é o teste.)
+      Se NÃO ler: alternativas = (a) rasterizar página→imagem (bloco `image`), (b)
+      devolver URL assinada de download. Reconectar o connector p/ a tool nova aparecer.
+- [ ] Futuro (fora do MVP): tool de ESCRITA p/ salvar a análise/peça de volta no caso
+      (aba Análise como nova versão de `analises_tecnicas`, ou como documento/comentário).
+- Nota: `ia-docs.ts` duplica a extração que a `ia-analise` faz inline — dedup futura
+  possível (fazer a `ia-analise` usar `extractCasoDocs`), com re-teste.
 
 ---
 
