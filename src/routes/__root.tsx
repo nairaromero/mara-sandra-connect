@@ -68,11 +68,19 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { title: "Mara Sandra Advocacia" },
       { name: "description", content: "Plataforma interna do escritório Mara Sandra Advocacia previdenciária." },
+      { name: "theme-color", content: "#b8862e" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-title", content: "Mara Sandra" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "default" },
     ],
-    links: [{ rel: "stylesheet", href: appCss }],
+    links: [
+      { rel: "stylesheet", href: appCss },
+      { rel: "manifest", href: "/manifest.webmanifest" },
+      { rel: "apple-touch-icon", href: "/logo.png" },
+    ],
   }),
   shellComponent: RootShell,
   component: RootComponent,

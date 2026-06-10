@@ -64,6 +64,7 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Markdown } from "@/components/markdown";
 import {
   Select,
   SelectContent,
@@ -5239,13 +5240,13 @@ function TabAnaliseTecnica(props: TabAnaliseTecnicaProps) {
                   {obs && (
                     <div className="mt-2 pt-2 border-t">
                       <p className="text-xs text-muted-foreground mb-1">Observações</p>
-                      <p className="text-sm whitespace-pre-wrap">{obs}</p>
+                      <Markdown>{obs}</Markdown>
                     </div>
                   )}
                   {a.resumo_parceiro && (
                     <div className="mt-2 pt-2 border-t">
                       <p className="text-xs text-muted-foreground mb-1">Resumo para o parceiro</p>
-                      <p className="text-sm whitespace-pre-wrap">{a.resumo_parceiro}</p>
+                      <Markdown>{a.resumo_parceiro}</Markdown>
                     </div>
                   )}
                 </div>

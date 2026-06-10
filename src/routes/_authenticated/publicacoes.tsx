@@ -1,6 +1,14 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Loader2, Newspaper, Search, AlertCircle } from "lucide-react";
+import {
+  CheckCircle2,
+  Loader2,
+  Newspaper,
+  Search,
+  AlertCircle,
+  Link2,
+} from "lucide-react";
+import { toast } from "sonner";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
@@ -8,6 +16,14 @@ import { ClientOnly } from "@/components/client-only";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Card,
   CardContent,
@@ -43,6 +59,13 @@ interface PubView {
   foco_id: string | null; // andamento p/ destacar na timeline do caso
 }
 
+interface CasoOption {
+  id: string;
+  cliente_nome: string;
+  cliente_cpf: string | null;
+  tipo_beneficio: string | null;
+}
+
 function fmt(iso: string | null): string {
   if (!iso) return "-";
   const d = new Date(iso.length <= 10 ? iso + "T00:00:00" : iso);
@@ -56,6 +79,91 @@ function PublicacoesPage() {
   const [loading, setLoading] = useState(true);
   const [busca, setBusca] = useState("");
   const [expandido, setExpandido] = useState<Record<string, boolean>>({});
+
+  // --- Triagem manual: vincular publicação órfã a um caso (interno) ---------
+  const navigate = useNavigate();
+  const [vincularPub, setVincularPub] = useState<PubView | null>(null);
+  const [casoOpcoes, setCasoOpcoes] = useState<Array<CasoOption>>([]);
+  const [carregandoCasos, setCarregandoCasos] = useState(false);
+  const [buscaCaso, setBuscaCaso] = useState("");
+  const [vinculando, setVinculando] = useState(false);
+
+  const abrirVincular = useCallback((p: PubView) => {
+    setVincularPub(p);
+    setBuscaCaso("");
+  }, []);
+
+  // Carrega os casos uma vez quando o diálogo de vinculação abre.
+  useEffect(() => {
+    if (!vincularPub || casoOpcoes.length > 0) return;
+    setCarregandoCasos(true);
+    (async () => {
+      const { data, error } = await supabase
+        .from("casos")
+        .select(
+          "id, tipo_beneficio, status, cliente:cliente_id(nome, cpf)",
+        )
+        .order("created_at", { ascending: false })
+        .limit(1000);
+      if (!error) {
+        setCasoOpcoes(
+          ((data || []) as Array<Record<string, unknown>>).map((r) => {
+            const cli = r.cliente as { nome?: string; cpf?: string } | null;
+            return {
+              id: String(r.id),
+              cliente_nome: cli?.nome ?? "Cliente",
+              cliente_cpf: cli?.cpf ?? null,
+              tipo_beneficio: (r.tipo_beneficio as string | null) ?? null,
+            };
+          }),
+        );
+      }
+      setCarregandoCasos(false);
+    })();
+  }, [vincularPub, casoOpcoes.length]);
+
+  const casosFiltrados = useMemo(() => {
+    const q = buscaCaso.trim().toLowerCase();
+    if (!q) return casoOpcoes.slice(0, 50);
+    const d = q.replace(/\D/g, "");
+    return casoOpcoes
+      .filter((c) => {
+        const nome = c.cliente_nome.toLowerCase();
+        const cpf = (c.cliente_cpf || "").replace(/\D/g, "");
+        return nome.includes(q) || (d.length >= 3 && cpf.includes(d));
+      })
+      .slice(0, 50);
+  }, [casoOpcoes, buscaCaso]);
+
+  async function confirmarVinculo(casoId: string) {
+    if (!vincularPub) return;
+    setVinculando(true);
+    try {
+      const { data, error } = await supabase.rpc("vincular_publicacao_dje", {
+        p_pub_id: vincularPub.id,
+        p_caso_id: casoId,
+      });
+      if (error) throw error;
+      const r = (data || {}) as { caso_id?: string; andamento_id?: string };
+      toast.success("Publicação vinculada ao caso.");
+      setVincularPub(null);
+      if (r.caso_id) {
+        navigate({
+          to: "/casos/$id",
+          params: { id: r.caso_id },
+          search: { tab: "andamentos", foco: r.andamento_id || undefined },
+        });
+      } else {
+        carregar();
+      }
+    } catch (err) {
+      console.error(err);
+      const e = err as { message?: string };
+      toast.error(e.message || "Falha ao vincular a publicação.");
+    } finally {
+      setVinculando(false);
+    }
+  }
 
   const carregar = useCallback(async () => {
     setLoading(true);
@@ -296,6 +404,16 @@ function PublicacoesPage() {
                             </Link>
                           </Button>
                         )}
+                        {!vinculada && isInterno && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => abrirVincular(p)}
+                          >
+                            <Link2 className="h-4 w-4 mr-1.5" />
+                            Vincular a um caso
+                          </Button>
+                        )}
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-2">
@@ -334,6 +452,77 @@ function PublicacoesPage() {
             </div>
           )}
       </ClientOnly>
+
+      <Dialog
+        open={vincularPub !== null}
+        onOpenChange={(o) => !o && setVincularPub(null)}
+      >
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Vincular publicação a um caso</DialogTitle>
+            <DialogDescription>
+              {vincularPub?.numero_processo
+                ? `Processo ${vincularPub.numero_processo}. `
+                : ""}
+              Escolha o caso. O processo judicial é criado (se ainda não existir)
+              e a publicação vira um andamento.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              autoFocus
+              value={buscaCaso}
+              onChange={(e) => setBuscaCaso(e.target.value)}
+              placeholder="Buscar caso por cliente ou CPF"
+              className="pl-9"
+            />
+          </div>
+
+          <div className="max-h-72 space-y-1.5 overflow-y-auto">
+            {carregandoCasos ? (
+              <div className="flex h-24 items-center justify-center">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : casosFiltrados.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">
+                Nenhum caso encontrado.
+              </p>
+            ) : (
+              casosFiltrados.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  disabled={vinculando}
+                  onClick={() => confirmarVinculo(c.id)}
+                  className="flex w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent disabled:opacity-50"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">
+                      {c.cliente_nome}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {c.tipo_beneficio || "—"}
+                    </span>
+                  </span>
+                  <Link2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+                </button>
+              ))
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setVincularPub(null)}
+              disabled={vinculando}
+            >
+              Cancelar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
