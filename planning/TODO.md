@@ -10,11 +10,8 @@
 
 ### 🔴 LGPD / segurança (bloqueadores de lançamento com parceiro real)
 
-- [ ] **Audit log de acesso a documentos** — a tabela `acessos_documento` **não existe** (confirmado 2026-06-09). _(O audit de senha MEU INSS via `acessos_senha_inss` já está feito e populado — não confundir.)_
-  - Criar `acessos_documento` (caso_id, documento_id, usuario_id, acao, ip?, created_at) + RLS interno-read.
-  - RPC `log_acesso_documento(...)` (SECURITY DEFINER) chamada nos 3 pontos que geram signed URL em [casos.$id.tsx](../src/routes/_authenticated/casos.%24id.tsx) (~3534/3550/3606): visualizou, baixou.
-  - Surface na tela [auditoria.tsx](../src/routes/_authenticated/auditoria.tsx) (já tem a estrutura de filtros).
-  - LGPD Art. 37.
+- [x] **Audit log de acesso a documentos** — tabela `acessos_documento` + RPC `log_acesso_documento` ([migration](sql-migrations/migration_acessos_documento.sql), aplicada em prod), instrumentada nos 3 pontos de signed URL em [casos.$id.tsx](../src/routes/_authenticated/casos.%24id.tsx) (visualização/download). LGPD Art. 37. _(Não confundir com `acessos_senha_inss`.)_
+  - [ ] **Falta só:** surfacing na tela [auditoria.tsx](../src/routes/_authenticated/auditoria.tsx) (a captura já grava; a tela ainda só mostra senha INSS).
 - [ ] **Direito do titular (LGPD Art. 18)** — parte é código:
   - [ ] **Export/Portabilidade** — gerar ZIP com docs do caso (botão admin no /casos/$id).
   - [ ] **Exclusão** — procedimento (caso ativo vs arquivado) documentado + ação admin.
@@ -102,6 +99,17 @@
 
 ### Sessão 2026-06-09 (esta)
 
+- [x] **🔒 Blindagem LGPD do `visivel_parceiro` no RLS** — **bug de confidencialidade
+      encontrado e corrigido**. A flag era respeitada só no frontend; um parceiro
+      conseguia ler, via API direta, andamentos/documentos internos e análises
+      inteiras dos próprios casos. As policies de `andamentos`, `documentos`,
+      `analises_tecnicas` e do Storage (bucket `documentos`) agora exigem
+      `visivel_parceiro` (análises = interno-only). _([migration](sql-migrations/migration_rls_visivel_parceiro.sql), aplicada em prod.)_
+- [x] **Audit log de acesso a documentos** — ver seção 🔴 acima (feito).
+- [x] **E-mail do magic link/convite repaginado** — templates HTML em português,
+      com a marca do portal (dourado/creme, cabeçalho tipográfico, CTA "Acessar o
+      portal"), aplicados no Supabase Auth via Management API. Fontes versionadas
+      em [auth-emails/](auth-emails/). Assuntos em PT-BR.
 - [x] **E-mails de notificação no ar** — 3 edge functions deployadas em produção
       (`notify-novo-andamento`, `notify-novo-comentario`, `notify-solicitacao-doc`);
       o frontend já as chamava (fire-and-forget) mas não estavam deployadas.

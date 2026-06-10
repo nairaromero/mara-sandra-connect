@@ -3536,6 +3536,10 @@ function TabDocumentos(props: TabDocumentosProps) {
       if (resp.error) throw resp.error;
       const url = resp.data ? resp.data.signedUrl : null;
       if (url) {
+        // Audit log (LGPD Art. 37) — fire-and-forget.
+        supabase
+          .rpc("log_acesso_documento", { p_documento_id: doc.id, p_acao: "download" })
+          .then(undefined, () => {});
         window.open(url, "_blank");
       }
     } catch (err) {
@@ -3552,6 +3556,11 @@ function TabDocumentos(props: TabDocumentosProps) {
       if (resp.error) throw resp.error;
       const signedUrl = resp.data ? resp.data.signedUrl : null;
       if (!signedUrl) throw new Error("Não foi possível gerar link de visualização");
+
+      // Audit log (LGPD Art. 37) — fire-and-forget.
+      supabase
+        .rpc("log_acesso_documento", { p_documento_id: d.id, p_acao: "visualizacao" })
+        .then(undefined, () => {});
 
       // Buscamos o arquivo e convertemos para blob: URL same-origin.
       // Sem isso, o Chrome bloqueia iframes apontados direto para o
@@ -3608,6 +3617,10 @@ function TabDocumentos(props: TabDocumentosProps) {
         if (resp.error) throw resp.error;
         const url = resp.data ? resp.data.signedUrl : null;
         if (url) {
+          // Audit log (LGPD Art. 37) — fire-and-forget.
+          supabase
+            .rpc("log_acesso_documento", { p_documento_id: d.id, p_acao: "download" })
+            .then(undefined, () => {});
           window.open(url, "_blank");
           okCount++;
         } else {
