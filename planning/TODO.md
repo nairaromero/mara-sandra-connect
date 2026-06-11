@@ -99,6 +99,20 @@
 
 ### Sessão 2026-06-09 (esta)
 
+- [x] **✍️ Aceite eletrônico de termos no 1º acesso (parceiro)** — `/boas-vindas`
+      agora pede os dados legais do parceiro (CPF/CNPJ, OAB+UF, endereço), renderiza
+      os documentos com **autofill** (DPA + Termo de Uso + Política), e registra
+      **assinatura eletrônica simples** (checkbox + nome digitado) num registro
+      **imutável** (`aceites_termos`: versão, hash dos documentos, IP, user-agent,
+      data) via RPC `registrar_aceite_termos`. Documentos versionados em
+      [src/content/legal/](../src/content/legal/) + [termos.ts](../src/lib/legal/termos.ts).
+      _([migration](sql-migrations/migration_aceite_termos.sql), aplicada em prod.)_
+  - [ ] **Falta:** preencher a config do escritório em `termos.ts` (CNPJ, endereço,
+        encarregado, foro — hoje "[a preencher]"); tela interna p/ ver/baixar o aceite.
+- [x] **Documentos jurídicos (minutas)** em [planning/legal/](legal/): DPA do parceiro,
+      Política de Privacidade e Adendo de IA — sob medida ao sistema (hospedagem BR,
+      subprocessadores reais, medidas implementadas). **CNISIA removida do escopo**
+      (escritório opera a própria plataforma). _Pendente: revisão por especialista LGPD._
 - [x] **🔒 Blindagem LGPD do `visivel_parceiro` no RLS** — **bug de confidencialidade
       encontrado e corrigido**. A flag era respeitada só no frontend; um parceiro
       conseguia ler, via API direta, andamentos/documentos internos e análises
