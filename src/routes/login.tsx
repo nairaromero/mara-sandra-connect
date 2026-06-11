@@ -48,7 +48,10 @@ function LoginPage() {
     setLoadingMagic(true);
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: window.location.origin },
+      // Redireciona pra /login (e não pra raiz "/", que é a landing pública).
+      // /login detecta a sessão e encaminha pra dentro do sistema (/casos),
+      // de onde o gate manda o parceiro pro aceite de termos se necessário.
+      options: { emailRedirectTo: `${window.location.origin}/login` },
     });
     setLoadingMagic(false);
     if (error) {
