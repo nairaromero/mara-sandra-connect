@@ -107,8 +107,12 @@
       data) via RPC `registrar_aceite_termos`. Documentos versionados em
       [src/content/legal/](../src/content/legal/) + [termos.ts](../src/lib/legal/termos.ts).
       _([migration](sql-migrations/migration_aceite_termos.sql), aplicada em prod.)_
-  - [ ] **Falta:** preencher a config do escritório em `termos.ts` (CNPJ, endereço,
-        encarregado, foro — hoje "[a preencher]"); tela interna p/ ver/baixar o aceite.
+  - [x] **Re-aceite por versão** — gate exige nova assinatura quando `TERMOS_VERSAO`
+        muda (coluna `usuarios.termos_versao` + gate em `_authenticated.tsx`).
+  - [x] **Tela interna do aceite** — em `/parceiros`, botão por parceiro abre o
+        registro (versão, data, IP, documentos) e baixa **comprovante** HTML/imprimível.
+  - [ ] **Falta (você):** preencher a config do escritório em `termos.ts` (CNPJ,
+        endereço, encarregado/DPO, foro — hoje "[a preencher]").
 - [x] **Documentos jurídicos (minutas)** em [planning/legal/](legal/): DPA do parceiro,
       Política de Privacidade e Adendo de IA — sob medida ao sistema (hospedagem BR,
       subprocessadores reais, medidas implementadas). **CNISIA removida do escopo**

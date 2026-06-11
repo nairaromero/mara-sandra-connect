@@ -11,6 +11,9 @@ import {
   ShieldAlert,
   Pencil,
   Trash2,
+  MessageCircle,
+  FileSignature,
+  Download,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -77,6 +80,76 @@ interface ParceiroRow {
   created_at: string | null;
 }
 
+interface AceiteRow {
+  id: string;
+  versao: string;
+  documentos: Array<{ id: string; titulo: string; hash: string }> | null;
+  dados_preenchidos: Record<string, string> | null;
+  nome_assinatura: string;
+  ip: string | null;
+  user_agent: string | null;
+  assinado_em: string;
+}
+
+function fmtDataHora(iso: string | null): string {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleString("pt-BR");
+  } catch {
+    return iso;
+  }
+}
+
+// Gera e baixa um comprovante de aceite (HTML autocontido, imprimível em PDF).
+function baixarComprovante(a: AceiteRow, parceiroNome: string) {
+  const esc = (s: string) =>
+    String(s ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  const dados = a.dados_preenchidos || {};
+  const docsRows = (a.documentos || [])
+    .map(
+      (d) =>
+        `<tr><td>${esc(d.titulo)}</td><td style="font-family:monospace;font-size:11px;word-break:break-all">${esc(
+          d.hash,
+        )}</td></tr>`,
+    )
+    .join("");
+  const dadosRows = Object.entries(dados)
+    .map(([k, v]) => `<tr><td><b>${esc(k)}</b></td><td>${esc(v)}</td></tr>`)
+    .join("");
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+<title>Comprovante de Aceite — ${esc(parceiroNome)}</title>
+<style>body{font-family:Arial,Helvetica,sans-serif;color:#222;max-width:720px;margin:32px auto;padding:0 16px;line-height:1.5}
+h1{font-size:20px;border-bottom:3px solid #b8862e;padding-bottom:8px}
+table{border-collapse:collapse;width:100%;margin:10px 0}td{border:1px solid #ddd;padding:6px 8px;font-size:13px;vertical-align:top}
+.muted{color:#777;font-size:12px}</style></head><body>
+<h1>Comprovante de Aceite Eletrônico</h1>
+<p class="muted">Mara Sandra Vian Advocacia · Plataforma Mara Sandra Connect</p>
+<table>
+<tr><td><b>Parceiro</b></td><td>${esc(parceiroNome)}</td></tr>
+<tr><td><b>Assinatura (nome digitado)</b></td><td>${esc(a.nome_assinatura)}</td></tr>
+<tr><td><b>Data/hora</b></td><td>${esc(fmtDataHora(a.assinado_em))}</td></tr>
+<tr><td><b>Versão dos termos</b></td><td>${esc(a.versao)}</td></tr>
+<tr><td><b>Endereço IP</b></td><td>${esc(a.ip || "—")}</td></tr>
+<tr><td><b>Navegador</b></td><td class="muted">${esc(a.user_agent || "—")}</td></tr>
+</table>
+<h3>Dados informados</h3><table>${dadosRows || "<tr><td>—</td></tr>"}</table>
+<h3>Documentos aceitos (hash SHA-256)</h3><table><tr><td><b>Documento</b></td><td><b>Hash</b></td></tr>${docsRows || "<tr><td>—</td></tr>"}</table>
+<p class="muted">O hash identifica de forma única o texto exato de cada documento aceito, cuja versão está arquivada no repositório da plataforma.</p>
+</body></html>`;
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `comprovante-aceite-${parceiroNome.replace(/\s+/g, "_")}-${a.versao}.html`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function maskTelefone(v: string) {
   const d = v.replace(/\D/g, "").slice(0, 11);
   if (d.length <= 10) {
@@ -121,6 +194,37 @@ function ParceirosPage() {
   const [excluirAlvo, setExcluirAlvo] = useState<ParceiroRow | null>(null);
   const [excluindo, setExcluindo] = useState(false);
 
+  // ---- Ativar WhatsApp (onboarding por código) ----
+  // Gera um código (RPC whatsapp_gerar_codigo_ativacao) que é enviado ao
+  // WhatsApp do parceiro; ele responde o código pra vincular o LID. O código
+  // tambem volta aqui pra mostrar ao interno (suporte).
+  const [ativarAlvo, setAtivarAlvo] = useState<ParceiroRow | null>(null);
+  const [ativando, setAtivando] = useState(false);
+  const [codigoGerado, setCodigoGerado] = useState<string | null>(null);
+  const [codigoParceiro, setCodigoParceiro] = useState("");
+
+  // Aceite de termos (interno consulta/baixa o comprovante).
+  const [aceiteAlvo, setAceiteAlvo] = useState<ParceiroRow | null>(null);
+  const [aceites, setAceites] = useState<Array<AceiteRow>>([]);
+  const [carregandoAceites, setCarregandoAceites] = useState(false);
+
+  useEffect(() => {
+    if (!aceiteAlvo) return;
+    setCarregandoAceites(true);
+    setAceites([]);
+    (async () => {
+      const { data, error } = await supabase
+        .from("aceites_termos")
+        .select(
+          "id, versao, documentos, dados_preenchidos, nome_assinatura, ip, user_agent, assinado_em",
+        )
+        .eq("usuario_id", aceiteAlvo.id)
+        .order("assinado_em", { ascending: false });
+      if (!error) setAceites((data || []) as Array<AceiteRow>);
+      setCarregandoAceites(false);
+    })();
+  }, [aceiteAlvo]);
+
   const isInterno = usuario?.tipo === "interno";
 
   useEffect(() => {
@@ -153,11 +257,11 @@ function ParceirosPage() {
   async function salvarEdit() {
     if (!editAlvo) return;
     if (!editNome.trim()) {
-      toast.error("Nome obrigatorio");
+      toast.error("Nome obrigatório");
       return;
     }
     if (!editEmail.trim()) {
-      toast.error("Email obrigatorio");
+      toast.error("Email obrigatório");
       return;
     }
     setEditSalvando(true);
@@ -179,7 +283,7 @@ function ParceirosPage() {
         toast.success(
           data?.link_enviado
             ? "Parceiro atualizado. Magic link enviado pro novo email."
-            : "Parceiro atualizado. (Magic link nao foi enviado - veja logs.)",
+            : "Parceiro atualizado. (Magic link não foi enviado - veja logs.)",
         );
       } else {
         toast.success("Parceiro atualizado.");
@@ -213,7 +317,7 @@ function ParceirosPage() {
         toast.warning(data.warning);
       } else {
         toast.success(
-          "Parceiro " + (excluirAlvo.nome ?? "") + " excluido.",
+          "Parceiro " + (excluirAlvo.nome ?? "") + " excluído.",
         );
       }
       setExcluirAlvo(null);
@@ -224,6 +328,28 @@ function ParceirosPage() {
       toast.error(errObj.message || "Erro ao excluir parceiro");
     } finally {
       setExcluindo(false);
+    }
+  }
+
+  async function ativarWhatsappConfirmado() {
+    if (!ativarAlvo) return;
+    setAtivando(true);
+    try {
+      const { data, error } = await supabase.rpc("whatsapp_gerar_codigo_ativacao", {
+        p_parceiro_id: ativarAlvo.id,
+      });
+      if (error) throw error;
+      const codigo = typeof data === "string" ? data : String(data ?? "");
+      if (!codigo) throw new Error("Código não retornado.");
+      setCodigoParceiro(ativarAlvo.nome ?? "parceiro");
+      setCodigoGerado(codigo);
+      setAtivarAlvo(null);
+    } catch (err) {
+      console.error(err);
+      const errObj = err as { message?: string };
+      toast.error(errObj.message || "Erro ao gerar código de ativação");
+    } finally {
+      setAtivando(false);
     }
   }
 
@@ -449,7 +575,7 @@ function ParceirosPage() {
                     <TableHead>OAB</TableHead>
                     <TableHead>Telefone</TableHead>
                     <TableHead className="w-24">Status</TableHead>
-                    <TableHead className="w-28 text-right">Acoes</TableHead>
+                    <TableHead className="w-36 text-right">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -468,6 +594,31 @@ function ParceirosPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-0.5">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setAtivarAlvo(p)}
+                            disabled={!p.telefone}
+                            aria-label="Ativar WhatsApp"
+                            title={
+                              p.telefone
+                                ? "Ativar WhatsApp (envia código ao parceiro)"
+                                : "Parceiro sem telefone cadastrado"
+                            }
+                            className="text-muted-foreground hover:text-green-600"
+                          >
+                            <MessageCircle className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setAceiteAlvo(p)}
+                            aria-label="Ver aceite de termos"
+                            title="Ver/baixar aceite de termos"
+                            className="text-muted-foreground hover:text-[var(--gold)]"
+                          >
+                            <FileSignature className="h-3.5 w-3.5" />
+                          </Button>
                           <Button
                             size="sm"
                             variant="ghost"
@@ -495,6 +646,70 @@ function ParceirosPage() {
           </CardContent>
         </Card>
 
+        {/* Dialog: aceite de termos do parceiro (interno only) */}
+        <Dialog
+          open={aceiteAlvo !== null}
+          onOpenChange={(o) => !o && setAceiteAlvo(null)}
+        >
+          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Aceite de termos — {aceiteAlvo?.nome ?? "—"}</DialogTitle>
+              <DialogDescription>
+                Registro do aceite eletrônico (LGPD). Use "Baixar comprovante" para
+                guardar/imprimir.
+              </DialogDescription>
+            </DialogHeader>
+
+            {carregandoAceites ? (
+              <div className="flex h-24 items-center justify-center">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : aceites.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">
+                Este parceiro ainda não assinou os termos.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {aceites.map((a) => (
+                  <div key={a.id} className="rounded-lg border p-3 text-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium">Versão {a.versao}</span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          baixarComprovante(a, aceiteAlvo?.nome ?? "parceiro")
+                        }
+                      >
+                        <Download className="h-3.5 w-3.5 mr-1.5" />
+                        Baixar comprovante
+                      </Button>
+                    </div>
+                    <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+                      <dt className="text-muted-foreground">Assinatura</dt>
+                      <dd className="font-serif">{a.nome_assinatura}</dd>
+                      <dt className="text-muted-foreground">Data/hora</dt>
+                      <dd>{fmtDataHora(a.assinado_em)}</dd>
+                      <dt className="text-muted-foreground">IP</dt>
+                      <dd>{a.ip || "—"}</dd>
+                      <dt className="text-muted-foreground">Documentos</dt>
+                      <dd>
+                        {(a.documentos || []).map((d) => d.titulo).join(", ") || "—"}
+                      </dd>
+                    </dl>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setAceiteAlvo(null)}>
+                Fechar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         {/* Dialog: editar parceiro (interno only) */}
         <Dialog
           open={editAberto}
@@ -507,8 +722,8 @@ function ParceirosPage() {
               <DialogTitle>Editar parceiro</DialogTitle>
               <DialogDescription>
                 Atualize dados do parceiro. Se trocar o email, um novo magic
-                link sera enviado pro novo endereco automaticamente - util pra
-                testar com seu proprio email agora e migrar pro email real
+                link será enviado pro novo endereço automaticamente - útil pra
+                testar com seu próprio email agora e migrar pro email real
                 depois.
               </DialogDescription>
             </DialogHeader>
@@ -533,7 +748,7 @@ function ParceirosPage() {
                 {editAlvo && editEmail.trim().toLowerCase() !==
                   (editAlvo.email ?? "").toLowerCase() && (
                   <p className="text-xs text-[var(--gold)] mt-1 font-medium">
-                    Email mudou - sera enviado novo magic link ao salvar.
+                    Email mudou - será enviado novo magic link ao salvar.
                   </p>
                 )}
               </div>
@@ -592,14 +807,14 @@ function ParceirosPage() {
               <AlertDialogDescription asChild>
                 <div className="space-y-2 text-sm">
                   <p>
-                    Esta acao e <strong>irreversivel</strong>. O parceiro sera
+                    Esta ação é <strong>irreversível</strong>. O parceiro será
                     removido do sistema (login + cadastro).
                   </p>
-                  <p>Cascade que preserva historico:</p>
+                  <p>Cascade que preserva histórico:</p>
                   <ul className="list-disc pl-5 space-y-0.5 text-muted-foreground">
                     <li>
-                      <strong>Casos</strong> vinculados ficarao sem parceiro
-                      indicador (parceiro_id = null). Voce pode reatribuir
+                      <strong>Casos</strong> vinculados ficarão sem parceiro
+                      indicador (parceiro_id = null). Você pode reatribuir
                       depois.
                     </li>
                     <li>
@@ -607,12 +822,12 @@ function ParceirosPage() {
                       continuam existindo, mas perdem a autoria.
                     </li>
                     <li>
-                      <strong>Comentarios</strong> feitos pelo parceiro sao
-                      apagados (respostas tambem).
+                      <strong>Comentários</strong> feitos pelo parceiro são
+                      apagados (respostas também).
                     </li>
                     <li>
                       <strong>Login</strong> e cadastro (auth.users + usuarios)
-                      sao removidos.
+                      são removidos.
                     </li>
                   </ul>
                 </div>
@@ -638,6 +853,84 @@ function ParceirosPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* AlertDialog: confirmar envio do código de ativação WhatsApp */}
+        <AlertDialog
+          open={ativarAlvo !== null}
+          onOpenChange={(o) => {
+            if (!ativando && !o) setAtivarAlvo(null);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                Ativar WhatsApp de {ativarAlvo?.nome ?? "parceiro"}?
+              </AlertDialogTitle>
+              <AlertDialogDescription asChild>
+                <div className="space-y-2 text-sm">
+                  <p>
+                    Vamos enviar um <strong>código de ativação</strong> para o
+                    WhatsApp do parceiro no número{" "}
+                    <strong>{ativarAlvo?.telefone ?? "—"}</strong>.
+                  </p>
+                  <p className="text-muted-foreground">
+                    O parceiro deve <strong>responder o código</strong> na
+                    conversa com o bot para vincular o WhatsApp dele. O código
+                    expira em 15 minutos.
+                  </p>
+                </div>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={ativando}>
+                Cancelar
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault();
+                  ativarWhatsappConfirmado();
+                }}
+                disabled={ativando}
+              >
+                {ativando && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
+                <MessageCircle className="h-3.5 w-3.5 mr-2" />
+                Enviar código
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Dialog: mostra o código gerado (suporte) */}
+        <Dialog
+          open={codigoGerado !== null}
+          onOpenChange={(o) => {
+            if (!o) setCodigoGerado(null);
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Código enviado ✅</DialogTitle>
+              <DialogDescription>
+                Enviamos o código de ativação para o WhatsApp de {codigoParceiro}.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-col items-center gap-2 py-4">
+              <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                Código gerado
+              </span>
+              <span className="font-mono text-4xl font-bold tracking-[0.3em]">
+                {codigoGerado}
+              </span>
+              <p className="mt-2 text-center text-xs text-muted-foreground">
+                Peça para o parceiro <strong>responder esse código</strong> na
+                conversa do WhatsApp com o bot. Expira em 15 minutos.
+              </p>
+            </div>
+            <DialogFooter>
+              <Button onClick={() => setCodigoGerado(null)}>Entendi</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </ClientOnly>
     </div>
   );

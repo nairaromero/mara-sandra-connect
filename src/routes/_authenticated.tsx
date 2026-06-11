@@ -13,6 +13,7 @@ import { NotificacoesBell } from "@/components/notificacoes-bell";
 import { MovimentacoesParceiroBell } from "@/components/movimentacoes-parceiro-bell";
 import { IaLauncher } from "@/components/ia/ia-launcher";
 import { useAuth } from "@/hooks/use-auth";
+import { TERMOS_VERSAO } from "@/lib/legal/termos";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -32,14 +33,15 @@ function AuthenticatedLayout() {
     }
   }, [loading, session, navigate]);
 
-  // Redireciona parceiro que ainda nao fez onboarding pra /boas-vindas.
-  // Internos foram auto-marcados como onboarded no backfill da migration.
-  // So redireciona quando o usuario ja foi carregado (evita flash na primeira
-  // renderizacao). Nao redireciona se ja esta em /boas-vindas (evita loop).
+  // Redireciona parceiro pra /boas-vindas quando ainda nao fez onboarding OU
+  // quando a versao dos termos mudou (precisa re-assinar). Internos foram
+  // auto-marcados como onboarded no backfill da migration. So redireciona
+  // quando o usuario ja foi carregado (evita flash) e nao se ja esta la (loop).
   useEffect(() => {
     if (loading || !usuario) return;
     const precisaOnboarding =
-      usuario.tipo === "parceiro" && !usuario.onboarded_em;
+      usuario.tipo === "parceiro" &&
+      (!usuario.onboarded_em || usuario.termos_versao !== TERMOS_VERSAO);
     if (precisaOnboarding && currentPath !== "/boas-vindas") {
       navigate({ to: "/boas-vindas" });
     }
