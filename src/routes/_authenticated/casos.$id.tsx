@@ -5640,9 +5640,37 @@ interface TabRepassesProps {
 function TabRepasses(props: TabRepassesProps) {
   const { casoId, repasses, parceiroId, isInterno, onChange } = props;
   const [aberto, setAberto] = useState(false);
-  const [valor, setValor] = useState("");
+  const [totalRecebido, setTotalRecebido] = useState("");
+  const [pctRepasse, setPctRepasse] = useState("30");
+  const [pctParceiro, setPctParceiro] = useState(30);
   const [statusInicial, setStatusInicial] = useState("previsto");
   const [salvando, setSalvando] = useState(false);
+
+  // Busca o % de repasse padrão do parceiro para pré-preencher o cálculo.
+  useEffect(() => {
+    if (!parceiroId) return;
+    (async () => {
+      const { data } = await supabase
+        .from("usuarios")
+        .select("percentual_parceiro")
+        .eq("id", parceiroId)
+        .maybeSingle();
+      const pct = (data as { percentual_parceiro?: number } | null)
+        ?.percentual_parceiro;
+      if (pct != null) {
+        setPctParceiro(Number(pct));
+        setPctRepasse(String(pct));
+      }
+    })();
+  }, [parceiroId]);
+
+  // Valor do repasse = total recebido × % do parceiro (2 casas).
+  const totalNum = parseFloat((totalRecebido || "").replace(",", "."));
+  const pctNum = parseFloat((pctRepasse || "").replace(",", "."));
+  const valorRepasse =
+    !isNaN(totalNum) && totalNum > 0 && !isNaN(pctNum)
+      ? Math.round(totalNum * pctNum) / 100
+      : 0;
 
   const lista = isInterno ? repasses : repasses.filter((r) => r.parceiro_id === parceiroId);
 
@@ -5660,9 +5688,12 @@ function TabRepasses(props: TabRepassesProps) {
       toast.error("Caso sem parceiro indicador.");
       return;
     }
-    const valorNumero = parseFloat(valor.replace(",", "."));
-    if (isNaN(valorNumero) || valorNumero <= 0) {
-      toast.error("Informe um valor válido");
+    if (isNaN(totalNum) || totalNum <= 0) {
+      toast.error("Informe o valor total recebido");
+      return;
+    }
+    if (valorRepasse <= 0) {
+      toast.error("Valor de repasse inválido");
       return;
     }
     setSalvando(true);
@@ -5670,12 +5701,13 @@ function TabRepasses(props: TabRepassesProps) {
       const resp = await supabase.from("repasses").insert({
         caso_id: casoId,
         parceiro_id: parceiroId,
-        valor: valorNumero,
+        valor: valorRepasse,
+        percentual: Math.min(100, Math.max(0, pctNum || pctParceiro)),
         status: statusInicial,
       });
       if (resp.error) throw resp.error;
       toast.success("Repasse registrado");
-      setValor("");
+      setTotalRecebido("");
       setAberto(false);
       onChange();
     } catch (err) {
@@ -5712,7 +5744,9 @@ function TabRepasses(props: TabRepassesProps) {
         <div className="flex items-center justify-between">
           <div>
             <CardTitle className="text-base">Repasses</CardTitle>
-            <CardDescription>Honorários do parceiro indicador (30%).</CardDescription>
+            <CardDescription>
+              Honorários do parceiro indicador ({pctParceiro}%).
+            </CardDescription>
           </div>
           {isInterno && parceiroId && (
             <Dialog open={aberto} onOpenChange={setAberto}>
@@ -5727,15 +5761,32 @@ function TabRepasses(props: TabRepassesProps) {
                   <DialogTitle>Registrar repasse</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-3">
-                  <div>
-                    <Label className="text-xs">Valor (R$)</Label>
-                    <Input
-                      type="text"
-                      inputMode="decimal"
-                      placeholder="0,00"
-                      value={valor}
-                      onChange={(e) => setValor(e.target.value)}
-                    />
+                  <div className="grid grid-cols-[1fr_auto] gap-2">
+                    <div>
+                      <Label className="text-xs">Valor total recebido (R$)</Label>
+                      <Input
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="0,00"
+                        value={totalRecebido}
+                        onChange={(e) => setTotalRecebido(e.target.value)}
+                      />
+                    </div>
+                    <div className="w-20">
+                      <Label className="text-xs">% parceiro</Label>
+                      <Input
+                        type="number"
+                        inputMode="decimal"
+                        min={0}
+                        max={100}
+                        value={pctRepasse}
+                        onChange={(e) => setPctRepasse(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
+                    Repasse ao parceiro:{" "}
+                    <span className="font-semibold">{formatMoney(valorRepasse)}</span>
                   </div>
                   <div>
                     <Label className="text-xs">Status inicial</Label>

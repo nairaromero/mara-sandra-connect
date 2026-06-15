@@ -76,6 +76,7 @@ interface ParceiroRow {
   email: string | null;
   oab: string | null;
   telefone: string | null;
+  percentual_parceiro: number | null;
   ativo: boolean;
   created_at: string | null;
 }
@@ -163,6 +164,7 @@ const schema = z.object({
   email: z.string().trim().email("E-mail inválido").max(150),
   oab: z.string().trim().min(3, "Informe o número da OAB").max(30),
   telefone: z.string().trim().min(14, "Telefone incompleto").max(16),
+  percentual: z.coerce.number().min(0, "0 a 100").max(100, "0 a 100"),
   observacoes: z.string().max(1000).optional().or(z.literal("")),
 });
 
@@ -185,6 +187,7 @@ function ParceirosPage() {
   const [editEmail, setEditEmail] = useState("");
   const [editOab, setEditOab] = useState("");
   const [editTelefone, setEditTelefone] = useState("");
+  const [editPercentual, setEditPercentual] = useState("30");
   const [editSalvando, setEditSalvando] = useState(false);
 
   // ---- Excluir parceiro ----
@@ -241,6 +244,7 @@ function ParceirosPage() {
       email: "",
       oab: "",
       telefone: "",
+      percentual: 30,
       observacoes: "",
     },
   });
@@ -251,6 +255,7 @@ function ParceirosPage() {
     setEditEmail(p.email ?? "");
     setEditOab(p.oab ?? "");
     setEditTelefone(p.telefone ?? "");
+    setEditPercentual(String(p.percentual_parceiro ?? 30));
     setEditAberto(true);
   }
 
@@ -274,6 +279,7 @@ function ParceirosPage() {
           email: editEmail.trim().toLowerCase(),
           oab: editOab.trim(),
           telefone: editTelefone.trim(),
+          percentual: Number(editPercentual) || 30,
           enviar_link: emailMudou, // so envia magic link se email mudou
         },
       });
@@ -357,7 +363,7 @@ function ParceirosPage() {
     setLoading(true);
     const { data, error } = await supabase
       .from("usuarios")
-      .select("id, nome, email, oab, telefone, ativo, created_at")
+      .select("id, nome, email, oab, telefone, percentual_parceiro, ativo, created_at")
       .eq("tipo", "parceiro")
       .order("created_at", { ascending: false });
     if (error) {
@@ -390,6 +396,7 @@ function ParceirosPage() {
             nome: values.nome.trim(),
             oab: values.oab.trim(),
             telefone: values.telefone.trim(),
+            percentual: values.percentual,
             tipo: "parceiro",
             observacoes_iniciais: values.observacoes?.trim() || null,
           },
@@ -523,6 +530,28 @@ function ParceirosPage() {
                 />
                 <FormField
                   control={form.control}
+                  name="percentual"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>% de repasse ao parceiro *</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          inputMode="decimal"
+                          min={0}
+                          max={100}
+                          step={1}
+                          placeholder="30"
+                          value={field.value}
+                          onChange={(e) => field.onChange(e.target.value)}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
                   name="observacoes"
                   render={({ field }) => (
                     <FormItem className="sm:col-span-2">
@@ -573,6 +602,7 @@ function ParceirosPage() {
                     <TableHead>Nome</TableHead>
                     <TableHead>E-mail</TableHead>
                     <TableHead>OAB</TableHead>
+                    <TableHead className="w-16">Repasse</TableHead>
                     <TableHead>Telefone</TableHead>
                     <TableHead className="w-24">Status</TableHead>
                     <TableHead className="w-36 text-right">Ações</TableHead>
@@ -584,6 +614,11 @@ function ParceirosPage() {
                       <TableCell className="font-medium">{p.nome ?? "—"}</TableCell>
                       <TableCell className="text-muted-foreground">{p.email ?? "—"}</TableCell>
                       <TableCell>{p.oab ?? "—"}</TableCell>
+                      <TableCell>
+                        {p.percentual_parceiro != null
+                          ? `${p.percentual_parceiro}%`
+                          : "—"}
+                      </TableCell>
                       <TableCell>{p.telefone ?? "—"}</TableCell>
                       <TableCell>
                         {p.ativo ? (
@@ -770,6 +805,19 @@ function ParceirosPage() {
                     }
                     placeholder="(00) 00000-0000"
                     inputMode="tel"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">% de repasse ao parceiro</Label>
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={editPercentual}
+                    onChange={(e) => setEditPercentual(e.target.value)}
+                    placeholder="30"
                   />
                 </div>
               </div>
