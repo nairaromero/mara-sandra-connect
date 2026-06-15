@@ -30,6 +30,7 @@ import {
   Copy,
   KeyRound,
   X,
+  ListTodo,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -64,6 +65,7 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { CasoTarefasTab } from "@/components/tarefas/caso-tarefas-tab";
 import { Markdown } from "@/components/markdown";
 import {
   Select,
@@ -869,6 +871,12 @@ function CasoDetalhePage() {
               <span>Documentos</span>
             </TabsTrigger>
             {isInterno && (
+              <TabsTrigger value="tarefas" className="flex items-center gap-1 shrink-0">
+                <ListTodo className="h-4 w-4" />
+                <span>Tarefas</span>
+              </TabsTrigger>
+            )}
+            {isInterno && (
               <TabsTrigger value="analise" className="flex items-center gap-1 shrink-0">
                 <FileText className="h-4 w-4" />
                 <span>Análise</span>
@@ -971,6 +979,12 @@ function CasoDetalhePage() {
               onChange={carregar}
             />
           </TabsContent>
+
+          {isInterno && (
+            <TabsContent value="tarefas" className="mt-4">
+              <CasoTarefasTab casoId={casoId} />
+            </TabsContent>
+          )}
 
           {isInterno && (
             <TabsContent value="analise" className="mt-4">

@@ -10,6 +10,7 @@ import {
   Users,
   UserCog,
   Webhook,
+  ListTodo,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import {
@@ -39,6 +40,7 @@ const itemsBase = [
 ];
 
 const itemsInternos = [
+  { title: "Tarefas", url: "/tarefas", icon: ListTodo },
   { title: "Equipe", url: "/equipe", icon: UserCog },
   { title: "Parceiros", url: "/parceiros", icon: Users },
   { title: "Webhooks", url: "/webhooks", icon: Webhook },
