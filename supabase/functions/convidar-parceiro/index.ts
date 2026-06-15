@@ -73,6 +73,8 @@ serve(async (req) => {
   const email = String(body.email || "").trim().toLowerCase();
   const oab = String(body.oab || "").trim();
   const telefone = String(body.telefone || "").trim();
+  // % de repasse devido ao parceiro (0–100). Default 30.
+  const percentual = Math.min(100, Math.max(0, Number(body.percentual ?? 30) || 30));
   const observacoes = body.observacoes
     ? String(body.observacoes).trim()
     : null;
@@ -130,6 +132,7 @@ serve(async (req) => {
         email,
         oab: oab || null,
         telefone: telefone || null,
+        percentual_parceiro: percentual,
         tipo: "parceiro",
         ativo: true,
       },
