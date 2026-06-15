@@ -111,6 +111,19 @@ export function renderDocumentos(d: ParceiroDados): Array<DocumentoRenderizado> 
   }));
 }
 
+const PARCEIRO_VAZIO: ParceiroDados = {
+  nome: "",
+  documento: "",
+  oab: "",
+  oab_uf: "",
+  endereco: "",
+};
+
+// Política de Privacidade pública (não usa dados do parceiro — só do escritório).
+export function renderPolitica(): string {
+  return preencher(politicaRaw, PARCEIRO_VAZIO);
+}
+
 // SHA-256 hex de um texto (tamper-evidence do que foi assinado).
 export async function sha256Hex(texto: string): Promise<string> {
   const bytes = new TextEncoder().encode(texto);
