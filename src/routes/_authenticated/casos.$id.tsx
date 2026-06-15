@@ -65,7 +65,7 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CasoTarefasTab } from "@/components/tarefas/caso-tarefas-tab";
+import { CasoAtividadesTab } from "@/components/tarefas/caso-atividades-tab";
 import { Markdown } from "@/components/markdown";
 import {
   Select,
@@ -871,9 +871,9 @@ function CasoDetalhePage() {
               <span>Documentos</span>
             </TabsTrigger>
             {isInterno && (
-              <TabsTrigger value="tarefas" className="flex items-center gap-1 shrink-0">
+              <TabsTrigger value="atividades" className="flex items-center gap-1 shrink-0">
                 <ListTodo className="h-4 w-4" />
-                <span>Tarefas</span>
+                <span>Atividades</span>
               </TabsTrigger>
             )}
             {isInterno && (
@@ -981,8 +981,22 @@ function CasoDetalhePage() {
           </TabsContent>
 
           {isInterno && (
-            <TabsContent value="tarefas" className="mt-4">
-              <CasoTarefasTab casoId={casoId} />
+            <TabsContent value="atividades" className="mt-4">
+              <CasoAtividadesTab
+                casoId={casoId}
+                andamentos={andamentos}
+                onIrParaAndamentos={(id) => {
+                  setAba("andamentos");
+                  // Navega pra mesma rota com ?foco=<id>&tab=andamentos para
+                  // o useFocoItem destacar e fazer scroll.
+                  if (id && typeof window !== "undefined") {
+                    const params = new URLSearchParams(window.location.search);
+                    params.set("tab", "andamentos");
+                    params.set("foco", id);
+                    window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
+                  }
+                }}
+              />
             </TabsContent>
           )}
 
