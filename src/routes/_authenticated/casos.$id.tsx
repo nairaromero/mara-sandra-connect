@@ -65,7 +65,7 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CasoAtividadesTab } from "@/components/tarefas/caso-atividades-tab";
+import { CasoTarefasTab } from "@/components/tarefas/caso-tarefas-tab";
 import { Markdown } from "@/components/markdown";
 import {
   Select,
@@ -862,10 +862,6 @@ function CasoDetalhePage() {
               <Activity className="h-4 w-4" />
               <span>Visão geral</span>
             </TabsTrigger>
-            <TabsTrigger value="andamentos" className="flex items-center gap-1 shrink-0">
-              <ClipboardList className="h-4 w-4" />
-              <span>Andamentos</span>
-            </TabsTrigger>
             <TabsTrigger value="documentos" className="flex items-center gap-1 shrink-0">
               <FileCheck className="h-4 w-4" />
               <span>Documentos</span>
@@ -952,20 +948,6 @@ function CasoDetalhePage() {
             )}
           </TabsContent>
 
-          <TabsContent value="andamentos" className="mt-4">
-            <TabAndamentos
-              casoId={casoId}
-              andamentos={andamentos}
-              processosAdmin={processosAdmin}
-              processosJudiciais={processosJudiciais}
-              isInterno={isInterno}
-              temParceiro={caso.parceiro_id !== null}
-              usuarioId={usuario ? usuario.id : null}
-              focoId={search.foco}
-              onChange={carregar}
-            />
-          </TabsContent>
-
           <TabsContent value="documentos" className="mt-4">
             <TabDocumentos
               casoId={casoId}
@@ -982,21 +964,24 @@ function CasoDetalhePage() {
 
           {isInterno && (
             <TabsContent value="atividades" className="mt-4">
-              <CasoAtividadesTab
-                casoId={casoId}
-                andamentos={andamentos}
-                onIrParaAndamentos={(id) => {
-                  setAba("andamentos");
-                  // Navega pra mesma rota com ?foco=<id>&tab=andamentos para
-                  // o useFocoItem destacar e fazer scroll.
-                  if (id && typeof window !== "undefined") {
-                    const params = new URLSearchParams(window.location.search);
-                    params.set("tab", "andamentos");
-                    params.set("foco", id);
-                    window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
-                  }
-                }}
-              />
+              <div className="grid gap-6 lg:grid-cols-2">
+                <div className="min-w-0">
+                  <CasoTarefasTab casoId={casoId} />
+                </div>
+                <div className="min-w-0">
+                  <TabAndamentos
+                    casoId={casoId}
+                    andamentos={andamentos}
+                    processosAdmin={processosAdmin}
+                    processosJudiciais={processosJudiciais}
+                    isInterno={isInterno}
+                    temParceiro={caso.parceiro_id !== null}
+                    usuarioId={usuario ? usuario.id : null}
+                    focoId={search.foco}
+                    onChange={carregar}
+                  />
+                </div>
+              </div>
             </TabsContent>
           )}
 

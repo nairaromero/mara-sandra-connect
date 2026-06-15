@@ -132,7 +132,7 @@ export function CasoTarefasTab({ casoId }: Props) {
                 {lista.length === 0 ? (
                   <p className="text-xs text-muted-foreground">— vazio —</p>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 gap-2">
                     {lista.map((t) => (
                       <TarefaCard
                         key={t.id}
