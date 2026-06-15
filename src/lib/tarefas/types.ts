@@ -64,8 +64,10 @@ export interface TarefaTemplateRow {
     offset_dias?: number;
     executor_email?: string;
     interessados_emails?: string[];
+    meta?: Record<string, unknown>;          // copiado pra tarefa.metadata
   }>;
   ativo: boolean;
+  oculto_na_ui?: boolean;
 }
 
 export const STATUS_LABEL: Record<TarefaStatus, string> = {
