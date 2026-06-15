@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Briefcase, Clock, FileSearch, TrendingUp, Wallet, CheckCircle2, Loader2, Plus } from "lucide-react";
+import { MinhasTarefasHoje } from "@/components/tarefas/minhas-tarefas-hoje";
 
 export const Route = createFileRoute("/_authenticated/casos/")({
   component: DashboardPage,
@@ -222,6 +223,7 @@ function DashboardPage() {
           <MetricCard title="Êxitos no ano" value={metrics.exitosAno} icon={CheckCircle2} />
         </div>
       )}
+      {isInterno && <MinhasTarefasHoje usuarioId={usuario.id} />}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">
