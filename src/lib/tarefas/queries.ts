@@ -89,6 +89,7 @@ export interface CriarTarefaInput {
   titulo: string;
   descricao: string | null;
   due_at: string | null;
+  metadata?: Record<string, unknown>;
 }
 
 export async function criarTarefa(input: CriarTarefaInput): Promise<TarefaRow> {
@@ -97,6 +98,7 @@ export async function criarTarefa(input: CriarTarefaInput): Promise<TarefaRow> {
     .insert({
       ...input,
       origem: "manual",
+      metadata: input.metadata ?? {},
     })
     .select("*")
     .single();
@@ -162,6 +164,74 @@ export async function listarInternosAtivos(): Promise<
     .order("nome", { ascending: true });
   if (error) throw error;
   return data ?? [];
+}
+
+export interface ContextoCasoParaTemplate {
+  cliente_nome: string;
+  cliente_cpf: string;
+  protocolo: string;
+  servico: string;
+  numero_processo_judicial: string;
+}
+
+/**
+ * Carrega dados do caso (cliente + processo opcional) para popular
+ * placeholders de template ({nome_cliente}, {protocolo}, {cpf}, etc.)
+ * quando o template é aplicado manualmente pela UI.
+ */
+export async function obterContextoCaso(
+  casoId: string,
+  processoToken: string,             // "" | "admin:<id>" | "judicial:<id>"
+): Promise<ContextoCasoParaTemplate> {
+  const ctx: ContextoCasoParaTemplate = {
+    cliente_nome: "",
+    cliente_cpf: "",
+    protocolo: "",
+    servico: "",
+    numero_processo_judicial: "",
+  };
+
+  const { data: caso } = await supabase
+    .from("casos")
+    .select("cliente_id")
+    .eq("id", casoId)
+    .maybeSingle();
+  if (caso?.cliente_id) {
+    const { data: cliente } = await supabase
+      .from("clientes")
+      .select("nome, cpf")
+      .eq("id", caso.cliente_id)
+      .maybeSingle();
+    if (cliente) {
+      ctx.cliente_nome = (cliente.nome as string) ?? "";
+      ctx.cliente_cpf = (cliente.cpf as string) ?? "";
+    }
+  }
+
+  if (processoToken.startsWith("admin:")) {
+    const id = processoToken.slice(6);
+    const { data } = await supabase
+      .from("processos_admin")
+      .select("numero_requerimento, tipo_beneficio")
+      .eq("id", id)
+      .maybeSingle();
+    if (data) {
+      ctx.protocolo = (data.numero_requerimento as string) ?? "";
+      ctx.servico = (data.tipo_beneficio as string) ?? "";
+    }
+  } else if (processoToken.startsWith("judicial:")) {
+    const id = processoToken.slice(9);
+    const { data } = await supabase
+      .from("processos_judiciais")
+      .select("numero_processo")
+      .eq("id", id)
+      .maybeSingle();
+    if (data) {
+      ctx.numero_processo_judicial = (data.numero_processo as string) ?? "";
+      ctx.protocolo = ctx.numero_processo_judicial;
+    }
+  }
+  return ctx;
 }
 
 export async function listarProcessosDoCaso(

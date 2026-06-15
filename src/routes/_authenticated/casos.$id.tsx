@@ -2233,6 +2233,28 @@ function TabAndamentos(props: TabAndamentosProps) {
   const [abertoSemProcessoAdmin, setAbertoSemProcessoAdmin] = useState(false);
   const [abertoSemVinculoGerais, setAbertoSemVinculoGerais] = useState(false);
 
+  // Qual andamento está aberto (expansão inline com texto completo).
+  // Apenas UM andamento por vez. Click fora fecha automaticamente.
+  const [andamentoAbertoId, setAndamentoAbertoId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!andamentoAbertoId) return;
+    function onDocMouseDown(ev: MouseEvent) {
+      const el = document.getElementById("foco-" + andamentoAbertoId);
+      if (el && !el.contains(ev.target as Node)) {
+        setAndamentoAbertoId(null);
+      }
+    }
+    document.addEventListener("mousedown", onDocMouseDown);
+    return () => document.removeEventListener("mousedown", onDocMouseDown);
+  }, [andamentoAbertoId]);
+
+  // Heurística: descrição "longa" o suficiente pra valer o botão "Ler mais".
+  function descricaoEhLonga(s: string | null): boolean {
+    if (!s) return false;
+    if (s.length > 180) return true;
+    return (s.match(/\n/g) ?? []).length >= 3;
+  }
+
   // Ao chegar via notificacao (?foco=<andamento>), expande o accordion que
   // contem o andamento pra ele ficar visivel (e o destaque rola ate ele).
   useEffect(() => {
@@ -2643,7 +2665,28 @@ function TabAndamentos(props: TabAndamentosProps) {
         </div>
         {a.titulo && <p className="text-sm font-medium mt-1">{a.titulo}</p>}
         {a.descricao && (
-          <p className="text-sm mt-1 whitespace-pre-wrap text-muted-foreground">{a.descricao}</p>
+          <div className="mt-1">
+            <p
+              className={
+                "text-sm whitespace-pre-wrap text-muted-foreground " +
+                (andamentoAbertoId === a.id ? "" : "line-clamp-3")
+              }
+            >
+              {a.descricao}
+            </p>
+            {(descricaoEhLonga(a.descricao) || andamentoAbertoId === a.id) && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setAndamentoAbertoId(andamentoAbertoId === a.id ? null : a.id);
+                }}
+                className="mt-1 text-xs underline text-muted-foreground hover:text-foreground"
+              >
+                {andamentoAbertoId === a.id ? "Fechar" : "Ler mais"}
+              </button>
+            )}
+          </div>
         )}
       </div>
     );
@@ -2743,7 +2786,11 @@ function TabAndamentos(props: TabAndamentosProps) {
                 Nenhum andamento registrado para este processo.
               </p>
             ) : (
-              <ul className="space-y-3">{ands.map(renderItemAndamento)}</ul>
+              // Janela ~3 cards visíveis (com line-clamp-3 cada um fica ~140px);
+              // scroll vertical pros demais.
+              <ul className="space-y-3 max-h-[28rem] overflow-y-auto pr-1">
+                {ands.map(renderItemAndamento)}
+              </ul>
             )}
           </div>
         )}
@@ -2759,7 +2806,9 @@ function TabAndamentos(props: TabAndamentosProps) {
     : isJudDialog
       ? processosJudiciais
       : [];
-  const mostrarSelectProcessoDialog = tipoDialogoNovo !== null && processosDoTipoDialog.length >= 2;
+  // Mostrar sempre que há pelo menos 1 processo do tipo (Naira sempre
+  // confirma/escolhe a vinculação; permite também escolher "Nenhum").
+  const mostrarSelectProcessoDialog = tipoDialogoNovo !== null && processosDoTipoDialog.length >= 1;
 
   return (
     <div className="space-y-4">
