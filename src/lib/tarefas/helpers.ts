@@ -67,3 +67,45 @@ export function isoFromInputDate(date: string): string | null {
   // Salva como meia-noite local (sem timezone confusion).
   return new Date(`${date}T00:00:00`).toISOString();
 }
+
+export interface PlaceholderContext {
+  nome_cliente?: string;
+  protocolo?: string;
+  cpf?: string;
+  servico?: string;
+  nb?: string;
+  despacho?: string;
+  status_assunto?: string;
+}
+
+/**
+ * Substitui {placeholders} em títulos/descrições de template aplicado
+ * manualmente. Valores ausentes viram string vazia, e depois limpamos
+ * blocos órfãos comuns ("Despacho:\n", linhas em branco no fim).
+ */
+export function substituirPlaceholders(
+  texto: string,
+  ctx: PlaceholderContext,
+): string {
+  const mapa: Record<string, string> = {
+    nome_cliente: ctx.nome_cliente ?? "",
+    protocolo: ctx.protocolo ?? "",
+    cpf: ctx.cpf ?? "",
+    servico: ctx.servico ?? "",
+    nb: ctx.nb ?? "",
+    despacho: ctx.despacho ?? "",
+    status_assunto: ctx.status_assunto ?? "",
+  };
+  let out = texto.replace(/\{(\w+)\}/g, (_, key: string) => mapa[key] ?? "");
+
+  // Limpeza de blocos órfãos comuns quando o valor era vazio.
+  // Ex: "Despacho:\n" sozinho no fim, ou "Serviço: ." → "Serviço: ."
+  out = out
+    .replace(/\n*Despacho:\s*\n*\s*$/i, "")
+    .replace(/\n*Serviço:\s*\.\s*$/i, ".")
+    .replace(/Requerimento\s+\./g, "(sem requerimento).")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return out;
+}

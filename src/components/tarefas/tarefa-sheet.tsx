@@ -26,7 +26,6 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import {
-  aplicarTemplate,
   atualizarTarefa,
   criarTarefa,
   excluirTarefa,
@@ -34,6 +33,7 @@ import {
   listarInternosAtivos,
   listarProcessosDoCaso,
   listarTemplates,
+  obterContextoCaso,
 } from "@/lib/tarefas/queries";
 import {
   PRIORIDADE_LABEL,
@@ -46,7 +46,11 @@ import {
   type TarefaTemplateRow,
   type TarefaTipo,
 } from "@/lib/tarefas/types";
-import { inputDateValueFromIso, isoFromInputDate } from "@/lib/tarefas/helpers";
+import {
+  inputDateValueFromIso,
+  isoFromInputDate,
+  substituirPlaceholders,
+} from "@/lib/tarefas/helpers";
 
 type Modo =
   | { kind: "criar"; casoIdInicial?: string | null }
@@ -77,7 +81,9 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   const [dueDate, setDueDate] = useState<string>("");
 
   const [casos, setCasos] = useState<Array<{ id: string; cliente_nome: string | null }>>([]);
-  const [internos, setInternos] = useState<Array<{ id: string; nome: string | null }>>([]);
+  const [internos, setInternos] = useState<
+    Array<{ id: string; nome: string | null; email: string | null }>
+  >([]);
   const [templates, setTemplates] = useState<TarefaTemplateRow[]>([]);
   const [templateSelecionado, setTemplateSelecionado] = useState<string>("");
   const [processosDoCaso, setProcessosDoCaso] = useState<ProcessoDoCasoOpcao[]>([]);
@@ -215,21 +221,76 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
     if (!casoId || !templateSelecionado) return;
     setAplicando(true);
     try {
-      const ids = await aplicarTemplate({
-        caso_id: casoId,
-        template: templateSelecionado,
-        responsavel_id: responsavelId,
-      });
+      const tpl = templates.find((t) => t.nome === templateSelecionado);
+      if (!tpl) throw new Error("Template não encontrado");
+
+      // Carrega contexto do caso + processo selecionado para substituir
+      // {nome_cliente}, {protocolo}, {cpf}, {servico} nos títulos/descrições.
+      const ctx = await obterContextoCaso(casoId, processoToken);
+      const placeholderCtx = {
+        nome_cliente: ctx.cliente_nome,
+        protocolo: ctx.protocolo,
+        cpf: ctx.cliente_cpf,
+        servico: ctx.servico,
+      };
+
+      const proc = parseProcesso();
+      // Lookup email→usuario_id. Naira pode ter selecionado responsável no
+      // form acima — se sim, usamos esse pra TODAS as tarefas do template.
+      // Senão, cada item usa o executor_email do template (fallback null).
+      const emailParaId = new Map<string, string>();
+      for (const u of internos) {
+        if (u.email) emailParaId.set(u.email.toLowerCase(), u.id);
+      }
+
+      let criadas = 0;
+      for (let i = 0; i < tpl.itens.length; i++) {
+        const item = tpl.itens[i];
+        const tituloFinal = substituirPlaceholders(item.titulo, placeholderCtx);
+        const descricaoFinal = substituirPlaceholders(item.descricao ?? "", placeholderCtx);
+
+        // Responsável: usa o que Naira escolheu no form; senão usa o do
+        // template via email lookup; senão null.
+        let respFinal: string | null = responsavelId;
+        if (!respFinal && item.executor_email) {
+          respFinal = emailParaId.get(item.executor_email.toLowerCase()) ?? null;
+        }
+
+        const dueAt =
+          typeof item.offset_dias === "number" && item.offset_dias > 0
+            ? new Date(Date.now() + item.offset_dias * 86400_000).toISOString()
+            : null;
+
+        await criarTarefa({
+          caso_id: casoId,
+          processo_admin_id: proc.processo_admin_id,
+          processo_judicial_id: proc.processo_judicial_id,
+          responsavel_id: respFinal,
+          tipo: item.tipo,
+          prioridade: item.prioridade,
+          titulo: tituloFinal,
+          descricao: descricaoFinal || null,
+          due_at: dueAt,
+          metadata: {
+            template_aplicado: templateSelecionado,
+            template_item_index: i,
+            aplicado_manualmente: true,
+          },
+        });
+        criadas++;
+      }
+
       toast.success(
-        ids.length === 1
+        criadas === 1
           ? "Template aplicado: 1 tarefa criada."
-          : `Template aplicado: ${ids.length} tarefas criadas.`,
+          : `Template aplicado: ${criadas} tarefas criadas.`,
       );
       onSaved();
       onClose();
     } catch (e) {
       console.error(e);
-      toast.error("Falha ao aplicar template.");
+      const msg = e instanceof Error ? e.message : "Falha ao aplicar template.";
+      toast.error(msg);
     } finally {
       setAplicando(false);
     }
@@ -266,13 +327,88 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
 
         <div className="space-y-4 py-4">
           <div className="space-y-1.5">
+            <Label>Caso</Label>
+            <Select
+              value={casoId ?? "sem"}
+              onValueChange={(v) => {
+                setCasoId(v === "sem" ? null : v);
+                setProcessoToken("");
+              }}
+            >
+              <SelectTrigger><SelectValue placeholder="Sem caso" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="sem">Sem caso</SelectItem>
+                {casos.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.cliente_nome ?? "(sem nome)"}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {casoId && processosDoCaso.length > 0 && (
+            <div className="space-y-1.5">
+              <Label>Processo (opcional)</Label>
+              <Select
+                value={processoToken || "sem"}
+                onValueChange={(v) => setProcessoToken(v === "sem" ? "" : v)}
+              >
+                <SelectTrigger><SelectValue placeholder="Nenhum" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="sem">Sem processo específico</SelectItem>
+                  {processosDoCaso.map((p) => (
+                    <SelectItem key={`${p.natureza}:${p.id}`} value={`${p.natureza}:${p.id}`}>
+                      {p.rotulo}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Vincula a tarefa a um requerimento ou processo judicial específico.
+              </p>
+            </div>
+          )}
+
+          {!editando && casoId && templates.length > 0 && (
+            <div className="space-y-1.5 rounded-md border border-dashed p-3 bg-muted/30">
+              <Label>Aplicar template (atalho)</Label>
+              <div className="flex gap-2">
+                <Select value={templateSelecionado} onValueChange={setTemplateSelecionado}>
+                  <SelectTrigger className="flex-1"><SelectValue placeholder="Escolha um template" /></SelectTrigger>
+                  <SelectContent>
+                    {templates.map((t) => (
+                      <SelectItem key={t.id} value={t.nome}>
+                        {t.nome}{" "}
+                        <span className="text-muted-foreground">
+                          ({t.itens.length} tarefa{t.itens.length > 1 ? "s" : ""})
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="default"
+                  onClick={aplicar}
+                  disabled={!templateSelecionado || aplicando}
+                >
+                  {aplicando ? <Loader2 className="h-4 w-4 animate-spin" /> : "Aplicar"}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Cria todas as tarefas do template já preenchidas com nome do cliente
+                {processoToken ? " e protocolo do processo selecionado" : ""}. Ou continue preenchendo manualmente abaixo.
+              </p>
+            </div>
+          )}
+
+          <div className="space-y-1.5">
             <Label htmlFor="t-titulo">Título</Label>
             <Input
               id="t-titulo"
               value={titulo}
               onChange={(e) => setTitulo(e.target.value)}
               placeholder="Ex: Comunicar parceiro sobre indeferimento"
-              autoFocus
             />
           </div>
 
@@ -357,80 +493,6 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
             </Select>
           </div>
 
-          <div className="space-y-1.5">
-            <Label>Caso</Label>
-            <Select
-              value={casoId ?? "sem"}
-              onValueChange={(v) => {
-                setCasoId(v === "sem" ? null : v);
-                setProcessoToken("");           // limpa processo ao trocar caso
-              }}
-            >
-              <SelectTrigger><SelectValue placeholder="Sem caso" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="sem">Sem caso</SelectItem>
-                {casos.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.cliente_nome ?? "(sem nome)"}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {casoId && processosDoCaso.length > 0 && (
-            <div className="space-y-1.5">
-              <Label>Processo (opcional)</Label>
-              <Select
-                value={processoToken || "sem"}
-                onValueChange={(v) => setProcessoToken(v === "sem" ? "" : v)}
-              >
-                <SelectTrigger><SelectValue placeholder="Nenhum" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="sem">Sem processo específico</SelectItem>
-                  {processosDoCaso.map((p) => (
-                    <SelectItem key={`${p.natureza}:${p.id}`} value={`${p.natureza}:${p.id}`}>
-                      {p.rotulo}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                Vincula a tarefa a um requerimento ou processo judicial específico do caso.
-              </p>
-            </div>
-          )}
-
-          {!editando && casoId && templates.length > 0 && (
-            <div className="space-y-1.5 border-t pt-4">
-              <Label>Aplicar template (opcional)</Label>
-              <div className="flex gap-2">
-                <Select value={templateSelecionado} onValueChange={setTemplateSelecionado}>
-                  <SelectTrigger className="flex-1"><SelectValue placeholder="Escolha um template" /></SelectTrigger>
-                  <SelectContent>
-                    {templates.map((t) => (
-                      <SelectItem key={t.id} value={t.nome}>
-                        {t.nome}{" "}
-                        <span className="text-muted-foreground">
-                          ({t.itens.length} tarefa{t.itens.length > 1 ? "s" : ""})
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  variant="outline"
-                  onClick={aplicar}
-                  disabled={!templateSelecionado || aplicando}
-                >
-                  {aplicando ? <Loader2 className="h-4 w-4 animate-spin" /> : "Aplicar"}
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Aplica todas as tarefas do template ao caso selecionado.
-              </p>
-            </div>
-          )}
         </div>
 
         <SheetFooter className="gap-2 sm:gap-2">

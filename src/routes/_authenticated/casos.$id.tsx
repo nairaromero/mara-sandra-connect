@@ -2759,7 +2759,9 @@ function TabAndamentos(props: TabAndamentosProps) {
     : isJudDialog
       ? processosJudiciais
       : [];
-  const mostrarSelectProcessoDialog = tipoDialogoNovo !== null && processosDoTipoDialog.length >= 2;
+  // Mostrar sempre que há pelo menos 1 processo do tipo (Naira sempre
+  // confirma/escolhe a vinculação; permite também escolher "Nenhum").
+  const mostrarSelectProcessoDialog = tipoDialogoNovo !== null && processosDoTipoDialog.length >= 1;
 
   return (
     <div className="space-y-4">
