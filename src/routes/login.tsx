@@ -20,6 +20,7 @@ function LoginPage() {
   const [password, setPassword] = useState("");
   const [loadingPass, setLoadingPass] = useState(false);
   const [loadingMagic, setLoadingMagic] = useState(false);
+  const [loadingRecovery, setLoadingRecovery] = useState(false);
 
   useEffect(() => {
     if (!authLoading && session) {
@@ -59,6 +60,26 @@ function LoginPage() {
       return;
     }
     toast.success("Link enviado!", { description: "Verifique sua caixa de entrada." });
+  }
+
+  async function handleRecuperarSenha() {
+    if (!email) {
+      toast.error("Informe seu e-mail para recuperar a senha");
+      return;
+    }
+    setLoadingRecovery(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(
+      email.trim().toLowerCase(),
+      { redirectTo: `${window.location.origin}/redefinir-senha` },
+    );
+    setLoadingRecovery(false);
+    if (error) {
+      toast.error("Falha ao enviar e-mail", { description: error.message });
+      return;
+    }
+    toast.success("E-mail enviado!", {
+      description: "Se houver conta com esse e-mail, você receberá o link para redefinir a senha.",
+    });
   }
 
   return (
@@ -106,6 +127,16 @@ function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                 />
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={handleRecuperarSenha}
+                    disabled={loadingRecovery}
+                    className="text-xs text-muted-foreground hover:text-[var(--gold)] disabled:opacity-50"
+                  >
+                    {loadingRecovery ? "Enviando…" : "Esqueci minha senha"}
+                  </button>
+                </div>
               </div>
 
               <Button type="submit" className="w-full" disabled={loadingPass}>
