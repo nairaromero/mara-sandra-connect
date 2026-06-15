@@ -716,6 +716,14 @@ function HomePage() {
                     Falar no WhatsApp
                   </a>
                 </li>
+                <li>
+                  <Link
+                    to="/privacidade"
+                    className="text-sm text-[#cfc8b8] hover:text-[#caa14e]"
+                  >
+                    Política de Privacidade
+                  </Link>
+                </li>
               </ul>
             </div>
           </div>
