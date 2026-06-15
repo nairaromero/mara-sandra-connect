@@ -5,7 +5,7 @@
 > com profissional especializado. Base legal: **LGPD — Lei nº 13.709/2018** (em especial
 > arts. 6º, 7º/11, 20, 33, 37, 46–48).
 
-**Versão:** 1.0 · **Data:** [data] · **Responsável pelo registro:** [nome]
+**Versão:** 1.0 · **Data:** [data] · **Responsável pelo registro:** Mara Sandra
 
 ---
 
@@ -110,4 +110,4 @@ A habilitação dos recursos de IA foi decidida e autorizada pela controladora:
 
 ---
 
-**Responsável pelo registro:** ____________________  **Encarregado (DPO):** ____________________
+**Responsável pelo registro:** ____________________  **Contato de privacidade:** Mara Sandra — marasandravian.advocacia@gmail.com
