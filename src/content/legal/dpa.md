@@ -63,10 +63,10 @@ nos **EUA**, com **garantias adequadas** (art. 33), **minimização** e, na IA, 
 A Parte que tomar conhecimento de incidente relevante comunicará a outra em até **24 horas**.
 O ESCRITÓRIO avaliará a comunicação à **ANPD** e aos **titulares**, documentando mitigações.
 
-## 7. Direitos dos titulares e Encarregado (arts. 18 e 41)
+## 7. Direitos dos titulares e contato de privacidade (arts. 18 e 41)
 As Partes cooperarão para atender, nos prazos legais, aos direitos de confirmação, acesso,
 correção, anonimização, portabilidade, eliminação, informação e revogação de consentimento.
-**Encarregado (DPO):** {{ENCARREGADO_NOME}} — {{ENCARREGADO_EMAIL}} — {{ENCARREGADO_TEL}}.
+**Canal de comunicação para assuntos de proteção de dados:** {{CANAL_PRIVACIDADE}}.
 
 ## 8. Retenção e eliminação (arts. 15–16)
 Os dados são mantidos pelo período necessário às finalidades e às obrigações legais, incluindo
