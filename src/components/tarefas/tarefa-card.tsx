@@ -17,6 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { EtapasAcompanhamento } from "@/components/tarefas/etapas-acompanhamento";
 import {
   formatarDueAtLongo,
   URGENCIA_BADGE_CLASS,
@@ -36,6 +37,7 @@ interface Props {
   onOpenSheet: (id: string) => void;
   onChangeStatus: (id: string, status: TarefaStatus) => void;
   onDelete: (id: string) => void;
+  onChanged?: () => void;
   mostrarCaso?: boolean;
 }
 
@@ -44,11 +46,14 @@ export function TarefaCard({
   onOpenSheet,
   onChangeStatus,
   onDelete,
+  onChanged,
   mostrarCaso = true,
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const urg = urgenciaDoDueAt(tarefa.due_at, tarefa.status);
   const clienteNome = tarefa.caso?.cliente?.nome ?? null;
+  const ehAcompProcessual =
+    (tarefa.metadata as { acompanhamento_processual?: boolean })?.acompanhamento_processual === true;
 
   return (
     <div
@@ -65,10 +70,15 @@ export function TarefaCard({
     >
       <div className="p-3 space-y-2">
         <div className="flex items-start gap-1">
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 space-y-1">
             <div className="font-medium text-sm leading-snug break-words">
               {tarefa.titulo}
             </div>
+            {tarefa.descricao && (
+              <p className="text-xs text-muted-foreground line-clamp-3 whitespace-pre-wrap">
+                {tarefa.descricao}
+              </p>
+            )}
           </div>
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger asChild>
@@ -142,6 +152,15 @@ export function TarefaCard({
             </Link>
           )}
         </div>
+
+        {ehAcompProcessual && (
+          <EtapasAcompanhamento
+            tarefa={tarefa}
+            onUpdated={onChanged ?? (() => {})}
+            compacto
+            stopPropagation
+          />
+        )}
       </div>
     </div>
   );

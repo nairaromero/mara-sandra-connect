@@ -8,7 +8,7 @@
 //
 // Quando a última etapa (ajuizamento) é feita, status da tarefa vira "feito".
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { CheckCircle2, Loader2 } from "lucide-react";
 
@@ -61,12 +61,31 @@ interface EtapaRegistro {
 interface Props {
   tarefa: TarefaComJoins;
   onUpdated: () => void;
+  compacto?: boolean;     // se true, layout enxuto pra usar dentro do TarefaCard
+  stopPropagation?: boolean;  // pra não burburlar pra o card abrir o sheet
 }
 
-export function EtapasAcompanhamento({ tarefa, onUpdated }: Props) {
-  const etapasRegistradas =
+export function EtapasAcompanhamento({
+  tarefa,
+  onUpdated,
+  compacto = false,
+  stopPropagation = false,
+}: Props) {
+  // Local state mirror das etapas — atualiza imediatamente no click,
+  // antes do refresh do parent. Resolve o "tela criação não atualiza"
+  // quando o componente está dentro do sheet.
+  const etapasIniciais =
     (tarefa.metadata as { etapas?: Record<string, EtapaRegistro> })?.etapas ??
     {};
+  const [etapasState, setEtapasState] =
+    useState<Record<string, EtapaRegistro>>(etapasIniciais);
+  useEffect(() => {
+    setEtapasState(
+      (tarefa.metadata as { etapas?: Record<string, EtapaRegistro> })?.etapas ??
+        {},
+    );
+  }, [tarefa.id, tarefa.metadata]);
+
   const [marcando, setMarcando] = useState<string | null>(null);
   const criadoEm = new Date(tarefa.created_at).getTime();
 
@@ -101,7 +120,7 @@ export function EtapasAcompanhamento({ tarefa, onUpdated }: Props) {
 
       // 2) Atualiza tarefa.metadata.etapas + due_at + status.
       const novasEtapas: Record<string, EtapaRegistro> = {
-        ...etapasRegistradas,
+        ...etapasState,
         [etapa.key]: {
           feito_em: new Date().toISOString(),
           andamento_id: andamentoId,
@@ -137,6 +156,10 @@ export function EtapasAcompanhamento({ tarefa, onUpdated }: Props) {
         .eq("id", tarefa.id);
       if (errTar) throw errTar;
 
+      // Atualiza o local state pra renderizar imediatamente (sem esperar
+      // o re-render do parent com fresh data).
+      setEtapasState(novasEtapas);
+
       toast.success(
         etapa.proximaEtapa
           ? `${etapa.rotulo.split(" (")[0]} marcada. Próxima etapa: ${
@@ -154,46 +177,63 @@ export function EtapasAcompanhamento({ tarefa, onUpdated }: Props) {
     }
   }
 
-  const feitas = Object.keys(etapasRegistradas).length;
+  const feitas = Object.keys(etapasState).length;
 
   return (
-    <div className="space-y-3 rounded-md border bg-muted/30 p-3">
+    <div
+      className={
+        compacto
+          ? "space-y-1.5 rounded-md border bg-muted/40 p-2"
+          : "space-y-3 rounded-md border bg-muted/30 p-3"
+      }
+      onClick={stopPropagation ? (e) => e.stopPropagation() : undefined}
+    >
       <div className="flex items-center justify-between">
-        <div>
-          <div className="text-sm font-medium">Etapas de acompanhamento</div>
-          <div className="text-xs text-muted-foreground">
-            Sem movimentação? Escala em 30d (ouvidoria) → 60d (peticionamento de mora) → 120d (ajuizamento).
+        <div className="min-w-0">
+          <div className={compacto ? "text-xs font-medium" : "text-sm font-medium"}>
+            Etapas de acompanhamento
           </div>
+          {!compacto && (
+            <div className="text-xs text-muted-foreground">
+              Sem movimentação? Escala em 30d (ouvidoria) → 60d (peticionamento de mora) → 120d (ajuizamento).
+            </div>
+          )}
         </div>
-        <Badge variant="outline" className="font-normal">
-          {feitas}/{ETAPAS.length} feitas
+        <Badge variant="outline" className={compacto ? "font-normal text-[10px] h-5" : "font-normal"}>
+          {feitas}/{ETAPAS.length}
         </Badge>
       </div>
 
-      <div className="space-y-2">
+      <div className={compacto ? "space-y-1" : "space-y-2"}>
         {ETAPAS.map((etapa) => {
-          const reg = etapasRegistradas[etapa.key];
+          const reg = etapasState[etapa.key];
           const feito = !!reg;
           const proximaPendente =
-            !feito && ETAPAS.findIndex((e) => !etapasRegistradas[e.key]) ===
+            !feito && ETAPAS.findIndex((e) => !etapasState[e.key]) ===
               ETAPAS.findIndex((e) => e.key === etapa.key);
           return (
             <div
               key={etapa.key}
-              className={`flex items-center justify-between gap-2 rounded-md border p-2 ${
-                feito ? "bg-card" : proximaPendente ? "bg-card" : "bg-muted/50"
-              }`}
+              className={`flex items-center justify-between gap-2 rounded-md border ${
+                compacto ? "p-1.5" : "p-2"
+              } ${feito ? "bg-card" : proximaPendente ? "bg-card" : "bg-muted/50"}`}
             >
               <div className="flex items-center gap-2 min-w-0">
                 {feito ? (
-                  <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+                  <CheckCircle2
+                    className={`${compacto ? "h-3.5 w-3.5" : "h-4 w-4"} text-green-600 shrink-0`}
+                  />
                 ) : (
-                  <span className="inline-block h-4 w-4 rounded-full border shrink-0" />
+                  <span
+                    className={`inline-block ${compacto ? "h-3.5 w-3.5" : "h-4 w-4"} rounded-full border shrink-0`}
+                  />
                 )}
                 <div className="min-w-0">
-                  <div className="text-sm font-medium">{etapa.rotulo}</div>
+                  <div className={compacto ? "text-xs font-medium" : "text-sm font-medium"}>
+                    {etapa.rotulo}
+                  </div>
                   {feito && reg && (
-                    <div className="text-xs text-muted-foreground">
+                    <div className={compacto ? "text-[10px] text-muted-foreground" : "text-xs text-muted-foreground"}>
                       Feita em {new Date(reg.feito_em).toLocaleDateString("pt-BR")}
                     </div>
                   )}
@@ -201,13 +241,17 @@ export function EtapasAcompanhamento({ tarefa, onUpdated }: Props) {
               </div>
               {!feito && (
                 <Button
-                  size="sm"
+                  size={compacto ? "sm" : "sm"}
                   variant={proximaPendente ? "default" : "outline"}
-                  onClick={() => marcarEtapa(etapa)}
+                  className={compacto ? "h-6 px-2 text-xs" : ""}
+                  onClick={(e) => {
+                    if (stopPropagation) e.stopPropagation();
+                    marcarEtapa(etapa);
+                  }}
                   disabled={marcando !== null}
                 >
                   {marcando === etapa.key ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Loader2 className={compacto ? "h-3 w-3 animate-spin" : "h-4 w-4 animate-spin"} />
                   ) : (
                     "Marcar"
                   )}

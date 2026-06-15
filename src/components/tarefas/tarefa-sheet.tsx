@@ -388,7 +388,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
                   <SelectContent>
                     {templates.map((t) => (
                       <SelectItem key={t.id} value={t.nome}>
-                        {t.nome}{" "}
+                        {t.rotulo ?? t.nome}{" "}
                         <span className="text-muted-foreground">
                           ({t.itens.length} tarefa{t.itens.length > 1 ? "s" : ""})
                         </span>
