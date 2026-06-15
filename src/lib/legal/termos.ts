@@ -1,0 +1,108 @@
+// Documentos legais aceitos pelo parceiro no primeiro acesso.
+//
+// As fontes (markdown) ficam em src/content/legal/*.md com tokens {{ }} de
+// autofill. Este módulo injeta os dados do escritório (constantes) e do parceiro
+// (preenchidos no aceite), e expõe utilitários de render + hash para o registro
+// imutável do aceite.
+
+import dpaRaw from "@/content/legal/dpa.md?raw";
+import termoRaw from "@/content/legal/termo-uso.md?raw";
+import politicaRaw from "@/content/legal/politica.md?raw";
+
+// Versão dos termos. Incrementar quando o conteúdo mudar — habilita re-aceite.
+export const TERMOS_VERSAO = "1.0-2026-06-09";
+
+// Dados do escritório (preencher uma vez). O que estiver "[a preencher]" aparece
+// assim no documento até ser configurado.
+export const ESCRITORIO = {
+  nome: "Mara Sandra Vian Advocacia",
+  cnpj: "[a preencher]",
+  endereco: "[a preencher]",
+  foro: "[a preencher]",
+  encarregadoNome: "[a preencher]",
+  encarregadoEmail: "[a preencher]",
+  encarregadoTel: "[a preencher]",
+};
+
+export interface ParceiroDados {
+  nome: string;
+  documento: string; // CPF ou CNPJ
+  oab: string;
+  oab_uf: string;
+  endereco: string;
+}
+
+export interface DocumentoRenderizado {
+  id: string;
+  titulo: string;
+  requerAssinatura: boolean;
+  texto: string;
+}
+
+const DEFS: Array<{
+  id: string;
+  titulo: string;
+  requerAssinatura: boolean;
+  raw: string;
+}> = [
+  { id: "dpa", titulo: "Acordo de Tratamento de Dados", requerAssinatura: true, raw: dpaRaw },
+  { id: "termo-uso", titulo: "Termo de Uso", requerAssinatura: true, raw: termoRaw },
+  { id: "politica", titulo: "Política de Privacidade", requerAssinatura: false, raw: politicaRaw },
+];
+
+function oabCompleta(d: ParceiroDados): string {
+  const uf = (d.oab_uf || "").trim().toUpperCase();
+  const num = (d.oab || "").trim();
+  if (!num) return "[OAB não informada]";
+  return uf ? `OAB/${uf} nº ${num}` : `OAB nº ${num}`;
+}
+
+function dataHoje(): string {
+  // Evita depender de Date.now em SSR; usa a data local de exibição.
+  try {
+    return new Date().toLocaleDateString("pt-BR");
+  } catch {
+    return "";
+  }
+}
+
+function preencher(raw: string, d: ParceiroDados): string {
+  const mapa: Record<string, string> = {
+    "{{VERSAO}}": TERMOS_VERSAO,
+    "{{DATA}}": dataHoje(),
+    "{{ESCRITORIO_NOME}}": ESCRITORIO.nome,
+    "{{ESCRITORIO_CNPJ}}": ESCRITORIO.cnpj,
+    "{{ESCRITORIO_ENDERECO}}": ESCRITORIO.endereco,
+    "{{ENCARREGADO_NOME}}": ESCRITORIO.encarregadoNome,
+    "{{ENCARREGADO_EMAIL}}": ESCRITORIO.encarregadoEmail,
+    "{{ENCARREGADO_TEL}}": ESCRITORIO.encarregadoTel,
+    "{{FORO}}": ESCRITORIO.foro,
+    "{{PARCEIRO_NOME}}": d.nome || "[nome]",
+    "{{PARCEIRO_DOC}}": d.documento || "[CPF/CNPJ]",
+    "{{PARCEIRO_OAB}}": oabCompleta(d),
+    "{{PARCEIRO_ENDERECO}}": d.endereco || "[endereço]",
+  };
+  let out = raw;
+  for (const [token, valor] of Object.entries(mapa)) {
+    out = out.split(token).join(valor);
+  }
+  return out;
+}
+
+export function renderDocumentos(d: ParceiroDados): Array<DocumentoRenderizado> {
+  return DEFS.map((def) => ({
+    id: def.id,
+    titulo: def.titulo,
+    requerAssinatura: def.requerAssinatura,
+    texto: preencher(def.raw, d),
+  }));
+}
+
+// SHA-256 hex de um texto (tamper-evidence do que foi assinado).
+export async function sha256Hex(texto: string): Promise<string> {
+  const bytes = new TextEncoder().encode(texto);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}

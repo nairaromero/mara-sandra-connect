@@ -24,4 +24,5 @@ export interface UsuarioRow {
   avatar_url?: string | null;
   onboarded_em?: string | null;
   aceitou_termos_em?: string | null;
+  termos_versao?: string | null;
 }

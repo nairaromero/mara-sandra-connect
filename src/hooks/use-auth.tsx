@@ -47,7 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // cai pra select basico - assim o app nao trava em spinner infinito.
     const fullResp = await supabase
       .from("usuarios")
-      .select("id, nome, email, tipo, avatar_url, onboarded_em, aceitou_termos_em")
+      .select("id, nome, email, tipo, avatar_url, onboarded_em, aceitou_termos_em, termos_versao")
       .eq("id", userId)
       .maybeSingle();
 
