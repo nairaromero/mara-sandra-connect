@@ -21,9 +21,12 @@ export const ESCRITORIO = {
     "Rua Alagoas, nº 3081, Sala 04 – Patrimônio Velho – Votuporanga/SP – CEP 15505-169",
   // Comarca do domicílio do escritório (Votuporanga/SP) — confirmar se é o foro desejado.
   foro: "Votuporanga/SP",
-  encarregadoNome: "[a preencher]",
-  encarregadoEmail: "[a preencher]",
-  encarregadoTel: "[a preencher]",
+  // Contato de privacidade (LGPD). Escritório de pequeno porte é dispensado de
+  // indicar Encarregado/DPO formal (Resolução CD/ANPD nº 2/2022), mas deve manter
+  // um canal de comunicação com o titular.
+  privacidadeContato: "Mara Sandra",
+  privacidadeEmail: "marasandravian.advocacia@gmail.com",
+  privacidadeTel: "",
 };
 
 export interface ParceiroDados {
@@ -69,15 +72,23 @@ function dataHoje(): string {
 }
 
 function preencher(raw: string, d: ParceiroDados): string {
+  // Canal de privacidade: nome — e-mail — telefone, omitindo o que estiver vazio.
+  const canalPrivacidade = [
+    ESCRITORIO.privacidadeContato,
+    ESCRITORIO.privacidadeEmail,
+    ESCRITORIO.privacidadeTel,
+  ]
+    .map((s) => (s || "").trim())
+    .filter((s) => s && !s.startsWith("["))
+    .join(" — ");
+
   const mapa: Record<string, string> = {
     "{{VERSAO}}": TERMOS_VERSAO,
     "{{DATA}}": dataHoje(),
     "{{ESCRITORIO_NOME}}": ESCRITORIO.nome,
     "{{ESCRITORIO_CNPJ}}": ESCRITORIO.cnpj,
     "{{ESCRITORIO_ENDERECO}}": ESCRITORIO.endereco,
-    "{{ENCARREGADO_NOME}}": ESCRITORIO.encarregadoNome,
-    "{{ENCARREGADO_EMAIL}}": ESCRITORIO.encarregadoEmail,
-    "{{ENCARREGADO_TEL}}": ESCRITORIO.encarregadoTel,
+    "{{CANAL_PRIVACIDADE}}": canalPrivacidade || "[a preencher]",
     "{{FORO}}": ESCRITORIO.foro,
     "{{PARCEIRO_NOME}}": d.nome || "[nome]",
     "{{PARCEIRO_DOC}}": d.documento || "[CPF/CNPJ]",

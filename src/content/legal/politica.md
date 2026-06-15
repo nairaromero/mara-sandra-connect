@@ -52,9 +52,8 @@ em julgado + 5 anos**); depois, eliminamos ou anonimizamos.
 
 ## 10. Seus direitos (art. 18)
 Confirmação, acesso, correção, anonimização/bloqueio/eliminação, portabilidade, informação
-sobre compartilhamentos e revogação de consentimento. **Encarregado (DPO):**
-{{ENCARREGADO_NOME}} — {{ENCARREGADO_EMAIL}} — {{ENCARREGADO_TEL}}. Você também pode reclamar à
-**ANPD**.
+sobre compartilhamentos e revogação de consentimento. **Canal de comunicação para assuntos de
+proteção de dados:** {{CANAL_PRIVACIDADE}}. Você também pode reclamar à **ANPD**.
 
 ## 11. Alterações
 Podemos atualizar esta Política; a versão vigente fica sempre disponível no portal.
