@@ -70,10 +70,14 @@ export async function listarTarefas(
 }
 
 export async function listarTemplates(): Promise<TarefaTemplateRow[]> {
+  // UI mostra só templates não-ocultos. Os ocultos (fallbacks de revisão,
+  // classificações sem-match, etc) continuam acessíveis pra edge function
+  // INSS via service_role.
   const { data, error } = await supabase
     .from("tarefa_templates")
-    .select("id, nome, gatilho, descricao, itens, ativo")
+    .select("id, nome, gatilho, descricao, itens, ativo, oculto_na_ui")
     .eq("ativo", true)
+    .eq("oculto_na_ui", false)
     .order("nome", { ascending: true });
   if (error) throw error;
   return (data as TarefaTemplateRow[]) ?? [];

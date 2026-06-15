@@ -464,6 +464,7 @@ interface TemplateItem {
   offset_dias?: number;
   executor_email?: string;
   interessados_emails?: string[];
+  meta?: Record<string, unknown>;
 }
 
 interface Template {
@@ -664,7 +665,9 @@ async function processarMensagem(
   for (let i = 0; i < template.itens.length; i++) {
     const item = template.itens[i];
     const resolved = resolveResponsavel(item, lookups);
-    const dueAt = (item.offset_dias && item.offset_dias > 0)
+    // offset_dias definido (mesmo 0) = data relativa a hoje (0 = hoje).
+    // Undefined = sem prazo.
+    const dueAt = typeof item.offset_dias === "number"
       ? new Date(Date.now() + item.offset_dias * 86400_000).toISOString()
       : null;
 
@@ -675,6 +678,9 @@ async function processarMensagem(
       .from("tarefas")
       .insert({
         caso_id: match.caso_id, // pode ser null em revisar_email_nao_casado
+        // Linka a tarefa ao processo admin quando o match veio por protocolo;
+        // não temos judicial via INSS, então deixamos null.
+        processo_admin_id: match.processo_admin_id,
         responsavel_id: resolved.responsavel_id,
         tipo: item.tipo || "interna",
         prioridade: item.prioridade ?? 2,
@@ -692,6 +698,7 @@ async function processarMensagem(
           match_via: match.via,
           campos_extraidos: campos,
           ...resolved.metadata_extra,
+          ...(item.meta ?? {}),         // passthrough (ex: acompanhamento_processual)
         },
       })
       .select("id")

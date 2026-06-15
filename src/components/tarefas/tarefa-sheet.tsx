@@ -51,6 +51,7 @@ import {
   isoFromInputDate,
   substituirPlaceholders,
 } from "@/lib/tarefas/helpers";
+import { EtapasAcompanhamento } from "@/components/tarefas/etapas-acompanhamento";
 
 type Modo =
   | { kind: "criar"; casoIdInicial?: string | null }
@@ -256,8 +257,10 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           respFinal = emailParaId.get(item.executor_email.toLowerCase()) ?? null;
         }
 
+        // offset_dias definido (mesmo 0) = data relativa a hoje (0 = hoje).
+        // Undefined/null = sem prazo.
         const dueAt =
-          typeof item.offset_dias === "number" && item.offset_dias > 0
+          typeof item.offset_dias === "number"
             ? new Date(Date.now() + item.offset_dias * 86400_000).toISOString()
             : null;
 
@@ -275,6 +278,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
             template_aplicado: templateSelecionado,
             template_item_index: i,
             aplicado_manualmente: true,
+            ...(item.meta ?? {}),     // passthrough do template (ex: acompanhamento_processual)
           },
         });
         criadas++;
@@ -326,6 +330,11 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
         </SheetHeader>
 
         <div className="space-y-4 py-4">
+          {editando && tarefa &&
+            (tarefa.metadata as { acompanhamento_processual?: boolean })?.acompanhamento_processual && (
+              <EtapasAcompanhamento tarefa={tarefa} onUpdated={onSaved} />
+            )}
+
           <div className="space-y-1.5">
             <Label>Caso</Label>
             <Select
