@@ -18,6 +18,7 @@ import { supabase } from "@/lib/supabase";
 import { ClientOnly } from "@/components/client-only";
 import { IntegracaoIaCard } from "@/components/ia/integracao-ia-card";
 import { ConexaoClaudeCard } from "@/components/ia/conexao-claude-card";
+import { IntegracaoGmailCard } from "@/components/integracoes/integracao-gmail-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -485,6 +486,9 @@ function ConfiguracoesPage() {
 
         {/* Card: Conectar Claude/ChatGPT (Superficie B) */}
         <ConexaoClaudeCard />
+
+        {/* Card: Integração Gmail (INSS) */}
+        <IntegracaoGmailCard />
 
         {/* Card: Sobre */}
         <Card>
