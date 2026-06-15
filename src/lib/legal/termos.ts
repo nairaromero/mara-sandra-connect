@@ -15,10 +15,12 @@ export const TERMOS_VERSAO = "1.0-2026-06-09";
 // Dados do escritório (preencher uma vez). O que estiver "[a preencher]" aparece
 // assim no documento até ser configurado.
 export const ESCRITORIO = {
-  nome: "Mara Sandra Vian Advocacia",
-  cnpj: "[a preencher]",
-  endereco: "[a preencher]",
-  foro: "[a preencher]",
+  nome: "Mara Vian Sociedade Individual de Advocacia",
+  cnpj: "60.244.853/0001-09",
+  endereco:
+    "Rua Alagoas, nº 3081, Sala 04 – Patrimônio Velho – Votuporanga/SP – CEP 15505-169",
+  // Comarca do domicílio do escritório (Votuporanga/SP) — confirmar se é o foro desejado.
+  foro: "Votuporanga/SP",
   encarregadoNome: "[a preencher]",
   encarregadoEmail: "[a preencher]",
   encarregadoTel: "[a preencher]",
