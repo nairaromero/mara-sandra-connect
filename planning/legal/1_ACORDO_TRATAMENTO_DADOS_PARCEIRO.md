@@ -9,10 +9,10 @@
 
 ## Qualificação das Partes
 
-**CONTROLADORA / ESCRITÓRIO:** **Mara Sandra Advocacia**, [razão social completa],
-inscrita no CNPJ sob nº **[CNPJ]**, com sede em **[endereço completo]**, doravante
-**“ESCRITÓRIO”**, responsável por desenvolver e operar a plataforma **Mara Sandra Connect**
-(“Plataforma”).
+**CONTROLADORA / ESCRITÓRIO:** **Mara Vian Sociedade Individual de Advocacia**, inscrita no
+CNPJ sob nº **60.244.853/0001-09**, com sede na **Rua Alagoas, nº 3081, Sala 04 – Patrimônio
+Velho – Votuporanga/SP – CEP 15505-169**, doravante **“ESCRITÓRIO”**, responsável por
+desenvolver e operar a plataforma **Mara Sandra Connect** (“Plataforma”).
 
 **PARCEIRO:** **[razão social / nome do parceiro]**, inscrito no **[CNPJ/CPF]** e, quando
 advogado, na **OAB/[UF] nº [número]**, com sede/endereço em **[endereço]**, doravante
@@ -50,8 +50,8 @@ de cada um estão repartidas na **Cláusula 4**.
 **operadores/subprocessadores** de infraestrutura (Anexo I), que tratam os dados em seu nome,
 sob instruções documentadas e sem finalidade própria sobre os dados.
 
-2.4. O ponto de contato dos titulares e o canal de exercício de direitos é o **Encarregado**
-indicado na Cláusula 9, sem prejuízo de o titular dirigir-se a qualquer das Partes.
+2.4. O ponto de contato dos titulares e o canal de exercício de direitos é o **contato de
+privacidade** indicado na Cláusula 9, sem prejuízo de o titular dirigir-se a qualquer das Partes.
 
 ## 3. Natureza, Finalidade e Bases Legais
 
@@ -84,7 +84,7 @@ para finalidade diversa, marketing não consentido ou compartilhamento fora do e
 | Relação e atendimento ao titular captado pelo PARCEIRO | Apoio técnico-jurídico | **Responsável primário** pela coleta lícita e informação ao titular |
 | Condução técnica da demanda previdenciária | **Responsável** | Acompanhamento |
 | Coleta de consentimento, quando aplicável | Coordenação | **Obtenção e guarda da prova** |
-| Resposta a requisições de titulares | Coordenação via Encarregado | Cooperação em até **[5] dias úteis** |
+| Resposta a requisições de titulares | Coordenação via contato de privacidade | Cooperação em até **[5] dias úteis** |
 | Comunicação de incidentes | Conforme Cláusula 8 | Conforme Cláusula 8 |
 
 4.1. Cada controlador responde por garantir **base legal** válida para os dados que insere
@@ -105,7 +105,7 @@ lógico (RLS)** na Plataforma.
 caso; em especial, dados sensíveis de saúde.
 
 5.5. Atender, no prazo da Cláusula 4, às solicitações de titulares e às orientações do
-Encarregado, e cooperar em eventuais auditorias e respostas à ANPD.
+contato de privacidade, e cooperar em eventuais auditorias e respostas à ANPD.
 
 5.6. Observar a **minimização**: solicitar e inserir apenas os dados necessários.
 
@@ -152,12 +152,14 @@ configuração de **não-treinamento/retenção reduzida**.
 8.1. A Parte que tomar conhecimento de incidente que possa acarretar risco ou dano relevante
 comunicará as demais em **até [24] horas**.
 
-8.2. O ESCRITÓRIO, com apoio do Encarregado, avaliará a necessidade de comunicação
+8.2. O ESCRITÓRIO, com apoio do contato de privacidade, avaliará a necessidade de comunicação
 à **ANPD** e aos **titulares** em **prazo razoável**, documentando medidas de mitigação.
 
-## 9. Encarregado (DPO) e Direitos dos Titulares (arts. 18, 41)
+## 9. Canal de Privacidade e Direitos dos Titulares (arts. 18, 41)
 
-9.1. **Encarregado:** **[nome]** — e-mail **[encarregado@dominio]** — telefone **[telefone]**.
+9.1. **Canal de comunicação para proteção de dados:** **Mara Sandra** —
+**marasandravian.advocacia@gmail.com**. _(Escritório de pequeno porte: dispensado de indicar
+Encarregado/DPO formal — Res. CD/ANPD nº 2/2022 —, mantendo canal de comunicação com o titular.)_
 
 9.2. As Partes cooperarão para atender, nos prazos legais, aos direitos de **confirmação,
 acesso, correção, anonimização, portabilidade, eliminação, informação sobre compartilhamento
@@ -185,7 +187,7 @@ sigilo e segurança, **sobrevive** ao seu término.
 12.2. O descumprimento das obrigações de proteção de dados é causa de **rescisão** e enseja
 responsabilização nos termos da LGPD e do Contrato.
 
-12.3. Fica eleito o foro da Comarca de **[cidade/UF]** para dirimir controvérsias.
+12.3. Fica eleito o foro da Comarca de **Votuporanga/SP** para dirimir controvérsias.
 
 ---
 
@@ -213,7 +215,7 @@ responsabilização nos termos da LGPD e do Contrato.
 
 **Local e data:** ____________________, ____ / ____ / ______
 
-| ESCRITÓRIO (Mara Sandra Advocacia) | PARCEIRO |
+| ESCRITÓRIO (Mara Vian Sociedade Individual de Advocacia) | PARCEIRO |
 |---|---|
 | ____________________ | ____________________ |
 | Nome/CPF: | Nome/CPF: |

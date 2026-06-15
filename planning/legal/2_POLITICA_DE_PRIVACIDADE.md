@@ -10,11 +10,12 @@
 ## 1. Quem somos e quem é o responsável pelos seus dados
 
 A plataforma **Mara Sandra Connect** é o portal utilizado pelo escritório
-**Mara Sandra Advocacia** ([razão social], CNPJ **[CNPJ]**, **[endereço]**) para a condução
-e o acompanhamento de demandas previdenciárias.
+**Mara Vian Sociedade Individual de Advocacia** (CNPJ **60.244.853/0001-09**, **Rua Alagoas,
+nº 3081, Sala 04 – Patrimônio Velho – Votuporanga/SP – CEP 15505-169**) para a condução e o
+acompanhamento de demandas previdenciárias.
 
-- **Controlador dos dados:** Mara Sandra Advocacia, que também desenvolve e opera a
-  plataforma Mara Sandra Connect.
+- **Controlador dos dados:** Mara Vian Sociedade Individual de Advocacia, que também
+  desenvolve e opera a plataforma Mara Sandra Connect.
 - Quando o seu atendimento se dá por meio de um **escritório/advogado parceiro**, este e a
   Mara Sandra Advocacia podem atuar como **controladores conjuntos** dos seus dados.
 
@@ -121,7 +122,7 @@ Você pode, a qualquer tempo: **confirmar** o tratamento; **acessar** seus dados
 dados incompletos ou desatualizados; solicitar **anonimização, bloqueio ou eliminação**;
 **portabilidade**; **informação** sobre compartilhamentos; e **revogar consentimento**.
 
-Para exercer, contate nosso **Encarregado** (Seção 13). Poderemos solicitar dados para
+Para exercer, contate nosso **canal de privacidade** (Seção 13). Poderemos solicitar dados para
 **confirmar sua identidade** antes de atender.
 
 ## 12. Cookies e tecnologias
@@ -129,9 +130,11 @@ Para exercer, contate nosso **Encarregado** (Seção 13). Poderemos solicitar da
 O portal utiliza armazenamento local e identificadores **estritamente necessários** ao
 funcionamento, login e segurança. [Ajustar se houver analytics/cookies adicionais.]
 
-## 13. Encarregado pelo Tratamento de Dados (DPO)
+## 13. Canal de comunicação para proteção de dados
 
-**[Nome do Encarregado]** — **[encarregado@dominio]** — **[telefone]**.
+**Mara Sandra** — **marasandravian.advocacia@gmail.com**. _(Escritório de pequeno porte:
+dispensado de indicar Encarregado/DPO formal — Res. CD/ANPD nº 2/2022 —, mantendo canal de
+comunicação com o titular.)_
 Você também pode reclamar à **Autoridade Nacional de Proteção de Dados (ANPD)**.
 
 ## 14. Alterações desta Política
