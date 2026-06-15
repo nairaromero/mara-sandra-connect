@@ -2,6 +2,7 @@
 
 import { supabase } from "@/lib/supabase";
 import type {
+  ProcessoDoCasoOpcao,
   TarefaComJoins,
   TarefaRow,
   TarefaStatus,
@@ -10,9 +11,9 @@ import type {
 } from "./types";
 
 const SELECT_COM_JOINS = `
-  id, caso_id, responsavel_id, tipo, status, prioridade, titulo, descricao,
-  due_at, origem, origem_ref, lembretes, gcal_event_id, metadata, created_by,
-  created_at, updated_at, completed_at,
+  id, caso_id, processo_admin_id, processo_judicial_id, responsavel_id, tipo,
+  status, prioridade, titulo, descricao, due_at, origem, origem_ref, lembretes,
+  gcal_event_id, metadata, created_by, created_at, updated_at, completed_at,
   responsavel:usuarios!tarefas_responsavel_id_fkey(id, nome),
   caso:casos(id, cliente:clientes(id, nome))
 `;
@@ -80,6 +81,8 @@ export async function listarTemplates(): Promise<TarefaTemplateRow[]> {
 
 export interface CriarTarefaInput {
   caso_id: string | null;
+  processo_admin_id?: string | null;
+  processo_judicial_id?: string | null;
   responsavel_id: string | null;
   tipo: TarefaTipo;
   prioridade: number;
@@ -113,6 +116,8 @@ export interface AtualizarTarefaInput {
     | "tipo"
     | "responsavel_id"
     | "caso_id"
+    | "processo_admin_id"
+    | "processo_judicial_id"
   >>;
 }
 
@@ -157,6 +162,44 @@ export async function listarInternosAtivos(): Promise<
     .order("nome", { ascending: true });
   if (error) throw error;
   return data ?? [];
+}
+
+export async function listarProcessosDoCaso(
+  casoId: string,
+): Promise<ProcessoDoCasoOpcao[]> {
+  const [admins, judiciais] = await Promise.all([
+    supabase
+      .from("processos_admin")
+      .select("id, numero_requerimento, tipo_beneficio, etapa_tipo")
+      .eq("caso_id", casoId)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("processos_judiciais")
+      .select("id, numero_processo")
+      .eq("caso_id", casoId)
+      .order("created_at", { ascending: false }),
+  ]);
+  const out: ProcessoDoCasoOpcao[] = [];
+  for (const a of admins.data ?? []) {
+    const partes = [
+      "Admin",
+      a.numero_requerimento ?? "sem nº",
+      a.etapa_tipo ?? null,
+    ].filter(Boolean);
+    out.push({
+      id: a.id as string,
+      natureza: "admin",
+      rotulo: partes.join(" · "),
+    });
+  }
+  for (const j of judiciais.data ?? []) {
+    out.push({
+      id: j.id as string,
+      natureza: "judicial",
+      rotulo: `Judicial · ${j.numero_processo ?? "sem nº"}`,
+    });
+  }
+  return out;
 }
 
 export async function listarCasosResumo(): Promise<

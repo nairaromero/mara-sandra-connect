@@ -32,6 +32,7 @@ import {
   excluirTarefa,
   listarCasosResumo,
   listarInternosAtivos,
+  listarProcessosDoCaso,
   listarTemplates,
 } from "@/lib/tarefas/queries";
 import {
@@ -39,6 +40,7 @@ import {
   STATUS_LABEL,
   STATUS_ORDEM,
   TIPO_LABEL,
+  type ProcessoDoCasoOpcao,
   type TarefaComJoins,
   type TarefaStatus,
   type TarefaTemplateRow,
@@ -69,6 +71,8 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   const [prioridade, setPrioridade] = useState<number>(3);
   const [status, setStatus] = useState<TarefaStatus>("a_fazer");
   const [casoId, setCasoId] = useState<string | null>(null);
+  // Único valor para processo: "" = nenhum, "admin:<id>" ou "judicial:<id>".
+  const [processoToken, setProcessoToken] = useState<string>("");
   const [responsavelId, setResponsavelId] = useState<string | null>(null);
   const [dueDate, setDueDate] = useState<string>("");
 
@@ -76,6 +80,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   const [internos, setInternos] = useState<Array<{ id: string; nome: string | null }>>([]);
   const [templates, setTemplates] = useState<TarefaTemplateRow[]>([]);
   const [templateSelecionado, setTemplateSelecionado] = useState<string>("");
+  const [processosDoCaso, setProcessosDoCaso] = useState<ProcessoDoCasoOpcao[]>([]);
 
   const [salvando, setSalvando] = useState(false);
   const [aplicando, setAplicando] = useState(false);
@@ -89,6 +94,15 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
     listarTemplates().then(setTemplates).catch(() => {});
   }, [aberto]);
 
+  // Carrega processos do caso quando muda. Limpa quando não há caso.
+  useEffect(() => {
+    if (!casoId) {
+      setProcessosDoCaso([]);
+      return;
+    }
+    listarProcessosDoCaso(casoId).then(setProcessosDoCaso).catch(() => {});
+  }, [casoId]);
+
   // Sincroniza o formulário com o modo (abertura).
   useEffect(() => {
     if (!modo) return;
@@ -99,6 +113,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       setPrioridade(3);
       setStatus("a_fazer");
       setCasoId(modo.casoIdInicial ?? null);
+      setProcessoToken("");
       setResponsavelId(null);
       setDueDate("");
       setTemplateSelecionado("");
@@ -110,6 +125,13 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       setPrioridade(t.prioridade);
       setStatus(t.status);
       setCasoId(t.caso_id);
+      setProcessoToken(
+        t.processo_admin_id
+          ? `admin:${t.processo_admin_id}`
+          : t.processo_judicial_id
+            ? `judicial:${t.processo_judicial_id}`
+            : "",
+      );
       setResponsavelId(t.responsavel_id);
       setDueDate(inputDateValueFromIso(t.due_at));
       setTemplateSelecionado("");
@@ -121,6 +143,23 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
     onClose();
   }, [salvando, aplicando, excluindo, onClose]);
 
+  function parseProcesso(): {
+    processo_admin_id: string | null;
+    processo_judicial_id: string | null;
+  } {
+    // "" / "admin:<id>" / "judicial:<id>"  → 2 colunas mutuamente exclusivas.
+    if (!processoToken || !casoId) {
+      return { processo_admin_id: null, processo_judicial_id: null };
+    }
+    if (processoToken.startsWith("admin:")) {
+      return { processo_admin_id: processoToken.slice(6), processo_judicial_id: null };
+    }
+    if (processoToken.startsWith("judicial:")) {
+      return { processo_admin_id: null, processo_judicial_id: processoToken.slice(9) };
+    }
+    return { processo_admin_id: null, processo_judicial_id: null };
+  }
+
   async function salvar() {
     if (!titulo.trim()) {
       toast.error("Título é obrigatório.");
@@ -129,6 +168,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
     setSalvando(true);
     try {
       const due_at = isoFromInputDate(dueDate);
+      const proc = parseProcesso();
       if (editando && tarefa) {
         await atualizarTarefa({
           id: tarefa.id,
@@ -141,6 +181,8 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
             caso_id: casoId,
             responsavel_id: responsavelId,
             due_at,
+            processo_admin_id: proc.processo_admin_id,
+            processo_judicial_id: proc.processo_judicial_id,
           },
         });
         toast.success("Tarefa atualizada.");
@@ -153,6 +195,8 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           caso_id: casoId,
           responsavel_id: responsavelId,
           due_at,
+          processo_admin_id: proc.processo_admin_id,
+          processo_judicial_id: proc.processo_judicial_id,
         });
         toast.success("Tarefa criada.");
       }
@@ -317,7 +361,10 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
             <Label>Caso</Label>
             <Select
               value={casoId ?? "sem"}
-              onValueChange={(v) => setCasoId(v === "sem" ? null : v)}
+              onValueChange={(v) => {
+                setCasoId(v === "sem" ? null : v);
+                setProcessoToken("");           // limpa processo ao trocar caso
+              }}
             >
               <SelectTrigger><SelectValue placeholder="Sem caso" /></SelectTrigger>
               <SelectContent>
@@ -330,6 +377,29 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
               </SelectContent>
             </Select>
           </div>
+
+          {casoId && processosDoCaso.length > 0 && (
+            <div className="space-y-1.5">
+              <Label>Processo (opcional)</Label>
+              <Select
+                value={processoToken || "sem"}
+                onValueChange={(v) => setProcessoToken(v === "sem" ? "" : v)}
+              >
+                <SelectTrigger><SelectValue placeholder="Nenhum" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="sem">Sem processo específico</SelectItem>
+                  {processosDoCaso.map((p) => (
+                    <SelectItem key={`${p.natureza}:${p.id}`} value={`${p.natureza}:${p.id}`}>
+                      {p.rotulo}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Vincula a tarefa a um requerimento ou processo judicial específico do caso.
+              </p>
+            </div>
+          )}
 
           {!editando && casoId && templates.length > 0 && (
             <div className="space-y-1.5 border-t pt-4">

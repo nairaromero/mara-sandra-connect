@@ -17,6 +17,8 @@ export type TarefaOrigem =
 export interface TarefaRow {
   id: string;
   caso_id: string | null;
+  processo_admin_id: string | null;
+  processo_judicial_id: string | null;
   responsavel_id: string | null;
   tipo: TarefaTipo;
   status: TarefaStatus;
@@ -33,6 +35,12 @@ export interface TarefaRow {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
+}
+
+export interface ProcessoDoCasoOpcao {
+  id: string;
+  natureza: "admin" | "judicial";
+  rotulo: string;
 }
 
 export interface TarefaComJoins extends TarefaRow {
