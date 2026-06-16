@@ -23,7 +23,15 @@ interface EtapaConfig {
   cta: string;
   diasDoInicio: number;       // dias desde tarefa.created_at
   proximaEtapa: "peticionamento_mora" | "ajuizamento" | null;
-  tituloAndamento: string;
+  // Função que gera o título do andamento com a data em que a etapa foi
+  // marcada como feita. Quando null, NÃO cria andamento — a Naira que
+  // fará o próximo passo manualmente (ex: criar agendamento de audiência
+  // após ajuizar).
+  tituloAndamento: ((dataFeita: Date) => string) | null;
+}
+
+function fmtData(d: Date): string {
+  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
 const ETAPAS: EtapaConfig[] = [
@@ -33,7 +41,7 @@ const ETAPAS: EtapaConfig[] = [
     cta: "Marcar ouvidoria como feita",
     diasDoInicio: 30,
     proximaEtapa: "peticionamento_mora",
-    tituloAndamento: "Ouvidoria realizada",
+    tituloAndamento: (d) => `Realizamos ouvidoria ${fmtData(d)}`,
   },
   {
     key: "peticionamento_mora",
@@ -41,7 +49,7 @@ const ETAPAS: EtapaConfig[] = [
     cta: "Marcar peticionamento como feito",
     diasDoInicio: 60,
     proximaEtapa: "ajuizamento",
-    tituloAndamento: "Peticionamento de mora administrativa protocolado",
+    tituloAndamento: (d) => `Peticionamento por mora administrativa ${fmtData(d)}`,
   },
   {
     key: "ajuizamento",
@@ -49,7 +57,9 @@ const ETAPAS: EtapaConfig[] = [
     cta: "Marcar ajuizamento como feito",
     diasDoInicio: 120,
     proximaEtapa: null,
-    tituloAndamento: "Ação judicial ajuizada",
+    // Ajuizamento NÃO cria andamento — a pessoa que tá acompanhando
+    // criará o próximo agendamento (audiência ou outro) manualmente.
+    tituloAndamento: null,
   },
 ];
 
@@ -93,9 +103,12 @@ export function EtapasAcompanhamento({
     if (marcando) return;
     setMarcando(etapa.key);
     try {
-      // 1) Cria andamento interno no caso (e processo, se tiver).
+      // 1) Cria andamento interno no caso (e processo, se tiver). Só
+      // cria quando a etapa tem tituloAndamento — ajuizamento, por exemplo,
+      // não cria andamento aqui (a Naira faz o próximo passo manualmente).
+      const agora = new Date();
       let andamentoId: string | null = null;
-      if (tarefa.caso_id) {
+      if (tarefa.caso_id && etapa.tituloAndamento) {
         const { data: and, error: errAnd } = await supabase
           .from("andamentos")
           .insert({
@@ -103,9 +116,9 @@ export function EtapasAcompanhamento({
             processo_admin_id: tarefa.processo_admin_id,
             processo_judicial_id: tarefa.processo_judicial_id,
             origem: "interno",
-            titulo: etapa.tituloAndamento,
+            titulo: etapa.tituloAndamento(agora),
             descricao: `Etapa de acompanhamento processual concluída a partir da tarefa "${tarefa.titulo}".`,
-            data_evento: new Date().toISOString(),
+            data_evento: agora.toISOString(),
             visivel_parceiro: false,
             metadata: {
               etapa_processual: etapa.key,
@@ -122,7 +135,7 @@ export function EtapasAcompanhamento({
       const novasEtapas: Record<string, EtapaRegistro> = {
         ...etapasState,
         [etapa.key]: {
-          feito_em: new Date().toISOString(),
+          feito_em: agora.toISOString(),
           andamento_id: andamentoId,
         },
       };
