@@ -51,24 +51,42 @@ export interface TarefaComJoins extends TarefaRow {
   } | null;
 }
 
+// Item de template. Pode criar uma TAREFA (default) ou um EVENTO de agenda.
+// Itens de agenda têm semântica diferente: usam o "tipo" do enum de agenda
+// (pericia/audiencia/reuniao/interno), duração em minutos, sem prioridade
+// nem responsável (vem do form).
+export interface TarefaTemplateItem {
+  destino?: "tarefa" | "agenda";    // default: "tarefa"
+  titulo: string;
+  descricao?: string;
+  // Quando destino=tarefa, tipo é TarefaTipo. Quando destino=agenda, é AgendaTipo.
+  tipo: string;
+  prioridade?: number;
+  offset_dias?: number;
+  // Âncora de prazo (tarefas): "hoje" (default), "data_cessacao" (do e-mail),
+  // "agenda" (start_at do evento criado no mesmo apply),
+  // "sexta_antes_agenda" (sexta-feira anterior ao agenda).
+  due_relative_to?: "hoje" | "data_cessacao" | "agenda" | "sexta_antes_agenda";
+  // Apenas itens destino=agenda
+  duracao_min?: number;
+  executor_email?: string;
+  interessados_emails?: string[];
+  meta?: Record<string, unknown>;
+}
+
 export interface TarefaTemplateRow {
   id: string;
   nome: string;
   rotulo: string | null;
   gatilho: string;
   descricao: string | null;
-  itens: Array<{
-    titulo: string;
-    descricao?: string;
-    tipo: TarefaTipo;
-    prioridade: number;
-    offset_dias?: number;
-    executor_email?: string;
-    interessados_emails?: string[];
-    meta?: Record<string, unknown>;          // copiado pra tarefa.metadata
-  }>;
+  itens: TarefaTemplateItem[];
   ativo: boolean;
   oculto_na_ui?: boolean;
+}
+
+export function templateTemAgenda(t: TarefaTemplateRow): boolean {
+  return t.itens.some((i) => i.destino === "agenda");
 }
 
 export const STATUS_LABEL: Record<TarefaStatus, string> = {
