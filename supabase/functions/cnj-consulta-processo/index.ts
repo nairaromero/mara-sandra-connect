@@ -68,8 +68,8 @@ const TJ_UF: Record<string, string> = {
   "06": "CE", "07": "DF", "08": "ES", "09": "GO", "10": "MA",
   "11": "MT", "12": "MS", "13": "MG", "14": "PA", "15": "PB",
   "16": "PR", "17": "PE", "18": "PI", "19": "RJ", "20": "RN",
-  "21": "RS", "22": "RO", "23": "RR", "24": "SC", "25": "SP",
-  "26": "SE", "27": "TO",
+  "21": "RS", "22": "RO", "23": "RR", "24": "SC", "25": "SE",
+  "26": "SP", "27": "TO",
 };
 
 /**
@@ -197,12 +197,55 @@ serve(async (req) => {
     comarca = await consultarMunicipio(codIBGE);
   }
 
+  const varaNome = hit.orgaoJulgador?.nome ?? null;
+
+  // Quando o DataJud não traz codigoMunicipioIBGE (acontece bastante em
+  // TJSP), tentamos extrair a comarca do PRÓPRIO NOME DA VARA. Padrões
+  // comuns:
+  //   "01 CUMULATIVA DE ANDRADINA"           → "Andradina"
+  //   "1ª Vara Cível de São Paulo"           → "São Paulo"
+  //   "3ª Vara do Trabalho de Campinas"      → "Campinas"
+  //   "Vara Única de Itu - SP"               → "Itu"
+  if (!comarca && varaNome) {
+    comarca = extrairComarcaDaVara(varaNome);
+  }
+
   return jsonResponse({
     encontrado: true,
     tribunal: cfg.tribunal,
     comarca,
-    vara: hit.orgaoJulgador?.nome ?? null,
+    vara: varaNome,
     classe: hit.classe?.nome ?? null,
     grau: hit.grau ?? null,
   });
 });
+
+function tituloCase(s: string): string {
+  return s
+    .toLowerCase()
+    .split(/(\s+)/)
+    .map((parte) => {
+      if (/^\s+$/.test(parte)) return parte;
+      // Mantém preposições minúsculas no meio (de, da, do, dos, das).
+      if (["de", "da", "do", "dos", "das", "e"].includes(parte)) return parte;
+      return parte.charAt(0).toUpperCase() + parte.slice(1);
+    })
+    .join("")
+    .replace(/^\w/, (c) => c.toUpperCase()); // primeira letra sempre maiúscula
+}
+
+function extrairComarcaDaVara(vara: string): string | null {
+  // Remove " - UF" no fim, ex: "Vara Única de Itu - SP" → "Vara Única de Itu"
+  const limpa = vara.replace(/\s*-\s*[A-Z]{2}\s*$/i, "").trim();
+
+  // Pega tudo após o ÚLTIMO " de " (case-insensitive).
+  const m = limpa.match(/\bde\s+([^\s].*)$/i);
+  if (m && m[1]) {
+    const candidato = m[1].trim();
+    // Filtros sanity: se ficou muito curto ou contém números, pula.
+    if (candidato.length < 2) return null;
+    if (/^\d/.test(candidato)) return null;
+    return tituloCase(candidato);
+  }
+  return null;
+}

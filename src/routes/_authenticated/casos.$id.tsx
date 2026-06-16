@@ -6031,8 +6031,11 @@ function TabProcessos(props: TabProcessosProps) {
     setNumProcesso(novo);
     const parsed = parseCnj(novo);
     if (!parsed.valido) return;
-    if (!vara && parsed.tribunal) setVara(parsed.tribunal);
-    if (!uf && parsed.uf) setUf(parsed.uf);
+    // Quando o número está válido (20 dígitos), o tribunal/UF são
+    // determinísticos: SEMPRE sobrescreve. Isso evita state preso de
+    // outras tentativas e bugs de "(atual)" no select.
+    if (parsed.tribunal) setVara(parsed.tribunal);
+    if (parsed.uf) setUf(parsed.uf);
 
     // Consulta DataJud só uma vez por número.
     const digitos = novo.replace(/\D/g, "");
@@ -6046,8 +6049,9 @@ function TabProcessos(props: TabProcessosProps) {
       })
       .then(({ data }) => {
         if (!data?.encontrado) return;
-        if (data.comarca && !comarca) setComarca(data.comarca);
-        if (data.tribunal && !vara) setVara(data.tribunal);
+        // DataJud é fonte autoritativa: sobrescreve comarca/vara também.
+        if (data.comarca) setComarca(data.comarca);
+        if (data.tribunal) setVara(data.tribunal);
       })
       .catch(() => {})
       .finally(() => setConsultandoDataJud(false));
