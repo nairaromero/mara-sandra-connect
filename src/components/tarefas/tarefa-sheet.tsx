@@ -47,6 +47,9 @@ import {
   type TarefaTemplateRow,
   type TarefaTipo,
 } from "@/lib/tarefas/types";
+import { criarEvento } from "@/lib/agenda/queries";
+import type { AgendaTipo } from "@/lib/agenda/types";
+import { calcularDueAtRelativo } from "@/lib/agenda/helpers";
 import {
   inputDateTimeValueFromIso,
   isoFromInputDateTime,
@@ -55,8 +58,16 @@ import {
 import { EtapasAcompanhamento } from "@/components/tarefas/etapas-acompanhamento";
 
 type Modo =
-  | { kind: "criar"; casoIdInicial?: string | null }
+  | {
+      kind: "criar";
+      casoIdInicial?: string | null;
+      templateInicial?: string;        // nome do template a pré-selecionar
+    }
   | { kind: "editar"; tarefa: TarefaComJoins };
+
+// Export pra outras telas (ex: /clientes "+ Perícia") abrirem o sheet
+// com template pré-selecionado.
+export type TarefaSheetModo = Modo;
 
 interface Props {
   modo: Modo | null;                 // null = fechado
@@ -81,6 +92,9 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   const [processoToken, setProcessoToken] = useState<string>("");
   const [responsavelId, setResponsavelId] = useState<string | null>(null);
   const [dueDate, setDueDate] = useState<string>("");
+  // Campo extra que aparece quando o template selecionado tem item
+  // destino=agenda (ex: Perícia com parceiro). É o local da perícia.
+  const [local, setLocal] = useState<string>("");
 
   const [casos, setCasos] = useState<Array<{ id: string; cliente_nome: string | null }>>([]);
   const [internos, setInternos] = useState<
@@ -93,16 +107,22 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   const [salvando, setSalvando] = useState(false);
   const [excluindo, setExcluindo] = useState(false);
 
+  // Template atual selecionado tem item destino=agenda? Se sim, o save
+  // cria evento na agenda + tarefas extras com prazos relativos. UI
+  // também mostra campo "Local" e rótulos diferentes.
+  const templateAgenda = templateSelecionado
+    ? templates.find((t) => t.nome === templateSelecionado && templateTemAgenda(t)) ?? null
+    : null;
+
   // Carrega listas auxiliares uma vez (ao abrir).
   useEffect(() => {
     if (!aberto) return;
     listarCasosResumo().then(setCasos).catch(() => {});
     listarInternosAtivos().then(setInternos).catch(() => {});
-    // TarefaSheet só mostra templates puramente de tarefa. Templates que
-    // criam evento de agenda (ex: pericia_parceiro) ficam no AgendaSheet.
-    listarTemplates()
-      .then((all) => setTemplates(all.filter((t) => !templateTemAgenda(t))))
-      .catch(() => {});
+    // Mostra TODOS os templates ativos não-ocultos. Quando o template tem
+    // item destino=agenda (ex: "Perícia (com parceiro)"), o salvar() cria
+    // o agenda_evento + tarefas extras com datas relativas.
+    listarTemplates().then(setTemplates).catch(() => {});
   }, [aberto]);
 
   // Carrega processos do caso quando muda. Limpa quando não há caso.
@@ -114,33 +134,41 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
     listarProcessosDoCaso(casoId).then(setProcessosDoCaso).catch(() => {});
   }, [casoId]);
 
-  // Quando a Naira escolhe um template (modo criar), popula o form com os
-  // dados do PRIMEIRO item — título, descrição, tipo, prioridade, prazo —
-  // já substituindo placeholders com o contexto do caso/processo. Ela pode
-  // editar tudo antes de salvar. Itens adicionais (templates multi-item)
-  // são criados ao salvar, com os valores padrão do template.
+  // Quando a Naira escolhe um template (modo criar), popula o form. Se o
+  // template tem item destino=agenda (ex: "Perícia com parceiro"), esse
+  // item vira o "main" — a Data/hora do form passa a ser o start da
+  // perícia. Os demais itens (destino=tarefa) ficam pra criação no salvar()
+  // com prazos relativos ao start da perícia.
+  // Quando não tem item destino=agenda, comportamento clássico: itens[0]
+  // popula o form, demais viram tarefas extras.
   useEffect(() => {
     if (editando) return;
     if (!templateSelecionado || !casoId) return;
     const tpl = templates.find((t) => t.nome === templateSelecionado);
     if (!tpl || tpl.itens.length === 0) return;
+    const agendaItem = tpl.itens.find((i) => i.destino === "agenda");
+    const main = agendaItem ?? tpl.itens[0];
     let cancelado = false;
     (async () => {
       const ctx = await obterContextoCaso(casoId, processoToken);
       if (cancelado) return;
-      const item = tpl.itens[0];
       const ph = {
         nome_cliente: ctx.cliente_nome,
         protocolo: ctx.protocolo,
         cpf: ctx.cliente_cpf,
         servico: ctx.servico,
       };
-      setTitulo(substituirPlaceholders(item.titulo, ph));
-      setDescricao(substituirPlaceholders(item.descricao ?? "", ph));
-      setTipo(item.tipo as TarefaTipo);
-      setPrioridade(item.prioridade ?? 3);
-      if (typeof item.offset_dias === "number") {
-        const dt = new Date(Date.now() + item.offset_dias * 86400_000);
+      setTitulo(substituirPlaceholders(main.titulo, ph));
+      setDescricao(substituirPlaceholders(main.descricao ?? "", ph));
+      setTipo((main.tipo as TarefaTipo) || "interna");
+      setPrioridade(main.prioridade ?? 3);
+      if (agendaItem) {
+        // Pra agenda: form começa vazio (Naira preenche data/hora/local).
+        // Não inferimos data — perícia é específica.
+        setDueDate("");
+        setLocal("");
+      } else if (typeof main.offset_dias === "number") {
+        const dt = new Date(Date.now() + main.offset_dias * 86400_000);
         setDueDate(inputDateTimeValueFromIso(dt.toISOString()));
       } else {
         setDueDate("");
@@ -164,7 +192,8 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       setProcessoToken("");
       setResponsavelId(null);
       setDueDate("");
-      setTemplateSelecionado("");
+      setLocal("");
+      setTemplateSelecionado(modo.templateInicial ?? "");
     } else {
       const t = modo.tarefa;
       setTitulo(t.titulo);
@@ -182,6 +211,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       );
       setResponsavelId(t.responsavel_id);
       setDueDate(inputDateTimeValueFromIso(t.due_at));
+      setLocal("");
       setTemplateSelecionado("");
     }
   }, [modo]);
@@ -235,70 +265,107 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
         });
         toast.success("Tarefa atualizada.");
       } else {
-        // Modo criar: a tarefa principal usa os valores do form (editáveis,
-        // mesmo quando vieram de um template). Se o template tem itens
-        // adicionais, eles são criados em seguida com os valores padrão.
+        // Modo criar.
+        // Template define dois cenários:
+        //  A) Tem item destino=agenda → "main" é o EVENTO de agenda. Form
+        //     vira a perícia. Demais itens são tarefas extras com prazos
+        //     relativos ao start_at do evento (due_relative_to=agenda /
+        //     sexta_antes_agenda).
+        //  B) Não tem destino=agenda → "main" é tarefa[0]. Form cria a
+        //     tarefa principal. Demais itens viram tarefas extras (hoje + offset).
+        //  C) Sem template → cria 1 tarefa do form (default).
         const tpl = templateSelecionado
           ? templates.find((t) => t.nome === templateSelecionado)
           : null;
         const tplItens = tpl?.itens ?? [];
-        const firstMeta = (tplItens[0]?.meta ?? {}) as Record<string, unknown>;
+        const agendaItem = tpl?.itens.find((i) => i.destino === "agenda") ?? null;
+        const mainItem = agendaItem ?? tplItens[0] ?? null;
 
-        // Tarefa #1 (a editada pela Naira).
-        await criarTarefa({
-          titulo: titulo.trim(),
-          descricao: descricao.trim() || null,
-          tipo,
-          prioridade,
-          caso_id: casoId,
-          responsavel_id: responsavelId,
-          due_at,
-          processo_admin_id: proc.processo_admin_id,
-          processo_judicial_id: proc.processo_judicial_id,
-          metadata: tpl
-            ? {
-                template_aplicado: tpl.nome,
-                template_item_index: 0,
-                aplicado_manualmente: true,
-                ...firstMeta,
-              }
-            : undefined,
-        });
+        // Contexto pra substituir placeholders e lookup de e-mail→uuid
+        // (compartilhado entre main + extras).
+        const ctx = casoId ? await obterContextoCaso(casoId, processoToken) : null;
+        const ph = {
+          nome_cliente: ctx?.cliente_nome ?? "",
+          protocolo: ctx?.protocolo ?? "",
+          cpf: ctx?.cliente_cpf ?? "",
+          servico: ctx?.servico ?? "",
+        };
+        const emailParaId = new Map<string, string>();
+        for (const u of internos) {
+          if (u.email) emailParaId.set(u.email.toLowerCase(), u.id);
+        }
 
-        // Itens 2+ (template multi-item) — criados com os valores padrão
-        // do template (substituindo placeholders contra o mesmo contexto).
-        let extras = 0;
-        if (tpl && tplItens.length > 1 && casoId) {
-          const ctx = await obterContextoCaso(casoId, processoToken);
-          const ph = {
-            nome_cliente: ctx.cliente_nome,
-            protocolo: ctx.protocolo,
-            cpf: ctx.cliente_cpf,
-            servico: ctx.servico,
-          };
-          const emailParaId = new Map<string, string>();
-          for (const u of internos) {
-            if (u.email) emailParaId.set(u.email.toLowerCase(), u.id);
+        // ============== MAIN ==============
+        let agendaStart: Date | null = null;
+        if (agendaItem) {
+          // Form values criam o agenda_evento.
+          if (!dueDate) {
+            toast.error("Data e hora da perícia são obrigatórias.");
+            setSalvando(false);
+            return;
           }
-          for (let i = 1; i < tplItens.length; i++) {
+          const startIso = isoFromInputDateTime(dueDate)!;
+          agendaStart = new Date(startIso);
+          const dur = agendaItem.duracao_min ?? 60;
+          const endIso = new Date(agendaStart.getTime() + dur * 60_000).toISOString();
+          await criarEvento({
+            tipo: (agendaItem.tipo as AgendaTipo) || "pericia",
+            titulo: titulo.trim(),
+            descricao: descricao.trim() || null,
+            start_at: startIso,
+            end_at: endIso,
+            local: local.trim() || null,
+            caso_id: casoId,
+            responsavel_id: responsavelId,
+            processo_admin_id: proc.processo_admin_id,
+            processo_judicial_id: proc.processo_judicial_id,
+          });
+        } else {
+          // Comportamento clássico: form cria tarefa principal.
+          const firstMeta = (mainItem?.meta ?? {}) as Record<string, unknown>;
+          await criarTarefa({
+            titulo: titulo.trim(),
+            descricao: descricao.trim() || null,
+            tipo,
+            prioridade,
+            caso_id: casoId,
+            responsavel_id: responsavelId,
+            due_at,
+            processo_admin_id: proc.processo_admin_id,
+            processo_judicial_id: proc.processo_judicial_id,
+            metadata: tpl
+              ? {
+                  template_aplicado: tpl.nome,
+                  template_item_index: 0,
+                  aplicado_manualmente: true,
+                  ...firstMeta,
+                }
+              : undefined,
+          });
+        }
+
+        // ============== EXTRAS (todos itens que não foram o main) ==============
+        let extras = 0;
+        if (tpl && tplItens.length > 0) {
+          for (let i = 0; i < tplItens.length; i++) {
             const item = tplItens[i];
-            // Defesa: itens destino=agenda só são criados via AgendaSheet
-            // (criam evento de agenda, não tarefa). No TarefaSheet pulam.
-            if (item.destino === "agenda") continue;
+            if (item === mainItem) continue;          // skip o main (já criado)
+            if (item.destino === "agenda") continue;  // ignora outros agenda (1 agenda só)
             let respFinal: string | null = responsavelId;
             if (!respFinal && item.executor_email) {
               respFinal = emailParaId.get(item.executor_email.toLowerCase()) ?? null;
             }
+            const ancora = item.due_relative_to ?? "hoje";
             const extraDueAt =
-              typeof item.offset_dias === "number"
-                ? new Date(Date.now() + item.offset_dias * 86400_000).toISOString()
-                : null;
+              ancora === "agenda" || ancora === "sexta_antes_agenda"
+                ? calcularDueAtRelativo(ancora, agendaStart, item.offset_dias)
+                : calcularDueAtRelativo("hoje", null, item.offset_dias);
             await criarTarefa({
               caso_id: casoId,
               processo_admin_id: proc.processo_admin_id,
               processo_judicial_id: proc.processo_judicial_id,
               responsavel_id: respFinal,
-              tipo: item.tipo as TarefaTipo,
+              tipo: (item.tipo as TarefaTipo) || "interna",
               prioridade: item.prioridade ?? 3,
               titulo: substituirPlaceholders(item.titulo, ph),
               descricao:
@@ -308,11 +375,24 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
                 template_aplicado: tpl.nome,
                 template_item_index: i,
                 aplicado_manualmente: true,
+                ancora_prazo: ancora,
                 ...(item.meta ?? {}),
               },
             });
             extras++;
           }
+        }
+
+        if (agendaItem) {
+          toast.success(
+            extras === 0
+              ? "Perícia agendada."
+              : `Perícia agendada + ${extras} tarefa${extras === 1 ? "" : "s"} criada${extras === 1 ? "" : "s"}.`,
+          );
+          // Total não conta a perícia como tarefa.
+          onSaved();
+          onClose();
+          return;
         }
 
         const total = 1 + extras;
@@ -420,31 +500,55 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
                 <SelectContent>
                   {templates.map((t) => (
                     <SelectItem key={t.id} value={t.nome}>
-                      {t.rotulo ?? t.nome}{" "}
-                      <span className="text-muted-foreground">
-                        ({t.itens.length} tarefa{t.itens.length > 1 ? "s" : ""})
-                      </span>
+                      {(() => {
+                        const ehAgenda = templateTemAgenda(t);
+                        const tarefasN = t.itens.filter((i) => i.destino !== "agenda").length;
+                        return (
+                          <>
+                            {t.rotulo ?? t.nome}{" "}
+                            <span className="text-muted-foreground">
+                              ({ehAgenda
+                                ? `agenda + ${tarefasN} tarefa${tarefasN === 1 ? "" : "s"}`
+                                : `${t.itens.length} tarefa${t.itens.length > 1 ? "s" : ""}`})
+                            </span>
+                          </>
+                        );
+                      })()}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
                 {templateSelecionado ? (
-                  <>
-                    Os campos abaixo foram preenchidos com os dados do template.{" "}
-                    <strong>Você pode editar tudo antes de salvar.</strong>
-                    {(() => {
-                      const t = templates.find((x) => x.nome === templateSelecionado);
-                      const extras = (t?.itens.length ?? 0) - 1;
-                      return extras > 0 ? (
-                        <>
-                          {" "}Ao salvar, {extras} tarefa{extras === 1 ? "" : "s"} adicional
-                          {extras === 1 ? "" : "is"} do template ser{extras === 1 ? "á" : "ão"} criada
-                          {extras === 1 ? "" : "s"} com os valores padrão.
-                        </>
-                      ) : null;
-                    })()}
-                  </>
+                  templateAgenda ? (
+                    <>
+                      <strong>Esse template cria um evento na agenda</strong> (a perícia em si)
+                      {(() => {
+                        const t = templateAgenda;
+                        const extras = t.itens.filter((i) => i.destino !== "agenda").length;
+                        return extras > 0
+                          ? ` + ${extras} tarefa${extras === 1 ? "" : "s"} com prazos relativos à data da perícia.`
+                          : ".";
+                      })()}
+                      {" "}Preencha data, hora e local da perícia abaixo.
+                    </>
+                  ) : (
+                    <>
+                      Os campos abaixo foram preenchidos com os dados do template.{" "}
+                      <strong>Você pode editar tudo antes de salvar.</strong>
+                      {(() => {
+                        const t = templates.find((x) => x.nome === templateSelecionado);
+                        const extras = (t?.itens.length ?? 0) - 1;
+                        return extras > 0 ? (
+                          <>
+                            {" "}Ao salvar, {extras} tarefa{extras === 1 ? "" : "s"} adicional
+                            {extras === 1 ? "" : "is"} do template ser{extras === 1 ? "á" : "ão"} criada
+                            {extras === 1 ? "" : "s"} com os valores padrão.
+                          </>
+                        ) : null;
+                      })()}
+                    </>
+                  )
                 ) : (
                   <>
                     Selecionar um template preenche os campos abaixo (você pode editar antes de salvar). Sem template, preencha manualmente.
@@ -518,7 +622,9 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           )}
 
           <div className="space-y-1.5">
-            <Label htmlFor="t-due">Data</Label>
+            <Label htmlFor="t-due">
+              {templateAgenda ? "Data e hora da perícia" : "Data"}
+            </Label>
             <Input
               id="t-due"
               type="datetime-local"
@@ -526,6 +632,18 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
               onChange={(e) => setDueDate(e.target.value)}
             />
           </div>
+
+          {templateAgenda && (
+            <div className="space-y-1.5">
+              <Label htmlFor="t-local">Local</Label>
+              <Input
+                id="t-local"
+                value={local}
+                onChange={(e) => setLocal(e.target.value)}
+                placeholder="Ex: APS Cabreúva, endereço, sala..."
+              />
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <Label>Responsável</Label>

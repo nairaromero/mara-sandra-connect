@@ -18,8 +18,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ImportarTiDialog } from "@/components/importar-ti-dialog";
-import { AgendaSheet } from "@/components/agenda/agenda-sheet";
-import type { AgendaEventoComJoins } from "@/lib/agenda/types";
+import { TarefaSheet, type TarefaSheetModo } from "@/components/tarefas/tarefa-sheet";
 
 export const Route = createFileRoute("/_authenticated/clientes")({
   component: ClientesPage,
@@ -119,11 +118,10 @@ function ClientesPage() {
   const [casos, setCasos] = useState<Array<CasoRow>>([]);
   const [loading, setLoading] = useState(true);
   const [busca, setBusca] = useState("");
-  const [agendaSheet, setAgendaSheet] = useState<
-    | { kind: "criar"; tipoInicial?: "pericia"; casoIdInicial: string }
-    | { kind: "editar"; evento: AgendaEventoComJoins }
-    | null
-  >(null);
+  // "+ Perícia" no cliente abre o TarefaSheet com o template
+  // "pericia_parceiro" pré-selecionado. O TarefaSheet detecta destino=agenda
+  // e cria o evento na agenda + 2 tarefas (lembrete antes + verificação).
+  const [tarefaSheet, setTarefaSheet] = useState<TarefaSheetModo | null>(null);
 
   useEffect(() => {
     if (!usuario) return;
@@ -408,10 +406,10 @@ function ClientesPage() {
                                   title={`Agendar perícia para ${c.nome}`}
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    setAgendaSheet({
+                                    setTarefaSheet({
                                       kind: "criar",
-                                      tipoInicial: "pericia",
                                       casoIdInicial: casoMaisRecente.id,
+                                      templateInicial: "pericia_parceiro",
                                     });
                                   }}
                                 >
@@ -436,11 +434,11 @@ function ClientesPage() {
         </Card>
       </ClientOnly>
 
-      <AgendaSheet
-        modo={agendaSheet}
-        onClose={() => setAgendaSheet(null)}
+      <TarefaSheet
+        modo={tarefaSheet}
+        onClose={() => setTarefaSheet(null)}
         onSaved={() => {
-          /* mantém a tabela como está — a tarefa aparece em /agenda */
+          /* tarefas + perícia (agenda) criadas; aparecem em /agenda e /tarefas */
         }}
       />
     </div>
