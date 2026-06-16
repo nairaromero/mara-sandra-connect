@@ -57,16 +57,16 @@ serve(async (req) => {
     }, 500);
   }
 
-  // Auth do usuário chamando: usa o JWT do header Authorization.
+  // Auth do usuário chamando: extrai o JWT do header e valida com o admin
+  // client. Mesmo padrão usado em convidar-parceiro/excluir-parceiro.
   const authHeader = req.headers.get("Authorization") ?? "";
-  const sb = createClient(SUPABASE_URL, SERVICE_ROLE, {
-    auth: { persistSession: false },
-    global: { headers: { Authorization: authHeader } },
-  });
+  const jwt = authHeader.replace(/^Bearer\s+/i, "");
+  if (!jwt) return jsonResponse({ error: "não autenticado" }, 401);
 
-  const { data: userData, error: userErr } = await sb.auth.getUser();
+  const sb = createClient(SUPABASE_URL, SERVICE_ROLE);
+  const { data: userData, error: userErr } = await sb.auth.getUser(jwt);
   if (userErr || !userData?.user) {
-    return jsonResponse({ error: "não autenticado" }, 401);
+    return jsonResponse({ error: "sessão inválida" }, 401);
   }
   const usuarioId = userData.user.id;
 
