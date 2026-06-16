@@ -75,10 +75,10 @@ export async function listarTemplates(): Promise<TarefaTemplateRow[]> {
   // INSS via service_role.
   const { data, error } = await supabase
     .from("tarefa_templates")
-    .select("id, nome, gatilho, descricao, itens, ativo, oculto_na_ui")
+    .select("id, nome, rotulo, gatilho, descricao, itens, ativo, oculto_na_ui")
     .eq("ativo", true)
     .eq("oculto_na_ui", false)
-    .order("nome", { ascending: true });
+    .order("rotulo", { ascending: true });
   if (error) throw error;
   return (data as TarefaTemplateRow[]) ?? [];
 }

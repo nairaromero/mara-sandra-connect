@@ -265,6 +265,7 @@ function TarefasPage() {
                           onOpenSheet={abrirEditor}
                           onChangeStatus={mudarStatus}
                           onDelete={excluir}
+                          onChanged={carregar}
                         />
                       ))
                     )}

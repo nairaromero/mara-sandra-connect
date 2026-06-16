@@ -54,6 +54,7 @@ export interface TarefaComJoins extends TarefaRow {
 export interface TarefaTemplateRow {
   id: string;
   nome: string;
+  rotulo: string | null;
   gatilho: string;
   descricao: string | null;
   itens: Array<{

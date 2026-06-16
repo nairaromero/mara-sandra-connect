@@ -140,6 +140,7 @@ export function CasoTarefasTab({ casoId }: Props) {
                         onOpenSheet={abrirEditor}
                         onChangeStatus={mudarStatus}
                         onDelete={excluir}
+                        onChanged={carregar}
                         mostrarCaso={false}
                       />
                     ))}
