@@ -9,6 +9,10 @@ import { CalendarDays, MoreVertical, Trash2, User as UserIcon } from "lucide-rea
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  DESTAQUE_CLASSE_GLOBAL,
+  useDestaqueAtivo,
+} from "@/lib/destaque/destaque-context";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -54,10 +58,14 @@ export function TarefaCard({
   const clienteNome = tarefa.caso?.cliente?.nome ?? null;
   const ehAcompProcessual =
     (tarefa.metadata as { acompanhamento_processual?: boolean })?.acompanhamento_processual === true;
+  const destacado = useDestaqueAtivo(tarefa.id);
 
   return (
     <div
-      className="group rounded-md border bg-card text-card-foreground shadow-sm hover:shadow transition-shadow cursor-pointer"
+      className={cn(
+        "group rounded-md border bg-card text-card-foreground shadow-sm hover:shadow transition-shadow cursor-pointer",
+        destacado && DESTAQUE_CLASSE_GLOBAL,
+      )}
       onClick={() => onOpenSheet(tarefa.id)}
       role="button"
       tabIndex={0}

@@ -56,6 +56,7 @@ import {
   substituirPlaceholders,
 } from "@/lib/tarefas/helpers";
 import { EtapasAcompanhamento } from "@/components/tarefas/etapas-acompanhamento";
+import { useDestaque } from "@/lib/destaque/destaque-context";
 
 type Modo =
   | {
@@ -79,6 +80,7 @@ const TIPOS: TarefaTipo[] = ["interna", "prazo", "pericia", "pos_protocolo", "co
 
 export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   const aberto = modo !== null;
+  const { marcar: marcarDestaque } = useDestaque();
   const editando = modo?.kind === "editar";
   const tarefa = modo?.kind === "editar" ? modo.tarefa : null;
 
@@ -308,7 +310,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           agendaStart = new Date(startIso);
           const dur = agendaItem.duracao_min ?? 60;
           const endIso = new Date(agendaStart.getTime() + dur * 60_000).toISOString();
-          await criarEvento({
+          const novoEvento = await criarEvento({
             tipo: (agendaItem.tipo as AgendaTipo) || "pericia",
             titulo: titulo.trim(),
             descricao: descricao.trim() || null,
@@ -320,10 +322,11 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
             processo_admin_id: proc.processo_admin_id,
             processo_judicial_id: proc.processo_judicial_id,
           });
+          marcarDestaque(novoEvento.id);
         } else {
           // Comportamento clássico: form cria tarefa principal.
           const firstMeta = (mainItem?.meta ?? {}) as Record<string, unknown>;
-          await criarTarefa({
+          const novaTarefa = await criarTarefa({
             titulo: titulo.trim(),
             descricao: descricao.trim() || null,
             tipo,
@@ -342,6 +345,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
                 }
               : undefined,
           });
+          marcarDestaque(novaTarefa.id);
         }
 
         // ============== EXTRAS (todos itens que não foram o main) ==============
@@ -360,7 +364,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
               ancora === "agenda" || ancora === "sexta_antes_agenda"
                 ? calcularDueAtRelativo(ancora, agendaStart, item.offset_dias)
                 : calcularDueAtRelativo("hoje", null, item.offset_dias);
-            await criarTarefa({
+            const tarefaExtra = await criarTarefa({
               caso_id: casoId,
               processo_admin_id: proc.processo_admin_id,
               processo_judicial_id: proc.processo_judicial_id,
@@ -379,6 +383,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
                 ...(item.meta ?? {}),
               },
             });
+            marcarDestaque(tarefaExtra.id);
             extras++;
           }
         }

@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase";
 import type { TarefaComJoins } from "@/lib/tarefas/types";
+import { useDestaque } from "@/lib/destaque/destaque-context";
 
 interface EtapaConfig {
   key: "ouvidoria" | "peticionamento_mora" | "ajuizamento";
@@ -97,6 +98,7 @@ export function EtapasAcompanhamento({
   }, [tarefa.id, tarefa.metadata]);
 
   const [marcando, setMarcando] = useState<string | null>(null);
+  const { marcar: marcarDestaque } = useDestaque();
   const criadoEm = new Date(tarefa.created_at).getTime();
 
   async function marcarEtapa(etapa: EtapaConfig) {
@@ -129,6 +131,7 @@ export function EtapasAcompanhamento({
           .single();
         if (errAnd) throw errAnd;
         andamentoId = and.id as string;
+        marcarDestaque(andamentoId);
       }
 
       // 2) Atualiza tarefa.metadata.etapas + due_at + status.

@@ -39,6 +39,10 @@ import { notificarEquipe } from "@/lib/notificar";
 import { iaAnalise } from "@/lib/ia/client";
 import { supabase } from "@/lib/supabase";
 import { parseCnj } from "@/lib/processos/cnj";
+import {
+  DESTAQUE_CLASSE_GLOBAL,
+  useDestaque,
+} from "@/lib/destaque/destaque-context";
 import { MAX_FILE_SIZE_MB, validateFileSize, validateFileSizes } from "@/lib/upload-limits";
 import {
   abrirDrivePicker,
@@ -2194,6 +2198,8 @@ function TabAndamentos(props: TabAndamentosProps) {
     onChange,
   } = props;
   const foco = useFocoItem(focoId);
+  // Destaque global pra andamentos recém-criados (etapas, dialog novo, etc).
+  const { ativos: destaquesAtivos, marcar: marcarDestaque } = useDestaque();
   // States do dialog "Novo andamento"
   // tipoDialogoNovo: null = fechado; "admin" ou "judicial" = aberto com tipo pre-definido
   const [tipoDialogoNovo, setTipoDialogoNovo] = useState<"admin" | "judicial" | null>(null);
@@ -2526,6 +2532,7 @@ function TabAndamentos(props: TabAndamentosProps) {
         .single();
       if (resp.error) throw resp.error;
       const novoAndamentoId = (resp.data as { id: string } | null)?.id;
+      if (novoAndamentoId) marcarDestaque(novoAndamentoId);
 
       // Dispara email pro parceiro se andamento visivel. Fire-and-forget.
       // A edge function valida visivel_parceiro=true e parceiro_id antes de
@@ -2695,11 +2702,16 @@ function TabAndamentos(props: TabAndamentosProps) {
 
   // Helper: renderiza um item de andamento (usado nos accordions de processo)
   function renderItemAndamento(a: Andamento) {
+    const destacadoGlobal = destaquesAtivos.has(a.id);
     return (
       <li
         key={a.id}
         id={"foco-" + a.id}
-        className={"border-l-2 border-muted pl-3 py-1 " + (foco === a.id ? DESTAQUE_CLASSE : "")}
+        className={
+          "border-l-2 border-muted pl-3 py-1 " +
+          (foco === a.id ? DESTAQUE_CLASSE : "") +
+          (destacadoGlobal ? " " + DESTAQUE_CLASSE_GLOBAL : "")
+        }
       >
         {renderItemAndamentoInner(a)}
       </li>
