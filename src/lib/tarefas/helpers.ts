@@ -68,6 +68,21 @@ export function isoFromInputDate(date: string): string | null {
   return new Date(`${date}T00:00:00`).toISOString();
 }
 
+// Variantes com hora (datetime-local). Formato do input: YYYY-MM-DDTHH:mm.
+export function inputDateTimeValueFromIso(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+export function isoFromInputDateTime(s: string): string | null {
+  if (!s) return null;
+  // O input já vem no formato local (sem TZ). new Date(s) interpreta como
+  // horário local, e .toISOString() converte para UTC.
+  return new Date(s).toISOString();
+}
+
 export interface PlaceholderContext {
   nome_cliente?: string;
   protocolo?: string;
