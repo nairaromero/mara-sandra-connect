@@ -121,7 +121,10 @@ export function EtapasAcompanhamento({
             titulo: etapa.tituloAndamento(agora),
             descricao: `Etapa de acompanhamento processual concluída a partir da tarefa "${tarefa.titulo}".`,
             data_evento: agora.toISOString(),
-            visivel_parceiro: false,
+            // Visível ao parceiro: a ouvidoria e o peticionamento de mora
+            // são parte da comunicação que o parceiro acompanha (decisão
+            // Naira, 2026-06-16).
+            visivel_parceiro: true,
             metadata: {
               etapa_processual: etapa.key,
               tarefa_id: tarefa.id,
@@ -132,6 +135,12 @@ export function EtapasAcompanhamento({
         if (errAnd) throw errAnd;
         andamentoId = and.id as string;
         marcarDestaque(andamentoId);
+        // Notifica parceiro fire-and-forget.
+        supabase.functions
+          .invoke("notify-novo-andamento", {
+            body: { andamento_id: andamentoId },
+          })
+          .catch(() => {});
       }
 
       // 2) Atualiza tarefa.metadata.etapas + due_at + status.
