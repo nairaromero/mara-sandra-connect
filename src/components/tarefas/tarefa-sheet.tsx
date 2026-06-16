@@ -57,6 +57,8 @@ import {
 } from "@/lib/tarefas/helpers";
 import { EtapasAcompanhamento } from "@/components/tarefas/etapas-acompanhamento";
 import { useDestaque } from "@/lib/destaque/destaque-context";
+import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/hooks/use-auth";
 
 type Modo =
   | {
@@ -81,6 +83,7 @@ const TIPOS: TarefaTipo[] = ["interna", "prazo", "pericia", "pos_protocolo", "co
 export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   const aberto = modo !== null;
   const { marcar: marcarDestaque } = useDestaque();
+  const { usuario } = useAuth();
   const editando = modo?.kind === "editar";
   const tarefa = modo?.kind === "editar" ? modo.tarefa : null;
 
@@ -350,11 +353,53 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
 
         // ============== EXTRAS (todos itens que não foram o main) ==============
         let extras = 0;
+        let extrasAndamento = 0;
         if (tpl && tplItens.length > 0) {
           for (let i = 0; i < tplItens.length; i++) {
             const item = tplItens[i];
             if (item === mainItem) continue;          // skip o main (já criado)
             if (item.destino === "agenda") continue;  // ignora outros agenda (1 agenda só)
+
+            // ----- destino=andamento → cria registro em `andamentos` -----
+            if (item.destino === "andamento") {
+              const visivel = item.visivel_parceiro ?? true;
+              const { data: novoAnd, error: errAnd } = await supabase
+                .from("andamentos")
+                .insert({
+                  caso_id: casoId,
+                  processo_admin_id: proc.processo_admin_id,
+                  processo_judicial_id: proc.processo_judicial_id,
+                  origem: "interno",
+                  titulo: substituirPlaceholders(item.titulo, ph),
+                  descricao:
+                    substituirPlaceholders(item.descricao ?? "", ph) || null,
+                  data_evento: new Date().toISOString(),
+                  criado_por: usuario?.id ?? null,
+                  visivel_parceiro: visivel,
+                  metadata: {
+                    template_aplicado: tpl.nome,
+                    template_item_index: i,
+                    aplicado_manualmente: true,
+                    ...(item.meta ?? {}),
+                  },
+                })
+                .select("id")
+                .single();
+              if (errAnd) throw errAnd;
+              marcarDestaque(novoAnd.id);
+              // Fire-and-forget: notifica parceiro por e-mail se visível.
+              if (visivel) {
+                supabase.functions
+                  .invoke("notify-novo-andamento", {
+                    body: { andamento_id: novoAnd.id },
+                  })
+                  .catch(() => {});
+              }
+              extrasAndamento++;
+              continue;
+            }
+
+            // ----- destino=tarefa (default) -----
             let respFinal: string | null = responsavelId;
             if (!respFinal && item.executor_email) {
               respFinal = emailParaId.get(item.executor_email.toLowerCase()) ?? null;
@@ -388,23 +433,30 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           }
         }
 
+        // Trecho dinâmico do toast (X tarefa(s) + Y andamento(s)).
+        const partesTrecho: string[] = [];
+        if (extras > 0) partesTrecho.push(`${extras} tarefa${extras === 1 ? "" : "s"}`);
+        if (extrasAndamento > 0) partesTrecho.push(`${extrasAndamento} andamento${extrasAndamento === 1 ? "" : "s"}`);
+        const trechoExtras = partesTrecho.join(" + ");
+
         if (agendaItem) {
           toast.success(
-            extras === 0
+            partesTrecho.length === 0
               ? "Perícia agendada."
-              : `Perícia agendada + ${extras} tarefa${extras === 1 ? "" : "s"} criada${extras === 1 ? "" : "s"}.`,
+              : `Perícia agendada + ${trechoExtras}.`,
           );
-          // Total não conta a perícia como tarefa.
           onSaved();
           onClose();
           return;
         }
 
-        const total = 1 + extras;
+        const totalTarefas = 1 + extras;
         toast.success(
-          total === 1
-            ? "Tarefa criada."
-            : `${total} tarefas criadas (${extras} adicional${extras === 1 ? "" : "is"} do template).`,
+          extrasAndamento === 0
+            ? totalTarefas === 1
+              ? "Tarefa criada."
+              : `${totalTarefas} tarefas criadas (${extras} adicional${extras === 1 ? "" : "is"} do template).`
+            : `Tarefa criada + ${trechoExtras}.`,
         );
       }
       onSaved();
