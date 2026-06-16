@@ -152,7 +152,14 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
     const tpl = templates.find((t) => t.nome === templateSelecionado);
     if (!tpl || tpl.itens.length === 0) return;
     const agendaItem = tpl.itens.find((i) => i.destino === "agenda");
-    const main = agendaItem ?? tpl.itens[0];
+    // Main = item de agenda (se houver) → form é a perícia. Senão, o
+    // primeiro item destino=tarefa (ou sem destino). Itens destino=
+    // andamento NUNCA viram main — eles são sempre criados como
+    // andamento no extras loop.
+    const primeiroTarefa = tpl.itens.find(
+      (i) => !i.destino || i.destino === "tarefa",
+    );
+    const main = agendaItem ?? primeiroTarefa ?? tpl.itens[0];
     let cancelado = false;
     (async () => {
       const ctx = await obterContextoCaso(casoId, processoToken);
@@ -284,7 +291,13 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           : null;
         const tplItens = tpl?.itens ?? [];
         const agendaItem = tpl?.itens.find((i) => i.destino === "agenda") ?? null;
-        const mainItem = agendaItem ?? tplItens[0] ?? null;
+        // Mesmo critério do prefill: main NUNCA é destino=andamento
+        // (esses sempre vão pelo extras loop). Prioriza agenda → primeiro
+        // tarefa (ou sem destino) → fallback itens[0] (edge case).
+        const primeiroTarefa = tpl?.itens.find(
+          (i) => !i.destino || i.destino === "tarefa",
+        ) ?? null;
+        const mainItem = agendaItem ?? primeiroTarefa ?? tplItens[0] ?? null;
 
         // Contexto pra substituir placeholders e lookup de e-mail→uuid
         // (compartilhado entre main + extras).
