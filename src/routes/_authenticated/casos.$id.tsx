@@ -6007,16 +6007,38 @@ function TabProcessos(props: TabProcessosProps) {
   const [excluindo, setExcluindo] = useState<ProcNode | null>(null);
   const [excluindoLoading, setExcluindoLoading] = useState(false);
 
-  // Quando a Naira cola/digita o número do processo judicial, parseia o
-  // CNJ e auto-preenche Tribunal/UF se estiverem vazios (não sobrescreve
-  // edição manual). Comarca não tem mapping universal de OOOO → nome, fica
-  // pra ela preencher.
+  // Quando a Naira cola/digita o número do processo judicial:
+  //  1. Parse CNJ local — auto-preenche Tribunal/UF na hora pelo TR.
+  //  2. Quando o número está completo (20 dígitos), consulta o DataJud
+  //     (CNJ) pra puxar comarca (município) e vara (órgão julgador).
+  // Não sobrescreve campos já preenchidos manualmente.
+  const ultimaConsultaRef = useRef<string>("");
+  const [consultandoDataJud, setConsultandoDataJud] = useState(false);
+
   function aoDigitarNumProcesso(novo: string) {
     setNumProcesso(novo);
     const parsed = parseCnj(novo);
     if (!parsed.valido) return;
     if (!vara && parsed.tribunal) setVara(parsed.tribunal);
     if (!uf && parsed.uf) setUf(parsed.uf);
+
+    // Consulta DataJud só uma vez por número.
+    const digitos = novo.replace(/\D/g, "");
+    if (digitos === ultimaConsultaRef.current) return;
+    ultimaConsultaRef.current = digitos;
+    setConsultandoDataJud(true);
+    supabase.functions
+      .invoke("cnj-consulta-processo", {
+        body: { numero: novo },
+        headers: { "x-region": "sa-east-1" },
+      })
+      .then(({ data }) => {
+        if (!data?.encontrado) return;
+        if (data.comarca && !comarca) setComarca(data.comarca);
+        if (data.tribunal && !vara) setVara(data.tribunal);
+      })
+      .catch(() => {})
+      .finally(() => setConsultandoDataJud(false));
   }
 
   // ---- Arvore de processos (admin + judicial num mesmo formato) ----
@@ -6707,10 +6729,17 @@ function TabProcessos(props: TabProcessosProps) {
                         const p = parseCnj(numProcesso);
                         if (!p.valido || !p.tribunal) return null;
                         return (
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Identificado: {p.tribunal}
-                            {p.uf ? ` (${p.uf})` : ""} ·{" "}
-                            {p.segmento} · ano {p.ano}
+                          <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1 flex-wrap">
+                            <span>
+                              Identificado: {p.tribunal}
+                              {p.uf ? ` (${p.uf})` : ""} · {p.segmento} · ano {p.ano}
+                            </span>
+                            {consultandoDataJud && (
+                              <span className="inline-flex items-center gap-1">
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                                Consultando DataJud…
+                              </span>
+                            )}
                           </p>
                         );
                       })()}

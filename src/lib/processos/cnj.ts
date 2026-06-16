@@ -11,13 +11,17 @@
 //   OOOO     origem (4) — código da vara/comarca (não há mapping público
 //                       universal, depende do tribunal).
 
+// Mapping oficial CNJ (Resolução 65/2008, Anexo VII). NÃO é ordem
+// alfabética estrita — AP vem antes de AM, MT antes de MS, PR antes
+// de PE, RS antes de RO/RR, SP antes de SE. Conferir aqui antes
+// de mexer: https://www.cnj.jus.br/sgt/consulta_publica_classes.php
 const TJ_UF: Record<string, string> = {
-  "01": "AC", "02": "AL", "03": "AM", "04": "AP", "05": "BA",
+  "01": "AC", "02": "AL", "03": "AP", "04": "AM", "05": "BA",
   "06": "CE", "07": "DF", "08": "ES", "09": "GO", "10": "MA",
-  "11": "MG", "12": "MS", "13": "MT", "14": "PA", "15": "PB",
-  "16": "PE", "17": "PI", "18": "PR", "19": "RJ", "20": "RN",
-  "21": "RO", "22": "RR", "23": "RS", "24": "SC", "25": "SE",
-  "26": "SP", "27": "TO",
+  "11": "MT", "12": "MS", "13": "MG", "14": "PA", "15": "PB",
+  "16": "PR", "17": "PE", "18": "PI", "19": "RJ", "20": "RN",
+  "21": "RS", "22": "RO", "23": "RR", "24": "SC", "25": "SP",
+  "26": "SE", "27": "TO",
 };
 
 // TRFs por região
