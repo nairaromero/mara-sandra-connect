@@ -38,6 +38,7 @@ import { DESTAQUE_CLASSE, useFocoItem } from "@/hooks/use-foco-item";
 import { notificarEquipe } from "@/lib/notificar";
 import { iaAnalise } from "@/lib/ia/client";
 import { supabase } from "@/lib/supabase";
+import { parseCnj } from "@/lib/processos/cnj";
 import { MAX_FILE_SIZE_MB, validateFileSize, validateFileSizes } from "@/lib/upload-limits";
 import {
   abrirDrivePicker,
@@ -966,7 +967,7 @@ function CasoDetalhePage() {
             <TabsContent value="atividades" className="mt-4">
               <div className="grid gap-6 lg:grid-cols-2">
                 <div className="min-w-0">
-                  <CasoTarefasTab casoId={casoId} />
+                  <CasoTarefasTab casoId={casoId} onChange={carregar} />
                 </div>
                 <div className="min-w-0">
                   <TabAndamentos
@@ -6006,6 +6007,18 @@ function TabProcessos(props: TabProcessosProps) {
   const [excluindo, setExcluindo] = useState<ProcNode | null>(null);
   const [excluindoLoading, setExcluindoLoading] = useState(false);
 
+  // Quando a Naira cola/digita o número do processo judicial, parseia o
+  // CNJ e auto-preenche Tribunal/UF se estiverem vazios (não sobrescreve
+  // edição manual). Comarca não tem mapping universal de OOOO → nome, fica
+  // pra ela preencher.
+  function aoDigitarNumProcesso(novo: string) {
+    setNumProcesso(novo);
+    const parsed = parseCnj(novo);
+    if (!parsed.valido) return;
+    if (!vara && parsed.tribunal) setVara(parsed.tribunal);
+    if (!uf && parsed.uf) setUf(parsed.uf);
+  }
+
   // ---- Arvore de processos (admin + judicial num mesmo formato) ----
   const allNodes = useMemo<Array<ProcNode>>(
     () => [
@@ -6577,25 +6590,6 @@ function TabProcessos(props: TabProcessosProps) {
                     </Select>
                   </div>
                   <div>
-                    <Label className="text-xs">Etapa</Label>
-                    <Select
-                      value={etapaAdmin || "__none__"}
-                      onValueChange={(v) => setEtapaAdmin(v === "__none__" ? "" : v)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Sem classificação" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">Sem classificação</SelectItem>
-                        {ETAPAS_ADMIN.map((e) => (
-                          <SelectItem key={e} value={e}>
-                            {e}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
                     <Label className="text-xs">Processo de origem (pai)</Label>
                     <Select
                       value={parentAdmin || "__none__"}
@@ -6706,28 +6700,20 @@ function TabProcessos(props: TabProcessosProps) {
                       <Label className="text-xs">Número do processo *</Label>
                       <Input
                         value={numProcesso}
-                        onChange={(e) => setNumProcesso(e.target.value)}
+                        onChange={(e) => aoDigitarNumProcesso(e.target.value)}
                         placeholder="0000000-00.0000.0.00.0000"
                       />
-                    </div>
-                    <div>
-                      <Label className="text-xs">Etapa</Label>
-                      <Select
-                        value={etapaJud || "__none__"}
-                        onValueChange={(v) => setEtapaJud(v === "__none__" ? "" : v)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Sem classificação" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__none__">Sem classificação</SelectItem>
-                          {ETAPAS_JUDICIAL.map((e) => (
-                            <SelectItem key={e} value={e}>
-                              {e}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      {(() => {
+                        const p = parseCnj(numProcesso);
+                        if (!p.valido || !p.tribunal) return null;
+                        return (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Identificado: {p.tribunal}
+                            {p.uf ? ` (${p.uf})` : ""} ·{" "}
+                            {p.segmento} · ano {p.ano}
+                          </p>
+                        );
+                      })()}
                     </div>
                     <div>
                       <Label className="text-xs">Processo de origem (pai)</Label>
