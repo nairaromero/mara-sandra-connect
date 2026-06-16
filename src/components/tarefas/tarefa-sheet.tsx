@@ -40,6 +40,7 @@ import {
   STATUS_LABEL,
   STATUS_ORDEM,
   TIPO_LABEL,
+  templateTemAgenda,
   type ProcessoDoCasoOpcao,
   type TarefaComJoins,
   type TarefaStatus,
@@ -97,7 +98,11 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
     if (!aberto) return;
     listarCasosResumo().then(setCasos).catch(() => {});
     listarInternosAtivos().then(setInternos).catch(() => {});
-    listarTemplates().then(setTemplates).catch(() => {});
+    // TarefaSheet só mostra templates puramente de tarefa. Templates que
+    // criam evento de agenda (ex: pericia_parceiro) ficam no AgendaSheet.
+    listarTemplates()
+      .then((all) => setTemplates(all.filter((t) => !templateTemAgenda(t))))
+      .catch(() => {});
   }, [aberto]);
 
   // Carrega processos do caso quando muda. Limpa quando não há caso.
@@ -132,8 +137,8 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       };
       setTitulo(substituirPlaceholders(item.titulo, ph));
       setDescricao(substituirPlaceholders(item.descricao ?? "", ph));
-      setTipo(item.tipo);
-      setPrioridade(item.prioridade);
+      setTipo(item.tipo as TarefaTipo);
+      setPrioridade(item.prioridade ?? 3);
       if (typeof item.offset_dias === "number") {
         const dt = new Date(Date.now() + item.offset_dias * 86400_000);
         setDueDate(dt.toISOString().slice(0, 10));
@@ -290,8 +295,8 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
               processo_admin_id: proc.processo_admin_id,
               processo_judicial_id: proc.processo_judicial_id,
               responsavel_id: respFinal,
-              tipo: item.tipo,
-              prioridade: item.prioridade,
+              tipo: item.tipo as TarefaTipo,
+              prioridade: item.prioridade ?? 3,
               titulo: substituirPlaceholders(item.titulo, ph),
               descricao:
                 substituirPlaceholders(item.descricao ?? "", ph) || null,

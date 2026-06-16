@@ -34,12 +34,22 @@ import {
   type AgendaTipo,
   TIPO_LABEL,
 } from "@/lib/agenda/types";
+import { calcularDueAtRelativo } from "@/lib/agenda/helpers";
 import {
+  criarTarefa,
   listarCasosResumo,
   listarInternosAtivos,
   listarProcessosDoCaso,
+  listarTemplates,
+  obterContextoCaso,
 } from "@/lib/tarefas/queries";
-import type { ProcessoDoCasoOpcao } from "@/lib/tarefas/types";
+import {
+  templateTemAgenda,
+  type ProcessoDoCasoOpcao,
+  type TarefaTemplateRow,
+  type TarefaTipo,
+} from "@/lib/tarefas/types";
+import { substituirPlaceholders } from "@/lib/tarefas/helpers";
 
 const TIPOS: AgendaTipo[] = ["pericia", "audiencia", "reuniao", "interno"];
 
@@ -85,6 +95,9 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
   const [casos, setCasos] = useState<Array<{ id: string; cliente_nome: string | null }>>([]);
   const [internos, setInternos] = useState<Array<{ id: string; nome: string | null; email: string | null }>>([]);
   const [processosDoCaso, setProcessosDoCaso] = useState<ProcessoDoCasoOpcao[]>([]);
+  // Templates de agenda (com pelo menos 1 item destino=agenda).
+  const [templates, setTemplates] = useState<TarefaTemplateRow[]>([]);
+  const [templateSelecionado, setTemplateSelecionado] = useState<string>("");
 
   const [salvando, setSalvando] = useState(false);
   const [excluindo, setExcluindo] = useState(false);
@@ -93,6 +106,11 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
     if (!aberto) return;
     listarCasosResumo().then(setCasos).catch(() => {});
     listarInternosAtivos().then(setInternos).catch(() => {});
+    // AgendaSheet só mostra templates que criam evento de agenda
+    // (ex: pericia_parceiro). Tarefa-only fica no TarefaSheet.
+    listarTemplates()
+      .then((all) => setTemplates(all.filter((t) => templateTemAgenda(t))))
+      .catch(() => {});
   }, [aberto]);
 
   useEffect(() => {
@@ -123,6 +141,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
       setCasoId(modo.casoIdInicial ?? null);
       setProcessoToken(modo.processoTokenInicial ?? "");
       setResponsavelId(null);
+      setTemplateSelecionado("");
     } else {
       const e = modo.evento;
       setTipo(e.tipo);
@@ -140,8 +159,45 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
             : "",
       );
       setResponsavelId(e.responsavel_id);
+      setTemplateSelecionado("");
     }
   }, [modo]);
+
+  // Selecionar template (modo criar): popula tipo/titulo/descricao do item
+  // destino=agenda; usa duracao_min do template pra calcular end_at.
+  // Os campos start_at/local/responsavel ficam pra Naira preencher.
+  useEffect(() => {
+    if (editando) return;
+    if (!templateSelecionado || !casoId) return;
+    const tpl = templates.find((t) => t.nome === templateSelecionado);
+    if (!tpl) return;
+    const agendaItem = tpl.itens.find((i) => i.destino === "agenda");
+    if (!agendaItem) return;
+    let cancelado = false;
+    (async () => {
+      const ctx = await obterContextoCaso(casoId, processoToken);
+      if (cancelado) return;
+      const ph = {
+        nome_cliente: ctx.cliente_nome,
+        protocolo: ctx.protocolo,
+        cpf: ctx.cliente_cpf,
+        servico: ctx.servico,
+      };
+      setTipo((agendaItem.tipo as AgendaTipo) || "pericia");
+      setTitulo(substituirPlaceholders(agendaItem.titulo, ph));
+      setDescricao(substituirPlaceholders(agendaItem.descricao ?? "", ph));
+      // Ajusta end_at = start_at + duracao_min se o usuário ainda não mexeu.
+      const dur = agendaItem.duracao_min ?? 60;
+      if (startInput) {
+        const startDate = new Date(startInput);
+        const endDate = new Date(startDate.getTime() + dur * 60_000);
+        setEndInput(isoToInputDatetime(endDate.toISOString()));
+      }
+    })();
+    return () => {
+      cancelado = true;
+    };
+  }, [templateSelecionado, casoId, processoToken, templates, editando]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const fechar = useCallback(() => {
     if (salvando || excluindo) return;
@@ -200,6 +256,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
         });
         toast.success("Evento atualizado.");
       } else {
+        // Cria o evento de agenda.
         await criarEvento({
           tipo,
           titulo: titulo.trim(),
@@ -212,7 +269,63 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
           processo_admin_id: proc.processo_admin_id,
           processo_judicial_id: proc.processo_judicial_id,
         });
-        toast.success("Evento criado.");
+
+        // Se aplicou um template de agenda com itens destino=tarefa,
+        // cria essas tarefas extras (datas relativas ao start_at do evento).
+        let tarefasExtras = 0;
+        const tpl = templateSelecionado
+          ? templates.find((t) => t.nome === templateSelecionado)
+          : null;
+        if (tpl && casoId) {
+          const ctx = await obterContextoCaso(casoId, processoToken);
+          const ph = {
+            nome_cliente: ctx.cliente_nome,
+            protocolo: ctx.protocolo,
+            cpf: ctx.cliente_cpf,
+            servico: ctx.servico,
+          };
+          const emailParaId = new Map<string, string>();
+          for (const u of internos) {
+            if (u.email) emailParaId.set(u.email.toLowerCase(), u.id);
+          }
+          const agendaStart = new Date(startIso);
+          for (const item of tpl.itens) {
+            if (item.destino !== "tarefa") continue;
+            const respFinal =
+              responsavelId ||
+              (item.executor_email
+                ? emailParaId.get(item.executor_email.toLowerCase()) ?? null
+                : null);
+            const ancora = item.due_relative_to ?? "hoje";
+            const dueAt =
+              ancora === "agenda" || ancora === "sexta_antes_agenda"
+                ? calcularDueAtRelativo(ancora, agendaStart, item.offset_dias)
+                : calcularDueAtRelativo("hoje", null, item.offset_dias);
+            await criarTarefa({
+              caso_id: casoId,
+              processo_admin_id: proc.processo_admin_id,
+              processo_judicial_id: proc.processo_judicial_id,
+              responsavel_id: respFinal,
+              tipo: (item.tipo as TarefaTipo) || "interna",
+              prioridade: item.prioridade ?? 3,
+              titulo: substituirPlaceholders(item.titulo, ph),
+              descricao: substituirPlaceholders(item.descricao ?? "", ph) || null,
+              due_at: dueAt,
+              metadata: {
+                template_aplicado: tpl.nome,
+                aplicado_via: "agenda_sheet",
+                ancora_prazo: ancora,
+                ...(item.meta ?? {}),
+              },
+            });
+            tarefasExtras++;
+          }
+        }
+        toast.success(
+          tarefasExtras === 0
+            ? "Evento criado."
+            : `Evento criado + ${tarefasExtras} tarefa${tarefasExtras === 1 ? "" : "s"} do template.`,
+        );
       }
       onSaved();
       onClose();
@@ -294,6 +407,38 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+          )}
+
+          {!editando && casoId && templates.length > 0 && (
+            <div className="space-y-1.5 rounded-md border border-dashed p-3 bg-muted/30">
+              <Label>Template (atalho)</Label>
+              <Select value={templateSelecionado} onValueChange={setTemplateSelecionado}>
+                <SelectTrigger><SelectValue placeholder="Escolha um template" /></SelectTrigger>
+                <SelectContent>
+                  {templates.map((t) => {
+                    const tarefasExtras = t.itens.filter((i) => i.destino === "tarefa").length;
+                    return (
+                      <SelectItem key={t.id} value={t.nome}>
+                        {t.rotulo ?? t.nome}{" "}
+                        <span className="text-muted-foreground">
+                          (evento + {tarefasExtras} tarefa{tarefasExtras === 1 ? "" : "s"})
+                        </span>
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {templateSelecionado ? (
+                  <>
+                    Os campos abaixo foram preenchidos pelo template — ajuste data/hora/local e salve.
+                    Ao salvar, as tarefas extras serão criadas com prazos relativos a essa data.
+                  </>
+                ) : (
+                  <>Selecionar um template preenche os campos abaixo e cria tarefas auxiliares quando salvar.</>
+                )}
+              </p>
             </div>
           )}
 
