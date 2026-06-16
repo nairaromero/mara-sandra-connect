@@ -8,6 +8,7 @@ import {
 import { useEffect } from "react";
 import { Loader2, LogOut, Plus } from "lucide-react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { DestaqueProvider } from "@/lib/destaque/destaque-context";
 import { AppSidebar } from "@/components/app-sidebar";
 import { NotificacoesBell } from "@/components/notificacoes-bell";
 import { MovimentacoesParceiroBell } from "@/components/movimentacoes-parceiro-bell";
@@ -64,8 +65,9 @@ function AuthenticatedLayout() {
     .toUpperCase();
 
   return (
-    <SidebarProvider>
-      <div className="flex min-h-screen w-full bg-muted/20">
+    <DestaqueProvider>
+      <SidebarProvider>
+        <div className="flex min-h-screen w-full bg-muted/20">
         <AppSidebar />
         <div className="flex flex-1 flex-col">
           <header className="sticky top-0 z-10 flex h-14 items-center justify-between border-b border-border bg-background px-4">
@@ -136,5 +138,6 @@ function AuthenticatedLayout() {
         <IaLauncher />
       </div>
     </SidebarProvider>
+    </DestaqueProvider>
   );
 }

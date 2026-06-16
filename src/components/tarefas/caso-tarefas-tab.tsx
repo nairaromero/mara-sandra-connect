@@ -28,6 +28,10 @@ import {
   TIPO_CLASS,
   TIPO_LABEL,
 } from "@/lib/agenda/types";
+import {
+  DESTAQUE_CLASSE_GLOBAL,
+  useDestaqueAtivo,
+} from "@/lib/destaque/destaque-context";
 
 const STATUS_ATIVOS: TarefaStatus[] = ["a_fazer", "fazendo"];
 const STATUS_ARQUIVADOS: TarefaStatus[] = ["feito", "cancelado"];
@@ -265,12 +269,14 @@ function EventoCard({
   });
   const hInicio = start.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
   const hFim = end.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  const destacado = useDestaqueAtivo(e.id);
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
         "w-full text-left rounded-md border bg-card hover:shadow transition-shadow",
+        destacado && DESTAQUE_CLASSE_GLOBAL,
         dim && "opacity-70",
       )}
     >

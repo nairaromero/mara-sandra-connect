@@ -50,6 +50,7 @@ import {
   type TarefaTipo,
 } from "@/lib/tarefas/types";
 import { substituirPlaceholders } from "@/lib/tarefas/helpers";
+import { useDestaque } from "@/lib/destaque/destaque-context";
 
 const TIPOS: AgendaTipo[] = ["pericia", "audiencia", "reuniao", "interno"];
 
@@ -79,6 +80,7 @@ function inputDatetimeToIso(s: string): string {
 
 export function AgendaSheet({ modo, onClose, onSaved }: Props) {
   const aberto = modo !== null;
+  const { marcar: marcarDestaque } = useDestaque();
   const editando = modo?.kind === "editar";
   const evento = modo?.kind === "editar" ? modo.evento : null;
 
@@ -257,7 +259,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
         toast.success("Evento atualizado.");
       } else {
         // Cria o evento de agenda.
-        await criarEvento({
+        const novoEvento = await criarEvento({
           tipo,
           titulo: titulo.trim(),
           descricao: descricao.trim() || null,
@@ -269,6 +271,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
           processo_admin_id: proc.processo_admin_id,
           processo_judicial_id: proc.processo_judicial_id,
         });
+        marcarDestaque(novoEvento.id);
 
         // Se aplicou um template de agenda com itens destino=tarefa,
         // cria essas tarefas extras (datas relativas ao start_at do evento).
@@ -301,7 +304,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
               ancora === "agenda" || ancora === "sexta_antes_agenda"
                 ? calcularDueAtRelativo(ancora, agendaStart, item.offset_dias)
                 : calcularDueAtRelativo("hoje", null, item.offset_dias);
-            await criarTarefa({
+            const novaTarefa = await criarTarefa({
               caso_id: casoId,
               processo_admin_id: proc.processo_admin_id,
               processo_judicial_id: proc.processo_judicial_id,
@@ -318,6 +321,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
                 ...(item.meta ?? {}),
               },
             });
+            marcarDestaque(novaTarefa.id);
             tarefasExtras++;
           }
         }
