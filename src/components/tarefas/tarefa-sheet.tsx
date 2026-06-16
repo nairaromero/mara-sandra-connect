@@ -412,6 +412,29 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
               continue;
             }
 
+            // ----- destino=solicitacao_documento → cria solicitação -----
+            if (item.destino === "solicitacao_documento" && casoId) {
+              const tituloSub = substituirPlaceholders(item.titulo, ph);
+              const descSub = substituirPlaceholders(item.descricao ?? "", ph);
+              const { data: solic, error: errSolic } = await supabase
+                .from("solicitacoes_documento")
+                .insert({
+                  caso_id: casoId,
+                  tipo: (item.tipo as string) || "outro",
+                  descricao: descSub || tituloSub,
+                  status: "pendente",
+                  solicitado_por: usuario?.id ?? null,
+                  origem: `template:${tpl.nome}`,
+                  data_solicitacao: new Date().toISOString(),
+                })
+                .select("id")
+                .single();
+              if (errSolic) throw errSolic;
+              marcarDestaque(solic.id);
+              extrasAndamento++; // contagem genérica de "não-tarefa" criados
+              continue;
+            }
+
             // ----- destino=tarefa (default) -----
             let respFinal: string | null = responsavelId;
             if (!respFinal && item.executor_email) {

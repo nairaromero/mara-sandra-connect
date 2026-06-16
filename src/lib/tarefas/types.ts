@@ -62,7 +62,12 @@ export interface TarefaTemplateItem {
   //  - "andamento": cria registro em `andamentos` (usado p/ comunicar
   //    automaticamente o parceiro, ex: "Benefício concedido — iremos analisar
   //    e repassar"). visivel_parceiro default = true.
-  destino?: "tarefa" | "agenda" | "andamento";
+  //  - "solicitacao_documento": cria entrada em `solicitacoes_documento`.
+  //    Usado p/ pedir documento direto ao parceiro (ex: documentos pra
+  //    cumprir exigência). Quando o parceiro responder, um trigger no
+  //    banco cria automaticamente uma tarefa de "Documento entregue —
+  //    cumprir exigência".
+  destino?: "tarefa" | "agenda" | "andamento" | "solicitacao_documento";
   titulo: string;
   descricao?: string;
   // Quando destino=tarefa, tipo é TarefaTipo. Quando destino=agenda, é AgendaTipo.

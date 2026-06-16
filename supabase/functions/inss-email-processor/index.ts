@@ -765,6 +765,26 @@ async function processarMensagem(
       continue;
     }
 
+    // ----- destino=solicitacao_documento → cria solicitação -----
+    if ((item as { destino?: string }).destino === "solicitacao_documento" && match.caso_id) {
+      const tituloSub = substituir(item.titulo, campos);
+      const descSub = substituir(item.descricao ?? "", campos);
+      const { error: errSolic } = await sb
+        .from("solicitacoes_documento")
+        .insert({
+          caso_id: match.caso_id,
+          tipo: (item.tipo as string) || "outro",
+          descricao: descSub || tituloSub,
+          status: "pendente",
+          origem: `template:${templateFinal}`,
+          data_solicitacao: new Date().toISOString(),
+        });
+      if (errSolic) {
+        res.erros.push(`solicitacao[${i}] insert: ${errSolic.message}`);
+      }
+      continue;
+    }
+
     const resolved = resolveResponsavel(item, lookups);
     // Resolução do due_at:
     //  - due_relative_to='data_cessacao' + campos.data_cessacao  → cessação + offset
