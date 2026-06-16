@@ -38,9 +38,12 @@ type Modo =
 
 interface Props {
   casoId: string;
+  // Avisa o parent (casos/$id) sempre que algo mudou aqui (ex: etapa
+  // de acompanhamento cria andamento → TabAndamentos precisa atualizar).
+  onChange?: () => void;
 }
 
-export function CasoTarefasTab({ casoId }: Props) {
+export function CasoTarefasTab({ casoId, onChange }: Props) {
   const [carregando, setCarregando] = useState(true);
   const [tarefas, setTarefas] = useState<TarefaComJoins[]>([]);
   const [eventos, setEventos] = useState<AgendaEventoComJoins[]>([]);
@@ -59,13 +62,16 @@ export function CasoTarefasTab({ casoId }: Props) {
       ]);
       setTarefas(ts);
       setEventos(es);
+      // Propaga pro parent. Andamentos do caso podem ter mudado (ex: etapa
+      // de acompanhamento processual cria andamento ao marcar).
+      onChange?.();
     } catch (e) {
       console.error(e);
       toast.error("Falha ao carregar atividades do caso.");
     } finally {
       setCarregando(false);
     }
-  }, [casoId]);
+  }, [casoId, onChange]);
 
   useEffect(() => {
     carregar();
