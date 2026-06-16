@@ -734,6 +734,37 @@ async function processarMensagem(
   // Cria tarefas (1+ por template).
   for (let i = 0; i < template.itens.length; i++) {
     const item = template.itens[i];
+
+    // ----- destino=andamento → cria andamento adicional (ex: comunicar
+    // parceiro automaticamente via "Benefício Concedido — iremos analisar
+    // e repassar"). Pula a parte de tarefa.
+    if ((item as { destino?: string }).destino === "andamento" && match.caso_id) {
+      const visivel = (item as { visivel_parceiro?: boolean }).visivel_parceiro ?? true;
+      const { error: errAndamentoExtra } = await sb
+        .from("andamentos")
+        .insert({
+          caso_id: match.caso_id,
+          processo_admin_id: match.processo_admin_id,
+          origem: "interno",
+          titulo: substituir(item.titulo, campos),
+          descricao: substituir(item.descricao, campos) || null,
+          data_evento: new Date().toISOString(),
+          visivel_parceiro: visivel,
+          metadata: {
+            gmail_message_id: msg.id,
+            template: templateFinal,
+            template_item_index: i,
+            classificacao,
+            destino: "andamento",
+            ...(item.meta ?? {}),
+          },
+        });
+      if (errAndamentoExtra) {
+        res.erros.push(`andamento[${i}] insert: ${errAndamentoExtra.message}`);
+      }
+      continue;
+    }
+
     const resolved = resolveResponsavel(item, lookups);
     // Resolução do due_at:
     //  - due_relative_to='data_cessacao' + campos.data_cessacao  → cessação + offset

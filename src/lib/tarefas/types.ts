@@ -56,10 +56,17 @@ export interface TarefaComJoins extends TarefaRow {
 // (pericia/audiencia/reuniao/interno), duração em minutos, sem prioridade
 // nem responsável (vem do form).
 export interface TarefaTemplateItem {
-  destino?: "tarefa" | "agenda";    // default: "tarefa"
+  // Onde o item vai parar quando o template é aplicado:
+  //  - "tarefa" (default): cria registro em `tarefas`.
+  //  - "agenda": cria registro em `agenda_eventos` (perícia, audiência…).
+  //  - "andamento": cria registro em `andamentos` (usado p/ comunicar
+  //    automaticamente o parceiro, ex: "Benefício concedido — iremos analisar
+  //    e repassar"). visivel_parceiro default = true.
+  destino?: "tarefa" | "agenda" | "andamento";
   titulo: string;
   descricao?: string;
   // Quando destino=tarefa, tipo é TarefaTipo. Quando destino=agenda, é AgendaTipo.
+  // destino=andamento ignora.
   tipo: string;
   prioridade?: number;
   offset_dias?: number;
@@ -69,6 +76,9 @@ export interface TarefaTemplateItem {
   due_relative_to?: "hoje" | "data_cessacao" | "agenda" | "sexta_antes_agenda";
   // Apenas itens destino=agenda
   duracao_min?: number;
+  // Apenas itens destino=andamento: força visibilidade pro parceiro
+  // (default true quando destino=andamento).
+  visivel_parceiro?: boolean;
   executor_email?: string;
   interessados_emails?: string[];
   meta?: Record<string, unknown>;
