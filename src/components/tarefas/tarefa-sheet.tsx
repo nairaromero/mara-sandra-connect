@@ -90,7 +90,6 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   const [processosDoCaso, setProcessosDoCaso] = useState<ProcessoDoCasoOpcao[]>([]);
 
   const [salvando, setSalvando] = useState(false);
-  const [aplicando, setAplicando] = useState(false);
   const [excluindo, setExcluindo] = useState(false);
 
   // Carrega listas auxiliares uma vez (ao abrir).
@@ -109,6 +108,43 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
     }
     listarProcessosDoCaso(casoId).then(setProcessosDoCaso).catch(() => {});
   }, [casoId]);
+
+  // Quando a Naira escolhe um template (modo criar), popula o form com os
+  // dados do PRIMEIRO item — título, descrição, tipo, prioridade, prazo —
+  // já substituindo placeholders com o contexto do caso/processo. Ela pode
+  // editar tudo antes de salvar. Itens adicionais (templates multi-item)
+  // são criados ao salvar, com os valores padrão do template.
+  useEffect(() => {
+    if (editando) return;
+    if (!templateSelecionado || !casoId) return;
+    const tpl = templates.find((t) => t.nome === templateSelecionado);
+    if (!tpl || tpl.itens.length === 0) return;
+    let cancelado = false;
+    (async () => {
+      const ctx = await obterContextoCaso(casoId, processoToken);
+      if (cancelado) return;
+      const item = tpl.itens[0];
+      const ph = {
+        nome_cliente: ctx.cliente_nome,
+        protocolo: ctx.protocolo,
+        cpf: ctx.cliente_cpf,
+        servico: ctx.servico,
+      };
+      setTitulo(substituirPlaceholders(item.titulo, ph));
+      setDescricao(substituirPlaceholders(item.descricao ?? "", ph));
+      setTipo(item.tipo);
+      setPrioridade(item.prioridade);
+      if (typeof item.offset_dias === "number") {
+        const dt = new Date(Date.now() + item.offset_dias * 86400_000);
+        setDueDate(dt.toISOString().slice(0, 10));
+      } else {
+        setDueDate("");
+      }
+    })();
+    return () => {
+      cancelado = true;
+    };
+  }, [templateSelecionado, casoId, processoToken, templates, editando]);
 
   // Sincroniza o formulário com o modo (abertura).
   useEffect(() => {
@@ -146,9 +182,9 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   }, [modo]);
 
   const fechar = useCallback(() => {
-    if (salvando || aplicando || excluindo) return;
+    if (salvando || excluindo) return;
     onClose();
-  }, [salvando, aplicando, excluindo, onClose]);
+  }, [salvando, excluindo, onClose]);
 
   function parseProcesso(): {
     processo_admin_id: string | null;
@@ -194,6 +230,16 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
         });
         toast.success("Tarefa atualizada.");
       } else {
+        // Modo criar: a tarefa principal usa os valores do form (editáveis,
+        // mesmo quando vieram de um template). Se o template tem itens
+        // adicionais, eles são criados em seguida com os valores padrão.
+        const tpl = templateSelecionado
+          ? templates.find((t) => t.nome === templateSelecionado)
+          : null;
+        const tplItens = tpl?.itens ?? [];
+        const firstMeta = (tplItens[0]?.meta ?? {}) as Record<string, unknown>;
+
+        // Tarefa #1 (a editada pela Naira).
         await criarTarefa({
           titulo: titulo.trim(),
           descricao: descricao.trim() || null,
@@ -204,8 +250,69 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           due_at,
           processo_admin_id: proc.processo_admin_id,
           processo_judicial_id: proc.processo_judicial_id,
+          metadata: tpl
+            ? {
+                template_aplicado: tpl.nome,
+                template_item_index: 0,
+                aplicado_manualmente: true,
+                ...firstMeta,
+              }
+            : undefined,
         });
-        toast.success("Tarefa criada.");
+
+        // Itens 2+ (template multi-item) — criados com os valores padrão
+        // do template (substituindo placeholders contra o mesmo contexto).
+        let extras = 0;
+        if (tpl && tplItens.length > 1 && casoId) {
+          const ctx = await obterContextoCaso(casoId, processoToken);
+          const ph = {
+            nome_cliente: ctx.cliente_nome,
+            protocolo: ctx.protocolo,
+            cpf: ctx.cliente_cpf,
+            servico: ctx.servico,
+          };
+          const emailParaId = new Map<string, string>();
+          for (const u of internos) {
+            if (u.email) emailParaId.set(u.email.toLowerCase(), u.id);
+          }
+          for (let i = 1; i < tplItens.length; i++) {
+            const item = tplItens[i];
+            let respFinal: string | null = responsavelId;
+            if (!respFinal && item.executor_email) {
+              respFinal = emailParaId.get(item.executor_email.toLowerCase()) ?? null;
+            }
+            const extraDueAt =
+              typeof item.offset_dias === "number"
+                ? new Date(Date.now() + item.offset_dias * 86400_000).toISOString()
+                : null;
+            await criarTarefa({
+              caso_id: casoId,
+              processo_admin_id: proc.processo_admin_id,
+              processo_judicial_id: proc.processo_judicial_id,
+              responsavel_id: respFinal,
+              tipo: item.tipo,
+              prioridade: item.prioridade,
+              titulo: substituirPlaceholders(item.titulo, ph),
+              descricao:
+                substituirPlaceholders(item.descricao ?? "", ph) || null,
+              due_at: extraDueAt,
+              metadata: {
+                template_aplicado: tpl.nome,
+                template_item_index: i,
+                aplicado_manualmente: true,
+                ...(item.meta ?? {}),
+              },
+            });
+            extras++;
+          }
+        }
+
+        const total = 1 + extras;
+        toast.success(
+          total === 1
+            ? "Tarefa criada."
+            : `${total} tarefas criadas (${extras} adicional${extras === 1 ? "" : "is"} do template).`,
+        );
       }
       onSaved();
       onClose();
@@ -215,88 +322,6 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       toast.error(msg);
     } finally {
       setSalvando(false);
-    }
-  }
-
-  async function aplicar() {
-    if (!casoId || !templateSelecionado) return;
-    setAplicando(true);
-    try {
-      const tpl = templates.find((t) => t.nome === templateSelecionado);
-      if (!tpl) throw new Error("Template não encontrado");
-
-      // Carrega contexto do caso + processo selecionado para substituir
-      // {nome_cliente}, {protocolo}, {cpf}, {servico} nos títulos/descrições.
-      const ctx = await obterContextoCaso(casoId, processoToken);
-      const placeholderCtx = {
-        nome_cliente: ctx.cliente_nome,
-        protocolo: ctx.protocolo,
-        cpf: ctx.cliente_cpf,
-        servico: ctx.servico,
-      };
-
-      const proc = parseProcesso();
-      // Lookup email→usuario_id. Naira pode ter selecionado responsável no
-      // form acima — se sim, usamos esse pra TODAS as tarefas do template.
-      // Senão, cada item usa o executor_email do template (fallback null).
-      const emailParaId = new Map<string, string>();
-      for (const u of internos) {
-        if (u.email) emailParaId.set(u.email.toLowerCase(), u.id);
-      }
-
-      let criadas = 0;
-      for (let i = 0; i < tpl.itens.length; i++) {
-        const item = tpl.itens[i];
-        const tituloFinal = substituirPlaceholders(item.titulo, placeholderCtx);
-        const descricaoFinal = substituirPlaceholders(item.descricao ?? "", placeholderCtx);
-
-        // Responsável: usa o que Naira escolheu no form; senão usa o do
-        // template via email lookup; senão null.
-        let respFinal: string | null = responsavelId;
-        if (!respFinal && item.executor_email) {
-          respFinal = emailParaId.get(item.executor_email.toLowerCase()) ?? null;
-        }
-
-        // offset_dias definido (mesmo 0) = data relativa a hoje (0 = hoje).
-        // Undefined/null = sem prazo.
-        const dueAt =
-          typeof item.offset_dias === "number"
-            ? new Date(Date.now() + item.offset_dias * 86400_000).toISOString()
-            : null;
-
-        await criarTarefa({
-          caso_id: casoId,
-          processo_admin_id: proc.processo_admin_id,
-          processo_judicial_id: proc.processo_judicial_id,
-          responsavel_id: respFinal,
-          tipo: item.tipo,
-          prioridade: item.prioridade,
-          titulo: tituloFinal,
-          descricao: descricaoFinal || null,
-          due_at: dueAt,
-          metadata: {
-            template_aplicado: templateSelecionado,
-            template_item_index: i,
-            aplicado_manualmente: true,
-            ...(item.meta ?? {}),     // passthrough do template (ex: acompanhamento_processual)
-          },
-        });
-        criadas++;
-      }
-
-      toast.success(
-        criadas === 1
-          ? "Template aplicado: 1 tarefa criada."
-          : `Template aplicado: ${criadas} tarefas criadas.`,
-      );
-      onSaved();
-      onClose();
-    } catch (e) {
-      console.error(e);
-      const msg = e instanceof Error ? e.message : "Falha ao aplicar template.";
-      toast.error(msg);
-    } finally {
-      setAplicando(false);
     }
   }
 
@@ -381,32 +406,42 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
 
           {!editando && casoId && templates.length > 0 && (
             <div className="space-y-1.5 rounded-md border border-dashed p-3 bg-muted/30">
-              <Label>Aplicar template (atalho)</Label>
-              <div className="flex gap-2">
-                <Select value={templateSelecionado} onValueChange={setTemplateSelecionado}>
-                  <SelectTrigger className="flex-1"><SelectValue placeholder="Escolha um template" /></SelectTrigger>
-                  <SelectContent>
-                    {templates.map((t) => (
-                      <SelectItem key={t.id} value={t.nome}>
-                        {t.rotulo ?? t.nome}{" "}
-                        <span className="text-muted-foreground">
-                          ({t.itens.length} tarefa{t.itens.length > 1 ? "s" : ""})
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  variant="default"
-                  onClick={aplicar}
-                  disabled={!templateSelecionado || aplicando}
-                >
-                  {aplicando ? <Loader2 className="h-4 w-4 animate-spin" /> : "Aplicar"}
-                </Button>
-              </div>
+              <Label>Template (atalho)</Label>
+              <Select value={templateSelecionado} onValueChange={setTemplateSelecionado}>
+                <SelectTrigger><SelectValue placeholder="Escolha um template" /></SelectTrigger>
+                <SelectContent>
+                  {templates.map((t) => (
+                    <SelectItem key={t.id} value={t.nome}>
+                      {t.rotulo ?? t.nome}{" "}
+                      <span className="text-muted-foreground">
+                        ({t.itens.length} tarefa{t.itens.length > 1 ? "s" : ""})
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <p className="text-xs text-muted-foreground">
-                Cria todas as tarefas do template já preenchidas com nome do cliente
-                {processoToken ? " e protocolo do processo selecionado" : ""}. Ou continue preenchendo manualmente abaixo.
+                {templateSelecionado ? (
+                  <>
+                    Os campos abaixo foram preenchidos com os dados do template.{" "}
+                    <strong>Você pode editar tudo antes de salvar.</strong>
+                    {(() => {
+                      const t = templates.find((x) => x.nome === templateSelecionado);
+                      const extras = (t?.itens.length ?? 0) - 1;
+                      return extras > 0 ? (
+                        <>
+                          {" "}Ao salvar, {extras} tarefa{extras === 1 ? "" : "s"} adicional
+                          {extras === 1 ? "" : "is"} do template ser{extras === 1 ? "á" : "ão"} criada
+                          {extras === 1 ? "" : "s"} com os valores padrão.
+                        </>
+                      ) : null;
+                    })()}
+                  </>
+                ) : (
+                  <>
+                    Selecionar um template preenche os campos abaixo (você pode editar antes de salvar). Sem template, preencha manualmente.
+                  </>
+                )}
               </p>
             </div>
           )}
