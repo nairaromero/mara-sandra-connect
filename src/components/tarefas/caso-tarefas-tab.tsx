@@ -7,6 +7,7 @@ import { Loader2, Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TarefaCard } from "@/components/tarefas/tarefa-card";
 import { TarefaSheet } from "@/components/tarefas/tarefa-sheet";
 import {
@@ -16,10 +17,12 @@ import {
 } from "@/lib/tarefas/queries";
 import {
   STATUS_LABEL,
-  STATUS_ORDEM,
   type TarefaComJoins,
   type TarefaStatus,
 } from "@/lib/tarefas/types";
+
+const STATUS_ATIVOS: TarefaStatus[] = ["a_fazer", "fazendo"];
+const STATUS_ARQUIVADOS: TarefaStatus[] = ["feito", "cancelado"];
 
 type Modo =
   | { kind: "criar"; casoIdInicial: string }
@@ -33,6 +36,7 @@ export function CasoTarefasTab({ casoId }: Props) {
   const [carregando, setCarregando] = useState(true);
   const [tarefas, setTarefas] = useState<TarefaComJoins[]>([]);
   const [sheetModo, setSheetModo] = useState<Modo | null>(null);
+  const [aba, setAba] = useState<"ativos" | "arquivados">("ativos");
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -112,15 +116,31 @@ export function CasoTarefasTab({ casoId }: Props) {
         </Button>
       </div>
 
+      <Tabs value={aba} onValueChange={(v) => setAba(v as "ativos" | "arquivados")}>
+        <TabsList>
+          <TabsTrigger value="ativos">
+            Ativos
+            <Badge variant="outline" className="ml-2 font-normal">
+              {STATUS_ATIVOS.reduce((acc, s) => acc + porStatus[s].length, 0)}
+            </Badge>
+          </TabsTrigger>
+          <TabsTrigger value="arquivados">
+            Arquivados
+            <Badge variant="outline" className="ml-2 font-normal">
+              {STATUS_ARQUIVADOS.reduce((acc, s) => acc + porStatus[s].length, 0)}
+            </Badge>
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+
       {carregando ? (
         <div className="flex items-center justify-center h-40">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
       ) : (
         <div className="space-y-5">
-          {STATUS_ORDEM.map((s) => {
+          {(aba === "ativos" ? STATUS_ATIVOS : STATUS_ARQUIVADOS).map((s) => {
             const lista = porStatus[s];
-            if (lista.length === 0 && s === "cancelado") return null;
             return (
               <section key={s} className="space-y-2">
                 <div className="flex items-center gap-2">

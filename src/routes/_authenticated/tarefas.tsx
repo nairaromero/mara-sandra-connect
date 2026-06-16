@@ -12,6 +12,7 @@ import { ClientOnly } from "@/components/client-only";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -30,7 +31,6 @@ import {
 } from "@/lib/tarefas/queries";
 import {
   STATUS_LABEL,
-  STATUS_ORDEM,
   TIPO_LABEL,
   type TarefaComJoins,
   type TarefaStatus,
@@ -42,6 +42,11 @@ export const Route = createFileRoute("/_authenticated/tarefas")({
 });
 
 const TIPOS: TarefaTipo[] = ["interna", "prazo", "pericia", "pos_protocolo", "contato_cliente"];
+
+// Default mostra só "A fazer" / "Fazendo". "Feito" e "Cancelado" ficam na
+// aba "Arquivados", abre só quando a Naira pedir.
+const STATUS_ATIVOS: TarefaStatus[] = ["a_fazer", "fazendo"];
+const STATUS_ARQUIVADOS: TarefaStatus[] = ["feito", "cancelado"];
 
 type Modo =
   | { kind: "criar"; casoIdInicial?: string | null }
@@ -61,6 +66,7 @@ function TarefasPage() {
   const [somenteMinhas, setSomenteMinhas] = useState(false);
 
   const [sheetModo, setSheetModo] = useState<Modo | null>(null);
+  const [aba, setAba] = useState<"ativos" | "arquivados">("ativos");
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -235,14 +241,32 @@ function TarefasPage() {
           )}
         </div>
 
+        {/* Tabs Ativos / Arquivados */}
+        <Tabs value={aba} onValueChange={(v) => setAba(v as "ativos" | "arquivados")}>
+          <TabsList>
+            <TabsTrigger value="ativos">
+              Ativos
+              <Badge variant="outline" className="ml-2 font-normal">
+                {STATUS_ATIVOS.reduce((acc, s) => acc + porStatus[s].length, 0)}
+              </Badge>
+            </TabsTrigger>
+            <TabsTrigger value="arquivados">
+              Arquivados
+              <Badge variant="outline" className="ml-2 font-normal">
+                {STATUS_ARQUIVADOS.reduce((acc, s) => acc + porStatus[s].length, 0)}
+              </Badge>
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+
         {/* Kanban */}
         {carregando ? (
           <div className="flex items-center justify-center h-64">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-            {STATUS_ORDEM.map((s) => {
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {(aba === "ativos" ? STATUS_ATIVOS : STATUS_ARQUIVADOS).map((s) => {
               const lista = porStatus[s];
               return (
                 <div key={s} className="rounded-md bg-muted/40 border min-h-[60vh] flex flex-col">
