@@ -114,11 +114,6 @@ export function AgendaMes({ eventos, onEventoClick, onDiaClick }: Props) {
                 <span className={cn("text-xs tabular-nums", ehHoje && "font-semibold")}>
                   {format(d, "d")}
                 </span>
-                {eventosDoDia.length > 0 && (
-                  <Badge variant="outline" className="font-normal text-[10px] h-4 px-1">
-                    {eventosDoDia.length}
-                  </Badge>
-                )}
               </div>
               <div className="flex flex-col gap-0.5 overflow-hidden">
                 {eventosDoDia.slice(0, 3).map((e) => (
