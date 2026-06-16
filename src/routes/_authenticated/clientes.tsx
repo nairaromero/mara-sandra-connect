@@ -1,12 +1,13 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Search, UserCircle, ChevronRight } from "lucide-react";
+import { CalendarPlus, Loader2, Search, UserCircle, ChevronRight } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import { ClientOnly } from "@/components/client-only";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -17,6 +18,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ImportarTiDialog } from "@/components/importar-ti-dialog";
+import { AgendaSheet } from "@/components/agenda/agenda-sheet";
+import type { AgendaEventoComJoins } from "@/lib/agenda/types";
 
 export const Route = createFileRoute("/_authenticated/clientes")({
   component: ClientesPage,
@@ -116,6 +119,11 @@ function ClientesPage() {
   const [casos, setCasos] = useState<Array<CasoRow>>([]);
   const [loading, setLoading] = useState(true);
   const [busca, setBusca] = useState("");
+  const [agendaSheet, setAgendaSheet] = useState<
+    | { kind: "criar"; tipoInicial?: "pericia"; casoIdInicial: string }
+    | { kind: "editar"; evento: AgendaEventoComJoins }
+    | null
+  >(null);
 
   useEffect(() => {
     if (!usuario) return;
@@ -391,7 +399,28 @@ function ClientesPage() {
                             )}
                           </TableCell>
                           <TableCell>
-                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                            <div className="flex items-center gap-1 justify-end">
+                              {isInterno && casoMaisRecente && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 px-2 text-xs"
+                                  title={`Agendar perícia para ${c.nome}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setAgendaSheet({
+                                      kind: "criar",
+                                      tipoInicial: "pericia",
+                                      casoIdInicial: casoMaisRecente.id,
+                                    });
+                                  }}
+                                >
+                                  <CalendarPlus className="h-3.5 w-3.5" />
+                                  <span className="hidden sm:inline ml-1">Perícia</span>
+                                </Button>
+                              )}
+                              <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                            </div>
                           </TableCell>
                         </TableRow>
                       );
@@ -406,6 +435,14 @@ function ClientesPage() {
           </CardContent>
         </Card>
       </ClientOnly>
+
+      <AgendaSheet
+        modo={agendaSheet}
+        onClose={() => setAgendaSheet(null)}
+        onSaved={() => {
+          /* mantém a tabela como está — a tarefa aparece em /agenda */
+        }}
+      />
     </div>
   );
 }

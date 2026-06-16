@@ -23,6 +23,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
 import { AgendaSheet } from "@/components/agenda/agenda-sheet";
+import { AgendaMes } from "@/components/agenda/agenda-mes";
 import { listarAgenda } from "@/lib/agenda/queries";
 import {
   type AgendaEventoComJoins,
@@ -76,6 +77,7 @@ function AgendaPage() {
   const [carregando, setCarregando] = useState(true);
   const [eventos, setEventos] = useState<AgendaEventoComJoins[]>([]);
   const [sheetModo, setSheetModo] = useState<Modo | null>(null);
+  const [vista, setVista] = useState<"mes" | "lista">("mes");
   const [aba, setAba] = useState<"proximas" | "passadas">("proximas");
 
   const carregar = useCallback(async () => {
@@ -131,23 +133,36 @@ function AgendaPage() {
           </Button>
         </div>
 
-        <Tabs value={aba} onValueChange={(v) => setAba(v as "proximas" | "passadas")}>
+        {/* Toggle Mês ↔ Lista */}
+        <Tabs value={vista} onValueChange={(v) => setVista(v as "mes" | "lista")}>
           <TabsList>
-            <TabsTrigger value="proximas">
-              Próximas
-              <Badge variant="outline" className="ml-2 font-normal">{proximas.length}</Badge>
-            </TabsTrigger>
-            <TabsTrigger value="passadas">
-              Passadas
-              <Badge variant="outline" className="ml-2 font-normal">{passadas.length}</Badge>
-            </TabsTrigger>
+            <TabsTrigger value="mes">Calendário do mês</TabsTrigger>
+            <TabsTrigger value="lista">Lista</TabsTrigger>
           </TabsList>
         </Tabs>
+
+        {/* Tabs Próximas / Passadas — só na vista Lista */}
+        {vista === "lista" && (
+          <Tabs value={aba} onValueChange={(v) => setAba(v as "proximas" | "passadas")}>
+            <TabsList>
+              <TabsTrigger value="proximas">
+                Próximas
+                <Badge variant="outline" className="ml-2 font-normal">{proximas.length}</Badge>
+              </TabsTrigger>
+              <TabsTrigger value="passadas">
+                Passadas
+                <Badge variant="outline" className="ml-2 font-normal">{passadas.length}</Badge>
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        )}
 
         {carregando ? (
           <div className="flex items-center justify-center h-64">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
+        ) : vista === "mes" ? (
+          <AgendaMes eventos={eventos} onEventoClick={abrirEditor} />
         ) : dias.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center text-sm text-muted-foreground">
