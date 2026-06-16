@@ -519,9 +519,18 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       onSaved();
       onClose();
     } catch (e) {
-      console.error(e);
-      const msg = e instanceof Error ? e.message : "Falha ao salvar.";
-      toast.error(msg);
+      console.error("[tarefa-sheet] salvar falhou:", e);
+      const anyErr = e as { message?: string; details?: string; hint?: string };
+      let msg =
+        anyErr?.message || anyErr?.details || anyErr?.hint || "";
+      if (!msg) {
+        try {
+          msg = JSON.stringify(e);
+        } catch {
+          msg = String(e);
+        }
+      }
+      toast.error(`Falha: ${msg}`);
     } finally {
       setSalvando(false);
     }
