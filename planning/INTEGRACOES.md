@@ -277,3 +277,87 @@ Por enquanto, o hash fica em `metadata.hash_documento` para uso futuro.
 12. **Implementar badge in-app** de movimentação nova (email só depois do domínio)
 
 Cada workflow vira uma sessão dedicada de implementação. Ver [TODO.md](TODO.md) para o checklist completo.
+
+---
+
+## 7. Aba "Integrações" — registro de APIs e webhooks pela UI
+
+> Decisão da Naira (2026-05-30): **todo registro/alteração de API e webhook deve
+> ser feito pela UI**, não mais indo no Supabase mexer em env/secret. Aproveitar
+> a construção da integração WhatsApp (ver [INTEGRACAO_WHATSAPP.md](INTEGRACAO_WHATSAPP.md))
+> para já trazer TI e Legalmail para o mesmo lugar.
+
+### 7.1 Problema atual
+- TI e Legalmail leem a credencial de **variáveis de ambiente das Edge Functions**:
+  `TI_TOKEN` (`check-ti-cliente.ts`, `sync-ti-cliente.ts`) e `LEGALMAIL_TOKEN`
+  (`check-legalmail-nome.ts`, `sync-legalmail-caso.ts`). Trocar = ir no Supabase.
+- Webhooks já têm tela (`src/routes/_authenticated/webhooks.tsx`, item "Webhooks"
+  na sidebar), mas isolada.
+
+### 7.2 Desenho proposto
+Uma **rota nova `/integracoes`** (interno-only) com **duas seções separadas**
+(sub-abas), conforme pedido ("apis e webhooks ficam separadas"):
+
+```
+[Integrações]
+  ├─ Seção "APIs"      -> TI, Legalmail, WhatsApp (cadastro/edição de credencial + config)
+  └─ Seção "Webhooks"  -> webhook_destinos (o que já existe em webhooks.tsx, movido pra cá)
+```
+
+- O item **"Webhooks" da sidebar vira "Integrações"** (`src/components/app-sidebar.tsx`);
+  o conteúdo de `webhooks.tsx` passa a ser a seção Webhooks.
+
+### 7.3 Armazenamento (Vault, não env)
+Segue o mesmo padrão dos webhooks (segredo no Vault, nunca em GUC/coluna —
+ver restrição em [ARQUITETURA.md](ARQUITETURA.md) e no design de webhooks):
+
+Tabela nova `public.integracoes`:
+```
+chave        text primary key      -- 'ti' | 'legalmail' | 'whatsapp'
+nome         text                  -- rótulo amigável
+base_url     text                  -- ex https://app.legalmail.com.br
+ativo        boolean default true
+secret_id    uuid                  -- id do segredo (token/api_key) no Vault
+config       jsonb default '{}'    -- não-sensível (rate limit, instance, etc.)
+updated_at   timestamptz default now()
+```
+RPCs (espelhando `set_webhook_secret`):
+- `set_integracao_secret(p_chave, p_secret)` — grava token no Vault (só `service_role`/interno via Edge).
+- `get_integracao_secret(p_chave)` — `security definer`, **só `service_role`** (anon/authenticated REVOKE). As Edge Functions chamam isto para obter o token em runtime.
+
+### 7.4 Migração das Edge Functions
+TI/Legalmail/WhatsApp passam a buscar o token via `get_integracao_secret(chave)`
+em vez de `Deno.env.get(...)`. Manter **fallback para o env** durante a transição
+(se o Vault não tiver o segredo, usa o env antigo) para não quebrar nada.
+
+### 7.5 UI por integração
+- Campos: base_url, token/api_key (write-only — exibido só uma vez ao salvar,
+  nunca retornado depois), toggle ativo, config específica.
+- Botão **"testar conexão"**: reusa os `check-*` existentes (`check-ti-cliente`,
+  `check-legalmail-nome`) para validar a credencial recém-salva.
+- WhatsApp: campos `EVOLUTION_URL`, `EVOLUTION_API_KEY`, `EVOLUTION_INSTANCE`,
+  `WHATSAPP_WEBHOOK_TOKEN` (ver [INTEGRACAO_WHATSAPP.md](INTEGRACAO_WHATSAPP.md) §10).
+
+### 7.6 Segurança
+- Rota e RPCs **interno-only**; `get_integracao_secret` exposto só a `service_role`.
+- Segredo nunca volta pro browser (write-only), igual aos webhooks.
+
+### 7.7 Decisões (confirmadas em 2026-05-30)
+1. ✅ `/integracoes` com sub-abas (APIs | Webhooks) **substituindo** o item
+   "Webhooks" da sidebar. Conteúdo de `webhooks.tsx` migra pra seção Webhooks.
+2. ✅ TI e Legalmail migram do env para o Vault **de uma vez** (junto), com
+   fallback pro env durante a transição.
+3. ✅ Acesso **só admin** — PORÉM "admin" NÃO existe hoje. `usuarios.tipo` só tem
+   `interno` | `parceiro`. Precisa criar a distinção (ver §7.8).
+
+### 7.8 Papel "admin" (a criar — pré-requisito da §7.7.3) — DECIDIDO
+Hoje não há sub-papel entre os internos. Decisão (2026-05-30):
+- **Coluna `usuarios.is_admin boolean default false`** (Opção simples).
+- **Só a Naira é admin** por enquanto: a migration seta `is_admin = true` para o
+  usuário dela (identificar pelo email da Naira na hora de aplicar).
+- O gate de admin vale para a **UI** (`/integracoes` só aparece/abre p/ admin) e
+  para as **RPCs de escrita** (`set_integracao_secret`, CRUD de `integracoes` e
+  `webhook_destinos`). Leitura via `get_integracao_secret` continua `service_role`.
+- Helper sugerido: função `is_admin()` (`select coalesce((select is_admin from
+  usuarios where id = auth.uid()), false)`) para usar nas policies, espelhando o
+  padrão `caso_do_parceiro`.

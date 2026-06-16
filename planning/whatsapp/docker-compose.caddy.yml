@@ -1,0 +1,32 @@
+# Override OPCIONAL — use SÓ se o servidor NÃO tiver um proxy reverso próprio
+# (Traefik/Nginx/etc.) já ocupando as portas 80/443.
+#
+# Sobe um Caddy que faz HTTPS automático (Let's Encrypt) pro subdomínio do
+# Evolution. Requer: registro DNS A do subdomínio -> IP do servidor ANTES de subir.
+#
+# Uso (combinando os dois arquivos):
+#   docker compose -f docker-compose.yml -f docker-compose.caddy.yml --env-file .env up -d
+#
+# IMPORTANTE: se você já tem proxy ocupando 80/443, NÃO use este arquivo —
+# vai dar conflito de porta. Nesse caso aponte seu proxy pra 127.0.0.1:8080.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: evolution-caddy
+    restart: always
+    depends_on:
+      - evolution-api
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - evolution_net
+
+volumes:
+  caddy_data:
+  caddy_config:

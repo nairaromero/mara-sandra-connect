@@ -178,9 +178,11 @@ salva de volta).
 - [x] **Peça em .docx (2026-06-09):** tool `salvar_peca_docx` (write, interno-only) gera
       um arquivo **Word** a partir de markdown (títulos #/##/###, **negrito**, listas '- ')
       via `_shared/ia-docx.ts` (lib `docx@8.5.0`, `Packer.toBlob`), faz upload no Storage
-      e registra na aba **Documentos** (tipo `outro`). Boot OK; ⏳ falta exercitar o
-      runtime (`Packer.toBlob`) numa chamada real — testar via claude.ai/connector.
-      Visual Law (caixas coloridas/tabelas) fica para depois.
+      e registra na aba **Documentos** (tipo `outro`). **Runtime VALIDADO** rodando o
+      módulo `ia-docx.ts` no Deno (mesmo do Edge): gera Word 2007+ válido com Título/
+      Heading 1-3/negrito/lista (OOXML completo). Falta só o teste de ponta-a-ponta via
+      MCP (upload+insert são chamadas padrão do supabase-js). Visual Law (caixas
+      coloridas/tabelas) fica para depois.
 - Nota: `ia-docs.ts` duplica a extração que a `ia-analise` faz inline — dedup futura
   possível (fazer a `ia-analise` usar `extractCasoDocs`), com re-teste.
 
