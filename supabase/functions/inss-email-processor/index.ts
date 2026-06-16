@@ -247,6 +247,7 @@ interface CamposEmail {
   servico: string;
   status_assunto: string;
   despacho: string;
+  data_cessacao: string;        // ISO YYYY-MM-DD se vier no e-mail (prorrogação)
 }
 
 function extrairCampos(subject: string, body: string): CamposEmail {
@@ -259,7 +260,15 @@ function extrairCampos(subject: string, body: string): CamposEmail {
     servico: extrairServico(corpo),
     status_assunto: extrairStatusAssunto(subject, corpo),
     despacho: extrairDespacho(corpo),
+    data_cessacao: extrairDataCessacao(corpo),
   };
+}
+
+function extrairDataCessacao(corpo: string): string {
+  // Padrão: "Data da cessação do benefício: 14/09/2026" → "2026-09-14".
+  const m = corpo.match(/Data\s+da\s+cessa[çc][ãa]o\s+do\s+benef[íi]cio:\s*(\d{2})\/(\d{2})\/(\d{4})/i);
+  if (!m) return "";
+  return `${m[3]}-${m[2]}-${m[1]}`;
 }
 
 function extrairNome(corpo: string): string {
@@ -300,8 +309,20 @@ function extrairStatusAssunto(subject: string, corpo: string): string {
 }
 
 function extrairDespacho(corpo: string): string {
-  const m = corpo.match(/Despacho:\s*([\s\S]*?)(?:É possível acompanhar|Atenciosamente|\n\n[A-Z]|$)/i);
-  return (m?.[1] ?? "").trim();
+  // Captura tudo do "Despacho:" até o rodapé padrão ("É possível acompanhar"
+  // / "Atenciosamente" / "Instituto Nacional do Seguro Social"). NÃO trunca
+  // em \n\n[A-Z] (quebrava o e-mail "CONCLUÍDA" com bloco NB+CTC no meio).
+  const m = corpo.match(
+    /Despacho:\s*([\s\S]*?)(?:\s*(?:É possível acompanhar|É poss[íi]vel acompanhar|Atenciosamente|Instituto Nacional do Seguro Social|http:\/\/meu\.inss\.gov\.br)|$)/i,
+  );
+  if (!m) return "";
+  // Limpa indentação \t e linhas vazias múltiplas, mas preserva quebras
+  // úteis pra leitura.
+  return m[1]
+    .replace(/\t+/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 // ============================================================================
@@ -319,11 +340,27 @@ function normalize(s: string): string {
 const DETECTORES_PROCURADOR = ["(procurador)", "mara sandra vian", "naira"];
 
 const PENDENTE_SUBTIPOS: Array<{ id: string; patterns: string[] }> = [
-  { id: "pendente_cumprimento_protocolado", patterns: ["pedido na exigencia", "documentos conforme", "segue em anexo", "anexo os documentos"] },
+  {
+    id: "pendente_cumprimento_protocolado",
+    patterns: [
+      "pedido na exigencia",
+      "documentos conforme",
+      "segue em anexo",
+      "anexo os documentos",
+      "juntam-se os documentos",          // Alexandre — "juntam-se os documentos solicitados"
+      "juntam se os documentos",
+      "cumprimento de exigencia",
+      "cumprimento da exigencia",
+    ],
+  },
   { id: "pendente_pericia_remarcada", patterns: ["pericia foi remarcada", "pericia remarcada", "nova data"] },
 ];
 
 const CLASSIFICACAO_ORDEM: Array<{ id: string; patterns: string[] }> = [
+  // beneficio_prorrogado tem que vir ANTES de "concedido" porque o despacho
+  // contém "perícia ... reconheceu" e poderia bater coisas amplas; também
+  // antes de qualquer outra, pra não cair em "fora_da_matriz".
+  { id: "beneficio_prorrogado", patterns: ["prorrogad", "foi prorrogado", "beneficio prorrogado"] },
   { id: "cumprimento_realizado", patterns: ["cumprimento de exigencia", "cumprimento da exigencia"] },
   { id: "indeferido", patterns: ["indeferid", "negad", "indeferimento", "nao houve direito"] },
   { id: "concedido", patterns: ["concedid", "conces", "deferid"] },
@@ -347,7 +384,8 @@ function classificar(subject: string, c: CamposEmail): string {
 
   // 3) Status PENDENTE com subtipos
   const despachoNorm = normalize(c.despacho);
-  if (c.status_assunto.toUpperCase().includes("PENDENTE")) {
+  const statusNorm = normalize(c.status_assunto);
+  if (statusNorm.includes("pendente")) {
     for (const sub of PENDENTE_SUBTIPOS) {
       if (sub.patterns.some((p) => despachoNorm.includes(p))) return sub.id;
     }
@@ -355,7 +393,7 @@ function classificar(subject: string, c: CamposEmail): string {
   }
 
   // 4) Status EXIGÊNCIA no assunto
-  if (c.status_assunto.toUpperCase().includes("EXIGENC")) {
+  if (statusNorm.includes("exigenc")) {
     return "exigencia";
   }
 
@@ -384,28 +422,47 @@ async function acharCliente(
   c: CamposEmail,
 ): Promise<MatchCliente> {
   // 1. Nome completo case-insensitive (trim em ambos os lados).
+  // Decisão (Naira): match é EXATO no nome completo, sem fuzzy. Mas
+  // normalizamos espaços (colapsa múltiplos) pra não falhar por digitação.
   if (c.nome_cliente) {
-    const { data, error } = await sb
-      .from("clientes")
-      .select("id")
-      .ilike("nome", c.nome_cliente.trim())
-      .limit(2);
-    if (!error && data && data.length === 1) {
-      const casoId = await casoMaisRecente(sb, data[0].id);
-      return { cliente_id: data[0].id, caso_id: casoId, processo_admin_id: null, via: "nome" };
+    const nomeNorm = c.nome_cliente.replace(/\s+/g, " ").trim();
+    if (nomeNorm.length > 0) {
+      const { data, error } = await sb
+        .from("clientes")
+        .select("id, nome")
+        .ilike("nome", nomeNorm)
+        .limit(5);
+      if (!error && data) {
+        // Filtra também por igualdade de nome normalizado (caso a base tenha
+        // espaços duplos ou acentos diferentes — ilike compara como veio).
+        const candidatos = data.filter(
+          (d) => (d.nome ?? "").replace(/\s+/g, " ").trim().toLowerCase() === nomeNorm.toLowerCase(),
+        );
+        if (candidatos.length === 1) {
+          const casoId = await casoMaisRecente(sb, candidatos[0].id);
+          return { cliente_id: candidatos[0].id, caso_id: casoId, processo_admin_id: null, via: "nome" };
+        }
+      }
     }
   }
 
-  // 2. CPF exato (texto inclui pontuação).
+  // 2. CPF — normaliza pra dígitos só (banco guarda sem pontuação;
+  // o e-mail manda com pontuação). Compara contra ambos os formatos por
+  // segurança (caso algum cliente antigo tenha sido salvo formatado).
   if (c.cpf) {
-    const { data, error } = await sb
-      .from("clientes")
-      .select("id")
-      .eq("cpf", c.cpf)
-      .limit(2);
-    if (!error && data && data.length === 1) {
-      const casoId = await casoMaisRecente(sb, data[0].id);
-      return { cliente_id: data[0].id, caso_id: casoId, processo_admin_id: null, via: "cpf" };
+    const cpfDigitos = c.cpf.replace(/\D/g, "");
+    if (cpfDigitos.length === 11) {
+      // CPF formatado canônico: XXX.XXX.XXX-XX
+      const cpfFormatado = `${cpfDigitos.slice(0, 3)}.${cpfDigitos.slice(3, 6)}.${cpfDigitos.slice(6, 9)}-${cpfDigitos.slice(9)}`;
+      const { data, error } = await sb
+        .from("clientes")
+        .select("id")
+        .or(`cpf.eq.${cpfDigitos},cpf.eq.${cpfFormatado}`)
+        .limit(2);
+      if (!error && data && data.length === 1) {
+        const casoId = await casoMaisRecente(sb, data[0].id);
+        return { cliente_id: data[0].id, caso_id: casoId, processo_admin_id: null, via: "cpf" };
+      }
     }
   }
 
@@ -462,6 +519,11 @@ interface TemplateItem {
   tipo: string;
   prioridade: number;
   offset_dias?: number;
+  // Âncora alternativa: "hoje" (default) | "data_cessacao". Quando definido,
+  // due_at = âncora + offset_dias (offset_dias pode ser negativo). Hoje
+  // suportamos "data_cessacao" (do e-mail de prorrogação). Se a âncora não
+  // estiver disponível no contexto, cai pro comportamento default.
+  due_relative_to?: "hoje" | "data_cessacao";
   executor_email?: string;
   interessados_emails?: string[];
   meta?: Record<string, unknown>;
@@ -546,6 +608,9 @@ function resolveResponsavel(
 
 interface ProcessamentoResultado {
   message_id: string;
+  subject?: string;
+  campos_extraidos?: CamposEmail;
+  body_preview?: string;
   classificacao: string;
   match_via: string;
   cliente_id: string | null;
@@ -589,6 +654,11 @@ async function processarMensagem(
   const campos = extrairCampos(msg.subject, msg.body);
   const classificacao = classificar(msg.subject, campos);
   res.classificacao = classificacao;
+  res.subject = msg.subject;
+  if (dryRun) {
+    res.campos_extraidos = campos;
+    res.body_preview = msg.body.slice(0, 2000);
+  }
 
   // Decisão 4b: fora da matriz → revisar_classificacao.
   const templateNome = classificacao === "status_fora_da_matriz"
@@ -665,11 +735,17 @@ async function processarMensagem(
   for (let i = 0; i < template.itens.length; i++) {
     const item = template.itens[i];
     const resolved = resolveResponsavel(item, lookups);
-    // offset_dias definido (mesmo 0) = data relativa a hoje (0 = hoje).
-    // Undefined = sem prazo.
-    const dueAt = typeof item.offset_dias === "number"
-      ? new Date(Date.now() + item.offset_dias * 86400_000).toISOString()
-      : null;
+    // Resolução do due_at:
+    //  - due_relative_to='data_cessacao' + campos.data_cessacao  → cessação + offset
+    //  - offset_dias definido (default âncora=hoje, mesmo 0)     → hoje + offset
+    //  - undefined                                                → sem prazo
+    let dueAt: string | null = null;
+    if (item.due_relative_to === "data_cessacao" && campos.data_cessacao) {
+      const ancora = new Date(`${campos.data_cessacao}T00:00:00Z`).getTime();
+      dueAt = new Date(ancora + (item.offset_dias ?? 0) * 86400_000).toISOString();
+    } else if (typeof item.offset_dias === "number") {
+      dueAt = new Date(Date.now() + item.offset_dias * 86400_000).toISOString();
+    }
 
     const titulo = substituir(item.titulo, campos);
     const descricao = substituir(item.descricao, campos);
@@ -731,7 +807,14 @@ serve(async (req) => {
     return jsonResponse({ error: "method not allowed" }, 405);
   }
 
-  let body: { dias?: number; limite?: number; dry_run?: boolean; label?: string } = {};
+  let body: {
+    dias?: number;
+    limite?: number;
+    dry_run?: boolean;
+    label?: string;
+    message_id?: string;          // processa só uma mensagem específica
+    message_ids?: string[];       // ou várias específicas
+  } = {};
   try {
     body = await req.json();
   } catch (_) { /* body vazio é OK */ }
@@ -740,6 +823,11 @@ serve(async (req) => {
   const limite = Math.min(Math.max(body.limite ?? 50, 1), 200);
   const dryRun = body.dry_run === true;
   const label = body.label ?? DEFAULT_LABEL;
+  const onlyIds = body.message_id
+    ? [body.message_id]
+    : body.message_ids && body.message_ids.length > 0
+      ? body.message_ids
+      : null;
 
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, {
     auth: { persistSession: false },
@@ -748,7 +836,9 @@ serve(async (req) => {
   try {
     const { token, gmailAddress } = await obterAccessToken(sb);
     const query = `label:${label} newer_than:${dias}d`;
-    const ids = await gmailListMessages(token, gmailAddress, query, limite);
+    // Se body.message_id(s) foi passado, processa só esses (sem precisar
+    // listar). Caso contrário, lista pela label/janela.
+    const ids = onlyIds ?? await gmailListMessages(token, gmailAddress, query, limite);
 
     const lookups = await carregarLookups(sb);
     if (!lookups.nairaUsuarioId) {

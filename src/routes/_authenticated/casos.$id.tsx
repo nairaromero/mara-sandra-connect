@@ -31,6 +31,7 @@ import {
   KeyRound,
   X,
   ListTodo,
+  Calendar,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -66,6 +67,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CasoTarefasTab } from "@/components/tarefas/caso-tarefas-tab";
+import { CasoAgendaTab } from "@/components/agenda/caso-agenda-tab";
 import { Markdown } from "@/components/markdown";
 import {
   Select,
@@ -873,6 +875,12 @@ function CasoDetalhePage() {
               </TabsTrigger>
             )}
             {isInterno && (
+              <TabsTrigger value="agenda" className="flex items-center gap-1 shrink-0">
+                <Calendar className="h-4 w-4" />
+                <span>Agenda</span>
+              </TabsTrigger>
+            )}
+            {isInterno && (
               <TabsTrigger value="analise" className="flex items-center gap-1 shrink-0">
                 <FileText className="h-4 w-4" />
                 <span>Análise</span>
@@ -982,6 +990,12 @@ function CasoDetalhePage() {
                   />
                 </div>
               </div>
+            </TabsContent>
+          )}
+
+          {isInterno && (
+            <TabsContent value="agenda" className="mt-4">
+              <CasoAgendaTab casoId={casoId} />
             </TabsContent>
           )}
 
