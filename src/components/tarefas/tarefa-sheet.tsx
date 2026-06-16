@@ -48,8 +48,8 @@ import {
   type TarefaTipo,
 } from "@/lib/tarefas/types";
 import {
-  inputDateValueFromIso,
-  isoFromInputDate,
+  inputDateTimeValueFromIso,
+  isoFromInputDateTime,
   substituirPlaceholders,
 } from "@/lib/tarefas/helpers";
 import { EtapasAcompanhamento } from "@/components/tarefas/etapas-acompanhamento";
@@ -141,7 +141,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       setPrioridade(item.prioridade ?? 3);
       if (typeof item.offset_dias === "number") {
         const dt = new Date(Date.now() + item.offset_dias * 86400_000);
-        setDueDate(dt.toISOString().slice(0, 10));
+        setDueDate(inputDateTimeValueFromIso(dt.toISOString()));
       } else {
         setDueDate("");
       }
@@ -181,7 +181,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
             : "",
       );
       setResponsavelId(t.responsavel_id);
-      setDueDate(inputDateValueFromIso(t.due_at));
+      setDueDate(inputDateTimeValueFromIso(t.due_at));
       setTemplateSelecionado("");
     }
   }, [modo]);
@@ -215,7 +215,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
     }
     setSalvando(true);
     try {
-      const due_at = isoFromInputDate(dueDate);
+      const due_at = isoFromInputDateTime(dueDate);
       const proc = parseProcesso();
       if (editando && tarefa) {
         await atualizarTarefa({
@@ -282,6 +282,9 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           }
           for (let i = 1; i < tplItens.length; i++) {
             const item = tplItens[i];
+            // Defesa: itens destino=agenda só são criados via AgendaSheet
+            // (criam evento de agenda, não tarefa). No TarefaSheet pulam.
+            if (item.destino === "agenda") continue;
             let respFinal: string | null = responsavelId;
             if (!respFinal && item.executor_email) {
               respFinal = emailParaId.get(item.executor_email.toLowerCase()) ?? null;
@@ -515,10 +518,10 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           )}
 
           <div className="space-y-1.5">
-            <Label htmlFor="t-due">Prazo</Label>
+            <Label htmlFor="t-due">Data</Label>
             <Input
               id="t-due"
-              type="date"
+              type="datetime-local"
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
             />
