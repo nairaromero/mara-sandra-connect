@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { EtapasAcompanhamento } from "@/components/tarefas/etapas-acompanhamento";
+import { EtapaCumprimentoExigencia } from "@/components/tarefas/etapa-cumprimento-exigencia";
 import {
   formatarDueAtLongo,
   URGENCIA_BADGE_CLASS,
@@ -58,6 +59,8 @@ export function TarefaCard({
   const clienteNome = tarefa.caso?.cliente?.nome ?? null;
   const ehAcompProcessual =
     (tarefa.metadata as { acompanhamento_processual?: boolean })?.acompanhamento_processual === true;
+  const ehCumprimentoExigencia =
+    (tarefa.metadata as { cumprimento_exigencia?: boolean })?.cumprimento_exigencia === true;
   const destacado = useDestaqueAtivo(tarefa.id);
 
   return (
@@ -163,6 +166,15 @@ export function TarefaCard({
 
         {ehAcompProcessual && (
           <EtapasAcompanhamento
+            tarefa={tarefa}
+            onUpdated={onChanged ?? (() => {})}
+            compacto
+            stopPropagation
+          />
+        )}
+
+        {ehCumprimentoExigencia && (
+          <EtapaCumprimentoExigencia
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}
             compacto
