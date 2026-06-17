@@ -3925,9 +3925,13 @@ function TabDocumentos(props: TabDocumentosProps) {
         // Usa nome editado pelo usuario (ou fallback pra auto-rename)
         const nomeArq = nomeArquivoEdit.trim() || nomearArquivo(acaoAlvo.solic.tipo, arquivoUpload);
         const path = casoId + "/" + nomeArq;
+        // upsert só pra interno: a RLS de UPDATE em storage.objects exige
+        // is_interno(), e supabase-js com upsert=true dispara INSERT ON
+        // CONFLICT DO UPDATE — que tropeça na policy mesmo sem conflito real.
+        // Parceiro envia com nome único (auto-rename pelo tipo); colisão é rara.
         const upResp = await supabase.storage
           .from("documentos")
-          .upload(path, arquivoUpload, { upsert: true });
+          .upload(path, arquivoUpload, { upsert: isInterno });
         if (upResp.error) throw upResp.error;
         const docInsert = await supabase
           .from("documentos")
