@@ -871,12 +871,10 @@ function CasoDetalhePage() {
               <FileCheck className="h-4 w-4" />
               <span>Documentos</span>
             </TabsTrigger>
-            {isInterno && (
-              <TabsTrigger value="atividades" className="flex items-center gap-1 shrink-0">
-                <ListTodo className="h-4 w-4" />
-                <span>Atividades</span>
-              </TabsTrigger>
-            )}
+            <TabsTrigger value="atividades" className="flex items-center gap-1 shrink-0">
+              <ListTodo className="h-4 w-4" />
+              <span>{isInterno ? "Atividades" : "Andamentos"}</span>
+            </TabsTrigger>
             {isInterno && (
               <TabsTrigger value="analise" className="flex items-center gap-1 shrink-0">
                 <FileText className="h-4 w-4" />
@@ -967,28 +965,32 @@ function CasoDetalhePage() {
             />
           </TabsContent>
 
-          {isInterno && (
-            <TabsContent value="atividades" className="mt-4">
-              <div className="grid gap-6 lg:grid-cols-2">
+          <TabsContent value="atividades" className="mt-4">
+            <div
+              className={
+                isInterno ? "grid gap-6 lg:grid-cols-2" : "grid gap-6 grid-cols-1"
+              }
+            >
+              {isInterno && (
                 <div className="min-w-0">
                   <CasoTarefasTab casoId={casoId} onChange={carregar} />
                 </div>
-                <div className="min-w-0">
-                  <TabAndamentos
-                    casoId={casoId}
-                    andamentos={andamentos}
-                    processosAdmin={processosAdmin}
-                    processosJudiciais={processosJudiciais}
-                    isInterno={isInterno}
-                    temParceiro={caso.parceiro_id !== null}
-                    usuarioId={usuario ? usuario.id : null}
-                    focoId={search.foco}
-                    onChange={carregar}
-                  />
-                </div>
+              )}
+              <div className="min-w-0">
+                <TabAndamentos
+                  casoId={casoId}
+                  andamentos={andamentos}
+                  processosAdmin={processosAdmin}
+                  processosJudiciais={processosJudiciais}
+                  isInterno={isInterno}
+                  temParceiro={caso.parceiro_id !== null}
+                  usuarioId={usuario ? usuario.id : null}
+                  focoId={search.foco}
+                  onChange={carregar}
+                />
               </div>
-            </TabsContent>
-          )}
+            </div>
+          </TabsContent>
 
           {isInterno && (
             <TabsContent value="analise" className="mt-4">
