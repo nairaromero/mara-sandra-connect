@@ -23,6 +23,7 @@ import {
 import { cn } from "@/lib/utils";
 import { EtapasAcompanhamento } from "@/components/tarefas/etapas-acompanhamento";
 import { EtapaCumprimentoExigencia } from "@/components/tarefas/etapa-cumprimento-exigencia";
+import { EtapaProtocoloRealizado } from "@/components/tarefas/etapa-protocolo-realizado";
 import {
   formatarDueAtLongo,
   URGENCIA_BADGE_CLASS,
@@ -61,6 +62,8 @@ export function TarefaCard({
     (tarefa.metadata as { acompanhamento_processual?: boolean })?.acompanhamento_processual === true;
   const ehCumprimentoExigencia =
     (tarefa.metadata as { cumprimento_exigencia?: boolean })?.cumprimento_exigencia === true;
+  const ehProtocoloRealizado =
+    (tarefa.metadata as { protocolo_realizado?: boolean })?.protocolo_realizado === true;
   const destacado = useDestaqueAtivo(tarefa.id);
 
   return (
@@ -175,6 +178,15 @@ export function TarefaCard({
 
         {ehCumprimentoExigencia && (
           <EtapaCumprimentoExigencia
+            tarefa={tarefa}
+            onUpdated={onChanged ?? (() => {})}
+            compacto
+            stopPropagation
+          />
+        )}
+
+        {ehProtocoloRealizado && (
+          <EtapaProtocoloRealizado
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}
             compacto
