@@ -12,6 +12,7 @@ import {
   Webhook,
   ListTodo,
   Calendar,
+  Tag,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import {
@@ -45,6 +46,7 @@ const itemsInternos = [
   { title: "Agenda", url: "/agenda", icon: Calendar },
   { title: "Equipe", url: "/equipe", icon: UserCog },
   { title: "Parceiros", url: "/parceiros", icon: Users },
+  { title: "Etiquetas", url: "/etiquetas", icon: Tag },
   { title: "Webhooks", url: "/webhooks", icon: Webhook },
   { title: "Auditoria", url: "/auditoria", icon: ShieldCheck },
 ];
