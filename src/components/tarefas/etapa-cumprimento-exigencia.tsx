@@ -6,7 +6,10 @@
 //  2. Marca essa tarefa como feita.
 //  3. Marca a tarefa FATAL do mesmo caso/template como feita.
 //  4. Cria tarefa "Acompanhamento Processual — aguardando agendamento de
-//     perícia" pra 15 dias depois.
+//     perícia" com metadata.acompanhamento_processual=true (mesmo flag do
+//     template requerimento_aberto). Assim ela herda o escalonamento
+//     30d ouvidoria / 60d peticionamento de mora / 120d ajuizamento via
+//     EtapasAcompanhamento.
 //
 // Mesmo pattern visual do EtapasAcompanhamento (30/60/120) — só que com
 // 1 etapa só.
@@ -34,7 +37,9 @@ interface Props {
   stopPropagation?: boolean;
 }
 
-const DIAS_ACOMPANHAMENTO_PERICIA = 15;
+// 1ª etapa do EtapasAcompanhamento é ouvidoria em 30d. due_at inicial =
+// hoje + 30d pra alinhar com o escalonamento.
+const DIAS_PRIMEIRA_ETAPA_ACOMPANHAMENTO = 30;
 
 export function EtapaCumprimentoExigencia({
   tarefa,
@@ -110,11 +115,13 @@ export function EtapaCumprimentoExigencia({
       }
 
       // 3) Cria tarefa "Acompanhamento Processual - aguardando agendamento de
-      // perícia" pra +15d.
+      // perícia" com acompanhamento_processual=true → ganha escalonamento
+      // 30d ouvidoria / 60d peticionamento de mora / 120d ajuizamento via
+      // EtapasAcompanhamento. due_at inicial = +30d (próxima etapa: ouvidoria).
       let tarefaAcompId: string | null = null;
       if (tarefa.caso_id) {
         const dueAt = new Date(
-          agora.getTime() + DIAS_ACOMPANHAMENTO_PERICIA * 86400_000,
+          agora.getTime() + DIAS_PRIMEIRA_ETAPA_ACOMPANHAMENTO * 86400_000,
         ).toISOString();
         const { data: novaT, error: errT } = await supabase
           .from("tarefas")
@@ -128,13 +135,14 @@ export function EtapaCumprimentoExigencia({
             titulo:
               "Acompanhamento Processual — aguardando agendamento de perícia",
             descricao:
-              "Verificar se o INSS agendou perícia após o cumprimento da exigência. Conferir movimentação no Meu INSS.",
+              "Verificar se o INSS agendou perícia após o cumprimento da exigência. Escalonamento: 30d ouvidoria → 60d peticionamento de mora → 120d ajuizamento.",
             due_at: dueAt,
             origem: "manual",
             metadata: {
               origem_tarefa_id: tarefa.id,
               template_aplicado: template,
               etapa: "aguarda_agendamento_pericia",
+              acompanhamento_processual: true,
             },
           })
           .select("id")
@@ -164,7 +172,7 @@ export function EtapaCumprimentoExigencia({
 
       setRegistro(novoRegistro);
       toast.success(
-        "Exigência cumprida. Tarefa de acompanhamento criada para 15 dias.",
+        "Exigência cumprida. Acompanhamento processual criado (30/60/120).",
       );
       onUpdated();
     } catch (e) {
@@ -194,7 +202,7 @@ export function EtapaCumprimentoExigencia({
           </div>
           {!compacto && (
             <div className="text-xs text-muted-foreground">
-              Marque ao cumprir a exigência no Meu INSS — fecha FATAL, avisa parceiro e cria acompanhamento em 15d.
+              Marque ao cumprir a exigência no Meu INSS — fecha FATAL, avisa parceiro e cria acompanhamento processual (30/60/120).
             </div>
           )}
         </div>
