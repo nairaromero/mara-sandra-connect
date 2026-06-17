@@ -361,7 +361,10 @@ const CLASSIFICACAO_ORDEM: Array<{ id: string; patterns: string[] }> = [
   // contém "perícia ... reconheceu" e poderia bater coisas amplas; também
   // antes de qualquer outra, pra não cair em "fora_da_matriz".
   { id: "beneficio_prorrogado", patterns: ["prorrogad", "foi prorrogado", "beneficio prorrogado"] },
-  { id: "cumprimento_realizado", patterns: ["cumprimento de exigencia", "cumprimento da exigencia"] },
+  // cumprimento_realizado removido: o fluxo agora é controlado pelo
+  // checklist "Exigência cumprida" no sistema. Emails do INSS dizendo que
+  // o cumprimento foi realizado caem em "status_fora_da_matriz" e ficam
+  // ignorados.
   { id: "indeferido", patterns: ["indeferid", "negad", "indeferimento", "nao houve direito"] },
   { id: "concedido", patterns: ["concedid", "conces", "deferid"] },
   { id: "exigencia", patterns: ["exigenc"] },
