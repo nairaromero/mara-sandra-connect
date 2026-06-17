@@ -13,6 +13,8 @@
 //  3. Cria tarefa "Acompanhamento Processual" com
 //     metadata.acompanhamento_processual=true (escalonamento
 //     30d ouvidoria / 60d peticionamento de mora / 120d ajuizamento).
+//     PULA esse passo quando via_judicial=true — o acompanhamento da
+//     fase judicial ainda não é gerenciado pelo sistema.
 //
 // Espelha EtapaCumprimentoExigencia.
 
@@ -114,14 +116,14 @@ export function EtapaProtocoloRealizado({
       }
 
       // 2) Cria tarefa "Acompanhamento Processual" com escalonamento 30/60/120.
+      // Pula no caso via_judicial=true (protocolo_inicial): o acompanhamento
+      // judicial não é gerenciado pelo sistema ainda — só baixa a tarefa
+      // atual e gera o andamento.
       let tarefaAcompId: string | null = null;
-      if (tarefa.caso_id) {
+      if (tarefa.caso_id && !viaJudicial) {
         const dueAt = new Date(
           agora.getTime() + DIAS_PRIMEIRA_ETAPA_ACOMPANHAMENTO * 86400_000,
         ).toISOString();
-        const tituloAcomp = viaJudicial
-          ? "Acompanhamento Processual — petição inicial protocolada"
-          : "Acompanhamento Processual";
         const { data: novaT, error: errT } = await supabase
           .from("tarefas")
           .insert({
@@ -131,7 +133,7 @@ export function EtapaProtocoloRealizado({
             tipo: "interna",
             prioridade: 2,
             status: "a_fazer",
-            titulo: tituloAcomp,
+            titulo: "Acompanhamento Processual",
             descricao:
               "Acompanhar movimentação do processo. Escalonamento: 30d ouvidoria → 60d peticionamento de mora → 120d ajuizamento.",
             due_at: dueAt,
@@ -168,7 +170,11 @@ export function EtapaProtocoloRealizado({
       if (errMain) throw errMain;
 
       setRegistro(novoRegistro);
-      toast.success("Protocolo registrado. Acompanhamento processual criado.");
+      toast.success(
+        viaJudicial
+          ? "Petição inicial protocolada. Andamento criado."
+          : "Protocolo registrado. Acompanhamento processual criado.",
+      );
       onUpdated();
     } catch (e) {
       console.error(e);
@@ -199,7 +205,7 @@ export function EtapaProtocoloRealizado({
           {!compacto && (
             <div className="text-xs text-muted-foreground">
               {viaJudicial
-                ? "Marque ao protocolar a petição inicial — avisa parceiro e cria acompanhamento processual (30/60/120)."
+                ? "Marque ao protocolar a petição inicial — avisa parceiro e dá baixa na tarefa."
                 : "Marque ao concluir o protocolo — avisa parceiro e cria acompanhamento processual (30/60/120)."}
             </div>
           )}
