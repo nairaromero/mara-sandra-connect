@@ -56,6 +56,7 @@ import {
   substituirPlaceholders,
 } from "@/lib/tarefas/helpers";
 import { EtapasAcompanhamento } from "@/components/tarefas/etapas-acompanhamento";
+import { EtapaCumprimentoExigencia } from "@/components/tarefas/etapa-cumprimento-exigencia";
 import { useDestaque } from "@/lib/destaque/destaque-context";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
@@ -569,6 +570,11 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           {editando && tarefa &&
             (tarefa.metadata as { acompanhamento_processual?: boolean })?.acompanhamento_processual && (
               <EtapasAcompanhamento tarefa={tarefa} onUpdated={onSaved} />
+            )}
+
+          {editando && tarefa &&
+            (tarefa.metadata as { cumprimento_exigencia?: boolean })?.cumprimento_exigencia && (
+              <EtapaCumprimentoExigencia tarefa={tarefa} onUpdated={onSaved} />
             )}
 
           <div className="space-y-1.5">
