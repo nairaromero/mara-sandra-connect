@@ -1,0 +1,114 @@
+{
+  "name": "MSC - Saída WhatsApp (Evolution)",
+  "_comment": "Irmão do 'MSC - Entrega de Webhooks ao Parceiro', para WhatsApp: faz poll de whatsapp_claim_batch e chama o sendText do Evolution. NOTA: o n8n desta instância NÃO tem o recurso Variables (licença) — por isso a URL e a instância ficam HARDCODED na URL do nó HTTP, e a EVOLUTION_API_KEY entra por uma CREDENCIAL 'Header Auth' do n8n (Name=apikey, Value=<a API key do Evolution>), mantendo o segredo fora do JSON. Postgres reaproveita a credencial 'Supabase MSC webhooks' (id k6Cx35n23ABUTWk2). Se o domínio do Evolution não for evo.nairavian-n8n.de, ajuste a URL do nó 'Evolution sendText'.",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "nodes": [
+    {
+      "id": "node-schedule",
+      "name": "A cada 20s",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "seconds", "secondsInterval": 20 }
+          ]
+        }
+      }
+    },
+    {
+      "id": "node-claim",
+      "name": "Claim Batch",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [240, 0],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select * from public.whatsapp_claim_batch(20);",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": { "id": "k6Cx35n23ABUTWk2", "name": "Supabase MSC webhooks" }
+      },
+      "notes": "Retorna 0..N mensagens já reivindicadas (status='enviando'): outbox_id, telefone, tipo, texto, midia_url. Cada linha vira um item; os nós seguintes iteram. Reusa a MESMA credencial Postgres do workflow de webhooks (id k6Cx35n23ABUTWk2)."
+    },
+    {
+      "id": "node-http",
+      "name": "Evolution sendText",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 0],
+      "parameters": {
+        "method": "POST",
+        "url": "https://evo.nairavian-n8n.de/message/sendText/mara",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $json.telefone, text: $json.texto }) }}",
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": { "fullResponse": true, "neverError": true }
+          }
+        }
+      },
+      "notes": "POST https://evo.nairavian-n8n.de/message/sendText/mara. A autenticação usa uma credencial 'Header Auth' (Name=apikey, Value=<API key do Evolution>) — selecione/crie no n8n. Body: { number, text }. Fase 1 = só texto (mídia é Fase 3). neverError=true: não lança em 4xx/5xx; retorna statusCode para o nó de resultado decidir. Evolution responde 201 no sucesso."
+    },
+    {
+      "id": "node-prep",
+      "name": "Preparar resultado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [720, 0],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// outbox_id vem do nó Claim (pareamento de itens preservado).\nconst outboxId = $('Claim Batch').item.json.outbox_id;\nconst code = $json.statusCode;\nconst ok = typeof code === 'number' && code >= 200 && code < 300;\nlet erro = null;\nif (!ok) {\n  let b = $json.body;\n  if (b && typeof b === 'object') b = JSON.stringify(b);\n  erro = ('HTTP ' + (code ?? 'sem resposta') + ' ' + (b ?? '')).slice(0, 500);\n}\nreturn { json: { outbox_id: outboxId, ok, http_status: code ?? null, erro } };"
+      }
+    },
+    {
+      "id": "node-mark",
+      "name": "Marcar resultado",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [960, 0],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select public.whatsapp_mark_result($1::uuid, $2::boolean, $3::int, $4::text);",
+        "options": {
+          "queryReplacement": "={{ [$json.outbox_id, $json.ok, $json.http_status, $json.erro] }}"
+        }
+      },
+      "credentials": {
+        "postgres": { "id": "k6Cx35n23ABUTWk2", "name": "Supabase MSC webhooks" }
+      },
+      "notes": "Sucesso -> status='enviado'. Falha -> tentativas++ com backoff (1m/5m/30m/2h), 5a falha -> 'falhou'. A lógica de backoff está no próprio whatsapp_mark_result."
+    }
+  ],
+  "connections": {
+    "A cada 20s": {
+      "main": [[{ "node": "Claim Batch", "type": "main", "index": 0 }]]
+    },
+    "Claim Batch": {
+      "main": [[{ "node": "Evolution sendText", "type": "main", "index": 0 }]]
+    },
+    "Evolution sendText": {
+      "main": [[{ "node": "Preparar resultado", "type": "main", "index": 0 }]]
+    },
+    "Preparar resultado": {
+      "main": [[{ "node": "Marcar resultado", "type": "main", "index": 0 }]]
+    }
+  }
+}

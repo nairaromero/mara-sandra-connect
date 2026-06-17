@@ -1,0 +1,98 @@
+# Evolution API (WhatsApp / Baileys) — Fase 0
+# Sobe Evolution + Postgres dedicado + Redis dedicado (isolados do n8n).
+# Evolution fica publicado SO em 127.0.0.1:8080 (loopback) — quem expõe pra
+# internet via HTTPS é o seu proxy reverso. Se o servidor NÃO tiver proxy,
+# use também o docker-compose.caddy.yml (ver RUNBOOK.md).
+#
+# Uso:
+#   docker compose --env-file .env up -d
+#
+# Verifique a tag mais recente em https://hub.docker.com/r/evoapicloud/evolution-api
+# e fixe uma versão v2 conhecida em vez de :latest quando validar.
+
+services:
+  evolution-api:
+    image: evoapicloud/evolution-api:latest
+    container_name: evolution-api
+    restart: always
+    depends_on:
+      evolution-postgres:
+        condition: service_healthy
+      evolution-redis:
+        condition: service_started
+    ports:
+      # SO loopback: o proxy reverso do host fala com 127.0.0.1:8080.
+      - "127.0.0.1:8080:8080"
+    environment:
+      SERVER_URL: ${EVOLUTION_SERVER_URL}            # ex https://evo.nairavian-n8n.de
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
+
+      # Banco
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://evolution:${EVOLUTION_DB_PASSWORD}@evolution-postgres:5432/evolution
+      DATABASE_CONNECTION_CLIENT_NAME: evolution
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
+      DATABASE_SAVE_MESSAGE_UPDATE: "true"
+      DATABASE_SAVE_DATA_CONTACTS: "true"
+      DATABASE_SAVE_DATA_CHATS: "true"
+
+      # Cache
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: redis://evolution-redis:6379/6
+      CACHE_REDIS_PREFIX_KEY: evolution
+      CACHE_REDIS_SAVE_INSTANCES: "false"
+      CACHE_LOCAL_ENABLED: "false"
+
+      # Webhook GLOBAL desligado nesta fase. A URL da Edge Function (Supabase)
+      # só existe na Fase 2 — lá configuramos o webhook POR INSTÂNCIA via API,
+      # com o token secreto na URL. Ver RUNBOOK.md e INTEGRACAO_WHATSAPP.md §6.2.
+      WEBHOOK_GLOBAL_ENABLED: "false"
+
+      # Logs enxutos
+      LOG_LEVEL: ERROR
+      LOG_BAILEYS: error
+      DEL_INSTANCE: "false"
+      QRCODE_LIMIT: "30"
+    volumes:
+      - evolution_instances:/evolution/instances
+    networks:
+      - evolution_net
+
+  evolution-postgres:
+    image: postgres:16-alpine
+    container_name: evolution-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: ${EVOLUTION_DB_PASSWORD}
+      POSTGRES_DB: evolution
+    volumes:
+      - evolution_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U evolution -d evolution"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - evolution_net
+
+  evolution-redis:
+    image: redis:7-alpine
+    container_name: evolution-redis
+    restart: always
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - evolution_redis_data:/data
+    networks:
+      - evolution_net
+
+volumes:
+  evolution_instances:
+  evolution_pg_data:
+  evolution_redis_data:
+
+networks:
+  evolution_net:
+    driver: bridge

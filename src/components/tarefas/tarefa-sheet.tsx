@@ -101,6 +101,12 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   // destino=agenda (ex: Perícia com parceiro). É o local da perícia.
   const [local, setLocal] = useState<string>("");
 
+  // Campo extra que aparece quando o template tem item
+  // destino=solicitacao_documento (ex: Exigência). É a lista/despacho do
+  // INSS com os documentos pedidos — vai pra descrição da solicitação,
+  // substituindo o placeholder {despacho} no template.
+  const [docsExigencia, setDocsExigencia] = useState<string>("");
+
   const [casos, setCasos] = useState<Array<{ id: string; cliente_nome: string | null }>>([]);
   const [internos, setInternos] = useState<
     Array<{ id: string; nome: string | null; email: string | null }>
@@ -118,6 +124,14 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   const templateAgenda = templateSelecionado
     ? templates.find((t) => t.nome === templateSelecionado && templateTemAgenda(t)) ?? null
     : null;
+
+  // Template atual tem item destino=solicitacao_documento? Se sim,
+  // mostra o campo "Documentos solicitados" no form.
+  const templateTemSolicitacao = templateSelecionado
+    ? templates
+        .find((t) => t.nome === templateSelecionado)
+        ?.itens.some((i) => i.destino === "solicitacao_documento") ?? false
+    : false;
 
   // Carrega listas auxiliares uma vez (ao abrir).
   useEffect(() => {
@@ -205,6 +219,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       setResponsavelId(null);
       setDueDate("");
       setLocal("");
+      setDocsExigencia("");
       setTemplateSelecionado(modo.templateInicial ?? "");
     } else {
       const t = modo.tarefa;
@@ -224,6 +239,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       setResponsavelId(t.responsavel_id);
       setDueDate(inputDateTimeValueFromIso(t.due_at));
       setLocal("");
+      setDocsExigencia("");
       setTemplateSelecionado("");
     }
   }, [modo]);
@@ -307,6 +323,11 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           protocolo: ctx?.protocolo ?? "",
           cpf: ctx?.cliente_cpf ?? "",
           servico: ctx?.servico ?? "",
+          // Quando o template tem item destino=solicitacao_documento, o
+          // texto do despacho/lista de documentos vem do campo do form
+          // (docsExigencia). No fluxo automático INSS, o edge function
+          // popula despacho com o trecho extraído do e-mail.
+          despacho: docsExigencia.trim(),
         };
         const emailParaId = new Map<string, string>();
         for (const u of internos) {
@@ -412,6 +433,29 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
               continue;
             }
 
+            // ----- destino=solicitacao_documento → cria solicitação -----
+            if (item.destino === "solicitacao_documento" && casoId) {
+              const tituloSub = substituirPlaceholders(item.titulo, ph);
+              const descSub = substituirPlaceholders(item.descricao ?? "", ph);
+              const { data: solic, error: errSolic } = await supabase
+                .from("solicitacoes_documento")
+                .insert({
+                  caso_id: casoId,
+                  tipo: (item.tipo as string) || "outro",
+                  descricao: descSub || tituloSub,
+                  status: "pendente",
+                  solicitado_por: usuario?.id ?? null,
+                  origem: `template:${tpl.nome}`,
+                  data_solicitacao: new Date().toISOString(),
+                })
+                .select("id")
+                .single();
+              if (errSolic) throw errSolic;
+              marcarDestaque(solic.id);
+              extrasAndamento++; // contagem genérica de "não-tarefa" criados
+              continue;
+            }
+
             // ----- destino=tarefa (default) -----
             let respFinal: string | null = responsavelId;
             if (!respFinal && item.executor_email) {
@@ -475,9 +519,18 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       onSaved();
       onClose();
     } catch (e) {
-      console.error(e);
-      const msg = e instanceof Error ? e.message : "Falha ao salvar.";
-      toast.error(msg);
+      console.error("[tarefa-sheet] salvar falhou:", e);
+      const anyErr = e as { message?: string; details?: string; hint?: string };
+      let msg =
+        anyErr?.message || anyErr?.details || anyErr?.hint || "";
+      if (!msg) {
+        try {
+          msg = JSON.stringify(e);
+        } catch {
+          msg = String(e);
+        }
+      }
+      toast.error(`Falha: ${msg}`);
     } finally {
       setSalvando(false);
     }
@@ -712,6 +765,24 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
                 onChange={(e) => setLocal(e.target.value)}
                 placeholder="Ex: APS Cabreúva, endereço, sala..."
               />
+            </div>
+          )}
+
+          {templateTemSolicitacao && !editando && (
+            <div className="space-y-1.5 rounded-lg border border-dashed border-amber-300 bg-amber-50/40 p-3">
+              <Label htmlFor="t-docs-exigencia" className="text-amber-900">
+                Documentos solicitados pelo INSS
+              </Label>
+              <Textarea
+                id="t-docs-exigencia"
+                value={docsExigencia}
+                onChange={(e) => setDocsExigencia(e.target.value)}
+                placeholder="Cole aqui o trecho do despacho/exigência do INSS com a lista de documentos pedidos. Esse texto vai pra descrição da solicitação que aparece ao parceiro."
+                rows={4}
+              />
+              <p className="text-xs text-amber-900/70">
+                Esse texto fica visível ao parceiro na aba <strong>Documentos solicitados</strong> do caso.
+              </p>
             </div>
           )}
 

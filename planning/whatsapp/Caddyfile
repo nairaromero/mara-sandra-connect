@@ -1,0 +1,7 @@
+# Caddy — HTTPS automático para o Evolution.
+# Troque o domínio abaixo pelo subdomínio real que aponta pro servidor.
+# (Só usado junto com docker-compose.caddy.yml.)
+
+evo.nairavian-n8n.de {
+	reverse_proxy evolution-api:8080
+}
