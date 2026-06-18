@@ -2258,6 +2258,11 @@ function TabAndamentos(props: TabAndamentosProps) {
   // Multi-select para transferencia de andamentos sem vinculo
   const [selecionadosSemProc, setSelecionadosSemProc] = useState<Set<string>>(new Set());
   const [selecionadosGerais, setSelecionadosGerais] = useState<Set<string>>(new Set());
+  // Seleção de andamentos vinculados a processo (dentro de accordions
+  // admin/judicial). Permite mover lote entre processos, incluindo
+  // entre tipos (admin↔judicial).
+  const [selecionadosVinculados, setSelecionadosVinculados] = useState<Set<string>>(new Set());
+  const [destinoTransfVinculados, setDestinoTransfVinculados] = useState("");
   const [destinoTransfSemProc, setDestinoTransfSemProc] = useState("");
   const [destinoTransfGerais, setDestinoTransfGerais] = useState("");
   const [transferindo, setTransferindo] = useState(false);
@@ -2684,12 +2689,29 @@ function TabAndamentos(props: TabAndamentosProps) {
         key={a.id}
         id={"foco-" + a.id}
         className={
-          "border-l-2 border-muted pl-3 py-1 " +
+          "border-l-2 border-muted pl-3 py-1 flex gap-2 " +
           (foco === a.id ? DESTAQUE_CLASSE : "") +
           (destacadoGlobal ? " " + DESTAQUE_CLASSE_GLOBAL : "")
         }
       >
-        {renderItemAndamentoInner(a)}
+        {isInterno && (
+          <input
+            type="checkbox"
+            checked={selecionadosVinculados.has(a.id)}
+            onChange={(e) => {
+              setSelecionadosVinculados((prev) => {
+                const next = new Set(prev);
+                if (e.target.checked) next.add(a.id);
+                else next.delete(a.id);
+                return next;
+              });
+            }}
+            className="mt-2 shrink-0"
+            title="Selecionar pra transferir"
+            aria-label="Selecionar pra transferir"
+          />
+        )}
+        <div className="flex-1 min-w-0">{renderItemAndamentoInner(a)}</div>
       </li>
     );
   }
@@ -2801,6 +2823,62 @@ function TabAndamentos(props: TabAndamentosProps) {
 
   return (
     <div className="space-y-4">
+      {/* Barra global de transferência (aparece quando há andamentos vinculados
+          selecionados em qualquer accordion). Permite mover entre processos do
+          mesmo tipo OU entre admin↔judicial. */}
+      {isInterno && selecionadosVinculados.size > 0 && (
+        <div className="sticky top-0 z-10 bg-card border rounded-md p-3 flex items-end gap-2 flex-wrap shadow-sm">
+          <div className="flex-1 min-w-[200px]">
+            <Label className="text-xs">
+              Mover {selecionadosVinculados.size} andamento
+              {selecionadosVinculados.size === 1 ? "" : "s"} selecionado
+              {selecionadosVinculados.size === 1 ? "" : "s"} para
+            </Label>
+            <Select
+              value={destinoTransfVinculados}
+              onValueChange={setDestinoTransfVinculados}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Escolha processo de destino..." />
+              </SelectTrigger>
+              <SelectContent>
+                {processosAdmin.map((p) => (
+                  <SelectItem key={"a-" + p.id} value={"admin:" + p.id}>
+                    Admin: {p.numero_requerimento || "(sem número)"}
+                  </SelectItem>
+                ))}
+                {processosJudiciais.map((p) => (
+                  <SelectItem key={"j-" + p.id} value={"judicial:" + p.id}>
+                    Judicial: {p.numero_processo || "(sem número)"}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button
+            size="sm"
+            onClick={() =>
+              transferirAndamentos(selecionadosVinculados, destinoTransfVinculados, () => {
+                setSelecionadosVinculados(new Set());
+                setDestinoTransfVinculados("");
+              })
+            }
+            disabled={transferindo || !destinoTransfVinculados}
+          >
+            {transferindo && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
+            Transferir
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setSelecionadosVinculados(new Set())}
+            disabled={transferindo}
+          >
+            Limpar seleção
+          </Button>
+        </div>
+      )}
+
       {/* ---- Card Andamentos administrativos ---- */}
       <Card>
         <CardHeader>
@@ -2886,14 +2964,14 @@ function TabAndamentos(props: TabAndamentosProps) {
                             <Select
                               value={destinoTransfSemProc}
                               onValueChange={setDestinoTransfSemProc}
-                              disabled={processosAdmin.length === 0}
+                              disabled={processosAdmin.length === 0 && processosJudiciais.length === 0}
                             >
                               <SelectTrigger>
                                 <SelectValue
                                   placeholder={
-                                    processosAdmin.length === 0
-                                      ? "Nenhum processo admin cadastrado"
-                                      : "Selecione um processo admin..."
+                                    processosAdmin.length === 0 && processosJudiciais.length === 0
+                                      ? "Nenhum processo cadastrado"
+                                      : "Selecione um processo..."
                                   }
                                 />
                               </SelectTrigger>
@@ -2901,6 +2979,11 @@ function TabAndamentos(props: TabAndamentosProps) {
                                 {processosAdmin.map((p) => (
                                   <SelectItem key={"a-" + p.id} value={"admin:" + p.id}>
                                     Admin: {p.numero_requerimento || "(sem número)"}
+                                  </SelectItem>
+                                ))}
+                                {processosJudiciais.map((p) => (
+                                  <SelectItem key={"j-" + p.id} value={"judicial:" + p.id}>
+                                    Judicial: {p.numero_processo || "(sem número)"}
                                   </SelectItem>
                                 ))}
                               </SelectContent>
