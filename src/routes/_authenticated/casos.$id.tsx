@@ -71,6 +71,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CasoTarefasTab } from "@/components/tarefas/caso-tarefas-tab";
+import { EtiquetasCliente } from "@/components/etiquetas-cliente";
 import { Markdown } from "@/components/markdown";
 import {
   Select,
@@ -871,12 +872,10 @@ function CasoDetalhePage() {
               <FileCheck className="h-4 w-4" />
               <span>Documentos</span>
             </TabsTrigger>
-            {isInterno && (
-              <TabsTrigger value="atividades" className="flex items-center gap-1 shrink-0">
-                <ListTodo className="h-4 w-4" />
-                <span>Atividades</span>
-              </TabsTrigger>
-            )}
+            <TabsTrigger value="atividades" className="flex items-center gap-1 shrink-0">
+              <ListTodo className="h-4 w-4" />
+              <span>{isInterno ? "Atividades" : "Andamentos"}</span>
+            </TabsTrigger>
             {isInterno && (
               <TabsTrigger value="analise" className="flex items-center gap-1 shrink-0">
                 <FileText className="h-4 w-4" />
@@ -967,28 +966,32 @@ function CasoDetalhePage() {
             />
           </TabsContent>
 
-          {isInterno && (
-            <TabsContent value="atividades" className="mt-4">
-              <div className="grid gap-6 lg:grid-cols-2">
+          <TabsContent value="atividades" className="mt-4">
+            <div
+              className={
+                isInterno ? "grid gap-6 lg:grid-cols-2" : "grid gap-6 grid-cols-1"
+              }
+            >
+              {isInterno && (
                 <div className="min-w-0">
                   <CasoTarefasTab casoId={casoId} onChange={carregar} />
                 </div>
-                <div className="min-w-0">
-                  <TabAndamentos
-                    casoId={casoId}
-                    andamentos={andamentos}
-                    processosAdmin={processosAdmin}
-                    processosJudiciais={processosJudiciais}
-                    isInterno={isInterno}
-                    temParceiro={caso.parceiro_id !== null}
-                    usuarioId={usuario ? usuario.id : null}
-                    focoId={search.foco}
-                    onChange={carregar}
-                  />
-                </div>
+              )}
+              <div className="min-w-0">
+                <TabAndamentos
+                  casoId={casoId}
+                  andamentos={andamentos}
+                  processosAdmin={processosAdmin}
+                  processosJudiciais={processosJudiciais}
+                  isInterno={isInterno}
+                  temParceiro={caso.parceiro_id !== null}
+                  usuarioId={usuario ? usuario.id : null}
+                  focoId={search.foco}
+                  onChange={carregar}
+                />
               </div>
-            </TabsContent>
-          )}
+            </div>
+          </TabsContent>
 
           {isInterno && (
             <TabsContent value="analise" className="mt-4">
@@ -1200,13 +1203,6 @@ function CasoHeader(props: CasoHeaderProps) {
     }
   }
 
-  const tagsTodas = (cliente.tags || []) as Array<TagTI>;
-  // Tags TI com formato "NOME/UF" sao internas (responsaveis do escritorio),
-  // ex.: LUCAS/MT, BEATRIZ/SP, MARA/MT. Esconder pro parceiro.
-  const tags = isInterno
-    ? tagsTodas
-    : tagsTodas.filter((t) => !/^[A-Za-z_]+\/[A-Z]{2}$/.test(t.name.trim()));
-
   const cpfFormatado = isInterno ? maskCPF(cliente.cpf) : maskCPFParceiro(cliente.cpf);
 
   return (
@@ -1259,28 +1255,8 @@ function CasoHeader(props: CasoHeaderProps) {
             </DropdownMenu>
           )}
         </div>
-        {/* Linha 2: somente tags TI (com bolinha colorida + outline neutro). */}
-        {tags.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2">
-            {tags.map((t) => (
-              // Tag TI usa a cor original do sistema TI - facilita o
-              // reconhecimento cruzado entre o app e o TI.
-              <Badge
-                key={t.id}
-                variant="outline"
-                className="font-normal text-xs"
-                style={{
-                  backgroundColor: t.color,
-                  borderColor: t.color,
-                  color: "#1f2937",
-                }}
-                title={"Tag do Tramitação Inteligente"}
-              >
-                {t.name}
-              </Badge>
-            ))}
-          </div>
-        )}
+        {/* Linha 2: etiquetas do cliente (editáveis pelo interno via popover). */}
+        <EtiquetasCliente clienteId={cliente.id} isInterno={isInterno} />
       </CardHeader>
     </Card>
   );
