@@ -14,6 +14,8 @@ import {
   MessageCircle,
   FileSignature,
   Download,
+  Send,
+  Clock,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -79,6 +81,7 @@ interface ParceiroRow {
   percentual_parceiro: number | null;
   ativo: boolean;
   created_at: string | null;
+  onboarded_em: string | null;
 }
 
 interface AceiteRow {
@@ -176,6 +179,7 @@ function ParceirosPage() {
   const [parceiros, setParceiros] = useState<ParceiroRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [reenviandoId, setReenviandoId] = useState<string | null>(null);
 
   // ---- Editar parceiro ----
   // Usado pra trocar email de teste (naira+nome@gmail.com) pelo email real
@@ -363,7 +367,7 @@ function ParceirosPage() {
     setLoading(true);
     const { data, error } = await supabase
       .from("usuarios")
-      .select("id, nome, email, oab, telefone, percentual_parceiro, ativo, created_at")
+      .select("id, nome, email, oab, telefone, percentual_parceiro, ativo, created_at, onboarded_em")
       .eq("tipo", "parceiro")
       .order("created_at", { ascending: false });
     if (error) {
@@ -387,27 +391,32 @@ function ParceirosPage() {
           ? `${window.location.origin}/login`
           : undefined;
 
-      const { error } = await supabase.auth.signInWithOtp({
-        email: values.email.trim().toLowerCase(),
-        options: {
-          shouldCreateUser: true,
-          emailRedirectTo: redirectTo,
-          data: {
-            nome: values.nome.trim(),
-            oab: values.oab.trim(),
-            telefone: values.telefone.trim(),
-            percentual: values.percentual,
-            tipo: "parceiro",
-            observacoes_iniciais: values.observacoes?.trim() || null,
-          },
+      const resp = await supabase.functions.invoke("convidar-usuario", {
+        body: {
+          nome: values.nome.trim(),
+          email: values.email.trim().toLowerCase(),
+          tipo: "parceiro",
+          oab: values.oab.trim(),
+          telefone: values.telefone.trim(),
+          percentual_parceiro: values.percentual,
+          observacoes: values.observacoes?.trim() || null,
+          redirect_to: redirectTo,
         },
       });
 
-      if (error) throw error;
+      if (resp.error) throw resp.error;
+      const data = resp.data as { ok?: boolean; ja_existia?: boolean; error?: string };
+      if (data?.error) throw new Error(data.error);
 
-      toast.success(
-        `Convite enviado para ${values.email}. Peça para o parceiro verificar a caixa de entrada.`,
-      );
+      if (data?.ja_existia) {
+        toast.success(
+          `Parceiro ${values.email} já existia. Use "Reenviar convite" se precisar de novo link.`,
+        );
+      } else {
+        toast.success(
+          `Convite enviado para ${values.email}. O parceiro vai receber um link de acesso por e-mail.`,
+        );
+      }
       form.reset();
       await loadParceiros();
     } catch (err) {
@@ -418,6 +427,42 @@ function ParceirosPage() {
       toast.error(msg);
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function reenviarConvite(p: ParceiroRow) {
+    if (!p.email || !p.nome) {
+      toast.error("Parceiro sem nome ou e-mail — edite antes de reenviar.");
+      return;
+    }
+    setReenviandoId(p.id);
+    try {
+      const redirectTo =
+        typeof window !== "undefined"
+          ? `${window.location.origin}/login`
+          : undefined;
+      const resp = await supabase.functions.invoke("convidar-usuario", {
+        body: {
+          nome: p.nome,
+          email: p.email,
+          tipo: "parceiro",
+          oab: p.oab ?? "",
+          telefone: p.telefone ?? "",
+          percentual_parceiro: p.percentual_parceiro,
+          redirect_to: redirectTo,
+        },
+      });
+      if (resp.error) throw resp.error;
+      const data = resp.data as { error?: string };
+      if (data?.error) throw new Error(data.error);
+      toast.success(`Convite reenviado para ${p.email}.`);
+      await loadParceiros();
+    } catch (err) {
+      const msg =
+        (err as { message?: string })?.message ?? "Falha ao reenviar convite.";
+      toast.error(msg);
+    } finally {
+      setReenviandoId(null);
     }
   }
 
@@ -579,11 +624,93 @@ function ParceirosPage() {
           </CardContent>
         </Card>
 
+        {/* Parceiros aguardando aceite (sem onboarded_em) */}
+        {!loading && parceiros.some((p) => !p.onboarded_em) && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Clock className="h-4 w-4 text-amber-600" />
+                Aguardando aceite do convite
+              </CardTitle>
+              <CardDescription>
+                Convite enviado por e-mail. O parceiro ainda não acessou pela primeira vez nem aceitou os termos. Você pode reenviar o link ou ajustar os dados.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ul className="divide-y">
+                {parceiros
+                  .filter((p) => !p.onboarded_em)
+                  .map((p) => (
+                    <li
+                      key={p.id}
+                      className="flex flex-wrap items-center justify-between gap-3 py-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">
+                          {p.nome ?? "(sem nome)"}
+                          <Badge
+                            variant="outline"
+                            className="ml-2 text-[10px] font-normal border-amber-500/50 text-amber-700 bg-amber-50"
+                          >
+                            convite pendente
+                          </Badge>
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {p.email ?? "(sem e-mail)"}
+                          {p.oab && <> · OAB {p.oab}</>}
+                          {p.percentual_parceiro != null && <> · {p.percentual_parceiro}%</>}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => reenviarConvite(p)}
+                          disabled={reenviandoId === p.id}
+                        >
+                          {reenviandoId === p.id ? (
+                            <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                          ) : (
+                            <Send className="h-3.5 w-3.5 mr-1" />
+                          )}
+                          Reenviar
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => abrirEditar(p)}
+                          aria-label="Editar dados do convite"
+                          title="Editar dados antes de reenviar"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setExcluirAlvo(p)}
+                          aria-label="Cancelar convite"
+                          title="Cancelar convite (apaga o parceiro)"
+                          className="text-muted-foreground hover:text-destructive"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </li>
+                  ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Parceiros ativos */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Parceiros cadastrados</CardTitle>
+            <CardTitle className="text-base">Parceiros ativos</CardTitle>
             <CardDescription>
-              {parceiros.length} {parceiros.length === 1 ? "parceiro" : "parceiros"} no total.
+              {(() => {
+                const ativos = parceiros.filter((p) => p.onboarded_em).length;
+                return `${ativos} ${ativos === 1 ? "parceiro" : "parceiros"} já fizeram o primeiro acesso.`;
+              })()}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -591,9 +718,11 @@ function ParceirosPage() {
               <div className="flex h-32 items-center justify-center">
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
               </div>
-            ) : parceiros.length === 0 ? (
+            ) : parceiros.filter((p) => p.onboarded_em).length === 0 ? (
               <p className="text-sm text-muted-foreground py-8 text-center">
-                Nenhum parceiro cadastrado ainda. Use o formulário acima para convidar o primeiro.
+                {parceiros.length === 0
+                  ? "Nenhum parceiro cadastrado ainda. Use o formulário acima para convidar o primeiro."
+                  : "Nenhum parceiro fez o primeiro acesso ainda."}
               </p>
             ) : (
               <Table>
@@ -609,72 +738,74 @@ function ParceirosPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {parceiros.map((p) => (
-                    <TableRow key={p.id}>
-                      <TableCell className="font-medium">{p.nome ?? "—"}</TableCell>
-                      <TableCell className="text-muted-foreground">{p.email ?? "—"}</TableCell>
-                      <TableCell>{p.oab ?? "—"}</TableCell>
-                      <TableCell>
-                        {p.percentual_parceiro != null
-                          ? `${p.percentual_parceiro}%`
-                          : "—"}
-                      </TableCell>
-                      <TableCell>{p.telefone ?? "—"}</TableCell>
-                      <TableCell>
-                        {p.ativo ? (
-                          <Badge variant="secondary">Ativo</Badge>
-                        ) : (
-                          <Badge variant="outline">Inativo</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-0.5">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setAtivarAlvo(p)}
-                            disabled={!p.telefone}
-                            aria-label="Ativar WhatsApp"
-                            title={
-                              p.telefone
-                                ? "Ativar WhatsApp (envia código ao parceiro)"
-                                : "Parceiro sem telefone cadastrado"
-                            }
-                            className="text-muted-foreground hover:text-green-600"
-                          >
-                            <MessageCircle className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setAceiteAlvo(p)}
-                            aria-label="Ver aceite de termos"
-                            title="Ver/baixar aceite de termos"
-                            className="text-muted-foreground hover:text-[var(--gold)]"
-                          >
-                            <FileSignature className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => abrirEditar(p)}
-                            aria-label="Editar parceiro"
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setExcluirAlvo(p)}
-                            aria-label="Excluir parceiro"
-                            className="text-muted-foreground hover:text-destructive"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {parceiros
+                    .filter((p) => p.onboarded_em)
+                    .map((p) => (
+                      <TableRow key={p.id}>
+                        <TableCell className="font-medium">{p.nome ?? "—"}</TableCell>
+                        <TableCell className="text-muted-foreground">{p.email ?? "—"}</TableCell>
+                        <TableCell>{p.oab ?? "—"}</TableCell>
+                        <TableCell>
+                          {p.percentual_parceiro != null
+                            ? `${p.percentual_parceiro}%`
+                            : "—"}
+                        </TableCell>
+                        <TableCell>{p.telefone ?? "—"}</TableCell>
+                        <TableCell>
+                          {p.ativo ? (
+                            <Badge variant="secondary">Ativo</Badge>
+                          ) : (
+                            <Badge variant="outline">Inativo</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-0.5">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setAtivarAlvo(p)}
+                              disabled={!p.telefone}
+                              aria-label="Ativar WhatsApp"
+                              title={
+                                p.telefone
+                                  ? "Ativar WhatsApp (envia código ao parceiro)"
+                                  : "Parceiro sem telefone cadastrado"
+                              }
+                              className="text-muted-foreground hover:text-green-600"
+                            >
+                              <MessageCircle className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setAceiteAlvo(p)}
+                              aria-label="Ver aceite de termos"
+                              title="Ver/baixar aceite de termos"
+                              className="text-muted-foreground hover:text-[var(--gold)]"
+                            >
+                              <FileSignature className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => abrirEditar(p)}
+                              aria-label="Editar parceiro"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setExcluirAlvo(p)}
+                              aria-label="Excluir parceiro"
+                              className="text-muted-foreground hover:text-destructive"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
                 </TableBody>
               </Table>
             )}
