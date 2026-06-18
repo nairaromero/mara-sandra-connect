@@ -28,8 +28,8 @@ declare global {
 // removia o fallback hardcoded. Pra rotacionar credenciais: troca aqui +
 // push. Pra revogar acesso: deleta o OAuth Client no Google Cloud.
 const EFFECTIVE_CLIENT_ID =
-  "209632652751-2foqg4po8fsmcjjoe11o8vhv8kr6ev4l.apps.googleusercontent.com";
-const EFFECTIVE_API_KEY = "AIzaSyDX0D4MjnCyklJK-wcIj70F3rpaOk4lZ_4";
+  "978674501365-09qagpatgq5qb0m1hqq593isi486egjl.apps.googleusercontent.com";
+const EFFECTIVE_API_KEY = "AIzaSyDJmRookKnEBkg_aLxirFY4lJH13vgCfkQ";
 
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
 
