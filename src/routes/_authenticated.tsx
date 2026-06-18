@@ -135,7 +135,7 @@ function AuthenticatedLayout() {
             <Outlet />
           </main>
         </div>
-        <IaLauncher />
+        {usuario?.tipo === "interno" && <IaLauncher />}
       </div>
     </SidebarProvider>
     </DestaqueProvider>

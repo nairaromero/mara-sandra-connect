@@ -75,6 +75,11 @@ serve(async (req) => {
   const telefone = String(body.telefone || "").trim();
   const observacoes = body.observacoes ? String(body.observacoes).trim() : null;
   const redirectTo = body.redirect_to ? String(body.redirect_to) : undefined;
+  const percentualRaw = body.percentual_parceiro ?? body.percentual;
+  const percentual =
+    percentualRaw === null || percentualRaw === undefined || percentualRaw === ""
+      ? null
+      : Number(percentualRaw);
 
   if (nome.length < 3) return jsonResponse({ error: "nome obrigatorio" }, 400);
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
@@ -127,6 +132,7 @@ serve(async (req) => {
         telefone: telefone || null,
         tipo,
         ativo: true,
+        percentual_parceiro: tipo === "parceiro" ? percentual : null,
         // interno ja entra "onboarded" (boas-vindas e fluxo do parceiro).
         onboarded_em: tipo === "interno" ? new Date().toISOString() : null,
       },
