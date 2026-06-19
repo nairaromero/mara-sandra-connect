@@ -50,6 +50,7 @@ import {
   isGoogleDriveConfigured,
   listarArquivosDaPasta,
   obterAccessToken,
+  uploadDocumentoDriveSeNecessario,
   type DrivePickedFile,
 } from "@/lib/google-drive";
 import { ClientOnly } from "@/components/client-only";
@@ -4007,6 +4008,30 @@ function TabDocumentos(props: TabDocumentosProps) {
           .single();
         if (docInsert.error) throw docInsert.error;
         documentoId = (docInsert.data as { id: string }).id;
+
+        // Espelha no Drive se o caso tem pasta vinculada. Não bloqueia o
+        // fluxo se falhar — app é fonte de verdade, Drive é espelho.
+        if (gdriveFolderId) {
+          try {
+            const gdriveId = await uploadDocumentoDriveSeNecessario(
+              arquivoUpload,
+              nomeArq,
+              gdriveFolderId,
+            );
+            if (gdriveId) {
+              await supabase
+                .from("documentos")
+                .update({ gdrive_file_id: gdriveId })
+                .eq("id", documentoId);
+            }
+          } catch (err) {
+            console.warn("[drive] falha ao espelhar no Drive:", err);
+            toast.warning(
+              "Documento salvo no app, mas falhou ao subir no Drive: " +
+                ((err as { message?: string })?.message ?? "erro desconhecido"),
+            );
+          }
+        }
       }
 
       // Atualiza solicitacao
@@ -4162,7 +4187,12 @@ function TabDocumentos(props: TabDocumentosProps) {
                   Drive
                 </Button>
               )}
-              <UploadDoc casoId={casoId} usuarioId={usuarioId} onChange={onChange} />
+              <UploadDoc
+                casoId={casoId}
+                usuarioId={usuarioId}
+                gdriveFolderId={gdriveFolderId}
+                onChange={onChange}
+              />
             </div>
           </div>
         </CardHeader>
@@ -4770,8 +4800,13 @@ interface ArquivoComTipo {
   tipoPersonalizado: string;
 }
 
-function UploadDoc(props: { casoId: string; usuarioId: string | null; onChange: () => void }) {
-  const { casoId, usuarioId, onChange } = props;
+function UploadDoc(props: {
+  casoId: string;
+  usuarioId: string | null;
+  gdriveFolderId: string | null;
+  onChange: () => void;
+}) {
+  const { casoId, usuarioId, gdriveFolderId, onChange } = props;
   const { usuario } = useAuth();
   const souParceiro = usuario?.tipo === "parceiro";
   const [aberto, setAberto] = useState(false);
@@ -4874,6 +4909,30 @@ function UploadDoc(props: { casoId: string; usuarioId: string | null; onChange: 
             .single();
           if (insertResp.error) throw insertResp.error;
           if (insertResp.data?.id) idsInseridos.push(insertResp.data.id);
+
+          // Espelha no Drive se o caso tem pasta vinculada. Falha não
+          // bloqueia o resto do batch — app é fonte de verdade.
+          if (gdriveFolderId && insertResp.data?.id) {
+            try {
+              const gdriveId = await uploadDocumentoDriveSeNecessario(
+                it.arquivo,
+                it.arquivo.name,
+                gdriveFolderId,
+              );
+              if (gdriveId) {
+                await supabase
+                  .from("documentos")
+                  .update({ gdrive_file_id: gdriveId })
+                  .eq("id", insertResp.data.id);
+              }
+            } catch (errDrive) {
+              console.warn(
+                "[drive] falha ao espelhar",
+                it.arquivo.name,
+                errDrive,
+              );
+            }
+          }
           okCount++;
         } catch (errInner) {
           console.error("erro upload de", it.arquivo.name, errInner);
