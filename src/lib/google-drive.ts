@@ -558,6 +558,60 @@ export async function uploadDriveFile(
 }
 
 /**
+ * Renomeia um arquivo no Drive. Usado pra propagar rename feito no app.
+ */
+export async function renomearArquivoDrive(
+  fileId: string,
+  novoNome: string,
+  accessToken: string,
+): Promise<void> {
+  const resp = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${fileId}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: "Bearer " + accessToken,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ name: novoNome }),
+    },
+  );
+  if (!resp.ok) {
+    const detail = await resp.text();
+    throw new Error(
+      `Falha ao renomear no Drive: HTTP ${resp.status} - ${detail}`,
+    );
+  }
+}
+
+/**
+ * Move um arquivo do Drive pra lixeira (delete soft). Reversível pelo
+ * próprio usuário no Drive em até 30 dias.
+ */
+export async function deletarArquivoDrive(
+  fileId: string,
+  accessToken: string,
+): Promise<void> {
+  const resp = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${fileId}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: "Bearer " + accessToken,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ trashed: true }),
+    },
+  );
+  if (!resp.ok) {
+    const detail = await resp.text();
+    throw new Error(
+      `Falha ao apagar no Drive: HTTP ${resp.status} - ${detail}`,
+    );
+  }
+}
+
+/**
  * Helper bidirecional: se o caso tem pasta Drive vinculada, sobe o blob
  * lá também e retorna o gdrive_file_id. Se não tem pasta, retorna null
  * silenciosamente. Falhas no Drive são lançadas (caller decide se rolla
