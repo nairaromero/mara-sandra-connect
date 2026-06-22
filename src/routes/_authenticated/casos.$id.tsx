@@ -49,9 +49,11 @@ import { MAX_FILE_SIZE_MB, validateFileSize, validateFileSizes } from "@/lib/upl
 import {
   abrirDrivePicker,
   abrirDrivePickerPasta,
+  deletarArquivoDrive,
   isGoogleDriveConfigured,
   listarArquivosDaPasta,
   obterAccessToken,
+  renomearArquivoDrive,
   uploadDocumentoDriveSeNecessario,
   type DrivePickedFile,
 } from "@/lib/google-drive";
@@ -4065,6 +4067,7 @@ function TabDocumentos(props: TabDocumentosProps) {
     if (!ok) return;
     let okCount = 0;
     let errCount = 0;
+    let driveFailCount = 0;
     for (const d of alvos) {
       try {
         const storageResp = await supabase.storage.from("documentos").remove([d.storage_path]);
@@ -4073,6 +4076,8 @@ function TabDocumentos(props: TabDocumentosProps) {
         }
         const delResp = await supabase.from("documentos").delete().eq("id", d.id);
         if (delResp.error) throw delResp.error;
+        const driveOk = await apagarNoDriveSeNecessario(d);
+        if (!driveOk) driveFailCount++;
         okCount++;
       } catch (err) {
         console.error("erro deletar", d.nome_arquivo, err);
@@ -4088,6 +4093,12 @@ function TabDocumentos(props: TabDocumentosProps) {
           (okCount === 1 ? "" : "s"),
       );
     }
+    if (driveFailCount > 0) {
+      toast.warning(
+        driveFailCount +
+          " não foram pra lixeira do Drive (apague manual lá). Ver console.",
+      );
+    }
     if (errCount > 0) {
       toast.error(
         errCount + " documento" + (errCount === 1 ? "" : "s") + " falharam. Ver console.",
@@ -4095,6 +4106,21 @@ function TabDocumentos(props: TabDocumentosProps) {
     }
     setDocsSelecionados(new Set());
     onChange();
+  }
+
+  // Propaga delete pro Drive se o doc tem gdrive_file_id. Falha não bloqueia
+  // o delete local — app continua sendo fonte de verdade. Toast warning
+  // se algum não foi pra lixeira do Drive.
+  async function apagarNoDriveSeNecessario(d: Documento): Promise<boolean> {
+    if (!d.gdrive_file_id) return true;
+    try {
+      const token = await obterAccessToken();
+      await deletarArquivoDrive(d.gdrive_file_id, token);
+      return true;
+    } catch (err) {
+      console.warn("[drive] falha ao apagar no Drive", d.nome_arquivo, err);
+      return false;
+    }
   }
 
   async function deletarTodos() {
@@ -4111,6 +4137,7 @@ function TabDocumentos(props: TabDocumentosProps) {
     if (!ok) return;
     let okCount = 0;
     let errCount = 0;
+    let driveFailCount = 0;
     for (const d of lista) {
       try {
         const storageResp = await supabase.storage.from("documentos").remove([d.storage_path]);
@@ -4119,6 +4146,8 @@ function TabDocumentos(props: TabDocumentosProps) {
         }
         const delResp = await supabase.from("documentos").delete().eq("id", d.id);
         if (delResp.error) throw delResp.error;
+        const driveOk = await apagarNoDriveSeNecessario(d);
+        if (!driveOk) driveFailCount++;
         okCount++;
       } catch (err) {
         console.error("erro deletar", d.nome_arquivo, err);
@@ -4134,6 +4163,12 @@ function TabDocumentos(props: TabDocumentosProps) {
           (okCount === 1 ? "" : "s"),
       );
     }
+    if (driveFailCount > 0) {
+      toast.warning(
+        driveFailCount +
+          " não foram pra lixeira do Drive (apague manual lá). Ver console.",
+      );
+    }
     if (errCount > 0) {
       toast.error(
         errCount + " documento" + (errCount === 1 ? "" : "s") + " falharam. Ver console.",
@@ -4143,10 +4178,11 @@ function TabDocumentos(props: TabDocumentosProps) {
   }
 
   async function deletarDoc(d: Documento) {
+    const noDrive = d.gdrive_file_id ? " (e da pasta do Drive)" : "";
     const ok = window.confirm(
       "Tem certeza que deseja deletar o documento '" +
         d.nome_arquivo +
-        "'?\n\nEssa ação remove o arquivo do storage e o registro do banco, e não pode ser desfeita.",
+        "'?\n\nEssa ação remove o arquivo do storage" + noDrive + " e o registro do banco, e não pode ser desfeita.",
     );
     if (!ok) return;
     try {
@@ -4159,12 +4195,58 @@ function TabDocumentos(props: TabDocumentosProps) {
       // 2) Remove registro
       const delResp = await supabase.from("documentos").delete().eq("id", d.id);
       if (delResp.error) throw delResp.error;
-      toast.success("Documento deletado");
+      // 3) Apaga no Drive (best-effort)
+      const driveOk = await apagarNoDriveSeNecessario(d);
+      if (!driveOk) {
+        toast.warning(
+          "Apagado no app, mas não foi pra lixeira do Drive — apague manual lá.",
+        );
+      } else {
+        toast.success("Documento deletado");
+      }
       onChange();
     } catch (err) {
       console.error(err);
       const errObj = err as { message?: string };
       toast.error(errObj.message || "Erro ao deletar documento");
+    }
+  }
+
+  async function renomearDoc(d: Documento) {
+    const novoNome = window.prompt(
+      "Renomear documento:",
+      d.nome_arquivo,
+    );
+    if (!novoNome || !novoNome.trim() || novoNome.trim() === d.nome_arquivo) {
+      return;
+    }
+    const nomeFinal = novoNome.trim();
+    try {
+      // 1) UPDATE no banco
+      const { error } = await supabase
+        .from("documentos")
+        .update({ nome_arquivo: nomeFinal })
+        .eq("id", d.id);
+      if (error) throw error;
+      // 2) Propaga pro Drive (best-effort)
+      if (d.gdrive_file_id) {
+        try {
+          const token = await obterAccessToken();
+          await renomearArquivoDrive(d.gdrive_file_id, nomeFinal, token);
+        } catch (err) {
+          console.warn("[drive] falha ao renomear no Drive", err);
+          toast.warning(
+            "Renomeado no app, mas não no Drive. Sync pasta na próxima abertura corrige.",
+          );
+          onChange();
+          return;
+        }
+      }
+      toast.success("Renomeado.");
+      onChange();
+    } catch (err) {
+      const msg = (err as { message?: string })?.message || "Falha ao renomear.";
+      toast.error(msg);
     }
   }
 
@@ -4662,6 +4744,17 @@ function TabDocumentos(props: TabDocumentosProps) {
                           <Button size="sm" variant="outline" onClick={() => baixar(d)}>
                             <Download className="h-4 w-4 mr-2" />
                             Baixar
+                          </Button>
+                        )}
+                        {isInterno && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => renomearDoc(d)}
+                            title="Renomear documento"
+                            aria-label="Renomear documento"
+                          >
+                            <Pencil className="h-4 w-4" />
                           </Button>
                         )}
                         {isInterno && (
