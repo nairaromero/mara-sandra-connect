@@ -3471,6 +3471,13 @@ function TabDocumentos(props: TabDocumentosProps) {
     feito: number;
     total: number;
   } | null>(null);
+  // Auto-check silencioso ao abrir caso: detecta novos e apagados pendentes
+  // de sync, aplica renomeados em background. Badge no botão "Sync pasta"
+  // mostra a contagem agregada (novos + apagados).
+  const [mudancasPendentes, setMudancasPendentes] = useState<{
+    novos: number;
+    apagados: number;
+  } | null>(null);
 
   async function handleVincularPasta() {
     setVinculandoPasta(true);
@@ -3583,6 +3590,84 @@ function TabDocumentos(props: TabDocumentosProps) {
     }
   }
 
+  // Check silencioso: roda em background ao abrir o caso (e quando a pasta
+  // ou a lista de documentos muda). Aplica renomeados sozinho e atualiza
+  // o badge com novos + apagados. Erros (sem autorização OAuth, rate
+  // limit, etc) ficam silenciosos — user pode clicar "Sync pasta" pra ver
+  // erro completo.
+  useEffect(() => {
+    if (!isInterno || !gdriveFolderId || !isGoogleDriveConfigured()) {
+      setMudancasPendentes(null);
+      return;
+    }
+    let cancelado = false;
+    (async () => {
+      try {
+        const accessToken = await obterAccessToken();
+        if (cancelado) return;
+        const arquivosDrive = await listarArquivosDaPasta(
+          gdriveFolderId,
+          accessToken,
+        );
+        if (cancelado) return;
+        const driveById = new Map(arquivosDrive.map((f) => [f.id, f]));
+
+        // Renomeados → aplica silencioso.
+        const renomes: Array<{ id: string; novo: string }> = [];
+        for (const d of documentos) {
+          if (!d.gdrive_file_id) continue;
+          const f = driveById.get(d.gdrive_file_id);
+          if (!f) continue;
+          if (f.name !== d.nome_arquivo) {
+            renomes.push({ id: d.id, novo: f.name });
+          }
+        }
+        if (renomes.length > 0) {
+          for (const r of renomes) {
+            await supabase
+              .from("documentos")
+              .update({ nome_arquivo: r.novo })
+              .eq("id", r.id);
+          }
+          if (!cancelado) onChange();
+        }
+
+        // Conta novos e apagados pra mostrar no badge.
+        const idsApp = new Set(
+          documentos
+            .map((d) => d.gdrive_file_id)
+            .filter((id): id is string => !!id),
+        );
+        const nomesApp = new Set(
+          documentos.map((d) => d.nome_arquivo.toLowerCase().trim()),
+        );
+        const novos = arquivosDrive.filter(
+          (f) =>
+            !idsApp.has(f.id) && !nomesApp.has(f.name.toLowerCase().trim()),
+        ).length;
+        const apagados = documentos.filter(
+          (d) => d.gdrive_file_id && !driveById.has(d.gdrive_file_id),
+        ).length;
+        if (!cancelado) {
+          setMudancasPendentes(
+            novos === 0 && apagados === 0 ? null : { novos, apagados },
+          );
+        }
+      } catch {
+        // Silencioso: sem toast, sem console.error. User pode clicar
+        // "Sync pasta" pra ver o erro completo. Cenários comuns:
+        //   - User ainda não autorizou Drive nesta sessão (token expirou)
+        //   - Rate limit
+        //   - Pasta deletada/sem permissão
+        if (!cancelado) setMudancasPendentes(null);
+      }
+    })();
+    return () => {
+      cancelado = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gdriveFolderId, documentos.length, isInterno]);
+
   async function handleSincronizarPasta() {
     if (!gdriveFolderId) return;
     setSincronizando(true);
@@ -3661,9 +3746,15 @@ function TabDocumentos(props: TabDocumentosProps) {
 
       if (novos.length > 0) {
         setDrivePicked({ files: novos, accessToken });
-      } else if (renomeados.length > 0 || removidos > 0) {
-        onChange(); // recarrega lista pra refletir renomes/remoções
       }
+      // Recarrega sempre que houve mudança local (renomes/remoções) — vale
+      // mesmo quando há novos pendentes pra escolher no picker.
+      if (renomeados.length > 0 || removidos > 0) {
+        onChange();
+      }
+      // Limpa badge: o useEffect re-popula no próximo ciclo se ainda há
+      // novos não importados (user pode ter fechado o picker sem importar).
+      setMudancasPendentes(null);
       toast.success(partes.join(" · ") || "Tudo em dia.");
     } catch (err) {
       const msg = (err as { message?: string })?.message || "Erro ao sincronizar pasta";
@@ -4322,8 +4413,16 @@ function TabDocumentos(props: TabDocumentosProps) {
                   variant="outline"
                   onClick={handleSincronizarPasta}
                   disabled={sincronizando}
-                  title={"Sincronizar com pasta: " + (gdriveFolderName ?? "")}
-                  className="border-[var(--gold)]/40"
+                  title={
+                    mudancasPendentes
+                      ? `Pendências: ${mudancasPendentes.novos} novo(s), ${mudancasPendentes.apagados} apagado(s) no Drive`
+                      : "Sincronizar com pasta: " + (gdriveFolderName ?? "")
+                  }
+                  className={
+                    mudancasPendentes
+                      ? "border-amber-500/60 bg-amber-50 hover:bg-amber-100"
+                      : "border-[var(--gold)]/40"
+                  }
                 >
                   {sincronizando ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -4331,6 +4430,14 @@ function TabDocumentos(props: TabDocumentosProps) {
                     <FileDown className="h-4 w-4 mr-2" />
                   )}
                   Sync pasta
+                  {mudancasPendentes && (
+                    <Badge
+                      variant="secondary"
+                      className="ml-2 bg-amber-500 text-white border-amber-600 px-1.5 py-0 h-5 text-[10px]"
+                    >
+                      {mudancasPendentes.novos + mudancasPendentes.apagados}
+                    </Badge>
+                  )}
                 </Button>
               )}
               {isInterno && isGoogleDriveConfigured() && gdriveFolderId && (
