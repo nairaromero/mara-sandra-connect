@@ -3591,31 +3591,80 @@ function TabDocumentos(props: TabDocumentosProps) {
       const accessToken = await obterAccessToken();
       // 2) Lista todos os arquivos da pasta no Drive
       const arquivosDrive = await listarArquivosDaPasta(gdriveFolderId, accessToken);
-      // 3) Dedupe em 2 niveis:
-      //    a) Por gdrive_file_id (forte) - funciona pra docs importados via app
-      //    b) Por nome do arquivo (fallback) - cobre docs legacy uploadados antes
-      //       da feature de file_id existir. Tambem cobre docs uploadados manual.
+
+      // Mapa rápido por id pra detectar renomeados e apagados.
+      const driveById = new Map(arquivosDrive.map((f) => [f.id, f]));
+
+      // 3) Renomeados: docs no app com gdrive_file_id que ainda existem no
+      //    Drive mas com nome diferente → atualiza nome_arquivo no app.
+      const renomeados: Array<{ id: string; antigo: string; novo: string }> = [];
+      for (const d of documentos) {
+        if (!d.gdrive_file_id) continue;
+        const f = driveById.get(d.gdrive_file_id);
+        if (!f) continue;
+        if (f.name !== d.nome_arquivo) {
+          renomeados.push({ id: d.id, antigo: d.nome_arquivo, novo: f.name });
+        }
+      }
+      for (const r of renomeados) {
+        await supabase
+          .from("documentos")
+          .update({ nome_arquivo: r.novo })
+          .eq("id", r.id);
+      }
+
+      // 4) Apagados no Drive: docs no app com gdrive_file_id que NÃO estão
+      //    mais na pasta. Pergunta ao user antes de remover do app.
+      const apagadosNoDrive = documentos.filter(
+        (d) => d.gdrive_file_id && !driveById.has(d.gdrive_file_id),
+      );
+      let removidos = 0;
+      if (apagadosNoDrive.length > 0) {
+        const msg =
+          apagadosNoDrive.length +
+          " arquivo(s) foram apagados do Drive:\n\n" +
+          apagadosNoDrive.map((d) => "• " + d.nome_arquivo).join("\n") +
+          "\n\nRemover também do sistema?";
+        if (window.confirm(msg)) {
+          for (const d of apagadosNoDrive) {
+            try {
+              await supabase.storage.from("documentos").remove([d.storage_path]);
+              await supabase.from("documentos").delete().eq("id", d.id);
+              removidos++;
+            } catch (err) {
+              console.warn("[drive] falha ao remover", d.nome_arquivo, err);
+            }
+          }
+        }
+      }
+
+      // 5) Novos: dedupe em 2 níveis (id forte + nome fallback pra legacy).
       const idsImportados = new Set(
         documentos.map((d) => d.gdrive_file_id).filter((id): id is string => !!id),
       );
       const nomesImportados = new Set(documentos.map((d) => d.nome_arquivo.toLowerCase().trim()));
       const novos = arquivosDrive.filter((f) => {
-        if (idsImportados.has(f.id)) return false; // dedupe forte
-        if (nomesImportados.has(f.name.toLowerCase().trim())) return false; // fallback nome
+        if (idsImportados.has(f.id)) return false;
+        if (nomesImportados.has(f.name.toLowerCase().trim())) return false;
         return true;
       });
       const ignorados = arquivosDrive.length - novos.length;
-      if (novos.length === 0) {
-        toast.success(arquivosDrive.length + " arquivo(s) na pasta, todos já no caso.");
-        return;
+
+      // 6) Resumo + ação (abre picker se há novos, refresh sempre).
+      const partes: string[] = [];
+      if (novos.length > 0) partes.push(novos.length + " novo(s)");
+      if (renomeados.length > 0) partes.push(renomeados.length + " renomeado(s)");
+      if (removidos > 0) partes.push(removidos + " removido(s)");
+      if (ignorados > 0 && partes.length === 0) {
+        partes.push(arquivosDrive.length + " arquivo(s) na pasta, tudo já em sincronia");
       }
-      // 4) Passa pro DrivePickerDialog (mesmo fluxo de Importar)
-      setDrivePicked({ files: novos, accessToken });
-      const msg =
-        novos.length +
-        " novo(s) encontrado(s)" +
-        (ignorados > 0 ? " (" + ignorados + " já existiam, ignorados)" : "");
-      toast.success(msg);
+
+      if (novos.length > 0) {
+        setDrivePicked({ files: novos, accessToken });
+      } else if (renomeados.length > 0 || removidos > 0) {
+        onChange(); // recarrega lista pra refletir renomes/remoções
+      }
+      toast.success(partes.join(" · ") || "Tudo em dia.");
     } catch (err) {
       const msg = (err as { message?: string })?.message || "Erro ao sincronizar pasta";
       toast.error(msg);
