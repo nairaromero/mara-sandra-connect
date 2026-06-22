@@ -3467,6 +3467,10 @@ function TabDocumentos(props: TabDocumentosProps) {
   // ---- Vincular / Desvincular / Sincronizar pasta do Drive ----
   const [vinculandoPasta, setVinculandoPasta] = useState(false);
   const [sincronizando, setSincronizando] = useState(false);
+  const [subindoPendentes, setSubindoPendentes] = useState<{
+    feito: number;
+    total: number;
+  } | null>(null);
 
   async function handleVincularPasta() {
     setVinculandoPasta(true);
@@ -3513,6 +3517,69 @@ function TabDocumentos(props: TabDocumentosProps) {
     } catch (err) {
       const msg = (err as { message?: string })?.message || "Erro ao desvincular";
       toast.error(msg);
+    }
+  }
+
+  // Lote: sobe pro Drive todos os documentos do caso que ainda não têm
+  // gdrive_file_id. Útil pra casos pré-existentes que foram criados antes
+  // da Fase 1 do sync bidirecional.
+  async function handleSubirPendentesParaDrive() {
+    if (!gdriveFolderId) return;
+    const pendentes = documentos.filter((d) => !d.gdrive_file_id);
+    if (pendentes.length === 0) {
+      toast.success("Nenhum documento pendente — todos já estão no Drive.");
+      return;
+    }
+    setSubindoPendentes({ feito: 0, total: pendentes.length });
+    let okCount = 0;
+    let errCount = 0;
+    try {
+      // Pega token uma vez (silencioso se já autorizou). Reusa pra todo o lote.
+      await obterAccessToken();
+      for (let i = 0; i < pendentes.length; i++) {
+        const doc = pendentes[i];
+        try {
+          // Baixa do Storage
+          const dl = await supabase.storage
+            .from("documentos")
+            .download(doc.storage_path);
+          if (dl.error) throw dl.error;
+          // Sobe pro Drive
+          const gdriveId = await uploadDocumentoDriveSeNecessario(
+            dl.data,
+            doc.nome_arquivo,
+            gdriveFolderId,
+          );
+          if (gdriveId) {
+            await supabase
+              .from("documentos")
+              .update({ gdrive_file_id: gdriveId })
+              .eq("id", doc.id);
+            okCount++;
+          }
+        } catch (err) {
+          console.warn(
+            "[drive] falha ao subir",
+            doc.nome_arquivo,
+            err,
+          );
+          errCount++;
+        }
+        setSubindoPendentes({ feito: i + 1, total: pendentes.length });
+      }
+      if (errCount === 0) {
+        toast.success(`${okCount} documento(s) sincronizados pro Drive.`);
+      } else {
+        toast.warning(
+          `${okCount} sincronizado(s), ${errCount} falharam. Veja console pra detalhes.`,
+        );
+      }
+      onChange();
+    } catch (err) {
+      const msg = (err as { message?: string })?.message || "Erro ao sincronizar";
+      toast.error(msg);
+    } finally {
+      setSubindoPendentes(null);
     }
   }
 
@@ -4216,6 +4283,36 @@ function TabDocumentos(props: TabDocumentosProps) {
                   )}
                   Sync pasta
                 </Button>
+              )}
+              {isInterno && isGoogleDriveConfigured() && gdriveFolderId && (
+                (() => {
+                  const pendentesCount = documentos.filter(
+                    (d) => !d.gdrive_file_id,
+                  ).length;
+                  if (pendentesCount === 0 && !subindoPendentes) return null;
+                  return (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleSubirPendentesParaDrive}
+                      disabled={!!subindoPendentes}
+                      title={`Subir ${pendentesCount} documento(s) do app pro Drive`}
+                      className="border-[var(--gold)]/40"
+                    >
+                      {subindoPendentes ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Subindo {subindoPendentes.feito}/{subindoPendentes.total}
+                        </>
+                      ) : (
+                        <>
+                          <FileDown className="h-4 w-4 mr-2 rotate-180" />
+                          Subir pendentes ({pendentesCount})
+                        </>
+                      )}
+                    </Button>
+                  );
+                })()
               )}
               {isInterno && isGoogleDriveConfigured() && !gdriveFolderId && (
                 <Button
