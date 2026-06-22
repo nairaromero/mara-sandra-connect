@@ -1,6 +1,15 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { CalendarPlus, Loader2, Search, UserCircle, ChevronRight } from "lucide-react";
+import {
+  CalendarPlus,
+  Loader2,
+  Search,
+  UserCircle,
+  ChevronRight,
+  FileDown,
+  Upload,
+} from "lucide-react";
+import { toast } from "sonner";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
@@ -10,6 +19,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -18,6 +34,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ImportarTiDialog } from "@/components/importar-ti-dialog";
+import { ImportarClientesExcelDialog } from "@/components/importar-clientes-excel-dialog";
+import { exportarClientesExcel } from "@/lib/clientes-excel";
 import { TarefaSheet, type TarefaSheetModo } from "@/components/tarefas/tarefa-sheet";
 
 export const Route = createFileRoute("/_authenticated/clientes")({
@@ -118,6 +136,10 @@ function ClientesPage() {
   const [casos, setCasos] = useState<Array<CasoRow>>([]);
   const [loading, setLoading] = useState(true);
   const [busca, setBusca] = useState("");
+  // Filtro por parceiro (so interno usa). "" = todos. "__interno__" = casos sem parceiro.
+  const [parceiroFiltro, setParceiroFiltro] = useState<string>("");
+  const [exportando, setExportando] = useState(false);
+  const [importarDialogAberto, setImportarDialogAberto] = useState(false);
   // "+ Perícia" no cliente abre o TarefaSheet com o template
   // "pericia_parceiro" pré-selecionado. O TarefaSheet detecta destino=agenda
   // e cria o evento na agenda + 2 tarefas (lembrete antes + verificação).
@@ -204,10 +226,33 @@ function ClientesPage() {
   const buscaNormalizada = busca.trim().toLowerCase();
   const buscaDigits = onlyDigits(busca);
 
-  // Filtra clientes pela busca
+  // Lista distinta de parceiros derivada dos casos carregados.
+  const parceirosDisponiveis = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of clientes) {
+      for (const ca of c.casos) {
+        if (ca.parceiroNome) set.add(ca.parceiroNome);
+      }
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [clientes]);
+
+  // Filtra clientes pela busca + filtro de parceiro
   const clientesFiltrados = useMemo(() => {
-    if (!buscaNormalizada) return clientes;
-    return clientes.filter((c) => {
+    let result = clientes;
+
+    // Filtro por parceiro
+    if (parceiroFiltro === "__interno__") {
+      result = result.filter((c) => c.casos.every((ca) => !ca.parceiroNome));
+    } else if (parceiroFiltro) {
+      result = result.filter((c) =>
+        c.casos.some((ca) => ca.parceiroNome === parceiroFiltro),
+      );
+    }
+
+    // Filtro por busca textual
+    if (!buscaNormalizada) return result;
+    return result.filter((c) => {
       // Match por nome (substring)
       if (c.nome.toLowerCase().includes(buscaNormalizada)) return true;
       // Match por CPF (so digitos, parcial)
@@ -223,7 +268,24 @@ function ClientesPage() {
       // Fallback: substring no haystack pra cobrir casos que nao caberam
       return c.searchHaystack.includes(buscaNormalizada);
     });
-  }, [clientes, buscaNormalizada, buscaDigits]);
+  }, [clientes, parceiroFiltro, buscaNormalizada, buscaDigits]);
+
+  async function handleExportar() {
+    setExportando(true);
+    try {
+      // Exporta o que esta filtrado (busca + parceiro). Mara escolhe o
+      // recorte antes de baixar.
+      const idsAlvo = new Set(clientesFiltrados.map((c) => c.id));
+      await exportarClientesExcel(idsAlvo);
+      toast.success(clientesFiltrados.length + " cliente(s) exportado(s)");
+    } catch (err) {
+      console.error(err);
+      const errObj = err as { message?: string };
+      toast.error(errObj.message || "Erro ao exportar");
+    } finally {
+      setExportando(false);
+    }
+  }
 
   function abrirCaso(id: string, tab?: string) {
     navigate({
@@ -245,7 +307,34 @@ function ClientesPage() {
             Lista de todos os clientes com seus casos. Busque por nome, CPF ou número de processo.
           </p>
         </div>
-        {usuario?.tipo === "interno" && <ImportarTiDialog onImported={loadData} />}
+        {usuario?.tipo === "interno" && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportar}
+              disabled={exportando || clientesFiltrados.length === 0}
+              title="Baixa um Excel com os clientes filtrados"
+            >
+              {exportando ? (
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              ) : (
+                <FileDown className="h-4 w-4 mr-1" />
+              )}
+              Exportar Excel
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setImportarDialogAberto(true)}
+              title="Importa clientes de um Excel"
+            >
+              <Upload className="h-4 w-4 mr-1" />
+              Importar Excel
+            </Button>
+            <ImportarTiDialog onImported={loadData} />
+          </div>
+        )}
       </div>
 
       <ClientOnly
@@ -262,7 +351,7 @@ function ClientesPage() {
               Filtra por nome (parcial), CPF (só dígitos) ou número de processo (admin ou judicial).
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -272,6 +361,46 @@ function ClientesPage() {
                 className="pl-9"
               />
             </div>
+            {/* Filtro por parceiro - so faz sentido pra interno (parceiro
+              ja so ve os clientes dele via RLS). */}
+            {isInterno && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-muted-foreground shrink-0">
+                  Parceiro:
+                </span>
+                <Select
+                  value={parceiroFiltro || "__todos__"}
+                  onValueChange={(v) =>
+                    setParceiroFiltro(v === "__todos__" ? "" : v)
+                  }
+                >
+                  <SelectTrigger className="w-auto min-w-[200px] h-8 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__todos__">Todos</SelectItem>
+                    <SelectItem value="__interno__">
+                      Sem parceiro (interno)
+                    </SelectItem>
+                    {parceirosDisponiveis.map((nome) => (
+                      <SelectItem key={nome} value={nome}>
+                        {nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {parceiroFiltro && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setParceiroFiltro("")}
+                    className="h-8 px-2 text-xs"
+                  >
+                    Limpar
+                  </Button>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -440,6 +569,12 @@ function ClientesPage() {
         onSaved={() => {
           /* tarefas + perícia (agenda) criadas; aparecem em /agenda e /tarefas */
         }}
+      />
+
+      <ImportarClientesExcelDialog
+        aberto={importarDialogAberto}
+        onFechar={() => setImportarDialogAberto(false)}
+        onImported={loadData}
       />
     </div>
   );
