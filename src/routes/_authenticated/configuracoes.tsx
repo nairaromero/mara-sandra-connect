@@ -481,11 +481,17 @@ function ConfiguracoesPage() {
           </CardContent>
         </Card>
 
-        {/* Card: Integracao de IA */}
-        <IntegracaoIaCard />
+        {/* Cards de IA: so interno por enquanto. Backend mantido intacto -
+          parceiro nao ve a UI mas as APIs ainda existem. */}
+        {dados?.tipo === "interno" && (
+          <>
+            {/* Card: Integracao de IA */}
+            <IntegracaoIaCard />
 
-        {/* Card: Conectar Claude/ChatGPT (Superficie B) */}
-        <ConexaoClaudeCard />
+            {/* Card: Conectar Claude/ChatGPT (Superficie B) */}
+            <ConexaoClaudeCard />
+          </>
+        )}
 
         {/* Card: Integração Gmail (INSS) */}
         <IntegracaoGmailCard />

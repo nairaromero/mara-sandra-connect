@@ -31,6 +31,8 @@ import {
   KeyRound,
   X,
   ListTodo,
+  Lock,
+  Unlock,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -186,6 +188,9 @@ interface Documento {
   tamanho_bytes: number | null;
   uploaded_by: string | null;
   visivel_parceiro: boolean;
+  // Parceiro pode VISUALIZAR docs com visivel_parceiro=true. Mas so BAIXAR
+  // quando o interno autoriza (download_parceiro=true). Default false.
+  download_parceiro: boolean;
   // ID do arquivo no Drive (se foi importado de la) - usado pra dedupe de sync
   gdrive_file_id?: string | null;
   // Caminho da subpasta no Drive (ex.: "Diversos"). Null = raiz/manual.
@@ -3718,6 +3723,24 @@ function TabDocumentos(props: TabDocumentosProps) {
     }
   }
 
+  // Interno autoriza/revoga download do parceiro pra esse doc especifico.
+  async function toggleDownloadParceiro(doc: Documento) {
+    const novo = !doc.download_parceiro;
+    try {
+      const resp = await supabase
+        .from("documentos")
+        .update({ download_parceiro: novo })
+        .eq("id", doc.id);
+      if (resp.error) throw resp.error;
+      toast.success(novo ? "Parceiro pode baixar este doc" : "Parceiro bloqueado de baixar");
+      onChange();
+    } catch (err) {
+      console.error(err);
+      const errObj = err as { message?: string };
+      toast.error(errObj.message || "Erro ao atualizar permissão");
+    }
+  }
+
   async function abrirPreview(d: Documento) {
     setCarregandoPreview(true);
     try {
@@ -4356,13 +4379,38 @@ function TabDocumentos(props: TabDocumentosProps) {
                             Visualizar
                           </Button>
                         )}
-                        {/* Baixar liberado pra todos. RLS do storage so libera
-                          docs com visivel_parceiro=true em casos do parceiro
-                          (policy documentos_select_visivel_parceiro). */}
-                        <Button size="sm" variant="outline" onClick={() => baixar(d)}>
-                          <Download className="h-4 w-4 mr-2" />
-                          Baixar
-                        </Button>
+                        {/* Interno: toggle de autorizacao pro parceiro baixar.
+                          Padrao = nao baixa; equipe libera por doc. */}
+                        {isInterno && (
+                          <Button
+                            size="sm"
+                            variant={d.download_parceiro ? "secondary" : "outline"}
+                            onClick={() => toggleDownloadParceiro(d)}
+                            title={
+                              d.download_parceiro
+                                ? "Parceiro pode baixar. Clique pra revogar."
+                                : "Parceiro NÃO pode baixar. Clique pra autorizar."
+                            }
+                            aria-label={
+                              d.download_parceiro
+                                ? "Revogar download do parceiro"
+                                : "Autorizar download do parceiro"
+                            }
+                          >
+                            {d.download_parceiro ? (
+                              <Unlock className="h-4 w-4" />
+                            ) : (
+                              <Lock className="h-4 w-4" />
+                            )}
+                          </Button>
+                        )}
+                        {/* Baixar: interno sempre; parceiro so se autorizado. */}
+                        {(isInterno || d.download_parceiro) && (
+                          <Button size="sm" variant="outline" onClick={() => baixar(d)}>
+                            <Download className="h-4 w-4 mr-2" />
+                            Baixar
+                          </Button>
+                        )}
                         {isInterno && (
                           <Button
                             size="sm"
