@@ -131,6 +131,7 @@ interface Cliente {
   data_nascimento: string | null;
   telefone: string | null;
   email: string | null;
+  endereco: string | null;
   observacoes: string | null;
   tags: Array<TagTI> | null;
   ti_customer_id: number | null;
@@ -653,7 +654,7 @@ function CasoDetalhePage() {
       const clienteResp = await supabase
         .from("clientes")
         .select(
-          "id, nome, cpf, data_nascimento, telefone, email, observacoes, tags, ti_customer_id",
+          "id, nome, cpf, data_nascimento, telefone, email, endereco, observacoes, tags, ti_customer_id",
         )
         .eq("id", casoData.cliente_id)
         .maybeSingle();
@@ -1293,6 +1294,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
   const [clDataNascimento, setClDataNascimento] = useState("");
   const [clTelefone, setClTelefone] = useState("");
   const [clEmail, setClEmail] = useState("");
+  const [clEndereco, setClEndereco] = useState("");
   const [clObservacoes, setClObservacoes] = useState("");
   // Campo senha no modal de editar cliente. Sempre comeca vazio - se ficar
   // vazio na submissao, NAO mexe na senha atual. Se preenchido, substitui
@@ -1306,6 +1308,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
     setClDataNascimento(cliente.data_nascimento || "");
     setClTelefone(cliente.telefone || "");
     setClEmail(cliente.email || "");
+    setClEndereco(cliente.endereco || "");
     setClObservacoes(cliente.observacoes || "");
     setClSenhaMeuInss("");
     // Checa se ja tem senha MEU INSS cadastrada (sem revelar a senha).
@@ -1331,38 +1334,50 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
       toast.error("Nome obrigatório");
       return;
     }
-    if (!csTipoBeneficio) {
-      toast.error("Tipo de benefício obrigatório");
-      return;
-    }
-    if (!csInterno && !csParceiroId) {
-      toast.error("Selecione um parceiro indicador ou marque como cliente interno");
-      return;
+    // Validacoes dos campos de caso so se aplicam ao interno (parceiro nao
+    // edita caso aqui).
+    if (isInterno) {
+      if (!csTipoBeneficio) {
+        toast.error("Tipo de benefício obrigatório");
+        return;
+      }
+      if (!csInterno && !csParceiroId) {
+        toast.error("Selecione um parceiro indicador ou marque como cliente interno");
+        return;
+      }
     }
     setClSalvando(true);
     try {
-      // Atualiza o caso (edicao unificada cliente + caso).
-      const respCaso = await supabase
-        .from("casos")
-        .update({
-          tipo_beneficio: csTipoBeneficio,
-          parceiro_id: csInterno ? null : csParceiroId,
-          fase: csFase,
-          status: csStatus,
-        })
-        .eq("id", caso.id)
-        .select();
-      if (respCaso.error) throw respCaso.error;
+      // Atualiza o caso (edicao unificada cliente + caso) - so interno.
+      if (isInterno) {
+        const respCaso = await supabase
+          .from("casos")
+          .update({
+            tipo_beneficio: csTipoBeneficio,
+            parceiro_id: csInterno ? null : csParceiroId,
+            fase: csFase,
+            status: csStatus,
+          })
+          .eq("id", caso.id)
+          .select();
+        if (respCaso.error) throw respCaso.error;
+      }
 
+      // Campos cadastrais do cliente: parceiro tambem edita (RLS permite
+      // pra clientes com caso vinculado). Observacoes so interno mexe.
+      const updatePayload: Record<string, string | null> = {
+        nome: clNome.trim(),
+        data_nascimento: clDataNascimento || null,
+        telefone: clTelefone.trim() || null,
+        email: clEmail.trim() || null,
+        endereco: clEndereco.trim() || null,
+      };
+      if (isInterno) {
+        updatePayload.observacoes = clObservacoes.trim() || null;
+      }
       const resp = await supabase
         .from("clientes")
-        .update({
-          nome: clNome.trim(),
-          data_nascimento: clDataNascimento || null,
-          telefone: clTelefone.trim() || null,
-          email: clEmail.trim() || null,
-          observacoes: clObservacoes.trim() || null,
-        })
+        .update(updatePayload)
         .eq("id", cliente.id)
         .select();
       if (resp.error) throw resp.error;
@@ -1371,23 +1386,26 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
         return;
       }
       // Se preencheu campo de senha, atualiza via RPC criptografada.
-      // Campo vazio = manter senha atual intacta (nao mexe).
-      const senhaNova = clSenhaMeuInss.trim();
-      if (senhaNova.length > 0) {
-        const senhaResp = await supabase.rpc("set_senha_meu_inss", {
-          p_cliente_id: cliente.id,
-          p_senha: senhaNova,
-        });
-        if (senhaResp.error) {
-          toast.warning(
-            "Cliente atualizado, mas a senha MEU INSS não foi salva: " +
-              (senhaResp.error.message || "erro desconhecido"),
-          );
-        } else {
-          toast.success(clTemSenha ? "Senha MEU INSS substituída" : "Senha MEU INSS cadastrada");
+      // Campo vazio = manter senha atual intacta (nao mexe). Parceiro usa
+      // botao separado pra senha, entao aqui so interno.
+      if (isInterno) {
+        const senhaNova = clSenhaMeuInss.trim();
+        if (senhaNova.length > 0) {
+          const senhaResp = await supabase.rpc("set_senha_meu_inss", {
+            p_cliente_id: cliente.id,
+            p_senha: senhaNova,
+          });
+          if (senhaResp.error) {
+            toast.warning(
+              "Cliente atualizado, mas a senha MEU INSS não foi salva: " +
+                (senhaResp.error.message || "erro desconhecido"),
+            );
+          } else {
+            toast.success(clTemSenha ? "Senha MEU INSS substituída" : "Senha MEU INSS cadastrada");
+          }
         }
       }
-      toast.success("Cliente e caso atualizados");
+      toast.success(isInterno ? "Cliente e caso atualizados" : "Cliente atualizado");
       setAbrirEditCliente(false);
       onChange();
     } catch (err) {
@@ -1592,12 +1610,10 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
           <CardHeader>
             <div className="flex items-center justify-between gap-2">
               <CardTitle className="text-base">Dados do cliente</CardTitle>
-              {isInterno && (
-                <Button size="sm" variant="outline" onClick={abrirDialogCliente}>
-                  <Pencil className="h-3.5 w-3.5 mr-1" />
-                  Editar
-                </Button>
-              )}
+              <Button size="sm" variant="outline" onClick={abrirDialogCliente}>
+                <Pencil className="h-3.5 w-3.5 mr-1" />
+                Editar
+              </Button>
             </div>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
@@ -1651,45 +1667,56 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
               </div>
             )}
           </CardContent>
-          {isInterno && (
-            <Dialog open={abrirEditCliente} onOpenChange={setAbrirEditCliente}>
-              <DialogContent className="max-h-[90vh] overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle>Editar cliente e caso</DialogTitle>
-                  <DialogDescription>
-                    Dados do cliente e do caso num só lugar. CPF não pode ser alterado (chave única
-                    vinculada ao TI).
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-3">
-                  <div>
-                    <Label className="text-xs">Nome</Label>
-                    <Input value={clNome} onChange={(e) => setClNome(e.target.value)} />
-                  </div>
-                  <div>
-                    <Label className="text-xs">CPF</Label>
-                    <Input value={maskCPF(cliente.cpf)} disabled />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Data de nascimento</Label>
-                    <Input
-                      type="date"
-                      value={clDataNascimento}
-                      onChange={(e) => setClDataNascimento(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Telefone</Label>
-                    <Input value={clTelefone} onChange={(e) => setClTelefone(e.target.value)} />
-                  </div>
-                  <div>
-                    <Label className="text-xs">E-mail</Label>
-                    <Input
-                      type="email"
-                      value={clEmail}
-                      onChange={(e) => setClEmail(e.target.value)}
-                    />
-                  </div>
+          <Dialog open={abrirEditCliente} onOpenChange={setAbrirEditCliente}>
+            <DialogContent className="max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>
+                  {isInterno ? "Editar cliente e caso" : "Editar dados do cliente"}
+                </DialogTitle>
+                <DialogDescription>
+                  {isInterno
+                    ? "Dados do cliente e do caso num só lugar. CPF não pode ser alterado (chave única vinculada ao TI)."
+                    : "Dados cadastrais do cliente. CPF não pode ser alterado."}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs">Nome</Label>
+                  <Input value={clNome} onChange={(e) => setClNome(e.target.value)} />
+                </div>
+                <div>
+                  <Label className="text-xs">CPF</Label>
+                  <Input value={maskCPF(cliente.cpf)} disabled />
+                </div>
+                <div>
+                  <Label className="text-xs">Data de nascimento</Label>
+                  <Input
+                    type="date"
+                    value={clDataNascimento}
+                    onChange={(e) => setClDataNascimento(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Telefone</Label>
+                  <Input value={clTelefone} onChange={(e) => setClTelefone(e.target.value)} />
+                </div>
+                <div>
+                  <Label className="text-xs">E-mail</Label>
+                  <Input
+                    type="email"
+                    value={clEmail}
+                    onChange={(e) => setClEmail(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Endereço</Label>
+                  <Input
+                    value={clEndereco}
+                    onChange={(e) => setClEndereco(e.target.value)}
+                    placeholder="Rua, número, bairro, cidade/UF"
+                  />
+                </div>
+                {isInterno && (
                   <div>
                     <Label className="text-xs">Observações</Label>
                     <Textarea
@@ -1698,8 +1725,10 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                       onChange={(e) => setClObservacoes(e.target.value)}
                     />
                   </div>
+                )}
 
-                  {/* ---- Dados do caso (edicao unificada) ---- */}
+                {isInterno && (
+                  /* ---- Dados do caso (edicao unificada, so interno) ---- */
                   <div className="border-t pt-3 space-y-3">
                     <p className="text-sm font-medium">Dados do caso</p>
                     <div>
@@ -1787,10 +1816,13 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                       </div>
                     </div>
                   </div>
+                )}
 
-                  {/* Senha MEU INSS - sempre vazio. Vazio = manter, preenchido =
+                {isInterno && (
+                  /* Senha MEU INSS - sempre vazio. Vazio = manter, preenchido =
                     substituir via RPC criptografada. Status atual (ja tem ou
-                    nao) eh mostrado em texto auxiliar. */}
+                    nao) eh mostrado em texto auxiliar. Parceiro usa botao
+                    separado (write-only) pra alterar senha. */
                   <div className="pt-3 border-t">
                     <Label className="text-xs flex items-center gap-1">
                       <KeyRound className="h-3.5 w-3.5" />
@@ -1814,11 +1846,13 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                       Criptografada no banco. Toda escrita e leitura ficam registradas em auditoria.
                     </p>
                   </div>
-                </div>
-                <DialogFooter className="sm:justify-between gap-2">
-                  {/* Excluir vai a esquerda - separacao visual clara da acao
-                    primaria (Salvar). Espacamento sm:justify-between joga
-                    o destrutivo pra ponta. */}
+                )}
+              </div>
+              <DialogFooter className="sm:justify-between gap-2">
+                {/* Excluir vai a esquerda - separacao visual clara da acao
+                  primaria (Salvar). Espacamento sm:justify-between joga
+                  o destrutivo pra ponta. So interno - parceiro nao apaga. */}
+                {isInterno && (
                   <Button
                     variant="destructive"
                     onClick={() => setConfExcluirCliente(true)}
@@ -1828,23 +1862,23 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                     <Trash2 className="h-3.5 w-3.5 mr-1" />
                     Excluir cliente
                   </Button>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="ghost"
-                      onClick={() => setAbrirEditCliente(false)}
-                      disabled={clSalvando}
-                    >
-                      Cancelar
-                    </Button>
-                    <Button onClick={salvarCliente} disabled={clSalvando}>
-                      {clSalvando && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
-                      Salvar
-                    </Button>
-                  </div>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-          )}
+                )}
+                <div className="flex gap-2">
+                  <Button
+                    variant="ghost"
+                    onClick={() => setAbrirEditCliente(false)}
+                    disabled={clSalvando}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button onClick={salvarCliente} disabled={clSalvando}>
+                    {clSalvando && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
+                    Salvar
+                  </Button>
+                </div>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
           {/* AlertDialog de confirmacao de exclusao. Acao destrutiva amplia o
             consentimento explicito do usuario - lista o que vai sumir. */}
           {isInterno && (
@@ -4311,12 +4345,6 @@ function TabDocumentos(props: TabDocumentosProps) {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        {isInterno && (
-                          <Button size="sm" variant="outline" onClick={() => baixar(d)}>
-                            <Download className="h-4 w-4 mr-2" />
-                            Baixar
-                          </Button>
-                        )}
                         {!isInterno && (
                           <Button
                             size="sm"
@@ -4328,6 +4356,13 @@ function TabDocumentos(props: TabDocumentosProps) {
                             Visualizar
                           </Button>
                         )}
+                        {/* Baixar liberado pra todos. RLS do storage so libera
+                          docs com visivel_parceiro=true em casos do parceiro
+                          (policy documentos_select_visivel_parceiro). */}
+                        <Button size="sm" variant="outline" onClick={() => baixar(d)}>
+                          <Download className="h-4 w-4 mr-2" />
+                          Baixar
+                        </Button>
                         {isInterno && (
                           <Button
                             size="sm"
