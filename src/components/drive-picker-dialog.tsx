@@ -27,6 +27,7 @@ import {
   FolderOpen,
   ChevronDown,
   ChevronRight,
+  ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -105,6 +106,21 @@ function formatBytes(n: number): string {
   return (n / (1024 * 1024)).toFixed(1) + " MB";
 }
 
+/** Tira extensao (.pdf, .jpg, etc.) pra usar o nome cru como rotulo livre. */
+function nomeSemExtensao(filename: string): string {
+  const idx = filename.lastIndexOf(".");
+  if (idx <= 0) return filename;
+  const ext = filename.slice(idx + 1);
+  // Só remove se parece extensao real (2-5 chars alfanumericos).
+  if (/^[a-z0-9]{2,5}$/i.test(ext)) return filename.slice(0, idx);
+  return filename;
+}
+
+/** URL deep-link pra abrir o arquivo no Drive (PDF, Google Doc, imagem, etc.). */
+function urlDrive(fileId: string): string {
+  return "https://drive.google.com/file/d/" + fileId + "/view";
+}
+
 export function DrivePickerDialog(props: DrivePickerDialogProps) {
   const { arquivosSelecionados, accessToken, onFechar, tiposDocumento, pastaRaizNome, onConfirmar } =
     props;
@@ -142,15 +158,20 @@ export function DrivePickerDialog(props: DrivePickerDialogProps) {
   // com tipos inferidos por nome.
   useEffect(() => {
     if (arquivosSelecionados && arquivosSelecionados.length > 0) {
-      const items: Array<Item> = arquivosSelecionados.map((f) => ({
-        drive: f,
-        selecionado: true,
-        tipo: inferirTipoPorNome(f.name),
-        tipoPersonalizado: "",
-        baixando: false,
-        erro: null,
-        arquivoBaixado: null,
-      }));
+      const items: Array<Item> = arquivosSelecionados.map((f) => {
+        const tipoInferido = inferirTipoPorNome(f.name);
+        return {
+          drive: f,
+          selecionado: true,
+          tipo: tipoInferido,
+          // Pra "outro", pre-preenche com o nome do arquivo (sem extensao)
+          // pra evitar trabalho manual de nomear cada um. Usuario pode editar.
+          tipoPersonalizado: tipoInferido === "outro" ? nomeSemExtensao(f.name) : "",
+          baixando: false,
+          erro: null,
+          arquivoBaixado: null,
+        };
+      });
       setItens(items);
       // Expande todas as pastas vindas (raiz + subpastas) por default
       const pastas = new Set(items.map((i) => i.drive.pastaRelativa ?? ""));
@@ -172,11 +193,16 @@ export function DrivePickerDialog(props: DrivePickerDialogProps) {
 
   function atualizarTipo(i: number, novoTipo: string) {
     setItens((prev) =>
-      prev.map((it, idx) =>
-        idx === i
-          ? { ...it, tipo: novoTipo, tipoPersonalizado: novoTipo === "outro" ? it.tipoPersonalizado : "" }
-          : it,
-      ),
+      prev.map((it, idx) => {
+        if (idx !== i) return it;
+        // Mudou pra "outro" e ainda nao tem rotulo: pre-enche com filename.
+        // Mudou pra outro tipo: limpa o rotulo livre (vai usar label do tipo).
+        const novoPersonalizado =
+          novoTipo === "outro"
+            ? it.tipoPersonalizado || nomeSemExtensao(it.drive.name)
+            : "";
+        return { ...it, tipo: novoTipo, tipoPersonalizado: novoPersonalizado };
+      }),
     );
   }
 
@@ -451,6 +477,16 @@ export function DrivePickerDialog(props: DrivePickerDialogProps) {
                                 </p>
                               )}
                             </div>
+                            <a
+                              href={urlDrive(it.drive.id)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 shrink-0 mt-1"
+                              title="Abrir no Google Drive (nova aba)"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" />
+                              <span className="hidden sm:inline">Abrir</span>
+                            </a>
                             {it.baixando && (
                               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                             )}
