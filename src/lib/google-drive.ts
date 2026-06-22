@@ -632,15 +632,29 @@ export async function uploadDocumentoDriveSeNecessario(
   return result.id;
 }
 
+// Cache em memória do access token. Tokens do Google duram ~1h; pra não
+// disparar popup do Google toda vez que o app chama obterAccessToken
+// (auto-check, sync, upload, etc), guardamos o token + expiração e
+// reusamos enquanto válido. Margem de 60s antes do exp pra renovar com
+// folga.
+let cachedToken: { token: string; expiresAt: number } | null = null;
+
 /**
  * Pega um access token sem abrir popup (ou abre se necessario). Usado pelo
  * fluxo Sync - precisa de token pra chamar Drive API mas nao precisa do Picker.
+ *
+ * Usa cache em memória: token recém-obtido fica salvo até expirar (1h),
+ * evitando popup/round-trip OAuth a cada chamada.
  */
 export function obterAccessToken(): Promise<string> {
   if (!EFFECTIVE_CLIENT_ID) {
     return Promise.reject(
       new Error("Google Drive não configurado (credenciais ausentes)"),
     );
+  }
+  // Reusa token cacheado se ainda válido (com 60s de margem).
+  if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) {
+    return Promise.resolve(cachedToken.token);
   }
   return new Promise(async (resolve, reject) => {
     try {
@@ -661,6 +675,13 @@ export function obterAccessToken(): Promise<string> {
           reject(new Error("Sem access_token na resposta OAuth"));
           return;
         }
+        // Cacheia. resp.expires_in vem em segundos; cai pra 3500s (~58min)
+        // se ausente, pra ficar conservador.
+        const expiresIn = Number(resp.expires_in) || 3500;
+        cachedToken = {
+          token: resp.access_token,
+          expiresAt: Date.now() + expiresIn * 1000,
+        };
         resolve(resp.access_token);
       },
     });
