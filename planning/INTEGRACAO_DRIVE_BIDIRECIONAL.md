@@ -1,10 +1,49 @@
 # Integração Google Drive — sync bidirecional
 
-Doc rascunho. Capturar escopo e decisões já tomadas pra retomar em sessão futura sem perder contexto.
+**Status: ✅ FASES 1, 2 E 3 FECHADAS EM PRODUÇÃO (2026-06-18 noite).**
 
-## Estado atual (a partir de 2026-06-18)
+Doc original era rascunho. Atualizado depois da implementação.
 
-**Unidirecional: Google Drive → Sistema apenas.**
+## O que foi entregue
+
+### Fase 1 — Upload do app → Drive
+- `uploadDriveFile()` em `src/lib/google-drive.ts` (POST multipart pra `upload/drive/v3/files`).
+- `uploadDocumentoDriveSeNecessario(blob, nome, gdriveFolderId)` é o helper de alto nível usado em todos os pontos de upload do app.
+- Wire-up nos 2 fluxos: `TabDocumentos.confirmarAcaoModal` (cumprir solicitação) e `UploadDoc.enviarTodos` (upload bulk).
+- Falha no Drive vira toast warning, não bloqueia. App é fonte de verdade.
+
+### Botão "Subir pendentes (N)"
+- Lista docs do caso com `gdrive_file_id IS NULL`, baixa do Storage, sobe pro Drive, atualiza `gdrive_file_id`.
+- Progresso "Subindo X/Y" no botão.
+- Só aparece quando há pendentes.
+
+### Fase 2 — Sync Drive → app
+- `handleSincronizarPasta` detecta 3 tipos numa chamada:
+  - **Novos** → abre Picker pra escolher quais importar.
+  - **Renomeados** → atualiza `documentos.nome_arquivo` automático.
+  - **Apagados no Drive** → confirm com lista, se OK apaga do app.
+- Toast resume: `3 novo(s) · 1 renomeado(s) · 2 removido(s)`.
+
+### Auto-check silencioso + badge âmbar
+- `useEffect` ao abrir caso (com pasta vinculada) lista Drive em background.
+- Renomeados aplicados auto sem badge.
+- Novos + apagados pendentes alimentam um badge no botão "Sync pasta": `Sync pasta (3)`.
+- Falha silenciosa (sem toast); user pode clicar pra ver erro real.
+
+### Fase 3 — Rename e delete app → Drive
+- `renomearArquivoDrive(fileId, novoNome, token)` — PATCH com `{name}`.
+- `deletarArquivoDrive(fileId, token)` — PATCH com `{trashed: true}` (lixeira, 30d pra reverter).
+- UI: ícone lápis em cada documento → `window.prompt` pra renomear.
+- Wire-up nas 3 funções de delete (`deletarDoc`, `deletarSelecionados`, `deletarTodos`).
+
+### Detalhes técnicos
+- **Scope OAuth = `drive`** (acesso total, não só `drive.file`). Necessário pra rename/delete em docs importados; escopo restrito não dá write em arquivos que o app não criou. Seguro porque Drive ops são gated pra interno.
+- **Cache de access token** em memória — popup OAuth aparece 1x/hora, não a cada chamada.
+- **Conta de owner do Drive**: cada interno usa o próprio Drive autenticado (Mara, Naira, Mariane). Acesso compartilhado via Google Cloud Console.
+
+## Estado original (a partir de 2026-06-18 — antes desta sessão)
+
+**Era: unidirecional Google Drive → Sistema apenas.**
 
 Como funciona hoje:
 1. Naira vincula uma pasta do Drive ao caso (`casos.gdrive_folder_id`).
@@ -114,13 +153,11 @@ Ou simplificar: subpastas implícitas pela `pasta_relativa`, e ao criar pasta va
 - **OAuth scopes**: hoje usa `drive.file` (acesso só ao que o app criou). Pra sync completo, precisa `drive.readonly` ou `drive` (acesso a tudo). Trade-off de privacidade.
 - **Migração**: o que fazer com documentos antigos que estão no app mas não no Drive? Precisa "subir" cada um na primeira sincronização?
 
-## Próximos passos
+## Pendências (próximas sessões, se valer)
 
-1. Decidir client-side vs server-side (depende de quão crítico é background sync).
-2. Decidir conta de serviço dedicada ou Drive pessoal de cada um.
-3. Implementar Fase 1 (upload bidirecional).
-4. Testar com 5-10 casos reais antes de Fases 2 e 3.
-
-## Sessão de partida
-
-Quando retomar: ler este doc, conferir decisões 1-3, criar branch `feat/drive-bidirecional-fase1` a partir de `staging`, começar pela Fase 1.
+- **Cenário A — auto-criar pasta no Drive ao criar caso novo** (corta um passo manual da Naira).
+- **Resumable upload** pra arquivos >5MB (hoje falham com `multipart` limit).
+- **Subpastas no Drive** (criar/mover entre subpastas pelo app).
+- **Sinalização global** (sidebar/bell mostrando todos os casos com mudanças pendentes, sem precisar abrir cada um).
+- **Polling/webhooks** (sync automático em background, sem clique).
+- **Conflito de conteúdo** (mesmo arquivo modificado nos 2 lados — hoje só trata nome/delete).
