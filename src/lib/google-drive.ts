@@ -31,7 +31,14 @@ const EFFECTIVE_CLIENT_ID =
   "978674501365-09qagpatgq5qb0m1hqq593isi486egjl.apps.googleusercontent.com";
 const EFFECTIVE_API_KEY = "AIzaSyDJmRookKnEBkg_aLxirFY4lJH13vgCfkQ";
 
-const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
+// drive.file: acesso só aos arquivos que o app criou ou que o usuário
+// abriu via Picker. Suficiente pra:
+//  - listar/baixar pastas vinculadas (Picker registra escopo na pasta)
+//  - subir novos arquivos
+//  - renomear/deletar os subidos pelo app
+// Mais seguro que escopo "drive" (acesso total) que exigiria revisão
+// de segurança do Google.
+const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 
 /** Falha rapida se as env vars nao estao configuradas (build cru). */
 export function isGoogleDriveConfigured(): boolean {
@@ -475,6 +482,100 @@ export async function listarArquivosDaPasta(
     porPasta,
   );
   return arquivos;
+}
+
+// =============================================================================
+// Upload pro Drive (Fase 53 - bidirecional, app → Drive)
+// =============================================================================
+
+export interface DriveUploadResult {
+  id: string;          // gdrive_file_id
+  name: string;
+  webViewLink?: string;
+}
+
+/**
+ * Sobe um arquivo pro Drive na pasta especificada.
+ *
+ * Usa multipart upload (limite ~5MB; suficiente pro MVP — docs do INSS
+ * raramente passam disso). Pra arquivos maiores, migrar pra resumable
+ * upload no futuro.
+ *
+ * Requer scope drive.file (já configurado em DRIVE_SCOPE).
+ */
+export async function uploadDriveFile(
+  blob: Blob,
+  nome: string,
+  pastaPaiId: string,
+  accessToken: string,
+): Promise<DriveUploadResult> {
+  const metadata = {
+    name: nome,
+    parents: [pastaPaiId],
+    mimeType: blob.type || "application/octet-stream",
+  };
+
+  // multipart com boundary fixo. Spec: RFC 2387.
+  const boundary = "msc_drive_boundary_" + Math.floor(Math.random() * 1e9);
+  const delimiter = `\r\n--${boundary}\r\n`;
+  const closeDelimiter = `\r\n--${boundary}--`;
+
+  const metaPart =
+    delimiter +
+    "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
+    JSON.stringify(metadata);
+  const filePartHeader =
+    delimiter + `Content-Type: ${metadata.mimeType}\r\n\r\n`;
+
+  // Concat manual pra preservar binary do blob.
+  const body = new Blob([
+    metaPart,
+    filePartHeader,
+    blob,
+    closeDelimiter,
+  ]);
+
+  const resp = await fetch(
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink",
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + accessToken,
+        "Content-Type": `multipart/related; boundary=${boundary}`,
+      },
+      body,
+    },
+  );
+
+  if (!resp.ok) {
+    const detail = await resp.text();
+    throw new Error(
+      `Falha ao subir "${nome}" pro Drive: HTTP ${resp.status} - ${detail}`,
+    );
+  }
+  const data = (await resp.json()) as DriveUploadResult;
+  return data;
+}
+
+/**
+ * Helper bidirecional: se o caso tem pasta Drive vinculada, sobe o blob
+ * lá também e retorna o gdrive_file_id. Se não tem pasta, retorna null
+ * silenciosamente. Falhas no Drive são lançadas (caller decide se rolla
+ * back ou só loga warning).
+ *
+ * Mantém o app como fonte de verdade: o Storage do Supabase sempre é o
+ * primeiro a receber o arquivo. Drive é espelho.
+ */
+export async function uploadDocumentoDriveSeNecessario(
+  blob: Blob,
+  nome: string,
+  gdriveFolderId: string | null | undefined,
+): Promise<string | null> {
+  if (!gdriveFolderId) return null;
+  if (!isGoogleDriveConfigured()) return null;
+  const token = await obterAccessToken();
+  const result = await uploadDriveFile(blob, nome, gdriveFolderId, token);
+  return result.id;
 }
 
 /**
