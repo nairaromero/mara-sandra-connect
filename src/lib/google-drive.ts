@@ -31,14 +31,18 @@ const EFFECTIVE_CLIENT_ID =
   "978674501365-09qagpatgq5qb0m1hqq593isi486egjl.apps.googleusercontent.com";
 const EFFECTIVE_API_KEY = "AIzaSyDJmRookKnEBkg_aLxirFY4lJH13vgCfkQ";
 
-// drive.file: acesso só aos arquivos que o app criou ou que o usuário
-// abriu via Picker. Suficiente pra:
-//  - listar/baixar pastas vinculadas (Picker registra escopo na pasta)
-//  - subir novos arquivos
-//  - renomear/deletar os subidos pelo app
-// Mais seguro que escopo "drive" (acesso total) que exigiria revisão
-// de segurança do Google.
-const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+// drive: acesso total ao Drive do usuário interno. Necessário pra
+// renomear/deletar arquivos que foram SINCRONIZADOS (importados) do
+// Drive — o scope mais restrito drive.file não dá write access em
+// arquivos que o app não criou.
+//
+// OK pro nosso caso de uso porque:
+//  - Drive ops são gated pra usuários `tipo='interno'` (Naira, Mara,
+//    Mariane) — equipe do próprio escritório.
+//  - Parceiros nunca tocam em Drive (UI condicional + RLS).
+//  - App está em modo "test users" no OAuth consent — sem revisão
+//    Google formal necessária pros internos.
+const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
 
 /** Falha rapida se as env vars nao estao configuradas (build cru). */
 export function isGoogleDriveConfigured(): boolean {
