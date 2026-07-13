@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { LeadForm, type LeadTab } from "@/components/comercial/lead-form";
 import {
   MessageCircle,
   Scale,
@@ -216,6 +218,8 @@ function SectionHead({
 }
 
 function HomePage() {
+  const [contatoTab, setContatoTab] = useState<LeadTab>("cliente");
+  const irParaFormParceiro = () => setContatoTab("parceiro");
   return (
     <div className="bg-background font-sans text-foreground">
       {/* ===== HEADER ===== */}
@@ -316,31 +320,10 @@ function HomePage() {
           {/* card de análise */}
           <div className="rounded-2xl border border-[#caa14e]/30 bg-white/[0.06] p-7 backdrop-blur-sm">
             <h3 className="font-serif text-2xl text-white">Análise gratuita</h3>
-            <p className="mt-1 text-sm text-[#cfc8b8]">
+            <p className="mb-5 mt-1 text-sm text-[#cfc8b8]">
               Conte seu caso. Respondemos rápido pelo WhatsApp.
             </p>
-            <div className="mt-5 space-y-3">
-              <div className="rounded-lg border border-white/15 bg-white/[0.08] px-3.5 py-3 text-sm text-[#9c9686]">
-                Seu nome
-              </div>
-              <div className="rounded-lg border border-white/15 bg-white/[0.08] px-3.5 py-3 text-sm text-[#9c9686]">
-                WhatsApp
-              </div>
-              <div className="rounded-lg border border-white/15 bg-white/[0.08] px-3.5 pb-9 pt-3 text-sm text-[#9c9686]">
-                Resumo do seu caso…
-              </div>
-            </div>
-            <a
-              href={WA_LINK}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`${btn} mt-4 w-full bg-gold text-white hover:bg-[#a3741f]`}
-            >
-              Quero minha análise
-            </a>
-            <small className="mt-3 block text-center text-[11.5px] text-[#9c9686]">
-              🔒 Seus dados protegidos conforme a LGPD
-            </small>
+            <LeadForm origem="form-hero" dark />
           </div>
         </div>
       </section>
@@ -525,6 +508,7 @@ function HomePage() {
               </div>
               <a
                 href="#contato"
+                onClick={irParaFormParceiro}
                 className={`${btn} shrink-0 bg-gold text-white hover:bg-[#a3741f]`}
               >
                 Testar a demo do app
@@ -533,6 +517,7 @@ function HomePage() {
             <div className="mt-2 flex flex-wrap gap-3.5">
               <a
                 href="#contato"
+                onClick={irParaFormParceiro}
                 className={`${btn} border border-white/30 text-white hover:border-white/60`}
               >
                 Quero ser parceiro
@@ -634,30 +619,7 @@ function HomePage() {
             ))}
           </div>
           <div className="rounded-2xl border border-border bg-card p-8 shadow-[0_10px_40px_-12px_rgba(42,37,27,.18)]">
-            <label className="mb-1.5 block text-[13px] font-semibold">Nome completo</label>
-            <div className="mb-4 rounded-lg border border-border bg-background px-3.5 py-3 text-sm text-muted-foreground">
-              Digite seu nome
-            </div>
-            <label className="mb-1.5 block text-[13px] font-semibold">WhatsApp</label>
-            <div className="mb-4 rounded-lg border border-border bg-background px-3.5 py-3 text-sm text-muted-foreground">
-              (17) 99773-3081
-            </div>
-            <label className="mb-1.5 block text-[13px] font-semibold">Resumo do seu caso</label>
-            <div className="mb-4 rounded-lg border border-border bg-background px-3.5 pb-10 pt-3 text-sm text-muted-foreground">
-              Conte resumidamente o que aconteceu…
-            </div>
-            <a
-              href={WA_LINK}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`${btn} w-full bg-gold text-white hover:bg-[#a3741f]`}
-            >
-              Enviar e falar com a advogada
-            </a>
-            <p className="mt-3.5 text-center text-[11.5px] text-muted-foreground">
-              🔒 Ao enviar, você concorda com o uso dos seus dados apenas para contato, conforme a
-              LGPD.
-            </p>
+            <LeadForm origem="form-contato" tab={contatoTab} onTabChange={setContatoTab} />
           </div>
         </div>
       </section>
