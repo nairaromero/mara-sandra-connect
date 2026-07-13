@@ -24,6 +24,15 @@ Baseado no Manual_Comercial_MSV.pdf (Drive).
 - Handoff: "Converter em cliente" (pede CPF, obrigatório em `clientes`; telefone
   vem do WhatsApp do lead; CPF duplicado vincula ao cliente existente). Lead
   ganha `cliente_id` e vai pra "fechado".
+- Histórico de comentários por lead (`lead_comentarios`, RLS interno) no lugar
+  do campo único de observações — vira o histórico da negociação até o handoff.
+- **Análise com responsável** (fluxo pedido 2026-07-13): mover pra "analise"
+  pede a advogada → nasce tarefa pra ela (`metadata.lead_id`); ao concluir a
+  tarefa, trigger `trg_lead_analise_concluida` marca `analise_concluida_em` e
+  comenta no histórico — o comercial vê "análise concluída" no kanban e decide:
+  **dar continuidade** (→ fechamento, com marco "kit previdenciário enviado" em
+  `kit_enviado_em`; assinou → handoff) ou **sem direito**.
+  Obs: `tarefas.caso_id` virou nullable (front já era null-safe).
 
 ## Roadmap (pedidos da Naira)
 
@@ -44,4 +53,7 @@ Baseado no Manual_Comercial_MSV.pdf (Drive).
    notificação no sino): precisa de job agendado (pg_cron não habilitado no
    projeto ainda — mesma pendência do sync diário `#3b`).
 4. **Fase 3 — handoff completo**: criar caso junto com o cliente na conversão e
-   navegar direto pra tela do caso.
+   navegar direto pra tela do caso; copiar o histórico da negociação pro caso.
+5. **Kit previdenciário digital**: enviar o kit pro cliente (WhatsApp/e-mail) e
+   acompanhar assinatura (e-sign) — hoje o envio é manual e só o marco é
+   registrado (`kit_enviado_em`).

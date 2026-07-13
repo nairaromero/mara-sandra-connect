@@ -79,6 +79,10 @@ interface Lead {
   consulta_em: string | null;
   agenda_evento_id: string | null;
   cliente_id: string | null;
+  analise_responsavel_id: string | null;
+  analise_tarefa_id: string | null;
+  analise_concluida_em: string | null;
+  kit_enviado_em: string | null;
 }
 
 interface Comentario {
@@ -211,13 +215,14 @@ function ComercialPage() {
   const [filtroEtapaMobile, setFiltroEtapaMobile] = useState<string>("__todas__");
   const [agendando, setAgendando] = useState<Lead | null>(null);
   const [convertendo, setConvertendo] = useState<Lead | null>(null);
+  const [analisando, setAnalisando] = useState<Lead | null>(null);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
     const { data, error } = await supabase
       .from("leads")
       .select(
-        "id, criado_em, atualizado_em, tipo, nome, whatsapp, situacao, inss_status, oab, interesse, origem, utm_source, utm_medium, utm_campaign, etapa, primeiro_contato_em, consulta_em, agenda_evento_id, cliente_id",
+        "id, criado_em, atualizado_em, tipo, nome, whatsapp, situacao, inss_status, oab, interesse, origem, utm_source, utm_medium, utm_campaign, etapa, primeiro_contato_em, consulta_em, agenda_evento_id, cliente_id, analise_responsavel_id, analise_tarefa_id, analise_concluida_em, kit_enviado_em",
       )
       .order("criado_em", { ascending: false });
     if (error) {
@@ -255,6 +260,12 @@ function ComercialPage() {
     [leads],
   );
 
+  const internosPorId = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const i of internos) m.set(i.id, i.nome || i.email || i.id);
+    return m;
+  }, [internos]);
+
   /** Atualiza o lead no banco e espelha no estado local (lista + painel aberto). */
   const aplicarPatch = useCallback(
     async (leadId: string, patch: Partial<Lead> & Record<string, unknown>) => {
@@ -275,6 +286,11 @@ function ComercialPage() {
     // Agendar consulta pede data/hora — o dialog completa o movimento.
     if (etapa === "agendado") {
       setAgendando(lead);
+      return;
+    }
+    // Análise pede a advogada responsável — o dialog completa o movimento.
+    if (etapa === "analise") {
+      setAnalisando(lead);
       return;
     }
     const patch: Partial<Lead> = { etapa };
@@ -369,6 +385,24 @@ function ComercialPage() {
     carregarComentarios(lead.id);
   }
 
+  async function marcarKitEnviado(lead: Lead) {
+    const agora = new Date().toISOString();
+    const ok = await aplicarPatch(lead.id, { kit_enviado_em: agora });
+    if (!ok) {
+      toast.error("Não consegui marcar o kit.");
+      return;
+    }
+    if (usuario?.id) {
+      await supabase.from("lead_comentarios").insert({
+        lead_id: lead.id,
+        autor_id: usuario.id,
+        texto: "Kit previdenciário enviado pro cliente assinar.",
+      });
+      carregarComentarios(lead.id);
+    }
+    toast.success("Kit marcado como enviado — assinou, é só fazer o handoff.");
+  }
+
   if (!isInterno) {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-2 text-center">
@@ -446,6 +480,11 @@ function ComercialPage() {
                               <LeadCard
                                 key={lead.id}
                                 lead={lead}
+                                analistaNome={
+                                  lead.analise_responsavel_id
+                                    ? internosPorId.get(lead.analise_responsavel_id) ?? null
+                                    : null
+                                }
                                 onAbrir={() => abrirLead(lead)}
                                 onMover={(e) => moverEtapa(lead, e)}
                                 onWhats={() => registrarPrimeiroContato(lead, true)}
@@ -485,6 +524,11 @@ function ComercialPage() {
                       key={lead.id}
                       lead={lead}
                       mostrarEtapa
+                      analistaNome={
+                        lead.analise_responsavel_id
+                          ? internosPorId.get(lead.analise_responsavel_id) ?? null
+                          : null
+                      }
                       onAbrir={() => abrirLead(lead)}
                       onMover={(e) => moverEtapa(lead, e)}
                       onWhats={() => registrarPrimeiroContato(lead, true)}
@@ -514,6 +558,11 @@ function ComercialPage() {
                     key={lead.id}
                     lead={lead}
                     mostrarEtapa
+                    analistaNome={
+                      lead.analise_responsavel_id
+                        ? internosPorId.get(lead.analise_responsavel_id) ?? null
+                        : null
+                    }
                     onAbrir={() => abrirLead(lead)}
                     onMover={(e) => moverEtapa(lead, e)}
                     onWhats={() => registrarPrimeiroContato(lead, true)}
@@ -594,10 +643,63 @@ function ComercialPage() {
                       {dataHora(aberto.consulta_em)}
                     </p>
                   )}
+                  {aberto.analise_responsavel_id && (
+                    <p>
+                      <span className="text-muted-foreground">Análise:</span>{" "}
+                      {internosPorId.get(aberto.analise_responsavel_id) ?? "—"}
+                      {aberto.analise_concluida_em ? (
+                        <span className="text-emerald-700">
+                          {" "}
+                          · concluída {tempoDesde(aberto.analise_concluida_em)}
+                        </span>
+                      ) : (
+                        <span className="text-amber-700"> · aguardando</span>
+                      )}
+                    </p>
+                  )}
+                  {aberto.kit_enviado_em && (
+                    <p>
+                      <span className="text-muted-foreground">Kit previdenciário:</span>{" "}
+                      enviado {tempoDesde(aberto.kit_enviado_em)}
+                    </p>
+                  )}
                   {aberto.cliente_id && (
                     <p className="text-emerald-700">✓ Já convertido em cliente</p>
                   )}
                 </div>
+
+                {/* Próximo passo do fluxo, quando há um óbvio */}
+                {aberto.etapa === "analise" && aberto.analise_concluida_em && (
+                  <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm">
+                    <p className="font-medium text-emerald-900">
+                      Análise concluída — decidir continuidade
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Button size="sm" onClick={() => moverEtapa(aberto, "fechamento")}>
+                        Dar continuidade (fechamento)
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => moverEtapa(aberto, "sem_direito")}
+                      >
+                        Sem direito
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                {aberto.etapa === "fechamento" && !aberto.kit_enviado_em && (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm">
+                    <p className="font-medium text-amber-900">
+                      Enviar o kit previdenciário pro cliente assinar
+                    </p>
+                    <div className="mt-2">
+                      <Button size="sm" onClick={() => marcarKitEnviado(aberto)}>
+                        Marcar kit como enviado
+                      </Button>
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex flex-wrap gap-2">
                   <Button asChild size="sm" className="bg-[#25D366] text-white hover:bg-[#1fb959]">
@@ -718,6 +820,21 @@ function ComercialPage() {
             setAberto((a) => (a && a.id === agendando.id ? { ...a, ...patch } : a));
           }
           setAgendando(null);
+        }}
+      />
+
+      <EnviarAnaliseDialog
+        lead={analisando}
+        internos={internos}
+        onFechar={() => setAnalisando(null)}
+        onEnviado={(patch) => {
+          if (analisando) {
+            setLeads((prev) =>
+              prev.map((l) => (l.id === analisando.id ? { ...l, ...patch } : l)),
+            );
+            setAberto((a) => (a && a.id === analisando.id ? { ...a, ...patch } : a));
+          }
+          setAnalisando(null);
         }}
       />
 
@@ -917,6 +1034,117 @@ function AgendarConsultaDialog({
   );
 }
 
+/** Dialog da análise: escolhe a advogada, cria a tarefa dela e move o lead. */
+function EnviarAnaliseDialog({
+  lead,
+  internos,
+  onFechar,
+  onEnviado,
+}: {
+  lead: Lead | null;
+  internos: Array<Interno>;
+  onFechar: () => void;
+  onEnviado: (patch: Partial<Lead>) => void;
+}) {
+  const [responsavel, setResponsavel] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  useEffect(() => {
+    if (lead) setResponsavel(lead.analise_responsavel_id ?? "");
+  }, [lead]);
+
+  async function enviar() {
+    if (!lead) return;
+    if (!responsavel) {
+      toast.error("Escolha quem vai fazer a análise.");
+      return;
+    }
+    setSalvando(true);
+    try {
+      const prazo = new Date();
+      prazo.setDate(prazo.getDate() + 2);
+      prazo.setHours(18, 0, 0, 0);
+      const tarefa = await criarTarefa({
+        caso_id: null,
+        responsavel_id: responsavel,
+        tipo: "interna",
+        prioridade: 2,
+        titulo: `Analisar lead do comercial — ${lead.nome}`,
+        descricao: `${resumoLead(lead)}. WhatsApp: ${lead.whatsapp}. Ao concluir esta tarefa, o lead volta pro comercial decidir a continuidade.`,
+        due_at: prazo.toISOString(),
+        metadata: { lead_id: lead.id },
+      });
+
+      const patch: Partial<Lead> = {
+        etapa: "analise",
+        analise_responsavel_id: responsavel,
+        analise_tarefa_id: tarefa.id,
+        analise_concluida_em: null,
+      };
+      if (lead.etapa === "novo" && !lead.primeiro_contato_em) {
+        patch.primeiro_contato_em = new Date().toISOString();
+      }
+      const { error } = await supabase
+        .from("leads")
+        .update({ ...patch, atualizado_em: new Date().toISOString() })
+        .eq("id", lead.id);
+      if (error) throw error;
+
+      const nomeResp = internos.find((i) => i.id === responsavel);
+      toast.success(
+        `Enviado pra análise de ${nomeResp?.nome ?? "advogada(o)"} — tarefa criada com prazo em 2 dias.`,
+      );
+      onEnviado(patch);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Falha ao enviar pra análise.";
+      toast.error(msg);
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <Dialog open={!!lead} onOpenChange={(o) => !o && onFechar()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Enviar pra análise — {lead?.nome}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <Label>Quem vai analisar?</Label>
+            <Select value={responsavel} onValueChange={setResponsavel}>
+              <SelectTrigger className="h-9">
+                <SelectValue placeholder="Escolha da equipe…" />
+              </SelectTrigger>
+              <SelectContent>
+                {internos.map((i) => (
+                  <SelectItem key={i.id} value={i.id}>
+                    {i.nome || i.email || i.id}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              A pessoa recebe uma tarefa "Analisar lead do comercial" com prazo de 2 dias.
+              Quando ela concluir a tarefa, o lead volta pro comercial automaticamente com o
+              aviso "análise concluída".
+            </p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onFechar} disabled={salvando}>
+            Cancelar
+          </Button>
+          <Button onClick={enviar} disabled={salvando}>
+            {salvando && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+            Enviar pra análise
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /** Dialog do handoff: cria o cliente a partir do lead (CPF é obrigatório no banco). */
 function ConverterClienteDialog({
   lead,
@@ -1040,12 +1268,14 @@ function ConverterClienteDialog({
 function LeadCard({
   lead,
   mostrarEtapa = false,
+  analistaNome = null,
   onAbrir,
   onMover,
   onWhats,
 }: {
   lead: Lead;
   mostrarEtapa?: boolean;
+  analistaNome?: string | null;
   onAbrir: () => void;
   onMover: (etapa: string) => void;
   onWhats: () => void;
@@ -1071,6 +1301,24 @@ function LeadCard({
         {lead.etapa === "agendado" && lead.consulta_em && (
           <p className="flex items-center gap-1 text-xs text-cyan-800">
             <CalendarClock className="h-3.5 w-3.5" /> {dataHora(lead.consulta_em)}
+          </p>
+        )}
+        {lead.etapa === "analise" && (
+          <p className="truncate text-xs">
+            {lead.analise_concluida_em ? (
+              <span className="text-emerald-700">✓ Análise concluída{analistaNome ? ` — ${analistaNome}` : ""}</span>
+            ) : (
+              <span className="text-amber-700">com {analistaNome ?? "…"}</span>
+            )}
+          </p>
+        )}
+        {lead.etapa === "fechamento" && (
+          <p className="truncate text-xs">
+            {lead.kit_enviado_em ? (
+              <span className="text-emerald-700">✓ Kit enviado — aguardando assinatura</span>
+            ) : (
+              <span className="text-amber-700">enviar kit previdenciário</span>
+            )}
           </p>
         )}
         <div className="flex items-center justify-between gap-1">
