@@ -76,10 +76,16 @@ interface Lead {
   utm_campaign: string | null;
   etapa: string;
   primeiro_contato_em: string | null;
-  observacoes: string | null;
   consulta_em: string | null;
   agenda_evento_id: string | null;
   cliente_id: string | null;
+}
+
+interface Comentario {
+  id: string;
+  texto: string;
+  criado_em: string;
+  autor_nome: string | null;
 }
 
 interface Interno {
@@ -198,8 +204,10 @@ function ComercialPage() {
   const [internos, setInternos] = useState<Array<Interno>>([]);
   const [carregando, setCarregando] = useState(true);
   const [aberto, setAberto] = useState<Lead | null>(null);
-  const [obs, setObs] = useState("");
-  const [salvandoObs, setSalvandoObs] = useState(false);
+  const [comentarios, setComentarios] = useState<Array<Comentario>>([]);
+  const [carregandoComentarios, setCarregandoComentarios] = useState(false);
+  const [novoComentario, setNovoComentario] = useState("");
+  const [enviandoComentario, setEnviandoComentario] = useState(false);
   const [filtroEtapaMobile, setFiltroEtapaMobile] = useState<string>("__todas__");
   const [agendando, setAgendando] = useState<Lead | null>(null);
   const [convertendo, setConvertendo] = useState<Lead | null>(null);
@@ -209,7 +217,7 @@ function ComercialPage() {
     const { data, error } = await supabase
       .from("leads")
       .select(
-        "id, criado_em, atualizado_em, tipo, nome, whatsapp, situacao, inss_status, oab, interesse, origem, utm_source, utm_medium, utm_campaign, etapa, primeiro_contato_em, observacoes, consulta_em, agenda_evento_id, cliente_id",
+        "id, criado_em, atualizado_em, tipo, nome, whatsapp, situacao, inss_status, oab, interesse, origem, utm_source, utm_medium, utm_campaign, etapa, primeiro_contato_em, consulta_em, agenda_evento_id, cliente_id",
       )
       .order("criado_em", { ascending: false });
     if (error) {
@@ -310,21 +318,55 @@ function ComercialPage() {
     if (ok && !silencioso) toast.success("Primeiro contato registrado.");
   }
 
-  async function salvarObs() {
-    if (!aberto) return;
-    setSalvandoObs(true);
-    const ok = await aplicarPatch(aberto.id, { observacoes: obs || null });
-    setSalvandoObs(false);
-    if (!ok) {
-      toast.error("Não consegui salvar as observações.");
+  async function carregarComentarios(leadId: string) {
+    setCarregandoComentarios(true);
+    const { data, error } = await supabase
+      .from("lead_comentarios")
+      .select("id, texto, criado_em, usuarios(nome)")
+      .eq("lead_id", leadId)
+      .order("criado_em", { ascending: true });
+    if (error) {
+      toast.error("Falha ao carregar o histórico.");
+      setComentarios([]);
+    } else {
+      setComentarios(
+        ((data ?? []) as Array<Record<string, unknown>>).map((c) => ({
+          id: c.id as string,
+          texto: c.texto as string,
+          criado_em: c.criado_em as string,
+          autor_nome: (c.usuarios as { nome?: string } | null)?.nome ?? null,
+        })),
+      );
+    }
+    setCarregandoComentarios(false);
+  }
+
+  async function comentar() {
+    if (!aberto || !novoComentario.trim() || !usuario?.id) return;
+    setEnviandoComentario(true);
+    const { data, error } = await supabase
+      .from("lead_comentarios")
+      .insert({ lead_id: aberto.id, autor_id: usuario.id, texto: novoComentario.trim() })
+      .select("id, texto, criado_em")
+      .single();
+    setEnviandoComentario(false);
+    if (error) {
+      toast.error("Não consegui comentar.");
       return;
     }
-    toast.success("Observações salvas.");
+    const c = data as { id: string; texto: string; criado_em: string };
+    setComentarios((prev) => [
+      ...prev,
+      { ...c, autor_nome: usuario.nome ?? usuario.email ?? "Você" },
+    ]);
+    setNovoComentario("");
   }
 
   function abrirLead(lead: Lead) {
     setAberto(lead);
-    setObs(lead.observacoes ?? "");
+    setComentarios([]);
+    setNovoComentario("");
+    carregarComentarios(lead.id);
   }
 
   if (!isInterno) {
@@ -609,21 +651,52 @@ function ComercialPage() {
                   </Select>
                 </div>
 
-                <div className="space-y-1.5">
-                  <p className="text-sm font-medium">Observações internas</p>
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">
+                    Histórico da negociação
+                    {comentarios.length > 0 && (
+                      <span className="ml-1 text-xs font-normal text-muted-foreground">
+                        ({comentarios.length})
+                      </span>
+                    )}
+                  </p>
+                  {carregandoComentarios ? (
+                    <div className="flex justify-center py-3">
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : comentarios.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      Nenhum comentário ainda — registre aqui os contatos e combinados; isso
+                      vira o histórico que acompanha o lead até o handoff.
+                    </p>
+                  ) : (
+                    <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+                      {comentarios.map((c) => (
+                        <div key={c.id} className="rounded-md bg-muted/60 px-3 py-2">
+                          <p className="text-xs text-muted-foreground">
+                            <span className="font-medium text-foreground">
+                              {c.autor_nome ?? "Nota antiga"}
+                            </span>{" "}
+                            · {tempoDesde(c.criado_em)} · {dataHora(c.criado_em)}
+                          </p>
+                          <p className="mt-0.5 whitespace-pre-wrap text-sm">{c.texto}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <Textarea
-                    value={obs}
-                    onChange={(e) => setObs(e.target.value)}
-                    placeholder="Anotações do atendimento, combinados, próximos passos…"
-                    rows={5}
+                    value={novoComentario}
+                    onChange={(e) => setNovoComentario(e.target.value)}
+                    placeholder="Comentar: contato feito, combinados, próximos passos…"
+                    rows={3}
                   />
                   <Button
                     size="sm"
-                    onClick={salvarObs}
-                    disabled={salvandoObs || obs === (aberto.observacoes ?? "")}
+                    onClick={comentar}
+                    disabled={enviandoComentario || !novoComentario.trim()}
                   >
-                    {salvandoObs && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-                    Salvar observações
+                    {enviandoComentario && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                    Comentar
                   </Button>
                 </div>
               </div>
