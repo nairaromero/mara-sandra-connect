@@ -9,13 +9,7 @@ import { ClientOnly } from "@/components/client-only";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -177,9 +171,7 @@ function AuditoriaPage() {
       setRows((data as unknown as AcessoRow[]) ?? []);
     } catch (err) {
       console.error(err);
-      const msg =
-        (err as { message?: string })?.message ??
-        "Falha ao carregar log de auditoria.";
+      const msg = (err as { message?: string })?.message ?? "Falha ao carregar log de auditoria.";
       toast.error(msg);
     } finally {
       setLoading(false);
@@ -195,9 +187,7 @@ function AuditoriaPage() {
   const rowsFiltradas = useMemo(() => {
     if (!filtroCliente.trim()) return rows;
     const termo = filtroCliente.trim().toLowerCase();
-    return rows.filter((r) =>
-      (r.cliente?.nome ?? "").toLowerCase().includes(termo),
-    );
+    return rows.filter((r) => (r.cliente?.nome ?? "").toLowerCase().includes(termo));
   }, [rows, filtroCliente]);
 
   const totais = useMemo(() => {
@@ -221,23 +211,18 @@ function AuditoriaPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="font-serif text-3xl font-semibold tracking-tight flex items-center gap-2">
             <ShieldCheck className="h-7 w-7 text-[var(--gold)]" />
             Auditoria de senhas MEU INSS
           </h1>
           <p className="text-sm text-muted-foreground">
-            Registro imutável de todo acesso (leitura, escrita ou remoção) à
-            senha do MEU INSS dos clientes. Obrigatório para conformidade LGPD.
+            Registro imutável de todo acesso (leitura, escrita ou remoção) à senha do MEU INSS dos
+            clientes. Obrigatório para conformidade LGPD.
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => load()}
-          disabled={loading}
-        >
+        <Button variant="outline" size="sm" onClick={() => load()} disabled={loading}>
           {loading ? (
             <Loader2 className="h-4 w-4 mr-2 animate-spin" />
           ) : (
@@ -259,25 +244,19 @@ function AuditoriaPage() {
           <Card>
             <CardHeader className="pb-2">
               <CardDescription>Leituras</CardDescription>
-              <CardTitle className="text-3xl tabular-nums">
-                {totais.leitura}
-              </CardTitle>
+              <CardTitle className="text-3xl tabular-nums">{totais.leitura}</CardTitle>
             </CardHeader>
           </Card>
           <Card>
             <CardHeader className="pb-2">
               <CardDescription>Escritas</CardDescription>
-              <CardTitle className="text-3xl tabular-nums">
-                {totais.escrita}
-              </CardTitle>
+              <CardTitle className="text-3xl tabular-nums">{totais.escrita}</CardTitle>
             </CardHeader>
           </Card>
           <Card>
             <CardHeader className="pb-2">
               <CardDescription>Remoções</CardDescription>
-              <CardTitle className="text-3xl tabular-nums">
-                {totais.escrita_remocao}
-              </CardTitle>
+              <CardTitle className="text-3xl tabular-nums">{totais.escrita_remocao}</CardTitle>
             </CardHeader>
           </Card>
         </div>
@@ -285,16 +264,12 @@ function AuditoriaPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Filtros</CardTitle>
-            <CardDescription>
-              Refine o log por cliente, tipo de ação ou período.
-            </CardDescription>
+            <CardDescription>Refine o log por cliente, tipo de ação ou período.</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Cliente
-                </label>
+                <label className="text-xs font-medium text-muted-foreground">Cliente</label>
                 <Input
                   placeholder="Buscar por nome..."
                   value={filtroCliente}
@@ -302,9 +277,7 @@ function AuditoriaPage() {
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Ação
-                </label>
+                <label className="text-xs font-medium text-muted-foreground">Ação</label>
                 <Select value={filtroAcao} onValueChange={setFiltroAcao}>
                   <SelectTrigger>
                     <SelectValue />
@@ -318,9 +291,7 @@ function AuditoriaPage() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Período
-                </label>
+                <label className="text-xs font-medium text-muted-foreground">Período</label>
                 <Select value={filtroDias} onValueChange={setFiltroDias}>
                   <SelectTrigger>
                     <SelectValue />
@@ -342,13 +313,11 @@ function AuditoriaPage() {
           <CardHeader>
             <CardTitle className="text-base">Eventos</CardTitle>
             <CardDescription>
-              {rowsFiltradas.length}{" "}
-              {rowsFiltradas.length === 1 ? "evento" : "eventos"}
+              {rowsFiltradas.length} {rowsFiltradas.length === 1 ? "evento" : "eventos"}
               {filtroDias !== "todos"
                 ? ` nos últimos ${filtroDias} dias`
                 : " no histórico completo"}
-              {filtroAcao !== "todas" ? ` · ação: ${acaoLabel(filtroAcao)}` : ""}
-              .
+              {filtroAcao !== "todas" ? ` · ação: ${acaoLabel(filtroAcao)}` : ""}.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -361,49 +330,72 @@ function AuditoriaPage() {
                 Nenhum acesso registrado para os filtros selecionados.
               </p>
             ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-44">Data e hora</TableHead>
-                      <TableHead>Cliente</TableHead>
-                      <TableHead>Usuário</TableHead>
-                      <TableHead className="w-24">Tipo</TableHead>
-                      <TableHead className="w-28">Ação</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {rowsFiltradas.map((r) => (
-                      <TableRow key={r.id}>
-                        <TableCell className="tabular-nums text-sm">
+              <>
+                {/* Mobile: cards */}
+                <div className="md:hidden space-y-3">
+                  {rowsFiltradas.map((r) => (
+                    <div
+                      key={r.id}
+                      className="rounded-lg border border-border bg-card p-3 space-y-1.5"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="font-medium text-sm">{r.cliente?.nome ?? "—"}</span>
+                        <span className="text-xs text-muted-foreground tabular-nums shrink-0">
                           {formatDataHora(r.acessado_em)}
-                        </TableCell>
-                        <TableCell className="font-medium">
-                          {r.cliente?.nome ?? "—"}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-col">
-                            <span className="text-sm">
-                              {r.usuario?.nome ?? "—"}
-                            </span>
-                            {r.usuario?.email && (
-                              <span className="text-xs text-muted-foreground">
-                                {r.usuario.email}
-                              </span>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <TipoUsuarioBadge tipo={r.usuario?.tipo} />
-                        </TableCell>
-                        <TableCell>
-                          <AcaoBadge acao={r.acao} />
-                        </TableCell>
+                        </span>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {r.usuario?.nome ?? "—"}
+                        {r.usuario?.email ? " · " + r.usuario.email : ""}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <TipoUsuarioBadge tipo={r.usuario?.tipo} />
+                        <AcaoBadge acao={r.acao} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {/* Desktop: tabela */}
+                <div className="hidden md:block overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-44">Data e hora</TableHead>
+                        <TableHead>Cliente</TableHead>
+                        <TableHead>Usuário</TableHead>
+                        <TableHead className="w-24">Tipo</TableHead>
+                        <TableHead className="w-28">Ação</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                    </TableHeader>
+                    <TableBody>
+                      {rowsFiltradas.map((r) => (
+                        <TableRow key={r.id}>
+                          <TableCell className="tabular-nums text-sm">
+                            {formatDataHora(r.acessado_em)}
+                          </TableCell>
+                          <TableCell className="font-medium">{r.cliente?.nome ?? "—"}</TableCell>
+                          <TableCell>
+                            <div className="flex flex-col">
+                              <span className="text-sm">{r.usuario?.nome ?? "—"}</span>
+                              {r.usuario?.email && (
+                                <span className="text-xs text-muted-foreground">
+                                  {r.usuario.email}
+                                </span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <TipoUsuarioBadge tipo={r.usuario?.tipo} />
+                          </TableCell>
+                          <TableCell>
+                            <AcaoBadge acao={r.acao} />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
             )}
           </CardContent>
         </Card>

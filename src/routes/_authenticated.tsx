@@ -69,7 +69,10 @@ function AuthenticatedLayout() {
       <SidebarProvider>
         <div className="flex min-h-screen w-full bg-muted/20">
         <AppSidebar />
-        <div className="flex flex-1 flex-col">
+        {/* min-w-0 permite o conteudo encolher abaixo da largura intrinseca
+            (senao tabs/tabelas largas forcam scroll horizontal da pagina toda
+            no mobile) */}
+        <div className="flex min-w-0 flex-1 flex-col">
           <header className="sticky top-0 z-10 flex h-14 items-center justify-between border-b border-border bg-background px-4">
             <div className="flex items-center gap-2">
               <SidebarTrigger />
