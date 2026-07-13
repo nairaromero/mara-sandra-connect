@@ -13,6 +13,7 @@ import {
   ListTodo,
   Calendar,
   Tag,
+  Handshake,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import {
@@ -42,6 +43,7 @@ const itemsBase = [
 ];
 
 const itemsInternos = [
+  { title: "Comercial", url: "/comercial", icon: Handshake },
   { title: "Tarefas", url: "/tarefas", icon: ListTodo },
   { title: "Agenda", url: "/agenda", icon: Calendar },
   { title: "Equipe", url: "/equipe", icon: UserCog },
