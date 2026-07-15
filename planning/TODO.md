@@ -37,14 +37,20 @@
 - [ ] **Workflows n8n (cron periódico)** — `ti-sync-clientes`, `ti-sync-notas`, `legalmail-sync-processos`, `legalmail-sync-movs`; começar restrito aos 5 clientes mais recentes, depois abrir escopo.
 - [ ] **IA pra resumir movs Legalmail (Estratégia D)** — resumo humano por sync. Adiado (custo $$).
 
-### Google Drive — sync bidirecional (push app → Drive)
+### Google Drive — sync bidirecional ✅ FECHADO 2026-06-18
 
-> Hoje o sync é unidirecional (Drive → app). Falta subir docs criados no app pro Drive.
+Estado: bidirecional end-to-end em produção. Doc completo:
+[INTEGRACAO_DRIVE_BIDIRECIONAL.md](INTEGRACAO_DRIVE_BIDIRECIONAL.md).
 
-- [ ] **Cenário A** — caso sem pasta: "Criar pasta no Drive e exportar tudo".
-- [ ] **Cenário B** — pasta vinculada, doc só no app: "Subir pendentes pro Drive".
-- [ ] **Cenário C** — sync incremental bidirecional num clique.
-- Considerações: scope `drive.file` (escrita) + nova autorização OAuth; limite ~750 uploads/dia; resolver conflitos de nome; audit via `documentos.uploaded_by`.
+- [x] **Cenário B** — pasta vinculada, doc só no app: botão "Subir pendentes (N)" na aba Documentos. Baixa do Storage, sobe no Drive, atualiza `gdrive_file_id`. Progresso "Subindo X/Y".
+- [x] **Cenário C** — sync incremental bidirecional: "Sync pasta" detecta novos (picker), renomeados (auto), apagados (confirm). Auto-check silencioso ao abrir caso popula badge âmbar `Sync pasta (3)` sem disparar popup.
+- [x] **Upload espelhado** (Fase 1) — upload no app sobe no Drive paralelo.
+- [x] **Rename/delete app → Drive** (Fase 3) — botão lápis renomeia, lixeira deleta. Drive recebe o mesmo.
+- [x] **Scope OAuth `drive`** — necessário pra rename/delete em docs importados (scope `drive.file` era restritivo).
+- [x] **Cache de token** — popup OAuth aparece 1x/hora, não a cada operação.
+- [ ] **Cenário A** (pendente) — caso sem pasta: "Criar pasta no Drive automaticamente ao criar caso novo + exportar tudo". Hoje vincula pasta manual.
+- [ ] **Resumable upload** (pendente) — arquivos >5MB falham hoje (multipart limit).
+- [ ] **Subpastas no Drive** (pendente, decidido como MVP fora do escopo) — criar/mover entre subpastas pelo app.
 
 ---
 

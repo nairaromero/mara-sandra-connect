@@ -714,7 +714,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Tipo</Label>
               <Select value={tipo} onValueChange={(v) => setTipo(v as TarefaTipo)}>

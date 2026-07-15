@@ -245,9 +245,7 @@ function ClientesPage() {
     if (parceiroFiltro === "__interno__") {
       result = result.filter((c) => c.casos.every((ca) => !ca.parceiroNome));
     } else if (parceiroFiltro) {
-      result = result.filter((c) =>
-        c.casos.some((ca) => ca.parceiroNome === parceiroFiltro),
-      );
+      result = result.filter((c) => c.casos.some((ca) => ca.parceiroNome === parceiroFiltro));
     }
 
     // Filtro por busca textual
@@ -365,23 +363,17 @@ function ClientesPage() {
               ja so ve os clientes dele via RLS). */}
             {isInterno && (
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs text-muted-foreground shrink-0">
-                  Parceiro:
-                </span>
+                <span className="text-xs text-muted-foreground shrink-0">Parceiro:</span>
                 <Select
                   value={parceiroFiltro || "__todos__"}
-                  onValueChange={(v) =>
-                    setParceiroFiltro(v === "__todos__" ? "" : v)
-                  }
+                  onValueChange={(v) => setParceiroFiltro(v === "__todos__" ? "" : v)}
                 >
                   <SelectTrigger className="w-auto min-w-[200px] h-8 text-sm">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__todos__">Todos</SelectItem>
-                    <SelectItem value="__interno__">
-                      Sem parceiro (interno)
-                    </SelectItem>
+                    <SelectItem value="__interno__">Sem parceiro (interno)</SelectItem>
                     {parceirosDisponiveis.map((nome) => (
                       <SelectItem key={nome} value={nome}>
                         {nome}
@@ -427,137 +419,210 @@ function ClientesPage() {
                   : "Nenhum cliente cadastrado ainda."}
               </p>
             ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Cliente</TableHead>
-                      <TableHead>CPF</TableHead>
-                      <TableHead>{isInterno ? "Parceiro" : "Casos"}</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Processos</TableHead>
-                      <TableHead className="w-8"></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {clientesFiltrados.map((c) => {
-                      const totalCasos = c.casos.length;
-                      const casoMaisRecente = c.casos[0]; // ja ordenado
-                      const totalProcessos = c.casos.reduce(
-                        (acc, ca) => acc + ca.numerosProcesso.length,
-                        0,
-                      );
-                      const parceirosNomes = Array.from(
-                        new Set(
-                          c.casos.map((ca) => ca.parceiroNome).filter((n): n is string => !!n),
-                        ),
-                      );
-                      return (
-                        <TableRow
-                          key={c.id}
-                          className="cursor-pointer hover:bg-muted/40"
-                          onClick={() => casoMaisRecente && abrirCaso(casoMaisRecente.id)}
-                        >
-                          <TableCell className="font-medium">
-                            <div className="flex items-center gap-2">
-                              <span>{c.nome}</span>
+              <>
+                {/* Mobile: lista em cards (tabela nao cabe em tela estreita) */}
+                <div className="md:hidden space-y-3">
+                  {clientesFiltrados.map((c) => {
+                    const totalCasos = c.casos.length;
+                    const casoMaisRecente = c.casos[0];
+                    const numerosProcesso = c.casos.flatMap((ca) => ca.numerosProcesso);
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => casoMaisRecente && abrirCaso(casoMaisRecente.id)}
+                        className="w-full text-left rounded-lg border border-border bg-card p-3 space-y-2 active:bg-muted/40"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-medium text-sm">{c.nome}</span>
                               {totalCasos > 1 && (
                                 <Badge variant="outline" className="text-[10px] tabular-nums">
                                   {totalCasos} casos
                                 </Badge>
                               )}
                             </div>
-                            {/* Um chip por caso (beneficio). Clicar abre aquele
-                                caso especifico — assim cliente com varios casos
-                                nao esconde nenhum. */}
-                            <div className="mt-1 flex flex-wrap gap-1">
-                              {c.casos.map((ca) => (
-                                <button
-                                  key={ca.id}
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    abrirCaso(ca.id, "andamentos");
-                                  }}
-                                  className="rounded border border-border bg-muted/40 px-1.5 py-0.5 text-[11px] font-normal text-muted-foreground hover:bg-muted hover:text-foreground"
-                                  title={"Abrir caso: " + (ca.tipo_beneficio ?? "(sem beneficio)")}
-                                >
-                                  {ca.tipo_beneficio ?? "(sem benefício)"}
-                                </button>
-                              ))}
+                            <div className="text-xs text-muted-foreground tabular-nums mt-0.5">
+                              {formatCPF(c.cpf)}
                             </div>
-                          </TableCell>
-                          <TableCell className="tabular-nums text-sm">{formatCPF(c.cpf)}</TableCell>
-                          <TableCell>
-                            {isInterno ? (
-                              parceirosNomes.length > 0 ? (
-                                <span className="text-sm">{parceirosNomes.join(", ")}</span>
-                              ) : (
-                                <span className="text-xs text-muted-foreground">Interno</span>
-                              )
-                            ) : (
-                              <Badge variant="outline" className="tabular-nums">
-                                {totalCasos}
-                              </Badge>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {casoMaisRecente && <StatusBadge status={casoMaisRecente.status} />}
-                          </TableCell>
-                          <TableCell className="text-xs text-muted-foreground">
-                            {totalProcessos > 0 ? (
-                              <div className="space-y-0.5">
-                                {c.casos
-                                  .flatMap((ca) => ca.numerosProcesso)
-                                  .slice(0, 2)
-                                  .map((n, i) => (
-                                    <div key={i} className="font-mono tabular-nums">
-                                      {n}
-                                    </div>
-                                  ))}
-                                {totalProcessos > 2 && (
-                                  <div className="text-[10px] text-muted-foreground">
-                                    +{totalProcessos - 2} mais
-                                  </div>
+                          </div>
+                          <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0 mt-1" />
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {casoMaisRecente && <StatusBadge status={casoMaisRecente.status} />}
+                          {c.casos.map((ca) => (
+                            <span
+                              key={ca.id}
+                              role="link"
+                              tabIndex={0}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                abrirCaso(ca.id, "andamentos");
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  abrirCaso(ca.id, "andamentos");
+                                }
+                              }}
+                              className="rounded border border-border bg-muted/40 px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                            >
+                              {ca.tipo_beneficio ?? "(sem benefício)"}
+                            </span>
+                          ))}
+                        </div>
+                        {numerosProcesso.length > 0 && (
+                          <div className="text-[11px] font-mono tabular-nums text-muted-foreground">
+                            {numerosProcesso.slice(0, 2).join(" · ")}
+                            {numerosProcesso.length > 2 && " +" + (numerosProcesso.length - 2)}
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                  <p className="text-xs text-muted-foreground">
+                    Toque num cliente pra abrir o caso mais recente.
+                  </p>
+                </div>
+                {/* Desktop: tabela completa */}
+                <div className="hidden md:block overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Cliente</TableHead>
+                        <TableHead>CPF</TableHead>
+                        <TableHead>{isInterno ? "Parceiro" : "Casos"}</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Processos</TableHead>
+                        <TableHead className="w-8"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {clientesFiltrados.map((c) => {
+                        const totalCasos = c.casos.length;
+                        const casoMaisRecente = c.casos[0]; // ja ordenado
+                        const totalProcessos = c.casos.reduce(
+                          (acc, ca) => acc + ca.numerosProcesso.length,
+                          0,
+                        );
+                        const parceirosNomes = Array.from(
+                          new Set(
+                            c.casos.map((ca) => ca.parceiroNome).filter((n): n is string => !!n),
+                          ),
+                        );
+                        return (
+                          <TableRow
+                            key={c.id}
+                            className="cursor-pointer hover:bg-muted/40"
+                            onClick={() => casoMaisRecente && abrirCaso(casoMaisRecente.id)}
+                          >
+                            <TableCell className="font-medium">
+                              <div className="flex items-center gap-2">
+                                <span>{c.nome}</span>
+                                {totalCasos > 1 && (
+                                  <Badge variant="outline" className="text-[10px] tabular-nums">
+                                    {totalCasos} casos
+                                  </Badge>
                                 )}
                               </div>
-                            ) : (
-                              "-"
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1 justify-end">
-                              {isInterno && casoMaisRecente && (
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-7 px-2 text-xs"
-                                  title={`Agendar perícia para ${c.nome}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setTarefaSheet({
-                                      kind: "criar",
-                                      casoIdInicial: casoMaisRecente.id,
-                                      templateInicial: "pericia_parceiro",
-                                    });
-                                  }}
-                                >
-                                  <CalendarPlus className="h-3.5 w-3.5" />
-                                  <span className="hidden sm:inline ml-1">Perícia</span>
-                                </Button>
+                              {/* Um chip por caso (beneficio). Clicar abre aquele
+                                caso especifico — assim cliente com varios casos
+                                nao esconde nenhum. */}
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {c.casos.map((ca) => (
+                                  <button
+                                    key={ca.id}
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      abrirCaso(ca.id, "andamentos");
+                                    }}
+                                    className="rounded border border-border bg-muted/40 px-1.5 py-0.5 text-[11px] font-normal text-muted-foreground hover:bg-muted hover:text-foreground"
+                                    title={
+                                      "Abrir caso: " + (ca.tipo_beneficio ?? "(sem beneficio)")
+                                    }
+                                  >
+                                    {ca.tipo_beneficio ?? "(sem benefício)"}
+                                  </button>
+                                ))}
+                              </div>
+                            </TableCell>
+                            <TableCell className="tabular-nums text-sm">
+                              {formatCPF(c.cpf)}
+                            </TableCell>
+                            <TableCell>
+                              {isInterno ? (
+                                parceirosNomes.length > 0 ? (
+                                  <span className="text-sm">{parceirosNomes.join(", ")}</span>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">Interno</span>
+                                )
+                              ) : (
+                                <Badge variant="outline" className="tabular-nums">
+                                  {totalCasos}
+                                </Badge>
                               )}
-                              <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-                <p className="text-xs text-muted-foreground mt-3">
-                  Clique numa linha pra abrir o caso mais recente do cliente.
-                </p>
-              </div>
+                            </TableCell>
+                            <TableCell>
+                              {casoMaisRecente && <StatusBadge status={casoMaisRecente.status} />}
+                            </TableCell>
+                            <TableCell className="text-xs text-muted-foreground">
+                              {totalProcessos > 0 ? (
+                                <div className="space-y-0.5">
+                                  {c.casos
+                                    .flatMap((ca) => ca.numerosProcesso)
+                                    .slice(0, 2)
+                                    .map((n, i) => (
+                                      <div key={i} className="font-mono tabular-nums">
+                                        {n}
+                                      </div>
+                                    ))}
+                                  {totalProcessos > 2 && (
+                                    <div className="text-[10px] text-muted-foreground">
+                                      +{totalProcessos - 2} mais
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                "-"
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-1 justify-end">
+                                {isInterno && casoMaisRecente && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-7 px-2 text-xs"
+                                    title={`Agendar perícia para ${c.nome}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setTarefaSheet({
+                                        kind: "criar",
+                                        casoIdInicial: casoMaisRecente.id,
+                                        templateInicial: "pericia_parceiro",
+                                      });
+                                    }}
+                                  >
+                                    <CalendarPlus className="h-3.5 w-3.5" />
+                                    <span className="hidden sm:inline ml-1">Perícia</span>
+                                  </Button>
+                                )}
+                                <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                  <p className="text-xs text-muted-foreground mt-3">
+                    Clique numa linha pra abrir o caso mais recente do cliente.
+                  </p>
+                </div>
+              </>
             )}
           </CardContent>
         </Card>

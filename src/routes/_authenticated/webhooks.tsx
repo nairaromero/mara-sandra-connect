@@ -22,13 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -76,13 +70,33 @@ const EVENTOS: { value: string; label: string; desc: string }[] = [
   { value: "caso.fase_changed", label: "Fase do caso", desc: "Mudança de fase do caso" },
   { value: "andamento.created", label: "Novo andamento", desc: "Andamento registrado no caso" },
   { value: "documento.uploaded", label: "Documento enviado", desc: "Documento anexado ao caso" },
-  { value: "solicitacao_documento.created", label: "Solicitação de documento", desc: "Pedido de documento ao cliente" },
-  { value: "solicitacao_documento.status_changed", label: "Status da solicitação", desc: "Solicitação de documento mudou de status" },
+  {
+    value: "solicitacao_documento.created",
+    label: "Solicitação de documento",
+    desc: "Pedido de documento ao cliente",
+  },
+  {
+    value: "solicitacao_documento.status_changed",
+    label: "Status da solicitação",
+    desc: "Solicitação de documento mudou de status",
+  },
   // Repasse pausado na UI (mantido no backend) - ver todo list.
   // { value: "repasse.status_changed", label: "Status de repasse", desc: "Mudanca no status de um repasse" },
-  { value: "processo_admin.decisao", label: "Decisão administrativa", desc: "Decisão em processo administrativo" },
-  { value: "processo_judicial.created", label: "Processo judicial", desc: "Novo processo judicial cadastrado" },
-  { value: "analise_tecnica.disponivel", label: "Análise técnica", desc: "Análise técnica disponibilizada" },
+  {
+    value: "processo_admin.decisao",
+    label: "Decisão administrativa",
+    desc: "Decisão em processo administrativo",
+  },
+  {
+    value: "processo_judicial.created",
+    label: "Processo judicial",
+    desc: "Novo processo judicial cadastrado",
+  },
+  {
+    value: "analise_tecnica.disponivel",
+    label: "Análise técnica",
+    desc: "Análise técnica disponibilizada",
+  },
 ];
 
 interface ParceiroOption {
@@ -195,13 +209,8 @@ function WebhooksPage() {
     if (isInterno) loadDados();
   }, [isInterno]);
 
-  function toggleEvento(
-    value: string,
-    set: React.Dispatch<React.SetStateAction<string[]>>,
-  ) {
-    set((prev) =>
-      prev.includes(value) ? prev.filter((e) => e !== value) : [...prev, value],
-    );
+  function toggleEvento(value: string, set: React.Dispatch<React.SetStateAction<string[]>>) {
+    set((prev) => (prev.includes(value) ? prev.filter((e) => e !== value) : [...prev, value]));
   }
 
   async function copiar(texto: string, marcar: (v: boolean) => void) {
@@ -261,9 +270,7 @@ function WebhooksPage() {
         );
       }
 
-      toast.success(
-        "Webhook criado. Copie o segredo agora - ele não será mostrado de novo.",
-      );
+      toast.success("Webhook criado. Copie o segredo agora - ele não será mostrado de novo.");
       setNovoParceiro("");
       setNovaUrl("");
       setNovosEventos([]);
@@ -279,17 +286,12 @@ function WebhooksPage() {
   }
 
   async function toggleAtivo(d: DestinoRow) {
-    const resp = await supabase
-      .from("webhook_destinos")
-      .update({ ativo: !d.ativo })
-      .eq("id", d.id);
+    const resp = await supabase.from("webhook_destinos").update({ ativo: !d.ativo }).eq("id", d.id);
     if (resp.error) {
       console.error(resp.error);
       toast.error("Falha ao alterar status.");
     } else {
-      setDestinos((prev) =>
-        prev.map((x) => (x.id === d.id ? { ...x, ativo: !x.ativo } : x)),
-      );
+      setDestinos((prev) => prev.map((x) => (x.id === d.id ? { ...x, ativo: !x.ativo } : x)));
     }
   }
 
@@ -347,9 +349,7 @@ function WebhooksPage() {
         p_secret: segredoNovo.trim(),
       });
       if (resp.error) throw resp.error;
-      toast.success(
-        "Segredo atualizado. Copie agora - não será mostrado de novo.",
-      );
+      toast.success("Segredo atualizado. Copie agora - não será mostrado de novo.");
       setSegredoAlvo(null);
       await loadDados();
     } catch (err) {
@@ -365,10 +365,7 @@ function WebhooksPage() {
     if (!excluirAlvo) return;
     setExcluindo(true);
     try {
-      const resp = await supabase
-        .from("webhook_destinos")
-        .delete()
-        .eq("id", excluirAlvo.id);
+      const resp = await supabase.from("webhook_destinos").delete().eq("id", excluirAlvo.id);
       if (resp.error) throw resp.error;
       toast.success("Webhook excluído.");
       setExcluirAlvo(null);
@@ -398,13 +395,10 @@ function WebhooksPage() {
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <div>
-        <h1 className="font-serif text-3xl font-semibold tracking-tight">
-          Webhooks
-        </h1>
+        <h1 className="font-serif text-3xl font-semibold tracking-tight">Webhooks</h1>
         <p className="text-sm text-muted-foreground">
-          Notificações enviadas a parceiros externos quando algo muda no caso.
-          O segredo assina cada entrega (HMAC-SHA256) e fica guardado cifrado -
-          só é mostrado no momento da criação.
+          Notificações enviadas a parceiros externos quando algo muda no caso. O segredo assina cada
+          entrega (HMAC-SHA256) e fica guardado cifrado - só é mostrado no momento da criação.
         </p>
       </div>
 
@@ -422,8 +416,7 @@ function WebhooksPage() {
               Novo destino de webhook
             </CardTitle>
             <CardDescription>
-              Escolha o parceiro, a URL de entrega (https) e os eventos que ele
-              deve receber.
+              Escolha o parceiro, a URL de entrega (https) e os eventos que ele deve receber.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -473,15 +466,11 @@ function WebhooksPage() {
                     <Checkbox
                       id={"novo-" + ev.value}
                       checked={novosEventos.includes(ev.value)}
-                      onCheckedChange={() =>
-                        toggleEvento(ev.value, setNovosEventos)
-                      }
+                      onCheckedChange={() => toggleEvento(ev.value, setNovosEventos)}
                       className="mt-0.5"
                     />
                     <div className="space-y-0.5">
-                      <p className="text-sm font-medium leading-none">
-                        {ev.label}
-                      </p>
+                      <p className="text-sm font-medium leading-none">{ev.label}</p>
                       <p className="text-xs text-muted-foreground">{ev.desc}</p>
                     </div>
                   </label>
@@ -514,16 +503,12 @@ function WebhooksPage() {
                   onClick={() => copiar(novoSegredo, setCopiado)}
                   aria-label="Copiar segredo"
                 >
-                  {copiado ? (
-                    <Check className="h-4 w-4" />
-                  ) : (
-                    <Copy className="h-4 w-4" />
-                  )}
+                  {copiado ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                 </Button>
               </div>
               <p className="text-xs text-[var(--gold)] font-medium">
-                Copie e entregue ao parceiro com segurança. Após salvar, o
-                segredo não poderá mais ser visto - só redefinido.
+                Copie e entregue ao parceiro com segurança. Após salvar, o segredo não poderá mais
+                ser visto - só redefinido.
               </p>
             </div>
 
@@ -541,8 +526,7 @@ function WebhooksPage() {
           <CardHeader>
             <CardTitle className="text-base">Destinos cadastrados</CardTitle>
             <CardDescription>
-              {destinos.length} {destinos.length === 1 ? "destino" : "destinos"}{" "}
-              no total.
+              {destinos.length} {destinos.length === 1 ? "destino" : "destinos"} no total.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -552,57 +536,47 @@ function WebhooksPage() {
               </div>
             ) : destinos.length === 0 ? (
               <p className="text-sm text-muted-foreground py-8 text-center">
-                Nenhum webhook cadastrado ainda. Use o formulário acima para
-                criar o primeiro.
+                Nenhum webhook cadastrado ainda. Use o formulário acima para criar o primeiro.
               </p>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Parceiro</TableHead>
-                    <TableHead>URL</TableHead>
-                    <TableHead className="w-20 text-center">Eventos</TableHead>
-                    <TableHead className="w-24">Segredo</TableHead>
-                    <TableHead className="w-20 text-center">Ativo</TableHead>
-                    <TableHead className="w-32 text-right">Ações</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
+              <>
+                {/* Mobile: cards */}
+                <div className="md:hidden space-y-3">
                   {destinos.map((d) => (
-                    <TableRow key={d.id}>
-                      <TableCell className="font-medium">
-                        {nomeParceiro(d)}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground max-w-[220px] truncate font-mono text-xs">
-                        {d.url}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <Badge variant="secondary">{d.eventos.length}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        {d.secret_id ? (
-                          <Badge variant="secondary">Definido</Badge>
-                        ) : (
-                          <Badge variant="outline" className="text-destructive">
-                            Pendente
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-center">
+                    <div
+                      key={d.id}
+                      className="rounded-lg border border-border bg-card p-3 space-y-2"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="font-medium text-sm">{nomeParceiro(d)}</div>
+                          <div className="text-xs text-muted-foreground font-mono truncate">
+                            {d.url}
+                          </div>
+                        </div>
                         <Switch
                           checked={d.ativo}
                           onCheckedChange={() => toggleAtivo(d)}
                           aria-label="Ativar ou desativar webhook"
                         />
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-0.5">
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <Badge variant="secondary">{d.eventos.length} eventos</Badge>
+                          {d.secret_id ? (
+                            <Badge variant="secondary">Segredo definido</Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-destructive">
+                              Segredo pendente
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex gap-0.5">
                           <Button
                             size="sm"
                             variant="ghost"
                             onClick={() => abrirSegredo(d)}
                             aria-label="Redefinir segredo"
-                            title="Redefinir segredo"
                           >
                             <RefreshCw className="h-3.5 w-3.5" />
                           </Button>
@@ -611,7 +585,6 @@ function WebhooksPage() {
                             variant="ghost"
                             onClick={() => abrirEditar(d)}
                             aria-label="Editar webhook"
-                            title="Editar"
                           >
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
@@ -620,17 +593,92 @@ function WebhooksPage() {
                             variant="ghost"
                             onClick={() => setExcluirAlvo(d)}
                             aria-label="Excluir webhook"
-                            title="Excluir"
                             className="text-muted-foreground hover:text-destructive"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </div>
-                      </TableCell>
-                    </TableRow>
+                      </div>
+                    </div>
                   ))}
-                </TableBody>
-              </Table>
+                </div>
+                {/* Desktop: tabela */}
+                <div className="hidden md:block overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Parceiro</TableHead>
+                        <TableHead>URL</TableHead>
+                        <TableHead className="w-20 text-center">Eventos</TableHead>
+                        <TableHead className="w-24">Segredo</TableHead>
+                        <TableHead className="w-20 text-center">Ativo</TableHead>
+                        <TableHead className="w-32 text-right">Ações</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {destinos.map((d) => (
+                        <TableRow key={d.id}>
+                          <TableCell className="font-medium">{nomeParceiro(d)}</TableCell>
+                          <TableCell className="text-muted-foreground max-w-[220px] truncate font-mono text-xs">
+                            {d.url}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <Badge variant="secondary">{d.eventos.length}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            {d.secret_id ? (
+                              <Badge variant="secondary">Definido</Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-destructive">
+                                Pendente
+                              </Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <Switch
+                              checked={d.ativo}
+                              onCheckedChange={() => toggleAtivo(d)}
+                              aria-label="Ativar ou desativar webhook"
+                            />
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-0.5">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => abrirSegredo(d)}
+                                aria-label="Redefinir segredo"
+                                title="Redefinir segredo"
+                              >
+                                <RefreshCw className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => abrirEditar(d)}
+                                aria-label="Editar webhook"
+                                title="Editar"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setExcluirAlvo(d)}
+                                aria-label="Excluir webhook"
+                                title="Excluir"
+                                className="text-muted-foreground hover:text-destructive"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
             )}
           </CardContent>
         </Card>
@@ -646,8 +694,8 @@ function WebhooksPage() {
             <DialogHeader>
               <DialogTitle>Editar webhook</DialogTitle>
               <DialogDescription>
-                Ajuste a URL de entrega e os eventos. O segredo não muda aqui -
-                use "Redefinir segredo".
+                Ajuste a URL de entrega e os eventos. O segredo não muda aqui - use "Redefinir
+                segredo".
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
@@ -673,18 +721,12 @@ function WebhooksPage() {
                       <Checkbox
                         id={"edit-" + ev.value}
                         checked={editEventos.includes(ev.value)}
-                        onCheckedChange={() =>
-                          toggleEvento(ev.value, setEditEventos)
-                        }
+                        onCheckedChange={() => toggleEvento(ev.value, setEditEventos)}
                         className="mt-0.5"
                       />
                       <div className="space-y-0.5">
-                        <p className="text-sm font-medium leading-none">
-                          {ev.label}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {ev.desc}
-                        </p>
+                        <p className="text-sm font-medium leading-none">{ev.label}</p>
+                        <p className="text-xs text-muted-foreground">{ev.desc}</p>
                       </div>
                     </label>
                   ))}
@@ -692,17 +734,11 @@ function WebhooksPage() {
               </div>
             </div>
             <DialogFooter>
-              <Button
-                variant="ghost"
-                onClick={() => setEditAlvo(null)}
-                disabled={editSalvando}
-              >
+              <Button variant="ghost" onClick={() => setEditAlvo(null)} disabled={editSalvando}>
                 Cancelar
               </Button>
               <Button onClick={salvarEdit} disabled={editSalvando}>
-                {editSalvando && (
-                  <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                )}
+                {editSalvando && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
                 Salvar
               </Button>
             </DialogFooter>
@@ -720,10 +756,8 @@ function WebhooksPage() {
             <DialogHeader>
               <DialogTitle>Redefinir segredo</DialogTitle>
               <DialogDescription>
-                Gere um novo segredo para{" "}
-                {segredoAlvo ? nomeParceiro(segredoAlvo) : "este destino"}. O
-                segredo antigo deixa de valer imediatamente - combine a troca
-                com o parceiro.
+                Gere um novo segredo para {segredoAlvo ? nomeParceiro(segredoAlvo) : "este destino"}
+                . O segredo antigo deixa de valer imediatamente - combine a troca com o parceiro.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-2">
@@ -751,11 +785,7 @@ function WebhooksPage() {
                   onClick={() => copiar(segredoNovo, setSegredoCopiado)}
                   aria-label="Copiar segredo"
                 >
-                  {segredoCopiado ? (
-                    <Check className="h-4 w-4" />
-                  ) : (
-                    <Copy className="h-4 w-4" />
-                  )}
+                  {segredoCopiado ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                 </Button>
               </div>
               <p className="text-xs text-[var(--gold)] font-medium">
@@ -771,9 +801,7 @@ function WebhooksPage() {
                 Cancelar
               </Button>
               <Button onClick={salvarSegredo} disabled={segredoSalvando}>
-                {segredoSalvando && (
-                  <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                )}
+                {segredoSalvando && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
                 Salvar segredo
               </Button>
             </DialogFooter>
@@ -793,25 +821,18 @@ function WebhooksPage() {
               <AlertDialogDescription asChild>
                 <div className="space-y-2 text-sm">
                   <p>
-                    O destino{" "}
-                    <strong>
-                      {excluirAlvo ? nomeParceiro(excluirAlvo) : ""}
-                    </strong>{" "}
-                    deixará de receber notificações. Esta ação é{" "}
-                    <strong>irreversível</strong> e o segredo associado é
-                    descartado.
+                    O destino <strong>{excluirAlvo ? nomeParceiro(excluirAlvo) : ""}</strong>{" "}
+                    deixará de receber notificações. Esta ação é <strong>irreversível</strong> e o
+                    segredo associado é descartado.
                   </p>
                   <p className="text-muted-foreground">
-                    O histórico de entregas (webhook_eventos) é preservado para
-                    auditoria.
+                    O histórico de entregas (webhook_eventos) é preservado para auditoria.
                   </p>
                 </div>
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel disabled={excluindo}>
-                Cancelar
-              </AlertDialogCancel>
+              <AlertDialogCancel disabled={excluindo}>Cancelar</AlertDialogCancel>
               <AlertDialogAction
                 onClick={(e) => {
                   e.preventDefault();

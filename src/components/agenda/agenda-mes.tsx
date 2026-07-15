@@ -103,7 +103,7 @@ export function AgendaMes({ eventos, onEventoClick, onDiaClick }: Props) {
                 onDiaClick?.(d);
               }}
               className={cn(
-                "min-h-[90px] rounded-md border p-1.5 text-left transition-colors flex flex-col gap-1",
+                "min-h-[64px] sm:min-h-[90px] rounded-md border p-1 sm:p-1.5 text-left transition-colors flex flex-col gap-1",
                 ehMesAtual ? "bg-card" : "bg-muted/30 text-muted-foreground",
                 ehHoje && "border-primary",
                 selecionado && "ring-2 ring-primary/30",
