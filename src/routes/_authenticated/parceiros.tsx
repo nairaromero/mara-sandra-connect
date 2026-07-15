@@ -25,13 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -326,9 +320,7 @@ function ParceirosPage() {
       if (data?.warning) {
         toast.warning(data.warning);
       } else {
-        toast.success(
-          "Parceiro " + (excluirAlvo.nome ?? "") + " excluído.",
-        );
+        toast.success("Parceiro " + (excluirAlvo.nome ?? "") + " excluído.");
       }
       setExcluirAlvo(null);
       await loadParceiros();
@@ -367,7 +359,9 @@ function ParceirosPage() {
     setLoading(true);
     const { data, error } = await supabase
       .from("usuarios")
-      .select("id, nome, email, oab, telefone, percentual_parceiro, ativo, created_at, onboarded_em")
+      .select(
+        "id, nome, email, oab, telefone, percentual_parceiro, ativo, created_at, onboarded_em",
+      )
       .eq("tipo", "parceiro")
       .order("created_at", { ascending: false });
     if (error) {
@@ -387,9 +381,7 @@ function ParceirosPage() {
     setSubmitting(true);
     try {
       const redirectTo =
-        typeof window !== "undefined"
-          ? `${window.location.origin}/login`
-          : undefined;
+        typeof window !== "undefined" ? `${window.location.origin}/login` : undefined;
 
       const resp = await supabase.functions.invoke("convidar-usuario", {
         body: {
@@ -438,9 +430,7 @@ function ParceirosPage() {
     setReenviandoId(p.id);
     try {
       const redirectTo =
-        typeof window !== "undefined"
-          ? `${window.location.origin}/login`
-          : undefined;
+        typeof window !== "undefined" ? `${window.location.origin}/login` : undefined;
       const resp = await supabase.functions.invoke("convidar-usuario", {
         body: {
           nome: p.nome,
@@ -458,8 +448,7 @@ function ParceirosPage() {
       toast.success(`Convite reenviado para ${p.email}.`);
       await loadParceiros();
     } catch (err) {
-      const msg =
-        (err as { message?: string })?.message ?? "Falha ao reenviar convite.";
+      const msg = (err as { message?: string })?.message ?? "Falha ao reenviar convite.";
       toast.error(msg);
     } finally {
       setReenviandoId(null);
@@ -478,9 +467,7 @@ function ParceirosPage() {
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <div>
-        <h1 className="font-serif text-3xl font-semibold tracking-tight">
-          Parceiros
-        </h1>
+        <h1 className="font-serif text-3xl font-semibold tracking-tight">Parceiros</h1>
         <p className="text-sm text-muted-foreground">
           Advogados captadores que indicam casos ao escritório.
         </p>
@@ -505,10 +492,7 @@ function ParceirosPage() {
           </CardHeader>
           <CardContent>
             <Form {...form}>
-              <form
-                onSubmit={form.handleSubmit(onSubmit)}
-                className="grid gap-4 sm:grid-cols-2"
-              >
+              <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4 sm:grid-cols-2">
                 <FormField
                   control={form.control}
                   name="nome"
@@ -564,9 +548,7 @@ function ParceirosPage() {
                           placeholder="(00) 00000-0000"
                           inputMode="tel"
                           value={field.value}
-                          onChange={(e) =>
-                            field.onChange(maskTelefone(e.target.value))
-                          }
+                          onChange={(e) => field.onChange(maskTelefone(e.target.value))}
                         />
                       </FormControl>
                       <FormMessage />
@@ -633,7 +615,8 @@ function ParceirosPage() {
                 Aguardando aceite do convite
               </CardTitle>
               <CardDescription>
-                Convite enviado por e-mail. O parceiro ainda não acessou pela primeira vez nem aceitou os termos. Você pode reenviar o link ou ajustar os dados.
+                Convite enviado por e-mail. O parceiro ainda não acessou pela primeira vez nem
+                aceitou os termos. Você pode reenviar o link ou ajustar os dados.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -725,98 +708,175 @@ function ParceirosPage() {
                   : "Nenhum parceiro fez o primeiro acesso ainda."}
               </p>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Nome</TableHead>
-                    <TableHead>E-mail</TableHead>
-                    <TableHead>OAB</TableHead>
-                    <TableHead className="w-16">Repasse</TableHead>
-                    <TableHead>Telefone</TableHead>
-                    <TableHead className="w-24">Status</TableHead>
-                    <TableHead className="w-36 text-right">Ações</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
+              <>
+                {/* Mobile: cards */}
+                <div className="md:hidden space-y-3">
                   {parceiros
                     .filter((p) => p.onboarded_em)
                     .map((p) => (
-                      <TableRow key={p.id}>
-                        <TableCell className="font-medium">{p.nome ?? "—"}</TableCell>
-                        <TableCell className="text-muted-foreground">{p.email ?? "—"}</TableCell>
-                        <TableCell>{p.oab ?? "—"}</TableCell>
-                        <TableCell>
-                          {p.percentual_parceiro != null
-                            ? `${p.percentual_parceiro}%`
-                            : "—"}
-                        </TableCell>
-                        <TableCell>{p.telefone ?? "—"}</TableCell>
-                        <TableCell>
-                          {p.ativo ? (
-                            <Badge variant="secondary">Ativo</Badge>
-                          ) : (
-                            <Badge variant="outline">Inativo</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-0.5">
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => setAtivarAlvo(p)}
-                              disabled={!p.telefone}
-                              aria-label="Ativar WhatsApp"
-                              title={
-                                p.telefone
-                                  ? "Ativar WhatsApp (envia código ao parceiro)"
-                                  : "Parceiro sem telefone cadastrado"
-                              }
-                              className="text-muted-foreground hover:text-green-600"
-                            >
-                              <MessageCircle className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => setAceiteAlvo(p)}
-                              aria-label="Ver aceite de termos"
-                              title="Ver/baixar aceite de termos"
-                              className="text-muted-foreground hover:text-[var(--gold)]"
-                            >
-                              <FileSignature className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => abrirEditar(p)}
-                              aria-label="Editar parceiro"
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => setExcluirAlvo(p)}
-                              aria-label="Excluir parceiro"
-                              className="text-muted-foreground hover:text-destructive"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
+                      <div
+                        key={p.id}
+                        className="rounded-lg border border-border bg-card p-3 space-y-2"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="font-medium text-sm">{p.nome ?? "—"}</div>
+                            <div className="text-xs text-muted-foreground truncate">
+                              {p.email ?? "—"}
+                            </div>
                           </div>
-                        </TableCell>
-                      </TableRow>
+                          {p.ativo ? (
+                            <Badge variant="secondary" className="shrink-0">
+                              Ativo
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="shrink-0">
+                              Inativo
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-0.5">
+                          <span>OAB: {p.oab ?? "—"}</span>
+                          <span>
+                            Repasse:{" "}
+                            {p.percentual_parceiro != null ? `${p.percentual_parceiro}%` : "—"}
+                          </span>
+                          <span>Tel: {p.telefone ?? "—"}</span>
+                        </div>
+                        <div className="flex justify-end gap-0.5 border-t border-border pt-1.5">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setAtivarAlvo(p)}
+                            disabled={!p.telefone}
+                            aria-label="Ativar WhatsApp"
+                            className="text-muted-foreground hover:text-green-600"
+                          >
+                            <MessageCircle className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setAceiteAlvo(p)}
+                            aria-label="Ver aceite de termos"
+                            className="text-muted-foreground hover:text-[var(--gold)]"
+                          >
+                            <FileSignature className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => abrirEditar(p)}
+                            aria-label="Editar parceiro"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setExcluirAlvo(p)}
+                            aria-label="Excluir parceiro"
+                            className="text-muted-foreground hover:text-destructive"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
                     ))}
-                </TableBody>
-              </Table>
+                </div>
+                {/* Desktop: tabela */}
+                <div className="hidden md:block overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Nome</TableHead>
+                        <TableHead>E-mail</TableHead>
+                        <TableHead>OAB</TableHead>
+                        <TableHead className="w-16">Repasse</TableHead>
+                        <TableHead>Telefone</TableHead>
+                        <TableHead className="w-24">Status</TableHead>
+                        <TableHead className="w-36 text-right">Ações</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {parceiros
+                        .filter((p) => p.onboarded_em)
+                        .map((p) => (
+                          <TableRow key={p.id}>
+                            <TableCell className="font-medium">{p.nome ?? "—"}</TableCell>
+                            <TableCell className="text-muted-foreground">
+                              {p.email ?? "—"}
+                            </TableCell>
+                            <TableCell>{p.oab ?? "—"}</TableCell>
+                            <TableCell>
+                              {p.percentual_parceiro != null ? `${p.percentual_parceiro}%` : "—"}
+                            </TableCell>
+                            <TableCell>{p.telefone ?? "—"}</TableCell>
+                            <TableCell>
+                              {p.ativo ? (
+                                <Badge variant="secondary">Ativo</Badge>
+                              ) : (
+                                <Badge variant="outline">Inativo</Badge>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-0.5">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => setAtivarAlvo(p)}
+                                  disabled={!p.telefone}
+                                  aria-label="Ativar WhatsApp"
+                                  title={
+                                    p.telefone
+                                      ? "Ativar WhatsApp (envia código ao parceiro)"
+                                      : "Parceiro sem telefone cadastrado"
+                                  }
+                                  className="text-muted-foreground hover:text-green-600"
+                                >
+                                  <MessageCircle className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => setAceiteAlvo(p)}
+                                  aria-label="Ver aceite de termos"
+                                  title="Ver/baixar aceite de termos"
+                                  className="text-muted-foreground hover:text-[var(--gold)]"
+                                >
+                                  <FileSignature className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => abrirEditar(p)}
+                                  aria-label="Editar parceiro"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => setExcluirAlvo(p)}
+                                  aria-label="Excluir parceiro"
+                                  className="text-muted-foreground hover:text-destructive"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
             )}
           </CardContent>
         </Card>
 
         {/* Dialog: aceite de termos do parceiro (interno only) */}
-        <Dialog
-          open={aceiteAlvo !== null}
-          onOpenChange={(o) => !o && setAceiteAlvo(null)}
-        >
+        <Dialog open={aceiteAlvo !== null} onOpenChange={(o) => !o && setAceiteAlvo(null)}>
           <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
             <DialogHeader>
               <DialogTitle>Aceite de termos — {aceiteAlvo?.nome ?? "—"}</DialogTitle>
@@ -843,9 +903,7 @@ function ParceirosPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() =>
-                          baixarComprovante(a, aceiteAlvo?.nome ?? "parceiro")
-                        }
+                        onClick={() => baixarComprovante(a, aceiteAlvo?.nome ?? "parceiro")}
                       >
                         <Download className="h-3.5 w-3.5 mr-1.5" />
                         Baixar comprovante
@@ -859,9 +917,7 @@ function ParceirosPage() {
                       <dt className="text-muted-foreground">IP</dt>
                       <dd>{a.ip || "—"}</dd>
                       <dt className="text-muted-foreground">Documentos</dt>
-                      <dd>
-                        {(a.documentos || []).map((d) => d.titulo).join(", ") || "—"}
-                      </dd>
+                      <dd>{(a.documentos || []).map((d) => d.titulo).join(", ") || "—"}</dd>
                     </dl>
                   </div>
                 ))}
@@ -887,10 +943,9 @@ function ParceirosPage() {
             <DialogHeader>
               <DialogTitle>Editar parceiro</DialogTitle>
               <DialogDescription>
-                Atualize dados do parceiro. Se trocar o email, um novo magic
-                link será enviado pro novo endereço automaticamente - útil pra
-                testar com seu próprio email agora e migrar pro email real
-                depois.
+                Atualize dados do parceiro. Se trocar o email, um novo magic link será enviado pro
+                novo endereço automaticamente - útil pra testar com seu próprio email agora e migrar
+                pro email real depois.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
@@ -911,14 +966,14 @@ function ParceirosPage() {
                   placeholder="parceiro@exemplo.com"
                   autoComplete="off"
                 />
-                {editAlvo && editEmail.trim().toLowerCase() !==
-                  (editAlvo.email ?? "").toLowerCase() && (
-                  <p className="text-xs text-[var(--gold)] mt-1 font-medium">
-                    Email mudou - será enviado novo magic link ao salvar.
-                  </p>
-                )}
+                {editAlvo &&
+                  editEmail.trim().toLowerCase() !== (editAlvo.email ?? "").toLowerCase() && (
+                    <p className="text-xs text-[var(--gold)] mt-1 font-medium">
+                      Email mudou - será enviado novo magic link ao salvar.
+                    </p>
+                  )}
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label className="text-xs">OAB</Label>
                   <Input
@@ -931,9 +986,7 @@ function ParceirosPage() {
                   <Label className="text-xs">Telefone</Label>
                   <Input
                     value={editTelefone}
-                    onChange={(e) =>
-                      setEditTelefone(maskTelefone(e.target.value))
-                    }
+                    onChange={(e) => setEditTelefone(maskTelefone(e.target.value))}
                     placeholder="(00) 00000-0000"
                     inputMode="tel"
                   />
@@ -954,17 +1007,11 @@ function ParceirosPage() {
               </div>
             </div>
             <DialogFooter>
-              <Button
-                variant="ghost"
-                onClick={() => setEditAberto(false)}
-                disabled={editSalvando}
-              >
+              <Button variant="ghost" onClick={() => setEditAberto(false)} disabled={editSalvando}>
                 Cancelar
               </Button>
               <Button onClick={salvarEdit} disabled={editSalvando}>
-                {editSalvando && (
-                  <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                )}
+                {editSalvando && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
                 Salvar
               </Button>
             </DialogFooter>
@@ -980,42 +1027,36 @@ function ParceirosPage() {
         >
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>
-                Excluir {excluirAlvo?.nome ?? "parceiro"}?
-              </AlertDialogTitle>
+              <AlertDialogTitle>Excluir {excluirAlvo?.nome ?? "parceiro"}?</AlertDialogTitle>
               <AlertDialogDescription asChild>
                 <div className="space-y-2 text-sm">
                   <p>
-                    Esta ação é <strong>irreversível</strong>. O parceiro será
-                    removido do sistema (login + cadastro).
+                    Esta ação é <strong>irreversível</strong>. O parceiro será removido do sistema
+                    (login + cadastro).
                   </p>
                   <p>Cascade que preserva histórico:</p>
                   <ul className="list-disc pl-5 space-y-0.5 text-muted-foreground">
                     <li>
-                      <strong>Casos</strong> vinculados ficarão sem parceiro
-                      indicador (parceiro_id = null). Você pode reatribuir
-                      depois.
+                      <strong>Casos</strong> vinculados ficarão sem parceiro indicador (parceiro_id
+                      = null). Você pode reatribuir depois.
                     </li>
                     <li>
-                      <strong>Andamentos e documentos</strong> do parceiro
-                      continuam existindo, mas perdem a autoria.
+                      <strong>Andamentos e documentos</strong> do parceiro continuam existindo, mas
+                      perdem a autoria.
                     </li>
                     <li>
-                      <strong>Comentários</strong> feitos pelo parceiro são
-                      apagados (respostas também).
+                      <strong>Comentários</strong> feitos pelo parceiro são apagados (respostas
+                      também).
                     </li>
                     <li>
-                      <strong>Login</strong> e cadastro (auth.users + usuarios)
-                      são removidos.
+                      <strong>Login</strong> e cadastro (auth.users + usuarios) são removidos.
                     </li>
                   </ul>
                 </div>
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel disabled={excluindo}>
-                Cancelar
-              </AlertDialogCancel>
+              <AlertDialogCancel disabled={excluindo}>Cancelar</AlertDialogCancel>
               <AlertDialogAction
                 onClick={(e) => {
                   e.preventDefault();
@@ -1024,9 +1065,7 @@ function ParceirosPage() {
                 disabled={excluindo}
                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               >
-                {excluindo && (
-                  <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                )}
+                {excluindo && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
                 Sim, excluir parceiro
               </AlertDialogAction>
             </AlertDialogFooter>
@@ -1048,22 +1087,18 @@ function ParceirosPage() {
               <AlertDialogDescription asChild>
                 <div className="space-y-2 text-sm">
                   <p>
-                    Vamos enviar um <strong>código de ativação</strong> para o
-                    WhatsApp do parceiro no número{" "}
-                    <strong>{ativarAlvo?.telefone ?? "—"}</strong>.
+                    Vamos enviar um <strong>código de ativação</strong> para o WhatsApp do parceiro
+                    no número <strong>{ativarAlvo?.telefone ?? "—"}</strong>.
                   </p>
                   <p className="text-muted-foreground">
-                    O parceiro deve <strong>responder o código</strong> na
-                    conversa com o bot para vincular o WhatsApp dele. O código
-                    expira em 15 minutos.
+                    O parceiro deve <strong>responder o código</strong> na conversa com o bot para
+                    vincular o WhatsApp dele. O código expira em 15 minutos.
                   </p>
                 </div>
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel disabled={ativando}>
-                Cancelar
-              </AlertDialogCancel>
+              <AlertDialogCancel disabled={ativando}>Cancelar</AlertDialogCancel>
               <AlertDialogAction
                 onClick={(e) => {
                   e.preventDefault();
@@ -1097,12 +1132,10 @@ function ParceirosPage() {
               <span className="text-xs uppercase tracking-wide text-muted-foreground">
                 Código gerado
               </span>
-              <span className="font-mono text-4xl font-bold tracking-[0.3em]">
-                {codigoGerado}
-              </span>
+              <span className="font-mono text-4xl font-bold tracking-[0.3em]">{codigoGerado}</span>
               <p className="mt-2 text-center text-xs text-muted-foreground">
-                Peça para o parceiro <strong>responder esse código</strong> na
-                conversa do WhatsApp com o bot. Expira em 15 minutos.
+                Peça para o parceiro <strong>responder esse código</strong> na conversa do WhatsApp
+                com o bot. Expira em 15 minutos.
               </p>
             </div>
             <DialogFooter>

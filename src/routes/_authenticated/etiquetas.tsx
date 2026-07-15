@@ -212,7 +212,7 @@ function EtiquetasPage() {
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <span
-                        className="inline-block rounded px-2 py-0.5 text-xs font-medium border"
+                        className="inline-block max-w-full rounded px-2 py-0.5 text-xs font-medium border [overflow-wrap:anywhere]"
                         style={{ backgroundColor: e.cor, borderColor: e.cor }}
                       >
                         {e.nome}
@@ -299,7 +299,7 @@ function EtiquetasPage() {
             <div className="rounded border bg-muted/30 p-3">
               <div className="text-xs text-muted-foreground mb-1">Preview</div>
               <span
-                className="inline-block rounded px-2 py-0.5 text-xs font-medium border"
+                className="inline-block max-w-full rounded px-2 py-0.5 text-xs font-medium border [overflow-wrap:anywhere]"
                 style={{ backgroundColor: cor, borderColor: cor }}
               >
                 {nome || "Etiqueta"}

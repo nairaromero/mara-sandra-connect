@@ -182,13 +182,15 @@ export function ConexaoClaudeCard() {
                   className="flex items-center justify-between rounded-md border border-border px-3 py-2"
                 >
                   <div className="min-w-0">
-                    <p className="flex items-center gap-2 text-sm font-medium">
+                    {/* div (nao <p>): Badge renderiza <div> e div dentro de p
+                        e HTML invalido — causava erro de hidratacao */}
+                    <div className="flex items-center gap-2 text-sm font-medium">
                       <KeyRound className="h-3.5 w-3.5 shrink-0" />
                       {t.nome}
                       <Badge variant="outline" className="text-[10px]">
                         {t.escopo}
                       </Badge>
-                    </p>
+                    </div>
                     <p className="truncate text-xs text-muted-foreground">
                       {t.prefixo}... -{" "}
                       {t.expira_em

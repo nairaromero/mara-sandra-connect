@@ -1790,7 +1790,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                         </Select>
                       </div>
                     )}
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <Label className="text-xs">Fase</Label>
                         <Select value={csFase} onValueChange={setCsFase}>
@@ -2125,7 +2125,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                   </div>
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-3 border-t pt-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-t pt-3">
                 <div>
                   <Label className="text-xs">Fase</Label>
                   <Select value={csFase} onValueChange={setCsFase}>
@@ -5782,7 +5782,7 @@ function TabAnaliseTecnica(props: TabAnaliseTecnicaProps) {
                       onChange={(e) => setBeneficio(e.target.value)}
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <Label className="text-xs">RMI estimada (R$)</Label>
                       <Input
@@ -7359,8 +7359,8 @@ function TabProcessos(props: TabProcessosProps) {
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      <div className="col-span-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <div className="sm:col-span-2">
                         <Label className="text-xs">Comarca *</Label>
                         <Input
                           value={comarca}

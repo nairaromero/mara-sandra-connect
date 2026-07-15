@@ -4,9 +4,25 @@ import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Briefcase, Clock, FileSearch, TrendingUp, Wallet, CheckCircle2, Loader2, Plus } from "lucide-react";
+import {
+  Briefcase,
+  Clock,
+  FileSearch,
+  TrendingUp,
+  Wallet,
+  CheckCircle2,
+  Loader2,
+  Plus,
+} from "lucide-react";
 import { MinhasTarefasHoje } from "@/components/tarefas/minhas-tarefas-hoje";
 
 export const Route = createFileRoute("/_authenticated/casos/")({
@@ -31,12 +47,30 @@ interface CasoRow {
 //   - Insucesso: vermelho (destructive)
 //   - Arquivado: muted (cinza marfim)
 const STATUS_VARIANT: Record<string, { label: string; className: string }> = {
-  aguardando_documentos: { label: "Aguardando documentos", className: "bg-warning text-warning-foreground hover:bg-warning" },
-  em_analise: { label: "Em análise", className: "bg-secondary text-secondary-foreground hover:bg-secondary border border-border" },
-  em_revisao: { label: "Em revisão", className: "bg-warning text-warning-foreground hover:bg-warning" },
-  em_andamento: { label: "Em andamento", className: "bg-secondary text-secondary-foreground hover:bg-secondary border border-border" },
-  concluido_exito: { label: "Concluído com êxito", className: "bg-success text-success-foreground hover:bg-success" },
-  concluido_sem_exito: { label: "Concluído sem êxito", className: "bg-destructive text-destructive-foreground hover:bg-destructive" },
+  aguardando_documentos: {
+    label: "Aguardando documentos",
+    className: "bg-warning text-warning-foreground hover:bg-warning",
+  },
+  em_analise: {
+    label: "Em análise",
+    className: "bg-secondary text-secondary-foreground hover:bg-secondary border border-border",
+  },
+  em_revisao: {
+    label: "Em revisão",
+    className: "bg-warning text-warning-foreground hover:bg-warning",
+  },
+  em_andamento: {
+    label: "Em andamento",
+    className: "bg-secondary text-secondary-foreground hover:bg-secondary border border-border",
+  },
+  concluido_exito: {
+    label: "Concluído com êxito",
+    className: "bg-success text-success-foreground hover:bg-success",
+  },
+  concluido_sem_exito: {
+    label: "Concluído sem êxito",
+    className: "bg-destructive text-destructive-foreground hover:bg-destructive",
+  },
   arquivado: { label: "Arquivado", className: "bg-muted text-muted-foreground hover:bg-muted" },
 };
 
@@ -123,8 +157,14 @@ function DashboardPage() {
       if (usuario.tipo === "interno") {
         const [totalRes, andamentoRes, revisaoRes, exitosMesRes] = await Promise.all([
           supabase.from("casos").select("id", { count: "exact", head: true }),
-          supabase.from("casos").select("id", { count: "exact", head: true }).eq("status", "em_andamento"),
-          supabase.from("casos").select("id", { count: "exact", head: true }).eq("status", "em_revisao"),
+          supabase
+            .from("casos")
+            .select("id", { count: "exact", head: true })
+            .eq("status", "em_andamento"),
+          supabase
+            .from("casos")
+            .select("id", { count: "exact", head: true })
+            .eq("status", "em_revisao"),
           supabase
             .from("casos")
             .select("id", { count: "exact", head: true })
@@ -140,7 +180,10 @@ function DashboardPage() {
         }));
       } else {
         const [ativosRes, exitosAnoRes, repassesRes] = await Promise.all([
-          supabase.from("casos").select("id", { count: "exact", head: true }).in("status", ["em_andamento", "em_analise", "em_revisao", "aguardando_documentos"]),
+          supabase
+            .from("casos")
+            .select("id", { count: "exact", head: true })
+            .in("status", ["em_andamento", "em_analise", "em_revisao", "aguardando_documentos"]),
           supabase
             .from("casos")
             .select("id", { count: "exact", head: true })
@@ -184,12 +227,10 @@ function DashboardPage() {
         {spinnerTimedOut && (
           <div className="max-w-md text-center text-sm text-muted-foreground space-y-1">
             <p>
-              Demorou demais carregando seu perfil. Verifique no console se há
-              erro de coluna inexistente em <code>usuarios</code>.
+              Demorou demais carregando seu perfil. Verifique no console se há erro de coluna
+              inexistente em <code>usuarios</code>.
             </p>
-            <p className="text-xs">
-              Provavelmente alguma migration SQL ainda não foi aplicada.
-            </p>
+            <p className="text-xs">Provavelmente alguma migration SQL ainda não foi aplicada.</p>
           </div>
         )}
       </div>
@@ -205,16 +246,18 @@ function DashboardPage() {
           Olá, {usuario.nome ?? "advogado(a)"}
         </h1>
         <p className="text-sm text-muted-foreground">
-          {isInterno
-            ? "Visão geral de todos os casos do escritório."
-            : "Acompanhe seus casos."}
+          {isInterno ? "Visão geral de todos os casos do escritório." : "Acompanhe seus casos."}
         </p>
       </div>
       {isInterno ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <MetricCard title="Casos totais" value={metrics.total} icon={Briefcase} />
           <MetricCard title="Em andamento" value={metrics.andamento} icon={Clock} />
-          <MetricCard title="Aguardando revisão" value={metrics.aguardandoRevisao} icon={FileSearch} />
+          <MetricCard
+            title="Aguardando revisão"
+            value={metrics.aguardandoRevisao}
+            icon={FileSearch}
+          />
           <MetricCard title="Êxitos no mês" value={metrics.exitosMes} icon={TrendingUp} />
         </div>
       ) : (
@@ -246,47 +289,70 @@ function DashboardPage() {
                     : "Cadastre seu primeiro caso para começar a acompanhar."}
                 </p>
               </div>
-              <Button
-                size="sm"
-                onClick={() => navigate({ to: "/casos/novo" })}
-              >
+              <Button size="sm" onClick={() => navigate({ to: "/casos/novo" })}>
                 <Plus className="h-4 w-4 mr-2" />
                 Novo caso
               </Button>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Cliente</TableHead>
-                  {isInterno && <TableHead>Parceiro</TableHead>}
-                  <TableHead>Tipo de benefício</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Criado em</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <>
+              {/* Mobile: cards */}
+              <div className="md:hidden space-y-3">
                 {casos.map((c) => (
-                  <TableRow
+                  <button
                     key={c.id}
-                    className="cursor-pointer hover:bg-muted/50"
+                    type="button"
                     onClick={() => abrirCaso(c.id)}
+                    className="w-full text-left rounded-lg border border-border bg-card p-3 space-y-1.5 active:bg-muted/40"
                   >
-                    <TableCell className="font-medium">{c.clientes?.nome ?? "-"}</TableCell>
-                    {isInterno && <TableCell>{c.parceiro?.nome ?? "-"}</TableCell>}
-                    <TableCell>{c.tipo_beneficio ?? "-"}</TableCell>
-                    <TableCell>
-                      <StatusBadge status={c.status} />
-                    </TableCell>
-                    <TableCell className="text-right text-muted-foreground">
-                      {formatDate(c.created_at)}
-                    </TableCell>
-                  </TableRow>
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="font-medium text-sm">{c.clientes?.nome ?? "-"}</span>
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        {formatDate(c.created_at)}
+                      </span>
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {c.tipo_beneficio ?? "-"}
+                      {isInterno && c.parceiro?.nome ? " · " + c.parceiro.nome : ""}
+                    </div>
+                    <StatusBadge status={c.status} />
+                  </button>
                 ))}
-              </TableBody>
-            </Table>
-            </div>
+              </div>
+              {/* Desktop: tabela */}
+              <div className="hidden md:block overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Cliente</TableHead>
+                      {isInterno && <TableHead>Parceiro</TableHead>}
+                      <TableHead>Tipo de benefício</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Criado em</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {casos.map((c) => (
+                      <TableRow
+                        key={c.id}
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => abrirCaso(c.id)}
+                      >
+                        <TableCell className="font-medium">{c.clientes?.nome ?? "-"}</TableCell>
+                        {isInterno && <TableCell>{c.parceiro?.nome ?? "-"}</TableCell>}
+                        <TableCell>{c.tipo_beneficio ?? "-"}</TableCell>
+                        <TableCell>
+                          <StatusBadge status={c.status} />
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {formatDate(c.created_at)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
