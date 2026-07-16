@@ -134,7 +134,7 @@ Já configurados em Project Settings → Edge Functions → Secrets:
 - `is_interno()` — checa se auth.uid() é tipo='interno'
 - `caso_do_parceiro(caso_id)` — checa se caso pertence ao parceiro logado
 - `set_senha_meu_inss(cliente_id, senha)` / `get_senha_meu_inss(cliente_id)` — pgcrypto com chave em GUC `app.inss_key` (chave **ainda não configurada** — débito crítico)
-- `handle_new_auth_user()` — trigger que cria linha em `usuarios` quando há novo auth.users (usado pelo convite de parceiros)
+- **NÃO existe trigger** ligando `auth.users` → `public.usuarios` (verificado em `pg_trigger`, 2026-07-16). Quem cria a linha em `usuarios` é a edge function `convidar-usuario` (upsert explícito após `inviteUserByEmail`). Qualquer criação de usuário fora dela precisa inserir em `usuarios` manualmente, senão a conta fica órfã (perfil não carrega no login).
 - `tg_set_updated_at()` — trigger genérico para colunas `updated_at`
 
 ### Storage
