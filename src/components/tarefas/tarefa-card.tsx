@@ -27,6 +27,8 @@ import { EtapaProtocoloRealizado } from "@/components/tarefas/etapa-protocolo-re
 import {
   formatarDueAtCurto,
   formatarDueAtLongo,
+  iniciaisDoNome,
+  nomeAmigavel,
   URGENCIA_BADGE_CLASS,
   urgenciaDoDueAt,
 } from "@/lib/tarefas/helpers";
@@ -51,13 +53,6 @@ interface Props {
   compacto?: boolean;
 }
 
-function iniciais(nome: string | null): string {
-  if (!nome) return "—";
-  const partes = nome.trim().split(/\s+/);
-  const primeira = partes[0]?.[0] ?? "";
-  const ultima = partes.length > 1 ? (partes[partes.length - 1][0] ?? "") : "";
-  return (primeira + ultima).toUpperCase() || "—";
-}
 
 export function TarefaCard({
   tarefa,
@@ -172,10 +167,10 @@ export function TarefaCard({
               <Link
                 to="/casos/$id"
                 params={{ id: tarefa.caso_id }}
-                className="hover:underline truncate min-w-0 flex-1"
+                className="hover:underline truncate min-w-0 flex-1 text-foreground/80"
                 onClick={(e) => e.stopPropagation()}
               >
-                {clienteNome ?? "Ver caso"}
+                {clienteNome ? nomeAmigavel(clienteNome) : "Ver caso"}
               </Link>
             ) : (
               <span className="flex-1" />
@@ -184,7 +179,7 @@ export function TarefaCard({
               className="shrink-0 inline-flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-foreground/70"
               title={tarefa.responsavel?.nome ?? "Sem responsável"}
             >
-              {iniciais(tarefa.responsavel?.nome ?? null)}
+              {iniciaisDoNome(tarefa.responsavel?.nome ?? null)}
             </span>
           </div>
         ) : (
