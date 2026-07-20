@@ -78,6 +78,12 @@ function sqlJson(obj) {
 }
 function sqlTs(v) {
   if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}/.test(v)) return "NULL";
+  // Timestamp SEM offset (ex.: "2026-07-21T00:00", típico de atividade
+  // all-day do TI) é horário de Brasília — interpretar como tal, senão o
+  // Postgres assume UTC e tudo desloca 3h (bug corrigido em 2026-07-20).
+  if (!/[+-]\d{2}:?\d{2}$|Z$/.test(v)) {
+    return `(${sqlStr(v)}::timestamp at time zone 'America/Sao_Paulo')`;
+  }
   return sqlStr(v);
 }
 
