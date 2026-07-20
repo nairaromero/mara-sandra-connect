@@ -1,12 +1,18 @@
 // supabase/functions/convidar-parceiro/index.ts
 //
+// DEPRECATED: substituida por convidar-usuario (que atende interno E parceiro).
+// Nenhum codigo do frontend chama esta funcao desde 2026-07-16; ela so continua
+// deployada porque o build de producao (main) anterior ao merge ainda a
+// referencia. Depois que a mudanca do novo-parceiro-dialog chegar na main,
+// deletar esta funcao (deploy e source).
+//
 // Cria um parceiro e envia o link de acesso (invite) usando a API admin do
 // Supabase (service role). Diferente de chamar supabase.auth.signInWithOtp no
 // navegador, isso NAO mexe na sessao de quem esta logado (interno) e nao sofre
 // o rate-limit de OTP do cliente.
 //
-// O trigger handle_new_auth_user cria a linha em public.usuarios a partir do
-// user_metadata (data) com tipo='parceiro'.
+// NAO existe trigger auth.users -> public.usuarios: a linha em usuarios e
+// criada explicitamente pelo upsert abaixo.
 //
 // Body: { nome, email, oab, telefone, observacoes?, redirect_to? }
 // Auth: precisa do JWT de um usuario interno (enviado pelo supabase.functions.invoke).

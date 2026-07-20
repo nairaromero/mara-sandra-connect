@@ -123,21 +123,26 @@ serve(async (req) => {
   // Cria/atualiza a linha em usuarios (nao ha trigger).
   const newId = data.user?.id || null;
   if (newId) {
-    const { error: upErr } = await admin.from("usuarios").upsert(
-      {
-        id: newId,
-        nome,
-        email,
-        oab: oab || null,
-        telefone: telefone || null,
-        tipo,
-        ativo: true,
-        percentual_parceiro: tipo === "parceiro" ? percentual : null,
-        // interno ja entra "onboarded" (boas-vindas e fluxo do parceiro).
-        onboarded_em: tipo === "interno" ? new Date().toISOString() : null,
-      },
-      { onConflict: "id" },
-    );
+    const perfil: Record<string, unknown> = {
+      id: newId,
+      nome,
+      email,
+      oab: oab || null,
+      telefone: telefone || null,
+      tipo,
+      ativo: true,
+      // interno ja entra "onboarded" (boas-vindas e fluxo do parceiro).
+      onboarded_em: tipo === "interno" ? new Date().toISOString() : null,
+    };
+    // percentual_parceiro e "not null default 30": mandar null explicito viola a
+    // constraint em vez de cair no default. So inclui a chave quando ha valor.
+    if (tipo === "parceiro" && percentual !== null && !Number.isNaN(percentual)) {
+      perfil.percentual_parceiro = percentual;
+    }
+
+    const { error: upErr } = await admin.from("usuarios").upsert(perfil, {
+      onConflict: "id",
+    });
     if (upErr) {
       return jsonResponse({
         ok: false,
