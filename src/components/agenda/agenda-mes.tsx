@@ -138,7 +138,13 @@ export function AgendaMes({ eventos, onEventoClick, onDiaClick }: Props) {
                     )}
                     title={`${format(new Date(e.start_at), "HH:mm")} ${e.titulo}`}
                   >
-                    <span className="tabular-nums">{format(new Date(e.start_at), "HH:mm")} </span>
+                    {/* 00:00 = prazo so com data (tarefas de pericia mescladas)
+                      — mostrar a hora seria ruido. */}
+                    {format(new Date(e.start_at), "HH:mm") !== "00:00" && (
+                      <span className="tabular-nums">
+                        {format(new Date(e.start_at), "HH:mm")}{" "}
+                      </span>
+                    )}
                     {e.titulo}
                   </span>
                 ))}
