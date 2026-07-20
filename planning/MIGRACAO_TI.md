@@ -45,17 +45,26 @@ Requer `TI_TOKEN=` e `SUPABASE_ACCESS_TOKEN=` no `.env.local`.
   pelo índice único `andamentos_ti_nota_id_uniq` (migration `migration_migracao_ti.sql`).
 - Depois da fase 1, o `sync-ti-todos` segue funcionando como sync incremental.
 
-## Fase 2 — tarefas e perícias (API interna via Chrome)
+## Fase 2 — tarefas e perícias ✅ (executada 2026-07-20)
 
-O front do TI é uma SPA; a tela de tarefas busca dados de endpoints internos (XHR).
-Plano:
+Extração via API interna do TI com a sessão logada da Naira no Chrome:
 
-1. Naira abre o TI logada no Chrome.
-2. Claude (extensão claude-in-chrome) abre a tela de tarefas/perícias e lê as
-   chamadas de rede pra descobrir os endpoints internos + payload.
-3. Replica os endpoints com a sessão logada e extrai tudo em JSON (1 vez).
-4. Importa pra `tarefas` (já existe em prod; `tipo='pericia'` coberto) com
-   `origem='migracao_ti'` (adicionada ao check constraint) e `origem_ref='ti:<id>'`.
+- **Endpoint que funcionou: `GET /agenda.json?start=YYYY-MM-DD&end=YYYY-MM-DD`** —
+  devolve TODAS as atividades agendadas no intervalo, num array plano (256 no
+  range 2020→2030). Sem paginação, uma chamada só.
+- O endpoint do painel (`/atividades?current_scope=activityPanelActivities`) pagina
+  as futuras de 5 em 5 mas **ignora o param `page`** — não usar.
+- XHR direto de fora cai no desafio Cloudflare; precisa rodar `fetch` no contexto
+  da página logada (navegação real limpa o desafio).
+- Transferência browser → local: POST na tabela `ti_staging` (anon insert
+  temporário, revogado e dropado em seguida). Base64 manual corrompe; evitar.
+
+Import: `node scripts/importar-ti-tarefas.mjs --file <json> [--dry-run]`
+- `MedicalExam`→`pericia`, `Deadline`→`prazo`, resto→`interna`.
+- caso via `ti_customer_id`; responsável por primeiro nome (Mara Oliveira↔Mara
+  Sandra, Mariane Oliveira↔Mariane Fernandes); dedup por `uq_tarefas_origem_ref`.
+- Resultado: **257 tarefas** (82 perícias, 4 prazos), 255 com caso, 100% com responsável.
+- **Fora**: atividades arquivadas/históricas do TI (as notas já cobrem o histórico).
 
 ## Fora do escopo (por enquanto)
 
