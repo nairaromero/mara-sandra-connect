@@ -25,6 +25,7 @@ import { EtapasAcompanhamento } from "@/components/tarefas/etapas-acompanhamento
 import { EtapaCumprimentoExigencia } from "@/components/tarefas/etapa-cumprimento-exigencia";
 import { EtapaProtocoloRealizado } from "@/components/tarefas/etapa-protocolo-realizado";
 import {
+  formatarDueAtCurto,
   formatarDueAtLongo,
   URGENCIA_BADGE_CLASS,
   urgenciaDoDueAt,
@@ -45,6 +46,17 @@ interface Props {
   onDelete: (id: string) => void;
   onChanged?: () => void;
   mostrarCaso?: boolean;
+  // Layout enxuto pro kanban: sem descricao (mora no sheet), meta numa linha
+  // so, responsavel como iniciais. O layout cheio segue nas outras telas.
+  compacto?: boolean;
+}
+
+function iniciais(nome: string | null): string {
+  if (!nome) return "—";
+  const partes = nome.trim().split(/\s+/);
+  const primeira = partes[0]?.[0] ?? "";
+  const ultima = partes.length > 1 ? (partes[partes.length - 1][0] ?? "") : "";
+  return (primeira + ultima).toUpperCase() || "—";
 }
 
 export function TarefaCard({
@@ -54,6 +66,7 @@ export function TarefaCard({
   onDelete,
   onChanged,
   mostrarCaso = true,
+  compacto = false,
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const urg = urgenciaDoDueAt(tarefa.due_at, tarefa.status);
@@ -82,13 +95,18 @@ export function TarefaCard({
         }
       }}
     >
-      <div className="p-3 space-y-2">
+      <div className={cn("space-y-2", compacto ? "p-2" : "p-3")}>
         <div className="flex items-start gap-1">
           <div className="flex-1 min-w-0 space-y-1">
-            <div className="font-medium text-sm leading-snug break-words">
+            <div
+              className={cn(
+                "font-medium leading-snug break-words",
+                compacto ? "text-[13px]" : "text-sm",
+              )}
+            >
               {tarefa.titulo}
             </div>
-            {tarefa.descricao && (
+            {!compacto && tarefa.descricao && (
               <p className="text-xs text-muted-foreground line-clamp-3 whitespace-pre-wrap">
                 {tarefa.descricao}
               </p>
@@ -125,47 +143,95 @@ export function TarefaCard({
           </DropdownMenu>
         </div>
 
-        <div className="flex items-center gap-1.5 flex-wrap text-xs">
-          <Badge variant="outline" className={cn("font-normal", URGENCIA_BADGE_CLASS[urg])}>
-            <CalendarDays className="h-3 w-3" />
-            {formatarDueAtLongo(tarefa.due_at)}
-          </Badge>
-          <Badge variant="secondary" className="font-normal">
-            {TIPO_LABEL[tarefa.tipo]}
-          </Badge>
-          {tarefa.prioridade <= 2 && (
+        {compacto ? (
+          // Meta numa linha: prazo + prioridade (so urgente/alta) + cliente +
+          // iniciais do responsavel. Tipo sai do card (mora no sheet/filtro).
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground min-w-0">
             <Badge
               variant="outline"
               className={cn(
-                "font-normal",
-                tarefa.prioridade === 1
-                  ? "border-destructive/50 text-destructive"
-                  : "border-amber-500/40 text-amber-700 dark:text-amber-300",
+                "font-normal px-1.5 py-0 text-[11px] shrink-0",
+                URGENCIA_BADGE_CLASS[urg],
               )}
             >
-              {PRIORIDADE_LABEL[tarefa.prioridade]}
+              {formatarDueAtCurto(tarefa.due_at)}
             </Badge>
-          )}
-        </div>
-
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <div className="flex items-center gap-1 min-w-0">
-            <UserIcon className="h-3 w-3 shrink-0" />
-            <span className="truncate">
-              {tarefa.responsavel?.nome ?? "Sem responsável"}
+            {tarefa.prioridade <= 2 && (
+              <span
+                className={cn(
+                  "shrink-0 font-medium",
+                  tarefa.prioridade === 1
+                    ? "text-destructive"
+                    : "text-amber-700 dark:text-amber-300",
+                )}
+              >
+                {PRIORIDADE_LABEL[tarefa.prioridade]}
+              </span>
+            )}
+            {mostrarCaso && tarefa.caso_id ? (
+              <Link
+                to="/casos/$id"
+                params={{ id: tarefa.caso_id }}
+                className="hover:underline truncate min-w-0 flex-1"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {clienteNome ?? "Ver caso"}
+              </Link>
+            ) : (
+              <span className="flex-1" />
+            )}
+            <span
+              className="shrink-0 inline-flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-foreground/70"
+              title={tarefa.responsavel?.nome ?? "Sem responsável"}
+            >
+              {iniciais(tarefa.responsavel?.nome ?? null)}
             </span>
           </div>
-          {mostrarCaso && tarefa.caso_id && (
-            <Link
-              to="/casos/$id"
-              params={{ id: tarefa.caso_id }}
-              className="hover:underline truncate max-w-[60%] text-right"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {clienteNome ?? "Ver caso"}
-            </Link>
-          )}
-        </div>
+        ) : (
+          <>
+            <div className="flex items-center gap-1.5 flex-wrap text-xs">
+              <Badge variant="outline" className={cn("font-normal", URGENCIA_BADGE_CLASS[urg])}>
+                <CalendarDays className="h-3 w-3" />
+                {formatarDueAtLongo(tarefa.due_at)}
+              </Badge>
+              <Badge variant="secondary" className="font-normal">
+                {TIPO_LABEL[tarefa.tipo]}
+              </Badge>
+              {tarefa.prioridade <= 2 && (
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "font-normal",
+                    tarefa.prioridade === 1
+                      ? "border-destructive/50 text-destructive"
+                      : "border-amber-500/40 text-amber-700 dark:text-amber-300",
+                  )}
+                >
+                  {PRIORIDADE_LABEL[tarefa.prioridade]}
+                </Badge>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <div className="flex items-center gap-1 min-w-0">
+                <UserIcon className="h-3 w-3 shrink-0" />
+                <span className="truncate">
+                  {tarefa.responsavel?.nome ?? "Sem responsável"}
+                </span>
+              </div>
+              {mostrarCaso && tarefa.caso_id && (
+                <Link
+                  to="/casos/$id"
+                  params={{ id: tarefa.caso_id }}
+                  className="hover:underline truncate max-w-[60%] text-right"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {clienteNome ?? "Ver caso"}
+                </Link>
+              )}
+            </div>
+          </>
+        )}
 
         {ehAcompProcessual && (
           <EtapasAcompanhamento

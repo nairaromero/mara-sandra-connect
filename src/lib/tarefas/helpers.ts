@@ -57,6 +57,21 @@ export function formatarDueAtLongo(dueAt: string | null): string {
   return `${data} (atrasado ${Math.abs(dias)}d)`;
 }
 
+// Versao enxuta pro card compacto do kanban: "hoje", "amanhã", "18 jun."
+// ou "18 jun. · 32d atraso". O longo (formatarDueAtLongo) fica pros sheets.
+export function formatarDueAtCurto(dueAt: string | null): string {
+  if (!dueAt) return "sem prazo";
+  const d = new Date(dueAt);
+  const data = d
+    .toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })
+    .replace(" de ", " ");
+  const dias = Math.round((d.getTime() - Date.now()) / 86400_000);
+  if (dias === 0) return "hoje";
+  if (dias === 1) return "amanhã";
+  if (dias < 0) return `${data} · ${Math.abs(dias)}d atraso`;
+  return data;
+}
+
 export function inputDateValueFromIso(iso: string | null): string {
   if (!iso) return "";
   return new Date(iso).toISOString().slice(0, 10);

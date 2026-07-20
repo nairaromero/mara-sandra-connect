@@ -5,7 +5,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Plus, Search, X } from "lucide-react";
+import { ListTodo, Loader2, Plus, Search, X } from "lucide-react";
+
+import { cn } from "@/lib/utils";
+import {
+  formatarDueAtCurto,
+  URGENCIA_BADGE_CLASS,
+  urgenciaDoDueAt,
+} from "@/lib/tarefas/helpers";
 
 import { useAuth } from "@/hooks/use-auth";
 import { ClientOnly } from "@/components/client-only";
@@ -118,6 +125,47 @@ function TarefasPage() {
     return m;
   }, [filtradas]);
 
+  // "Meu dia": tarefas ativas MINHAS com prazo hoje ou atrasado. Independente
+  // dos filtros — é o "o que eu tenho pra fazer agora" fixo no topo.
+  const meuDia = useMemo(() => {
+    if (!usuario?.id) return [];
+    return tarefas.filter((t) => {
+      if (t.responsavel_id !== usuario.id) return false;
+      if (t.status !== "a_fazer" && t.status !== "fazendo") return false;
+      const urg = urgenciaDoDueAt(t.due_at, t.status);
+      return urg === "atrasado" || urg === "hoje";
+    });
+  }, [tarefas, usuario?.id]);
+  const meuDiaAtrasadas = meuDia.filter(
+    (t) => urgenciaDoDueAt(t.due_at, t.status) === "atrasado",
+  ).length;
+  const [meuDiaExpandido, setMeuDiaExpandido] = useState(false);
+  const MEU_DIA_LIMITE = 6;
+
+  // Resumo por pessoa (tarefas ativas): visão da equipe num relance.
+  // Clicar num chip filtra o kanban pela pessoa.
+  const resumoPorPessoa = useMemo(() => {
+    const mapa = new Map<
+      string,
+      { id: string; nome: string; total: number; atrasadas: number }
+    >();
+    for (const t of tarefas) {
+      if (t.status !== "a_fazer" && t.status !== "fazendo") continue;
+      const id = t.responsavel_id ?? "sem";
+      const nome = t.responsavel?.nome ?? "Sem responsável";
+      const e = mapa.get(id) ?? { id, nome, total: 0, atrasadas: 0 };
+      e.total += 1;
+      if (urgenciaDoDueAt(t.due_at, t.status) === "atrasado") e.atrasadas += 1;
+      mapa.set(id, e);
+    }
+    return Array.from(mapa.values()).sort((a, b) => {
+      // Eu primeiro, depois por volume
+      if (a.id === usuario?.id) return -1;
+      if (b.id === usuario?.id) return 1;
+      return b.total - a.total;
+    });
+  }, [tarefas, usuario?.id]);
+
   async function mudarStatus(id: string, status: TarefaStatus) {
     // Optimistic update
     const original = tarefas.find((t) => t.id === id);
@@ -169,7 +217,7 @@ function TarefasPage() {
               Tarefas
             </h1>
             <p className="text-sm text-muted-foreground">
-              Kanban do escritório. Click em uma tarefa pra editar; menu (⋮) muda status.
+              Kanban do escritório. Clique numa tarefa pra editar; menu (⋮) muda status.
             </p>
           </div>
           <Button onClick={() => setSheetModo({ kind: "criar" })}>
@@ -177,6 +225,66 @@ function TarefasPage() {
             Nova tarefa
           </Button>
         </div>
+
+        {/* Meu dia: minhas tarefas de hoje + atrasadas, fixas no topo,
+          independentes dos filtros do kanban. */}
+        {!carregando && meuDia.length > 0 && (
+          <div className="rounded-md border border-[var(--gold)]/40 bg-card">
+            <div className="px-3 py-2 border-b flex items-center gap-2">
+              <ListTodo className="h-4 w-4 text-[var(--gold)]" />
+              <span className="font-medium text-sm">Meu dia</span>
+              <Badge variant="outline" className="font-normal">
+                {meuDia.length}
+              </Badge>
+              {meuDiaAtrasadas > 0 && (
+                <span className="text-xs text-destructive">
+                  {meuDiaAtrasadas} atrasada{meuDiaAtrasadas === 1 ? "" : "s"}
+                </span>
+              )}
+            </div>
+            <ul className="divide-y">
+              {(meuDiaExpandido ? meuDia : meuDia.slice(0, MEU_DIA_LIMITE)).map((t) => {
+                const urg = urgenciaDoDueAt(t.due_at, t.status);
+                return (
+                  <li key={t.id}>
+                    <button
+                      type="button"
+                      onClick={() => abrirEditor(t.id)}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-muted/40 min-w-0"
+                    >
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "font-normal px-1.5 py-0 text-[11px] shrink-0",
+                          URGENCIA_BADGE_CLASS[urg],
+                        )}
+                      >
+                        {formatarDueAtCurto(t.due_at)}
+                      </Badge>
+                      <span className="text-sm truncate flex-1 min-w-0">{t.titulo}</span>
+                      {t.caso?.cliente?.nome && (
+                        <span className="text-xs text-muted-foreground truncate max-w-[30%] shrink-0">
+                          {t.caso.cliente.nome}
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            {meuDia.length > MEU_DIA_LIMITE && (
+              <button
+                type="button"
+                onClick={() => setMeuDiaExpandido((v) => !v)}
+                className="w-full px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted/40 border-t text-center"
+              >
+                {meuDiaExpandido
+                  ? "Mostrar menos"
+                  : `Mostrar mais ${meuDia.length - MEU_DIA_LIMITE}`}
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Filtros */}
         <div className="flex flex-wrap items-center gap-2 rounded-md border p-3 bg-card">
@@ -239,6 +347,48 @@ function TarefasPage() {
               Limpar
             </Button>
           )}
+
+          {/* Visão da equipe num relance: um chip por pessoa com total de
+            tarefas ativas (e atrasadas em vermelho). Clicar filtra o kanban. */}
+          {resumoPorPessoa.length > 0 && (
+            <div className="w-full flex items-center gap-1.5 flex-wrap pt-1 border-t mt-1">
+              <span className="text-xs text-muted-foreground shrink-0">Equipe:</span>
+              {resumoPorPessoa.map((p) => {
+                const ativo = filtroResp === p.id;
+                const primeiroNome =
+                  p.id === usuario?.id ? "Eu" : p.nome.split(/\s+/)[0];
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setFiltroResp(ativo ? "todos" : p.id)}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs transition-colors",
+                      ativo
+                        ? "bg-foreground text-background border-foreground"
+                        : "bg-card hover:bg-muted/60",
+                    )}
+                    title={p.nome + " — " + p.total + " tarefa(s) ativa(s)"}
+                  >
+                    <span className="font-medium">{primeiroNome}</span>
+                    <span className={cn("tabular-nums", !ativo && "text-muted-foreground")}>
+                      {p.total}
+                    </span>
+                    {p.atrasadas > 0 && (
+                      <span
+                        className={cn(
+                          "tabular-nums",
+                          ativo ? "text-background/80" : "text-destructive",
+                        )}
+                      >
+                        · {p.atrasadas} atras.
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Tabs Ativos / Arquivados */}
@@ -286,6 +436,7 @@ function TarefasPage() {
                         <TarefaCard
                           key={t.id}
                           tarefa={t}
+                          compacto
                           onOpenSheet={abrirEditor}
                           onChangeStatus={mudarStatus}
                           onDelete={excluir}
