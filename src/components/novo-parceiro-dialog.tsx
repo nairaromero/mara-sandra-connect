@@ -75,10 +75,11 @@ export function NovoParceiroDialog(
         : undefined;
       // Criacao via edge function (admin API). Nao mexe na sessao do interno
       // logado e nao sofre rate-limit de OTP do navegador.
-      const resp = await supabase.functions.invoke("convidar-parceiro", {
+      const resp = await supabase.functions.invoke("convidar-usuario", {
         body: {
           nome: nome.trim(),
           email: emailNorm,
+          tipo: "parceiro",
           oab: oab.trim(),
           telefone: telefone.trim(),
           observacoes: obs.trim() || null,
