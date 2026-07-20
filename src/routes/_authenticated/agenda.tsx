@@ -30,6 +30,60 @@ import {
   TIPO_CLASS,
   TIPO_LABEL,
 } from "@/lib/agenda/types";
+import { TarefaSheet, type TarefaSheetModo } from "@/components/tarefas/tarefa-sheet";
+import { listarTarefas } from "@/lib/tarefas/queries";
+import type { TarefaComJoins } from "@/lib/tarefas/types";
+
+// A agenda mescla DUAS fontes: agenda_eventos + tarefas tipo='pericia' ativas
+// (migradas do TI, criadas pelo processador do INSS ou na tela de Tarefas).
+// A tarefa segue sendo a fonte da verdade — concluiu, some daqui. O id do
+// pseudo-evento ganha este prefixo pra rotear o clique pro TarefaSheet.
+const PREFIXO_TAREFA = "tarefa:";
+
+function tarefaComoEvento(t: TarefaComJoins): AgendaEventoComJoins {
+  // end_at = fim do dia do prazo: perícia de hoje fica em "Próximas" o dia
+  // inteiro (o filtro de passadas usa end_at < agora).
+  const fimDoDia = new Date(t.due_at!);
+  fimDoDia.setHours(23, 59, 59, 999);
+  return {
+    id: PREFIXO_TAREFA + t.id,
+    caso_id: t.caso_id,
+    processo_admin_id: t.processo_admin_id,
+    processo_judicial_id: t.processo_judicial_id,
+    responsavel_id: t.responsavel_id,
+    tipo: "pericia",
+    titulo: t.titulo,
+    descricao: t.descricao,
+    start_at: t.due_at!,
+    end_at: fimDoDia.toISOString(),
+    local: null,
+    participantes: null,
+    metadata: { origem_tarefa: true },
+    gcal_event_id: null,
+    gcal_calendar_id: null,
+    gcal_synced_at: null,
+    created_by: t.created_by,
+    created_at: t.created_at,
+    updated_at: t.updated_at,
+    responsavel: t.responsavel,
+    caso: t.caso,
+  };
+}
+
+function ehEventoDeTarefa(e: AgendaEventoComJoins): boolean {
+  return (e.metadata as { origem_tarefa?: boolean } | null)?.origem_tarefa === true;
+}
+
+// So a PERICIA EM SI entra na agenda ("PERICIA AGENDADA - X", "Perícia INSS
+// - X"...). Tarefas SOBRE pericia (acompanhar resultado, contatar parceiro,
+// ligar pra agendar) ficam so em /tarefas. A flag metadata.pericia_evento e
+// gravada pela migration/sheet; a heuristica cobre tarefa futura sem flag.
+function ehPericiaEmSi(t: TarefaComJoins): boolean {
+  const flag = (t.metadata as { pericia_evento?: boolean } | null)?.pericia_evento;
+  if (flag === true) return true;
+  if (flag === false) return false;
+  return !/(acompanh|contatar|resultado|ligar|compareceu|agendamento de)/i.test(t.titulo);
+}
 
 export const Route = createFileRoute("/_authenticated/agenda")({
   component: AgendaPage,
@@ -76,15 +130,21 @@ function agruparPorDia(eventos: AgendaEventoComJoins[]): Array<{
 function AgendaPage() {
   const [carregando, setCarregando] = useState(true);
   const [eventos, setEventos] = useState<AgendaEventoComJoins[]>([]);
+  const [tarefasPericia, setTarefasPericia] = useState<TarefaComJoins[]>([]);
   const [sheetModo, setSheetModo] = useState<Modo | null>(null);
+  const [tarefaSheetModo, setTarefaSheetModo] = useState<TarefaSheetModo | null>(null);
   const [vista, setVista] = useState<"mes" | "lista">("mes");
   const [aba, setAba] = useState<"proximas" | "passadas">("proximas");
 
   const carregar = useCallback(async () => {
     setCarregando(true);
     try {
-      const data = await listarAgenda({});
+      const [data, pericias] = await Promise.all([
+        listarAgenda({}),
+        listarTarefas({ tipo: ["pericia"], status: ["a_fazer", "fazendo"] }),
+      ]);
       setEventos(data);
+      setTarefasPericia(pericias.filter((t) => !!t.due_at && ehPericiaEmSi(t)));
     } catch (e) {
       console.error(e);
       toast.error("Falha ao carregar agenda.");
@@ -95,21 +155,34 @@ function AgendaPage() {
 
   useEffect(() => { carregar(); }, [carregar]);
 
+  // Mescla eventos "de verdade" com as tarefas de perícia.
+  const mesclados = useMemo(() => {
+    const deTarefas = tarefasPericia.map(tarefaComoEvento);
+    return [...eventos, ...deTarefas].sort(
+      (a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime(),
+    );
+  }, [eventos, tarefasPericia]);
+
   const agora = Date.now();
   const proximas = useMemo(
-    () => eventos.filter((e) => new Date(e.end_at).getTime() >= agora),
-    [eventos, agora],
+    () => mesclados.filter((e) => new Date(e.end_at).getTime() >= agora),
+    [mesclados, agora],
   );
   const passadas = useMemo(
-    () => eventos
+    () => mesclados
       .filter((e) => new Date(e.end_at).getTime() < agora)
       .sort((a, b) => new Date(b.start_at).getTime() - new Date(a.start_at).getTime()),
-    [eventos, agora],
+    [mesclados, agora],
   );
   const lista = aba === "proximas" ? proximas : passadas;
   const dias = useMemo(() => agruparPorDia(lista), [lista]);
 
   function abrirEditor(id: string) {
+    if (id.startsWith(PREFIXO_TAREFA)) {
+      const t = tarefasPericia.find((x) => x.id === id.slice(PREFIXO_TAREFA.length));
+      if (t) setTarefaSheetModo({ kind: "editar", tarefa: t });
+      return;
+    }
     const e = eventos.find((x) => x.id === id);
     if (e) setSheetModo({ kind: "editar", evento: e });
   }
@@ -124,7 +197,8 @@ function AgendaPage() {
               Agenda
             </h1>
             <p className="text-sm text-muted-foreground">
-              Perícias e demais eventos do escritório. Sync com Google Calendar em breve.
+              Perícias e demais eventos do escritório. Toda perícia agendada entra aqui
+              automaticamente — tarefas sobre perícia (acompanhar, contatar) ficam em Tarefas.
             </p>
           </div>
           <Button onClick={() => setSheetModo({ kind: "criar" })}>
@@ -162,7 +236,7 @@ function AgendaPage() {
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         ) : vista === "mes" ? (
-          <AgendaMes eventos={eventos} onEventoClick={abrirEditor} />
+          <AgendaMes eventos={mesclados} onEventoClick={abrirEditor} />
         ) : dias.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center text-sm text-muted-foreground">
@@ -192,8 +266,17 @@ function AgendaPage() {
                             <Badge variant="outline" className={cn("font-normal", TIPO_CLASS[e.tipo])}>
                               {TIPO_LABEL[e.tipo]}
                             </Badge>
+                            {ehEventoDeTarefa(e) && (
+                              <Badge variant="outline" className="font-normal text-[10px]">
+                                via tarefa
+                              </Badge>
+                            )}
                             <span className="text-xs text-muted-foreground">
-                              {formatarHora(e.start_at)} — {formatarHora(e.end_at)}
+                              {ehEventoDeTarefa(e)
+                                ? formatarHora(e.start_at) === "00:00"
+                                  ? "sem horário definido"
+                                  : formatarHora(e.start_at)
+                                : `${formatarHora(e.start_at)} — ${formatarHora(e.end_at)}`}
                             </span>
                           </div>
                           {e.gcal_event_id && (
@@ -246,6 +329,14 @@ function AgendaPage() {
         <AgendaSheet
           modo={sheetModo}
           onClose={() => setSheetModo(null)}
+          onSaved={carregar}
+        />
+
+        {/* Sheet de tarefa: abre quando o item da agenda veio de uma tarefa
+          de perícia (editar prazo/responsável/status reflete aqui). */}
+        <TarefaSheet
+          modo={tarefaSheetModo}
+          onClose={() => setTarefaSheetModo(null)}
           onSaved={carregar}
         />
       </div>

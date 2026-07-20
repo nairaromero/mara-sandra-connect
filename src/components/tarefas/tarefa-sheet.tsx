@@ -92,6 +92,9 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   const [titulo, setTitulo] = useState("");
   const [descricao, setDescricao] = useState("");
   const [tipo, setTipo] = useState<TarefaTipo>("interna");
+  // So pra tipo='pericia': true = a pericia EM SI (aparece na Agenda);
+  // false = tarefa SOBRE a pericia (acompanhar resultado, contatar...).
+  const [periciaEvento, setPericiaEvento] = useState(true);
   const [prioridade, setPrioridade] = useState<number>(3);
   const [status, setStatus] = useState<TarefaStatus>("a_fazer");
   const [casoId, setCasoId] = useState<string | null>(null);
@@ -222,12 +225,21 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       setDueDate("");
       setLocal("");
       setDocsExigencia("");
+      setPericiaEvento(true);
       setTemplateSelecionado(modo.templateInicial ?? "");
     } else {
       const t = modo.tarefa;
       setTitulo(t.titulo);
       setDescricao(t.descricao ?? "");
       setTipo(t.tipo);
+      {
+        const flag = (t.metadata as { pericia_evento?: boolean } | null)?.pericia_evento;
+        setPericiaEvento(
+          flag !== undefined
+            ? !!flag
+            : !/(acompanh|contatar|resultado|ligar|compareceu|agendamento de)/i.test(t.titulo),
+        );
+      }
       setPrioridade(t.prioridade);
       setStatus(t.status);
       setCasoId(t.caso_id);
@@ -291,6 +303,15 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
             due_at,
             processo_admin_id: proc.processo_admin_id,
             processo_judicial_id: proc.processo_judicial_id,
+            // Preserva o metadata e grava a flag da agenda quando e pericia.
+            ...(tipo === "pericia"
+              ? {
+                  metadata: {
+                    ...((tarefa.metadata as Record<string, unknown> | null) ?? {}),
+                    pericia_evento: periciaEvento,
+                  },
+                }
+              : {}),
           },
         });
         toast.success("Tarefa atualizada.");
@@ -365,6 +386,15 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
         } else {
           // Comportamento clássico: form cria tarefa principal.
           const firstMeta = (mainItem?.meta ?? {}) as Record<string, unknown>;
+          const metaCriacao: Record<string, unknown> = tpl
+            ? {
+                template_aplicado: tpl.nome,
+                template_item_index: 0,
+                aplicado_manualmente: true,
+                ...firstMeta,
+              }
+            : {};
+          if (tipo === "pericia") metaCriacao.pericia_evento = periciaEvento;
           const novaTarefa = await criarTarefa({
             titulo: titulo.trim(),
             descricao: descricao.trim() || null,
@@ -375,14 +405,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
             due_at,
             processo_admin_id: proc.processo_admin_id,
             processo_judicial_id: proc.processo_judicial_id,
-            metadata: tpl
-              ? {
-                  template_aplicado: tpl.nome,
-                  template_item_index: 0,
-                  aplicado_manualmente: true,
-                  ...firstMeta,
-                }
-              : undefined,
+            metadata: Object.keys(metaCriacao).length > 0 ? metaCriacao : undefined,
           });
           marcarDestaque(novaTarefa.id);
         }
@@ -725,6 +748,20 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
                   ))}
                 </SelectContent>
               </Select>
+              {tipo === "pericia" && (
+                <label className="flex items-start gap-2 pt-1 text-xs text-muted-foreground cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={periciaEvento}
+                    onChange={(e) => setPericiaEvento(e.target.checked)}
+                    className="mt-0.5 accent-[var(--gold)]"
+                  />
+                  <span>
+                    É a perícia em si — aparece na <strong>Agenda</strong>. Desmarque
+                    pra tarefa sobre a perícia (acompanhar resultado, contatar…).
+                  </span>
+                </label>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label>Prioridade</Label>
