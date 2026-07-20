@@ -4,16 +4,24 @@ import type { TarefaStatus } from "./types";
 
 export type Urgencia = "atrasado" | "hoje" | "proximo" | "futuro" | "sem_prazo";
 
+// Dias de CALENDARIO ate o prazo (0 = hoje, 1 = amanha, negativo = atrasado).
+// Compara datas normalizadas pra meia-noite — "amanha de manha" e amanha,
+// mesmo faltando menos de 24h; "hoje as 9h" segue sendo hoje a tarde.
+export function diasCorridosAte(dueAt: string): number {
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+  const due = new Date(dueAt);
+  due.setHours(0, 0, 0, 0);
+  return Math.round((due.getTime() - hoje.getTime()) / 86400_000);
+}
+
 export function urgenciaDoDueAt(dueAt: string | null, status: TarefaStatus): Urgencia {
   if (status === "feito" || status === "cancelado") return "futuro";
   if (!dueAt) return "sem_prazo";
-  const due = new Date(dueAt).getTime();
-  const agora = Date.now();
-  const diff = due - agora;
-  const dia = 86400_000;
-  if (diff < 0) return "atrasado";
-  if (diff < dia) return "hoje";
-  if (diff < 3 * dia) return "proximo";
+  const dias = diasCorridosAte(dueAt);
+  if (dias < 0) return "atrasado";
+  if (dias === 0) return "hoje";
+  if (dias <= 2) return "proximo";
   return "futuro";
 }
 
@@ -23,8 +31,10 @@ export const URGENCIA_BADGE_CLASS: Record<Urgencia, string> = {
     "border-destructive/40 bg-destructive/10 text-destructive",
   hoje:
     "border-amber-400/50 bg-amber-50 text-amber-900 dark:bg-amber-950 dark:text-amber-200",
+  // Azul de proposito: "amanhã/próximo" precisa se distinguir de "hoje"
+  // (âmbar) sem precisar ler o texto do chip.
   proximo:
-    "border-amber-300/40 bg-amber-50/60 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300",
+    "border-sky-300/60 bg-sky-50 text-sky-800 dark:bg-sky-950/50 dark:text-sky-300",
   futuro:
     "border-border bg-muted text-muted-foreground",
   sem_prazo:
@@ -49,12 +59,32 @@ export function formatarDueAtLongo(dueAt: string | null): string {
     day: "2-digit",
     month: "short",
   });
-  const dias = Math.round((d.getTime() - Date.now()) / 86400_000);
+  const dias = diasCorridosAte(dueAt);
   if (dias === 0) return `${data} (hoje)`;
   if (dias === 1) return `${data} (amanhã)`;
   if (dias > 1) return `${data} (em ${dias}d)`;
   if (dias === -1) return `${data} (atrasado 1d)`;
   return `${data} (atrasado ${Math.abs(dias)}d)`;
+}
+
+// Nomes vem do TI em CAIXA ALTA; exibe "Edilvan Ferreira Neves" mantendo
+// particulas (de/da/dos...) minusculas.
+export function nomeAmigavel(nome: string | null): string {
+  if (!nome) return "";
+  const particulas = new Set(["de", "da", "do", "das", "dos", "e", "d"]);
+  return nome
+    .toLowerCase()
+    .replace(/\S+/g, (w) =>
+      particulas.has(w) ? w : w.charAt(0).toUpperCase() + w.slice(1),
+    );
+}
+
+export function iniciaisDoNome(nome: string | null): string {
+  if (!nome) return "—";
+  const partes = nome.trim().split(/\s+/);
+  const primeira = partes[0]?.[0] ?? "";
+  const ultima = partes.length > 1 ? (partes[partes.length - 1][0] ?? "") : "";
+  return (primeira + ultima).toUpperCase() || "—";
 }
 
 // Versao enxuta pro card compacto do kanban: "hoje", "amanhã", "18 jun."
@@ -65,7 +95,7 @@ export function formatarDueAtCurto(dueAt: string | null): string {
   const data = d
     .toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })
     .replace(" de ", " ");
-  const dias = Math.round((d.getTime() - Date.now()) / 86400_000);
+  const dias = diasCorridosAte(dueAt);
   if (dias === 0) return "hoje";
   if (dias === 1) return "amanhã";
   if (dias < 0) return `${data} · ${Math.abs(dias)}d atraso`;

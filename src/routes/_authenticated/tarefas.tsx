@@ -2,14 +2,27 @@
 // filtros (responsável, tipo, prioridade, busca), e atalho "minhas".
 // Click em card abre Sheet de edição. Botão "Nova tarefa" abre Sheet vazia.
 
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ListTodo, Loader2, Plus, Search, X } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  LayoutGrid,
+  List,
+  Loader2,
+  Plus,
+  Search,
+  X,
+} from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import {
+  diasCorridosAte,
   formatarDueAtCurto,
+  iniciaisDoNome,
+  nomeAmigavel,
   URGENCIA_BADGE_CLASS,
   urgenciaDoDueAt,
 } from "@/lib/tarefas/helpers";
@@ -37,6 +50,7 @@ import {
   listarTarefas,
 } from "@/lib/tarefas/queries";
 import {
+  PRIORIDADE_LABEL,
   STATUS_LABEL,
   TIPO_LABEL,
   type TarefaComJoins,
@@ -58,6 +72,32 @@ const STATUS_ARQUIVADOS: TarefaStatus[] = ["feito", "cancelado"];
 type Modo =
   | { kind: "criar"; casoIdInicial?: string | null }
   | { kind: "editar"; tarefa: TarefaComJoins };
+
+// ---------------------------------------------------------------------------
+// Vista "Lista por prazo": secoes por bucket de vencimento. Compara so a
+// DATA (meia-noite local), pra "hoje 23h" ainda ser "hoje".
+// ---------------------------------------------------------------------------
+
+type Bucket = "atrasadas" | "hoje" | "amanha" | "semana" | "depois" | "sem_prazo";
+
+const BUCKETS: Array<{ key: Bucket; label: string; dot: string }> = [
+  { key: "atrasadas", label: "Atrasadas", dot: "bg-destructive" },
+  { key: "hoje", label: "Hoje", dot: "bg-amber-500" },
+  { key: "amanha", label: "Amanhã", dot: "bg-sky-500" },
+  { key: "semana", label: "Próximos 7 dias", dot: "bg-sky-300" },
+  { key: "depois", label: "Depois", dot: "bg-muted-foreground/40" },
+  { key: "sem_prazo", label: "Sem prazo", dot: "bg-muted-foreground/25" },
+];
+
+function bucketDaTarefa(t: TarefaComJoins): Bucket {
+  if (!t.due_at) return "sem_prazo";
+  const dias = diasCorridosAte(t.due_at);
+  if (dias < 0) return "atrasadas";
+  if (dias === 0) return "hoje";
+  if (dias === 1) return "amanha";
+  if (dias <= 7) return "semana";
+  return "depois";
+}
 
 function TarefasPage() {
   const { usuario } = useAuth();
@@ -125,22 +165,37 @@ function TarefasPage() {
     return m;
   }, [filtradas]);
 
-  // "Meu dia": tarefas ativas MINHAS com prazo hoje ou atrasado. Independente
-  // dos filtros — é o "o que eu tenho pra fazer agora" fixo no topo.
-  const meuDia = useMemo(() => {
-    if (!usuario?.id) return [];
-    return tarefas.filter((t) => {
-      if (t.responsavel_id !== usuario.id) return false;
-      if (t.status !== "a_fazer" && t.status !== "fazendo") return false;
-      const urg = urgenciaDoDueAt(t.due_at, t.status);
-      return urg === "atrasado" || urg === "hoje";
+  // Vista da aba Ativos: lista agrupada por prazo (default) ou kanban.
+  const [vista, setVista] = useState<"lista" | "kanban">("lista");
+  // Secoes distantes ja comecam fechadas pra lista ter fim.
+  const [secoesFechadas, setSecoesFechadas] = useState<Set<Bucket>>(
+    () => new Set<Bucket>(["depois", "sem_prazo"]),
+  );
+
+  const grupos = useMemo(() => {
+    const g: Record<Bucket, TarefaComJoins[]> = {
+      atrasadas: [],
+      hoje: [],
+      amanha: [],
+      semana: [],
+      depois: [],
+      sem_prazo: [],
+    };
+    for (const t of filtradas) {
+      if (t.status !== "a_fazer" && t.status !== "fazendo") continue;
+      g[bucketDaTarefa(t)].push(t);
+    }
+    return g;
+  }, [filtradas]);
+
+  function alternarSecao(b: Bucket) {
+    setSecoesFechadas((prev) => {
+      const next = new Set(prev);
+      if (next.has(b)) next.delete(b);
+      else next.add(b);
+      return next;
     });
-  }, [tarefas, usuario?.id]);
-  const meuDiaAtrasadas = meuDia.filter(
-    (t) => urgenciaDoDueAt(t.due_at, t.status) === "atrasado",
-  ).length;
-  const [meuDiaExpandido, setMeuDiaExpandido] = useState(false);
-  const MEU_DIA_LIMITE = 6;
+  }
 
   // Resumo por pessoa (tarefas ativas): visão da equipe num relance.
   // Clicar num chip filtra o kanban pela pessoa.
@@ -217,7 +272,8 @@ function TarefasPage() {
               Tarefas
             </h1>
             <p className="text-sm text-muted-foreground">
-              Kanban do escritório. Clique numa tarefa pra editar; menu (⋮) muda status.
+              Tarefas do escritório agrupadas por prazo. Clique numa tarefa pra editar; o
+              círculo marca como feita.
             </p>
           </div>
           <Button onClick={() => setSheetModo({ kind: "criar" })}>
@@ -226,65 +282,6 @@ function TarefasPage() {
           </Button>
         </div>
 
-        {/* Meu dia: minhas tarefas de hoje + atrasadas, fixas no topo,
-          independentes dos filtros do kanban. */}
-        {!carregando && meuDia.length > 0 && (
-          <div className="rounded-md border border-[var(--gold)]/40 bg-card">
-            <div className="px-3 py-2 border-b flex items-center gap-2">
-              <ListTodo className="h-4 w-4 text-[var(--gold)]" />
-              <span className="font-medium text-sm">Meu dia</span>
-              <Badge variant="outline" className="font-normal">
-                {meuDia.length}
-              </Badge>
-              {meuDiaAtrasadas > 0 && (
-                <span className="text-xs text-destructive">
-                  {meuDiaAtrasadas} atrasada{meuDiaAtrasadas === 1 ? "" : "s"}
-                </span>
-              )}
-            </div>
-            <ul className="divide-y">
-              {(meuDiaExpandido ? meuDia : meuDia.slice(0, MEU_DIA_LIMITE)).map((t) => {
-                const urg = urgenciaDoDueAt(t.due_at, t.status);
-                return (
-                  <li key={t.id}>
-                    <button
-                      type="button"
-                      onClick={() => abrirEditor(t.id)}
-                      className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-muted/40 min-w-0"
-                    >
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          "font-normal px-1.5 py-0 text-[11px] shrink-0",
-                          URGENCIA_BADGE_CLASS[urg],
-                        )}
-                      >
-                        {formatarDueAtCurto(t.due_at)}
-                      </Badge>
-                      <span className="text-sm truncate flex-1 min-w-0">{t.titulo}</span>
-                      {t.caso?.cliente?.nome && (
-                        <span className="text-xs text-muted-foreground truncate max-w-[30%] shrink-0">
-                          {t.caso.cliente.nome}
-                        </span>
-                      )}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-            {meuDia.length > MEU_DIA_LIMITE && (
-              <button
-                type="button"
-                onClick={() => setMeuDiaExpandido((v) => !v)}
-                className="w-full px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted/40 border-t text-center"
-              >
-                {meuDiaExpandido
-                  ? "Mostrar menos"
-                  : `Mostrar mais ${meuDia.length - MEU_DIA_LIMITE}`}
-              </button>
-            )}
-          </div>
-        )}
 
         {/* Filtros */}
         <div className="flex flex-wrap items-center gap-2 rounded-md border p-3 bg-card">
@@ -391,28 +388,183 @@ function TarefasPage() {
           )}
         </div>
 
-        {/* Tabs Ativos / Arquivados */}
-        <Tabs value={aba} onValueChange={(v) => setAba(v as "ativos" | "arquivados")}>
-          <TabsList>
-            <TabsTrigger value="ativos">
-              Ativos
-              <Badge variant="outline" className="ml-2 font-normal">
-                {STATUS_ATIVOS.reduce((acc, s) => acc + porStatus[s].length, 0)}
-              </Badge>
-            </TabsTrigger>
-            <TabsTrigger value="arquivados">
-              Arquivados
-              <Badge variant="outline" className="ml-2 font-normal">
-                {STATUS_ARQUIVADOS.reduce((acc, s) => acc + porStatus[s].length, 0)}
-              </Badge>
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+        {/* Tabs Ativos / Arquivados + toggle Lista/Kanban */}
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <Tabs value={aba} onValueChange={(v) => setAba(v as "ativos" | "arquivados")}>
+            <TabsList>
+              <TabsTrigger value="ativos">
+                Ativos
+                <Badge variant="outline" className="ml-2 font-normal">
+                  {STATUS_ATIVOS.reduce((acc, s) => acc + porStatus[s].length, 0)}
+                </Badge>
+              </TabsTrigger>
+              <TabsTrigger value="arquivados">
+                Arquivados
+                <Badge variant="outline" className="ml-2 font-normal">
+                  {STATUS_ARQUIVADOS.reduce((acc, s) => acc + porStatus[s].length, 0)}
+                </Badge>
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+          {aba === "ativos" && (
+            <div className="flex items-center rounded-md border p-0.5 bg-card">
+              <Button
+                variant={vista === "lista" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => setVista("lista")}
+              >
+                <List className="h-3.5 w-3.5 mr-1" />
+                Lista
+              </Button>
+              <Button
+                variant={vista === "kanban" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => setVista("kanban")}
+              >
+                <LayoutGrid className="h-3.5 w-3.5 mr-1" />
+                Kanban
+              </Button>
+            </div>
+          )}
+        </div>
 
-        {/* Kanban */}
+        {/* Conteudo: lista por prazo (default em Ativos) ou kanban */}
         {carregando ? (
           <div className="flex items-center justify-center h-64">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : aba === "ativos" && vista === "lista" ? (
+          <div className="rounded-md border bg-card">
+            {BUCKETS.every((b) => grupos[b.key].length === 0) ? (
+              <p className="text-sm text-muted-foreground py-10 text-center">
+                Nenhuma tarefa ativa pra esses filtros.
+              </p>
+            ) : (
+              BUCKETS.map((b) => {
+                const lista = grupos[b.key];
+                if (lista.length === 0) return null;
+                const fechada = secoesFechadas.has(b.key);
+                return (
+                  <div key={b.key} className="border-b last:border-b-0">
+                    <button
+                      type="button"
+                      onClick={() => alternarSecao(b.key)}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-muted/30"
+                    >
+                      {fechada ? (
+                        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      ) : (
+                        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      )}
+                      <span className={cn("h-2 w-2 rounded-full shrink-0", b.dot)} />
+                      <span
+                        className={cn(
+                          "text-sm font-medium",
+                          b.key === "atrasadas" && "text-destructive",
+                        )}
+                      >
+                        {b.label}
+                      </span>
+                      <Badge variant="outline" className="font-normal tabular-nums">
+                        {lista.length}
+                      </Badge>
+                    </button>
+                    {!fechada && (
+                      // ~10 linhas visiveis; o resto rola dentro do box.
+                      <div className="divide-y border-t max-h-[350px] overflow-y-auto">
+                        {lista.map((t) => {
+                          const urg = urgenciaDoDueAt(t.due_at, t.status);
+                          const clienteNome = t.caso?.cliente?.nome ?? null;
+                          return (
+                            <div
+                              key={t.id}
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => abrirEditor(t.id)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  abrirEditor(t.id);
+                                }
+                              }}
+                              className="flex items-center gap-2 pl-3 pr-2 sm:pr-3 py-1.5 hover:bg-muted/40 cursor-pointer min-w-0"
+                            >
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  mudarStatus(t.id, "feito");
+                                }}
+                                title="Marcar como feito"
+                                aria-label="Marcar como feito"
+                                className="group/check shrink-0 h-[18px] w-[18px] rounded-full border-2 border-muted-foreground/30 hover:border-emerald-500 hover:bg-emerald-500/10 grid place-items-center transition-colors"
+                              >
+                                <Check className="h-3 w-3 opacity-0 group-hover/check:opacity-100 text-emerald-600" />
+                              </button>
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  "font-normal px-1.5 py-0 text-[11px] shrink-0",
+                                  URGENCIA_BADGE_CLASS[urg],
+                                )}
+                              >
+                                {formatarDueAtCurto(t.due_at)}
+                              </Badge>
+                              {t.status === "fazendo" && (
+                                <Badge
+                                  variant="secondary"
+                                  className="font-normal px-1.5 py-0 text-[10px] shrink-0"
+                                >
+                                  Fazendo
+                                </Badge>
+                              )}
+                              {t.prioridade <= 2 && (
+                                <span
+                                  className={cn(
+                                    "text-[11px] font-medium shrink-0",
+                                    t.prioridade === 1
+                                      ? "text-destructive"
+                                      : "text-amber-700 dark:text-amber-300",
+                                  )}
+                                >
+                                  {PRIORIDADE_LABEL[t.prioridade]}
+                                </span>
+                              )}
+                              <span className="text-sm truncate min-w-0">{t.titulo}</span>
+                              <span className="flex-1" />
+                              {clienteNome &&
+                                (t.caso_id ? (
+                                  <Link
+                                    to="/casos/$id"
+                                    params={{ id: t.caso_id }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    title={"Abrir o caso de " + nomeAmigavel(clienteNome)}
+                                    className="hidden sm:block text-[13px] text-foreground/80 truncate max-w-[220px] shrink-0 hover:underline hover:text-foreground"
+                                  >
+                                    {nomeAmigavel(clienteNome)}
+                                  </Link>
+                                ) : (
+                                  <span className="hidden sm:block text-[13px] text-foreground/80 truncate max-w-[220px] shrink-0">
+                                    {nomeAmigavel(clienteNome)}
+                                  </span>
+                                ))}
+                              <span
+                                className="shrink-0 inline-flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-foreground/70"
+                                title={t.responsavel?.nome ?? "Sem responsável"}
+                              >
+                                {iniciaisDoNome(t.responsavel?.nome ?? null)}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
