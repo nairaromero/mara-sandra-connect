@@ -2,12 +2,16 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   CalendarPlus,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsUpDown,
+  FileDown,
   Loader2,
   Search,
-  UserCircle,
-  ChevronRight,
-  FileDown,
+  Tag,
   Upload,
+  UserCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -33,6 +37,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { ImportarTiDialog } from "@/components/importar-ti-dialog";
 import { ImportarClientesExcelDialog } from "@/components/importar-clientes-excel-dialog";
 import { exportarClientesExcel } from "@/lib/clientes-excel";
@@ -57,6 +74,12 @@ interface CasoRow {
   processos_judiciais: Array<{ numero_processo: string | null }>;
 }
 
+interface Etiqueta {
+  id: string;
+  nome: string;
+  cor: string;
+}
+
 interface ClienteAgrupado {
   id: string;
   nome: string;
@@ -69,6 +92,7 @@ interface ClienteAgrupado {
     parceiroNome: string | null;
     numerosProcesso: Array<string>;
   }>;
+  etiquetas: Array<Etiqueta>;
   // Strings concatenadas pra busca rapida
   searchHaystack: string;
 }
@@ -138,6 +162,16 @@ function ClientesPage() {
   const [busca, setBusca] = useState("");
   // Filtro por parceiro (so interno usa). "" = todos. "__interno__" = casos sem parceiro.
   const [parceiroFiltro, setParceiroFiltro] = useState<string>("");
+  // Filtro por etiqueta (id da etiqueta; "" = todas) e por status de caso.
+  const [etiquetaFiltro, setEtiquetaFiltro] = useState<string>("");
+  const [etiquetaPopOpen, setEtiquetaPopOpen] = useState(false);
+  const [statusFiltro, setStatusFiltro] = useState<string>("");
+  // Paginacao client-side (os dados ja estao todos carregados).
+  const [pagina, setPagina] = useState(1);
+  const [porPagina, setPorPagina] = useState(10);
+  const [etiquetasPorCliente, setEtiquetasPorCliente] = useState<
+    Map<string, Array<Etiqueta>>
+  >(new Map());
   const [exportando, setExportando] = useState(false);
   const [importarDialogAberto, setImportarDialogAberto] = useState(false);
   // "+ Perícia" no cliente abre o TarefaSheet com o template
@@ -156,22 +190,49 @@ function ClientesPage() {
     try {
       // Carrega casos com cliente + parceiro + processos (admin e judicial).
       // RLS no `casos` ja filtra por parceiro automaticamente.
-      const resp = await supabase
-        .from("casos")
-        .select(
-          "id, status, tipo_beneficio, created_at, " +
-            "cliente:cliente_id(id, nome, cpf), " +
-            "parceiro:parceiro_id(nome), " +
-            "processos_admin(numero_requerimento), " +
-            "processos_judiciais(numero_processo)",
-        )
-        .order("created_at", { ascending: false });
+      const [resp, etResp] = await Promise.all([
+        supabase
+          .from("casos")
+          .select(
+            "id, status, tipo_beneficio, created_at, " +
+              "cliente:cliente_id(id, nome, cpf), " +
+              "parceiro:parceiro_id(nome), " +
+              "processos_admin(numero_requerimento), " +
+              "processos_judiciais(numero_processo)",
+          )
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("clientes_etiquetas")
+          .select("cliente_id, etiqueta:etiquetas(id, nome, cor)"),
+      ]);
       if (resp.error) {
         console.error("Erro ao carregar casos:", resp.error);
         setCasos([]);
         return;
       }
       setCasos((resp.data as unknown as Array<CasoRow>) ?? []);
+
+      // Mapa cliente_id -> etiquetas. Parceiro nao ve tags internas "NOME/UF"
+      // (mesma regra do componente EtiquetasCliente).
+      if (!etResp.error) {
+        type LinkRow = {
+          cliente_id: string;
+          etiqueta: Etiqueta | Array<Etiqueta> | null;
+        };
+        const mapa = new Map<string, Array<Etiqueta>>();
+        for (const row of (etResp.data ?? []) as Array<LinkRow>) {
+          const et = Array.isArray(row.etiqueta) ? row.etiqueta[0] : row.etiqueta;
+          if (!et) continue;
+          if (!isInterno && /^[A-Za-z_]+\/[A-Z]{2}$/.test(et.nome.trim())) continue;
+          const lista = mapa.get(row.cliente_id) ?? [];
+          lista.push(et);
+          mapa.set(row.cliente_id, lista);
+        }
+        for (const lista of mapa.values()) {
+          lista.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+        }
+        setEtiquetasPorCliente(mapa);
+      }
     } finally {
       setLoading(false);
     }
@@ -189,6 +250,7 @@ function ClientesPage() {
           nome: c.cliente.nome ?? "(sem nome)",
           cpf: c.cliente.cpf ?? "",
           casos: [],
+          etiquetas: etiquetasPorCliente.get(id) ?? [],
           searchHaystack: "",
         });
       }
@@ -218,10 +280,12 @@ function ClientesPage() {
         .flatMap((c) => c.numerosProcesso)
         .map((n) => onlyDigits(n))
         .join(" ");
-      e.searchHaystack = nome + " | " + cpfDigits + " | " + processos.toLowerCase();
+      const etiquetasStr = e.etiquetas.map((t) => t.nome.toLowerCase()).join(" ");
+      e.searchHaystack =
+        nome + " | " + cpfDigits + " | " + processos.toLowerCase() + " | " + etiquetasStr;
     }
     return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome));
-  }, [casos]);
+  }, [casos, etiquetasPorCliente]);
 
   const buscaNormalizada = busca.trim().toLowerCase();
   const buscaDigits = onlyDigits(busca);
@@ -237,7 +301,27 @@ function ClientesPage() {
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [clientes]);
 
-  // Filtra clientes pela busca + filtro de parceiro
+  // Etiquetas que aparecem em pelo menos um cliente carregado, com contagem —
+  // e o que alimenta o combobox de filtro.
+  const etiquetasDisponiveis = useMemo(() => {
+    const mapa = new Map<string, Etiqueta & { qtd: number }>();
+    for (const c of clientes) {
+      for (const e of c.etiquetas) {
+        const atual = mapa.get(e.id);
+        if (atual) atual.qtd += 1;
+        else mapa.set(e.id, { ...e, qtd: 1 });
+      }
+    }
+    return Array.from(mapa.values()).sort((a, b) =>
+      a.nome.localeCompare(b.nome, "pt-BR"),
+    );
+  }, [clientes]);
+
+  const etiquetaSelecionada = etiquetaFiltro
+    ? etiquetasDisponiveis.find((e) => e.id === etiquetaFiltro) ?? null
+    : null;
+
+  // Filtra clientes pela busca + parceiro + etiqueta + status
   const clientesFiltrados = useMemo(() => {
     let result = clientes;
 
@@ -246,6 +330,16 @@ function ClientesPage() {
       result = result.filter((c) => c.casos.every((ca) => !ca.parceiroNome));
     } else if (parceiroFiltro) {
       result = result.filter((c) => c.casos.some((ca) => ca.parceiroNome === parceiroFiltro));
+    }
+
+    // Filtro por etiqueta
+    if (etiquetaFiltro) {
+      result = result.filter((c) => c.etiquetas.some((e) => e.id === etiquetaFiltro));
+    }
+
+    // Filtro por status (algum caso do cliente com esse status)
+    if (statusFiltro) {
+      result = result.filter((c) => c.casos.some((ca) => ca.status === statusFiltro));
     }
 
     // Filtro por busca textual
@@ -264,9 +358,27 @@ function ClientesPage() {
         }
       }
       // Fallback: substring no haystack pra cobrir casos que nao caberam
+      // (inclui nomes de etiquetas)
       return c.searchHaystack.includes(buscaNormalizada);
     });
-  }, [clientes, parceiroFiltro, buscaNormalizada, buscaDigits]);
+  }, [clientes, parceiroFiltro, etiquetaFiltro, statusFiltro, buscaNormalizada, buscaDigits]);
+
+  const temFiltroAtivo =
+    !!buscaNormalizada || !!parceiroFiltro || !!etiquetaFiltro || !!statusFiltro;
+
+  // Paginacao: volta pra pagina 1 sempre que qualquer filtro (ou o tamanho da
+  // pagina) muda, senao a pessoa fica presa numa pagina que nao existe mais.
+  useEffect(() => {
+    setPagina(1);
+  }, [buscaNormalizada, parceiroFiltro, etiquetaFiltro, statusFiltro, porPagina]);
+
+  const totalPaginas = Math.max(1, Math.ceil(clientesFiltrados.length / porPagina));
+  const paginaAtual = Math.min(pagina, totalPaginas);
+  const clientesPagina = useMemo(
+    () =>
+      clientesFiltrados.slice((paginaAtual - 1) * porPagina, paginaAtual * porPagina),
+    [clientesFiltrados, paginaAtual, porPagina],
+  );
 
   async function handleExportar() {
     setExportando(true);
@@ -346,7 +458,9 @@ function ClientesPage() {
           <CardHeader>
             <CardTitle className="text-base">Busca</CardTitle>
             <CardDescription>
-              Filtra por nome (parcial), CPF (só dígitos) ou número de processo (admin ou judicial).
+              Filtra por nome (parcial), CPF (só dígitos), número de processo (admin ou judicial)
+              ou etiqueta. Combine os filtros abaixo pra montar o recorte — o Exportar Excel baixa
+              exatamente o que estiver filtrado.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -359,40 +473,148 @@ function ClientesPage() {
                 className="pl-9"
               />
             </div>
-            {/* Filtro por parceiro - so faz sentido pra interno (parceiro
-              ja so ve os clientes dele via RLS). */}
-            {isInterno && (
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs text-muted-foreground shrink-0">Parceiro:</span>
+            <div className="flex items-center gap-x-4 gap-y-2 flex-wrap">
+              {/* Filtro por parceiro - so faz sentido pra interno (parceiro
+                ja so ve os clientes dele via RLS). */}
+              {isInterno && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground shrink-0">Parceiro:</span>
+                  <Select
+                    value={parceiroFiltro || "__todos__"}
+                    onValueChange={(v) => setParceiroFiltro(v === "__todos__" ? "" : v)}
+                  >
+                    <SelectTrigger className="w-auto min-w-[160px] h-8 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__todos__">Todos</SelectItem>
+                      <SelectItem value="__interno__">Sem parceiro (interno)</SelectItem>
+                      {parceirosDisponiveis.map((nome) => (
+                        <SelectItem key={nome} value={nome}>
+                          {nome}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {/* Filtro por etiqueta: combobox com busca (sao 100+ etiquetas) */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground shrink-0">Etiqueta:</span>
+                <Popover open={etiquetaPopOpen} onOpenChange={setEtiquetaPopOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 min-w-[180px] justify-between font-normal text-sm"
+                    >
+                      {etiquetaSelecionada ? (
+                        <span className="flex items-center gap-1.5 min-w-0">
+                          <span
+                            className="h-2.5 w-2.5 rounded-full shrink-0"
+                            style={{ backgroundColor: etiquetaSelecionada.cor }}
+                          />
+                          <span className="truncate">{etiquetaSelecionada.nome}</span>
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground flex items-center gap-1.5">
+                          <Tag className="h-3.5 w-3.5" />
+                          Todas
+                        </span>
+                      )}
+                      <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[280px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Buscar etiqueta..." />
+                      <CommandList>
+                        <CommandEmpty>Nenhuma etiqueta encontrada.</CommandEmpty>
+                        <CommandGroup>
+                          <CommandItem
+                            value="__todas__"
+                            onSelect={() => {
+                              setEtiquetaFiltro("");
+                              setEtiquetaPopOpen(false);
+                            }}
+                          >
+                            <Check
+                              className={
+                                "mr-2 h-3.5 w-3.5 " +
+                                (etiquetaFiltro ? "opacity-0" : "opacity-100")
+                              }
+                            />
+                            Todas
+                          </CommandItem>
+                          {etiquetasDisponiveis.map((e) => (
+                            <CommandItem
+                              key={e.id}
+                              value={e.nome}
+                              onSelect={() => {
+                                setEtiquetaFiltro(e.id === etiquetaFiltro ? "" : e.id);
+                                setEtiquetaPopOpen(false);
+                              }}
+                            >
+                              <Check
+                                className={
+                                  "mr-2 h-3.5 w-3.5 " +
+                                  (etiquetaFiltro === e.id ? "opacity-100" : "opacity-0")
+                                }
+                              />
+                              <span
+                                className="mr-1.5 h-2.5 w-2.5 rounded-full shrink-0"
+                                style={{ backgroundColor: e.cor }}
+                              />
+                              <span className="truncate">{e.nome}</span>
+                              <span className="ml-auto text-xs text-muted-foreground tabular-nums">
+                                {e.qtd}
+                              </span>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Filtro por status (algum caso do cliente nesse status) */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground shrink-0">Status:</span>
                 <Select
-                  value={parceiroFiltro || "__todos__"}
-                  onValueChange={(v) => setParceiroFiltro(v === "__todos__" ? "" : v)}
+                  value={statusFiltro || "__todos__"}
+                  onValueChange={(v) => setStatusFiltro(v === "__todos__" ? "" : v)}
                 >
-                  <SelectTrigger className="w-auto min-w-[200px] h-8 text-sm">
+                  <SelectTrigger className="w-auto min-w-[150px] h-8 text-sm">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__todos__">Todos</SelectItem>
-                    <SelectItem value="__interno__">Sem parceiro (interno)</SelectItem>
-                    {parceirosDisponiveis.map((nome) => (
-                      <SelectItem key={nome} value={nome}>
-                        {nome}
+                    {Object.entries(STATUS_VARIANT).map(([valor, cfg]) => (
+                      <SelectItem key={valor} value={valor}>
+                        {cfg.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                {parceiroFiltro && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setParceiroFiltro("")}
-                    className="h-8 px-2 text-xs"
-                  >
-                    Limpar
-                  </Button>
-                )}
               </div>
-            )}
+
+              {(parceiroFiltro || etiquetaFiltro || statusFiltro) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setParceiroFiltro("");
+                    setEtiquetaFiltro("");
+                    setStatusFiltro("");
+                  }}
+                  className="h-8 px-2 text-xs"
+                >
+                  Limpar filtros
+                </Button>
+              )}
+            </div>
           </CardContent>
         </Card>
 
@@ -404,7 +626,7 @@ function ClientesPage() {
                 : clientesFiltrados.length +
                   " cliente" +
                   (clientesFiltrados.length === 1 ? "" : "s") +
-                  (busca.trim() ? " (filtrado de " + clientes.length + ")" : "")}
+                  (temFiltroAtivo ? " (filtrado de " + clientes.length + ")" : "")}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -414,15 +636,15 @@ function ClientesPage() {
               </div>
             ) : clientesFiltrados.length === 0 ? (
               <p className="text-sm text-muted-foreground py-8 text-center">
-                {busca.trim()
-                  ? "Nenhum cliente encontrado para essa busca."
+                {temFiltroAtivo
+                  ? "Nenhum cliente encontrado para esses filtros."
                   : "Nenhum cliente cadastrado ainda."}
               </p>
             ) : (
               <>
                 {/* Mobile: lista em cards (tabela nao cabe em tela estreita) */}
                 <div className="md:hidden space-y-3">
-                  {clientesFiltrados.map((c) => {
+                  {clientesPagina.map((c) => {
                     const totalCasos = c.casos.length;
                     const casoMaisRecente = c.casos[0];
                     const numerosProcesso = c.casos.flatMap((ca) => ca.numerosProcesso);
@@ -473,6 +695,28 @@ function ClientesPage() {
                             </span>
                           ))}
                         </div>
+                        {c.etiquetas.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {c.etiquetas.slice(0, 3).map((e) => (
+                              <span
+                                key={e.id}
+                                className="rounded-full border px-1.5 py-0.5 text-[10px] leading-none"
+                                style={{
+                                  backgroundColor: e.cor,
+                                  borderColor: e.cor,
+                                  color: "#1f2937",
+                                }}
+                              >
+                                {e.nome}
+                              </span>
+                            ))}
+                            {c.etiquetas.length > 3 && (
+                              <span className="text-[10px] text-muted-foreground">
+                                +{c.etiquetas.length - 3}
+                              </span>
+                            )}
+                          </div>
+                        )}
                         {numerosProcesso.length > 0 && (
                           <div className="text-[11px] font-mono tabular-nums text-muted-foreground">
                             {numerosProcesso.slice(0, 2).join(" · ")}
@@ -500,7 +744,7 @@ function ClientesPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {clientesFiltrados.map((c) => {
+                      {clientesPagina.map((c) => {
                         const totalCasos = c.casos.length;
                         const casoMaisRecente = c.casos[0]; // ja ordenado
                         const totalProcessos = c.casos.reduce(
@@ -548,6 +792,29 @@ function ClientesPage() {
                                   </button>
                                 ))}
                               </div>
+                              {c.etiquetas.length > 0 && (
+                                <div className="mt-1 flex flex-wrap gap-1">
+                                  {c.etiquetas.slice(0, 4).map((e) => (
+                                    <span
+                                      key={e.id}
+                                      className="rounded-full border px-1.5 py-0.5 text-[10px] leading-none"
+                                      style={{
+                                        backgroundColor: e.cor,
+                                        borderColor: e.cor,
+                                        color: "#1f2937",
+                                      }}
+                                      title={"Etiqueta: " + e.nome}
+                                    >
+                                      {e.nome}
+                                    </span>
+                                  ))}
+                                  {c.etiquetas.length > 4 && (
+                                    <span className="text-[10px] text-muted-foreground">
+                                      +{c.etiquetas.length - 4}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
                             </TableCell>
                             <TableCell className="tabular-nums text-sm">
                               {formatCPF(c.cpf)}
@@ -621,6 +888,58 @@ function ClientesPage() {
                   <p className="text-xs text-muted-foreground mt-3">
                     Clique numa linha pra abrir o caso mais recente do cliente.
                   </p>
+                </div>
+
+                {/* Paginacao (compartilhada mobile/desktop) */}
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span className="shrink-0">Por página:</span>
+                    <Select
+                      value={String(porPagina)}
+                      onValueChange={(v) => setPorPagina(Number(v))}
+                    >
+                      <SelectTrigger className="h-7 w-[72px] text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {[10, 50, 100].map((n) => (
+                          <SelectItem key={n} value={String(n)}>
+                            {n}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <span className="tabular-nums">
+                      {(paginaAtual - 1) * porPagina + 1}–
+                      {Math.min(paginaAtual * porPagina, clientesFiltrados.length)} de{" "}
+                      {clientesFiltrados.length}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      disabled={paginaAtual <= 1}
+                      onClick={() => setPagina(paginaAtual - 1)}
+                    >
+                      <ChevronLeft className="h-3.5 w-3.5 mr-0.5" />
+                      Anterior
+                    </Button>
+                    <span className="px-2 text-xs tabular-nums text-muted-foreground">
+                      {paginaAtual} / {totalPaginas}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      disabled={paginaAtual >= totalPaginas}
+                      onClick={() => setPagina(paginaAtual + 1)}
+                    >
+                      Próxima
+                      <ChevronRight className="h-3.5 w-3.5 ml-0.5" />
+                    </Button>
+                  </div>
                 </div>
               </>
             )}
