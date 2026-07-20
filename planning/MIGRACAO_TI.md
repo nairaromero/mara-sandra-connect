@@ -63,7 +63,15 @@ Import: `node scripts/importar-ti-tarefas.mjs --file <json> [--dry-run]`
 - `MedicalExam`→`pericia`, `Deadline`→`prazo`, resto→`interna`.
 - caso via `ti_customer_id`; responsável por primeiro nome (Mara Oliveira↔Mara
   Sandra, Mariane Oliveira↔Mariane Fernandes); dedup por `uq_tarefas_origem_ref`.
-- Resultado: **257 tarefas** (82 perícias, 4 prazos), 255 com caso, 100% com responsável.
+- **Responsável = SÓ executor** (decisão Naira 2026-07-20): o TI tem papéis
+  executor/reviewer/interested no assignment; revisor e interessado não viram
+  responsável (ficam em `metadata.ti_assignments_roles`). Extrair o `role` do
+  `/agenda.json` (campo `assignments[].role`).
+- Resultado: **257 tarefas** (82 perícias, 4 prazos), 255 com caso.
+  Responsáveis: Naira 200, Mara 30, Mariane 7, **20 sem responsável** —
+  executora é a Beatriz Santiago, que ainda não tem usuário; ao convidá-la,
+  backfill: `update tarefas set responsavel_id=<id> where origem='migracao_ti'
+  and responsavel_id is null and metadata->'ti_executores' ? 'Beatriz Santiago'`.
 - **Fora**: atividades arquivadas/históricas do TI (as notas já cobrem o histórico).
 
 ## Fora do escopo (por enquanto)

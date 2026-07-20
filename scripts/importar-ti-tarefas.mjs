@@ -128,8 +128,16 @@ async function main() {
       continue;
     }
     const casoId = casoPorTiId.get(Number(a.customer_iid)) || null;
-    const primeiroMatch = (a.assignments || [])
-      .map((nome) => usuarioPorPrimeiroNome.get(String(nome).trim().split(/\s+/)[0].toLowerCase()))
+    // Responsável = SÓ executor (decisão Naira 2026-07-20). O TI tem papéis
+    // executor/reviewer/interested; revisor e interessado NÃO viram responsável
+    // (ficam em metadata). Aceita assignments como [{name, role}] (extração com
+    // role, preferida) ou ["Nome"] (legado — trata todos como executor).
+    const assigns = (a.assignments || []).map((s) =>
+      typeof s === "string" ? { name: s, role: "executor" } : s,
+    );
+    const primeiroMatch = assigns
+      .filter((s) => s.role === "executor")
+      .map((s) => usuarioPorPrimeiroNome.get(String(s.name || "").trim().split(/\s+/)[0].toLowerCase()))
       .find(Boolean) || null;
     const tipo = TIPO[a.type] || "interna";
     porTipo[tipo] = (porTipo[tipo] || 0) + 1;
@@ -170,6 +178,10 @@ async function main() {
           ti_uuid: a.uuid,
           ti_type: a.type,
           ti_assignments: a.assignments || [],
+          ti_executores: (a.assignments || [])
+            .map((s) => (typeof s === "string" ? { name: s, role: "executor" } : s))
+            .filter((s) => s.role === "executor")
+            .map((s) => s.name),
           ti_customer_iid: a.customer_iid,
           ti_customer_nome: a.customer_nome,
           ti_all_day: a.allDay ?? null,
