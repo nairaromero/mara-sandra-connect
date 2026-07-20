@@ -1,4 +1,4 @@
-project_id = "nngikgxhdqawyxedzjpu"
+project_id = "llugytkdsfsrciavhrfw"
 
 # ia-mcp autentica por Personal Access Token (PAT) proprio, nao por JWT do
 # Supabase. Por isso a verificacao de JWT do gateway fica desligada -- a propria
