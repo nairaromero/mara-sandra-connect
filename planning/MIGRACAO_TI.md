@@ -86,3 +86,16 @@ admin INSS continua com o TI como feed read-only (SUBSTITUIR_TRAMITACAO.md §7).
 - `clientes.ti_dados jsonb`
 - `tarefas.origem` aceita `'migracao_ti'`
 - índice único parcial `andamentos_ti_nota_id_uniq` (dedup de notas)
+
+## Fusos horários (aprendizado 2026-07-20)
+
+- O TI devolve atividades **com horário** com offset explícito (`-03:00`) e
+  atividades **all-day** como timestamp sem offset (`2026-07-21T00:00`) que É
+  horário de Brasília — `sqlTs` dos scripts agora interpreta sem-offset como
+  `America/Sao_Paulo` (antes o Postgres assumia UTC e tudo deslocava 3h).
+- A migration de fuso do PR #80 (+3h geral) foi revertida para as 119 tarefas
+  que já tinham offset certo (`metadata.tz_revertida`).
+- Perícias agendadas no TI são all-day; o horário real vive no TEXTO
+  ("DIA: 21/07/2026 - ÀS 14:00 HRS"). 12 perícias futuras receberam o horário
+  extraído do texto quando a data do texto = data do due_at
+  (`metadata.horario_do_texto`).

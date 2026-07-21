@@ -76,26 +76,30 @@ const TJ_UF: Record<string, string> = {
  * Determina o endpoint da DataJud pelo segmento (J) e tribunal (TR) do
  * número CNJ. Retorna null se não souber.
  */
-function endpointPara(numeroDigitos: string): { endpoint: string; tribunal: string } | null {
+function endpointPara(
+  numeroDigitos: string,
+): { endpoint: string; tribunal: string; uf: string | null } | null {
   if (numeroDigitos.length !== 20) return null;
   const j = numeroDigitos.slice(13, 14);
   const tr = numeroDigitos.slice(14, 16);
 
   if (j === "8") {
+    // Justiça Estadual: o TR identifica a UF diretamente.
     const uf = TJ_UF[tr];
     if (uf && TJ_ENDPOINT[uf]) {
-      return { endpoint: TJ_ENDPOINT[uf], tribunal: `TJ${uf}` };
+      return { endpoint: TJ_ENDPOINT[uf], tribunal: `TJ${uf}`, uf };
     }
   } else if (j === "4") {
-    // TRF1..TRF6
+    // TRF1..TRF6 — cada TRF cobre vários estados, então a UF só sai do
+    // município do órgão julgador (IBGE), resolvido adiante.
     const n = Number(tr);
     if (n >= 1 && n <= 6) {
-      return { endpoint: `api_publica_trf${n}`, tribunal: `TRF${n}` };
+      return { endpoint: `api_publica_trf${n}`, tribunal: `TRF${n}`, uf: null };
     }
   } else if (j === "5") {
     const n = Number(tr);
     if (n >= 1 && n <= 24) {
-      return { endpoint: `api_publica_trt${n}`, tribunal: `TRT${n}` };
+      return { endpoint: `api_publica_trt${n}`, tribunal: `TRT${n}`, uf: null };
     }
   }
   // outros segmentos: pula
@@ -114,16 +118,28 @@ interface DataJudHit {
   grau?: string;
 }
 
-async function consultarMunicipio(codigoIBGE: number): Promise<string | null> {
+// Retorna nome do município + sigla da UF. A API do IBGE traz a UF aninhada
+// em microrregiao.mesorregiao.UF.sigla — aproveitamos p/ auto-preencher a UF.
+async function consultarMunicipio(
+  codigoIBGE: number,
+): Promise<{ nome: string | null; uf: string | null }> {
   try {
     const r = await fetch(
       `https://servicodados.ibge.gov.br/api/v1/localidades/municipios/${codigoIBGE}`,
     );
-    if (!r.ok) return null;
-    const j = await r.json() as { nome?: string };
-    return j.nome ?? null;
+    if (!r.ok) return { nome: null, uf: null };
+    const j = await r.json() as {
+      nome?: string;
+      microrregiao?: { mesorregiao?: { UF?: { sigla?: string } } };
+      "regiao-imediata"?: {
+        "regiao-intermediaria"?: { UF?: { sigla?: string } };
+      };
+    };
+    const uf = j.microrregiao?.mesorregiao?.UF?.sigla ??
+      j["regiao-imediata"]?.["regiao-intermediaria"]?.UF?.sigla ?? null;
+    return { nome: j.nome ?? null, uf: uf ?? null };
   } catch {
-    return null;
+    return { nome: null, uf: null };
   }
 }
 
@@ -190,11 +206,14 @@ serve(async (req) => {
     });
   }
 
-  // Mapeia municipio IBGE → nome da cidade (comarca).
+  // Mapeia municipio IBGE → nome da cidade (comarca) + UF.
   let comarca: string | null = null;
+  let uf: string | null = cfg.uf; // TJ já tem UF; TRF/TRT vêm do IBGE abaixo.
   const codIBGE = hit.orgaoJulgador?.codigoMunicipioIBGE;
   if (codIBGE) {
-    comarca = await consultarMunicipio(codIBGE);
+    const mun = await consultarMunicipio(codIBGE);
+    comarca = mun.nome;
+    if (mun.uf) uf = mun.uf;
   }
 
   const varaNome = hit.orgaoJulgador?.nome ?? null;
@@ -214,6 +233,7 @@ serve(async (req) => {
     encontrado: true,
     tribunal: cfg.tribunal,
     comarca,
+    uf,
     vara: varaNome,
     classe: hit.classe?.nome ?? null,
     grau: hit.grau ?? null,
