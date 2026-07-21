@@ -5,6 +5,7 @@ import { Loader2, Plus, Pencil, Trash2, Tag, ShieldAlert } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { ordenarEtiquetas } from "@/lib/etiquetas";
 import { ClientOnly } from "@/components/client-only";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -65,7 +66,7 @@ function EtiquetasPage() {
       .from("etiquetas")
       .select("id, nome, cor, ti_id")
       .order("nome", { ascending: true });
-    if (!error) setLista((data || []) as Array<Etiqueta>);
+    if (!error) setLista(ordenarEtiquetas((data || []) as Array<Etiqueta>));
     setCarregando(false);
   }, []);
 
