@@ -6600,9 +6600,10 @@ function TabProcessos(props: TabProcessosProps) {
       })
       .then(({ data }) => {
         if (!data?.encontrado) return;
-        // DataJud é fonte autoritativa: sobrescreve comarca/vara também.
+        // DataJud é fonte autoritativa: sobrescreve comarca/vara/UF também.
         if (data.comarca) setComarca(data.comarca);
         if (data.tribunal) setVara(data.tribunal);
+        if (data.uf) setUf(data.uf);
       })
       .catch(() => {})
       .finally(() => setConsultandoDataJud(false));
@@ -7024,8 +7025,21 @@ function TabProcessos(props: TabProcessosProps) {
         <div
           id={"foco-" + node.id}
           className={"border rounded-md p-3 " + (foco === node.id ? DESTAQUE_CLASSE : "")}
-          style={{ marginLeft: depth * 16 }}
         >
+          {/* Selo de fase: divisão clara entre administrativo e judicial,
+              mesmo quando um está aninhado sob o outro. */}
+          <div className="mb-1.5">
+            <span
+              className={
+                "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide " +
+                (node.tipo === "admin"
+                  ? "bg-muted text-muted-foreground"
+                  : "bg-[var(--gold)]/15 text-foreground")
+              }
+            >
+              {node.tipo === "admin" ? "Fase administrativa" : "Fase judicial"}
+            </span>
+          </div>
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
@@ -7033,12 +7047,6 @@ function TabProcessos(props: TabProcessosProps) {
                   {node.tipo === "admin" ? "Req.: " : "Processo: "}
                   <span className="font-mono tabular-nums">{node.numero || "-"}</span>
                 </p>
-                <Badge
-                  variant={node.tipo === "admin" ? "secondary" : "outline"}
-                  className="text-xs"
-                >
-                  {node.tipo === "admin" ? "Administrativo" : "Judicial"}
-                </Badge>
                 {node.etapa_tipo && (
                   <Badge variant="outline" className="text-xs">
                     {node.etapa_tipo}
@@ -7117,7 +7125,11 @@ function TabProcessos(props: TabProcessosProps) {
           </div>
         </div>
         {filhos.length > 0 && (
-          <ul className="space-y-2">{filhos.map((c) => renderNode(c, depth + 1))}</ul>
+          // Conector: linha vertical ligando o processo-pai aos derivados
+          // (ex.: o judicial que nasceu do requerimento administrativo).
+          <ul className="space-y-2 ml-4 pl-4 border-l-2 border-[var(--gold)]/30">
+            {filhos.map((c) => renderNode(c, depth + 1))}
+          </ul>
         )}
       </li>
     );
