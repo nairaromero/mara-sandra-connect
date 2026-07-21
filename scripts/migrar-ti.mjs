@@ -107,6 +107,10 @@ function sqlDate(v) {
 
 function sqlTs(v) {
   if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}/.test(v)) return "now()";
+  // Sem offset explícito = horário de Brasília (senão o Postgres assume UTC).
+  if (!/[+-]\d{2}:?\d{2}$|Z$/.test(v)) {
+    return `(${sqlStr(v)}::timestamp at time zone 'America/Sao_Paulo')`;
+  }
   return sqlStr(v);
 }
 
