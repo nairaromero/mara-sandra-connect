@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
+import { ordenarEtiquetas } from "@/lib/etiquetas";
 
 interface Etiqueta {
   id: string;
@@ -47,9 +48,7 @@ export function EtiquetasCliente({ clienteId, isInterno }: Props) {
       const vincs = vincRows
         .map((r) => (Array.isArray(r.etiqueta) ? r.etiqueta[0] : r.etiqueta))
         .filter((e): e is Etiqueta => !!e);
-      setVinculadas(
-        vincs.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
-      );
+      setVinculadas(ordenarEtiquetas(vincs));
 
       if (isInterno) {
         const todasResp = await supabase
@@ -57,7 +56,7 @@ export function EtiquetasCliente({ clienteId, isInterno }: Props) {
           .select("id, nome, cor")
           .order("nome");
         if (!todasResp.error) {
-          setTodas((todasResp.data ?? []) as Array<Etiqueta>);
+          setTodas(ordenarEtiquetas((todasResp.data ?? []) as Array<Etiqueta>));
         }
       }
     } finally {
@@ -76,9 +75,7 @@ export function EtiquetasCliente({ clienteId, isInterno }: Props) {
         .from("clientes_etiquetas")
         .insert({ cliente_id: clienteId, etiqueta_id: e.id });
       if (error) throw error;
-      setVinculadas((prev) =>
-        [...prev, e].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
-      );
+      setVinculadas((prev) => ordenarEtiquetas([...prev, e]));
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Falha ao adicionar.";
       toast.error(msg);
