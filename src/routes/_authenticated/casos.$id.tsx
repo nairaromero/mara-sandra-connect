@@ -31,6 +31,7 @@ import {
   KeyRound,
   X,
   ListTodo,
+  ListOrdered,
   Lock,
   Unlock,
 } from "lucide-react";
@@ -515,6 +516,16 @@ const GRUPO_LABELS: Record<number, string> = {
 function displayNomeArquivo(nome: string | null | undefined): string {
   if (!nome) return "";
   return nome.replace(/^\d+\s*[-_.]\s*/, "").trim();
+}
+
+// Extrai o prefixo numerico do nome do arquivo (ex.: "03 - Procuracao.pdf"
+// -> 3). Retorna null se o arquivo nao tem prefixo. Arquivos numerados vem
+// de pastas do Drive organizadas manualmente pelo escritorio, entao a
+// numeracao e a ordem de exibicao desejada.
+function prefixoNumerico(nome: string | null | undefined): number | null {
+  if (!nome) return null;
+  const m = nome.match(/^(\d+)\s*[-_.]\s*/);
+  return m ? parseInt(m[1], 10) : null;
 }
 
 // Feature de Repasses PAUSADA na UI (tabela/componente/logica mantidos no
@@ -3429,6 +3440,8 @@ function TabDocumentos(props: TabDocumentosProps) {
   const [carregandoPreview, setCarregandoPreview] = useState(false);
   // Multi-select de documentos para deletar em batch (so interno usa)
   const [docsSelecionados, setDocsSelecionados] = useState<Set<string>>(new Set());
+  // Progresso da numeracao em lote (null = nao esta numerando)
+  const [numerando, setNumerando] = useState<{ feito: number; total: number } | null>(null);
   // Accordions dos grupos 6, 7, 8 (Laudos medicos, Laudos INSS, Holerites).
   // Por padrao recolhidos para nao poluir a tela quando ha muitos arquivos.
   const [gruposExpandidos, setGruposExpandidos] = useState<Set<number>>(new Set());
@@ -3861,13 +3874,25 @@ function TabDocumentos(props: TabDocumentosProps) {
     ? documentos
     : documentos.filter((d) => d.visivel_parceiro === true);
 
-  // Ordena por grupo (categoria). Dentro do mesmo grupo:
-  //   - Grupos 1-8 (categorias estruturadas): alfabetico pelo nome de
-  //     arquivo sem prefixo numerico - fica previsivel.
-  //   - Grupo 9 (Outros): por created_at crescente - preserva a ordem
-  //     em que foram uploadados, util porque sao documentos diversos
-  //     onde a ordem manual faz sentido.
+  // Ordenacao:
+  //   - Arquivos com prefixo numerico ("01 - RG.pdf") vem primeiro, na
+  //     ordem do numero - espelha exatamente a pasta do Drive, que o
+  //     escritorio ja organiza manualmente.
+  //   - Depois os sem prefixo, ordenados por grupo (categoria). Dentro do
+  //     mesmo grupo:
+  //       - Grupos 1-8 (categorias estruturadas): alfabetico pelo nome.
+  //       - Grupo 9 (Outros): por created_at crescente - preserva a ordem
+  //         em que foram uploadados.
   const lista = listaFiltrada.slice().sort((a, b) => {
+    const pa = prefixoNumerico(a.nome_arquivo);
+    const pb = prefixoNumerico(b.nome_arquivo);
+    if (pa !== null && pb !== null) {
+      if (pa !== pb) return pa - pb;
+      // Mesmo numero (ex.: "17 - X.docx" e "17 - X.pdf"): alfabetico
+      return a.nome_arquivo.localeCompare(b.nome_arquivo);
+    }
+    if (pa !== null) return -1;
+    if (pb !== null) return 1;
     const ga = getDocGroup(a.tipo);
     const gb = getDocGroup(b.tipo);
     if (ga !== gb) return ga - gb;
@@ -4250,6 +4275,86 @@ function TabDocumentos(props: TabDocumentosProps) {
     }
   }
 
+  // ---- Numerar documentos sem prefixo (interno only) ----
+  // Renomeia em lote os documentos da raiz que nao tem prefixo numerico,
+  // atribuindo "NN - " na mesma ordem de categoria da lista. Continua a
+  // contagem a partir do maior numero ja existente no caso, e propaga o
+  // rename pro Drive quando o arquivo esta espelhado la. Docs em subpastas
+  // do Drive ficam de fora - a organizacao deles e a da subpasta.
+  async function numerarDocumentos() {
+    const semNumero = documentos
+      .filter((d) => !d.pasta_relativa && prefixoNumerico(d.nome_arquivo) === null)
+      .sort((a, b) => {
+        const ga = getDocGroup(a.tipo);
+        const gb = getDocGroup(b.tipo);
+        if (ga !== gb) return ga - gb;
+        if (ga === 9) return a.created_at.localeCompare(b.created_at);
+        return a.nome_arquivo.localeCompare(b.nome_arquivo);
+      });
+    if (semNumero.length === 0) {
+      toast.info("Todos os documentos já estão numerados.");
+      return;
+    }
+    let proximo = 1;
+    for (const d of documentos) {
+      const p = prefixoNumerico(d.nome_arquivo);
+      if (p !== null && p >= proximo) proximo = p + 1;
+    }
+    const ok = window.confirm(
+      "Numerar " +
+        semNumero.length +
+        " documento(s) sem número, começando do " +
+        String(proximo).padStart(2, "0") +
+        ", seguindo a ordem das categorias?\n\nOs arquivos serão renomeados no app e na pasta do Drive.",
+    );
+    if (!ok) return;
+    setNumerando({ feito: 0, total: semNumero.length });
+    // Token do Drive obtido uma vez so pro lote inteiro
+    let token: string | null = null;
+    if (semNumero.some((d) => d.gdrive_file_id)) {
+      try {
+        token = await obterAccessToken();
+      } catch {
+        toast.warning(
+          "Sem acesso ao Drive agora — renomeando só no app. Renames pendentes lá.",
+        );
+      }
+    }
+    let okCount = 0;
+    let falhaDrive = 0;
+    for (const d of semNumero) {
+      const novoNome = String(proximo).padStart(2, "0") + " - " + d.nome_arquivo;
+      try {
+        const { error } = await supabase
+          .from("documentos")
+          .update({ nome_arquivo: novoNome })
+          .eq("id", d.id);
+        if (error) throw error;
+        proximo++;
+        okCount++;
+        if (d.gdrive_file_id && token) {
+          try {
+            await renomearArquivoDrive(d.gdrive_file_id, novoNome, token);
+          } catch (errDrive) {
+            console.warn("[drive] falha ao renomear", novoNome, errDrive);
+            falhaDrive++;
+          }
+        }
+      } catch (err) {
+        console.error("erro ao numerar", d.nome_arquivo, err);
+      }
+      setNumerando((prev) => (prev ? { ...prev, feito: prev.feito + 1 } : prev));
+    }
+    setNumerando(null);
+    if (okCount > 0) toast.success(okCount + " documento(s) numerado(s).");
+    if (falhaDrive > 0) {
+      toast.warning(
+        falhaDrive + " rename(s) não propagaram pro Drive — renomeie manual lá ou tente de novo.",
+      );
+    }
+    onChange();
+  }
+
   async function atualizarStatusSolic(
     s: SolicitacaoDocumento,
     novoStatus: string,
@@ -4488,6 +4593,35 @@ function TabDocumentos(props: TabDocumentosProps) {
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}
+              {/* Numerar documentos sem prefixo (ordem de categoria) */}
+              {isInterno &&
+                (() => {
+                  const semNumeroCount = documentos.filter(
+                    (d) => !d.pasta_relativa && prefixoNumerico(d.nome_arquivo) === null,
+                  ).length;
+                  if (semNumeroCount === 0 && !numerando) return null;
+                  return (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={numerarDocumentos}
+                      disabled={!!numerando}
+                      title={`Numerar ${semNumeroCount} documento(s) sem número, na ordem das categorias (renomeia no app e no Drive)`}
+                    >
+                      {numerando ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Numerando {numerando.feito}/{numerando.total}
+                        </>
+                      ) : (
+                        <>
+                          <ListOrdered className="h-4 w-4 mr-2" />
+                          Numerar ({semNumeroCount})
+                        </>
+                      )}
+                    </Button>
+                  );
+                })()}
               {/* Botoes de Drive: vincular pasta / sync / importar avulso */}
               {isInterno && isGoogleDriveConfigured() && gdriveFolderId && (
                 <Button
@@ -4616,7 +4750,10 @@ function TabDocumentos(props: TabDocumentosProps) {
                   const secoes: Array<Secao> = [];
                   for (const d of docs) {
                     const g = getDocGroup(d.tipo);
-                    if (GRUPOS_ACCORDION.has(g)) {
+                    // Arquivos numerados ficam sempre na lista plana, na
+                    // posicao exata da numeracao - nunca dentro de accordion,
+                    // senao a ordem da pasta do Drive quebra visualmente.
+                    if (GRUPOS_ACCORDION.has(g) && prefixoNumerico(d.nome_arquivo) === null) {
                       const ultima = secoes[secoes.length - 1];
                       if (ultima && ultima.kind === "accordion" && ultima.grupo === g) {
                         ultima.docs.push(d);
@@ -4691,9 +4828,10 @@ function TabDocumentos(props: TabDocumentosProps) {
                         )}
                         <FileText className="h-5 w-5 text-muted-foreground flex-shrink-0" />
                         <div className="min-w-0">
-                          <p className="text-sm font-medium truncate">
-                            {displayNomeArquivo(d.nome_arquivo)}
-                          </p>
+                          {/* Nome completo (com prefixo numerico, se tiver):
+                              a numeracao agora define a ordem da lista, entao
+                              mostrar o numero deixa a tela igual a pasta. */}
+                          <p className="text-sm font-medium truncate">{d.nome_arquivo}</p>
                           <p className="text-xs text-muted-foreground">
                             {d.tipo === "outro" && d.tipo_personalizado
                               ? d.tipo_personalizado
@@ -5152,7 +5290,7 @@ function TabDocumentos(props: TabDocumentosProps) {
         >
           <DialogHeader className="px-4 pt-4 pb-2">
             <DialogTitle className="text-base">
-              {previewDoc ? displayNomeArquivo(previewDoc.doc.nome_arquivo) : ""}
+              {previewDoc ? previewDoc.doc.nome_arquivo : ""}
             </DialogTitle>
             <DialogDescription className="text-xs text-destructive bg-destructive/10 border border-destructive/30 rounded p-2 mt-1">
               <strong>Documento confidencial.</strong> Captura de tela, gravação ou compartilhamento
