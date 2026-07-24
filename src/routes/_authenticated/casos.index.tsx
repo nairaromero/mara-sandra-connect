@@ -141,14 +141,6 @@ function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [usuario?.id, usuario?.tipo]);
 
-  // Interno nao tem "Inicio": o dia de trabalho comeca em /tarefas (lista
-  // por prazo). Este dashboard segue sendo a home do PARCEIRO (visao dos
-  // casos dele via RLS). O redirect fica DEPOIS dos hooks (regra de hooks)
-  // e no render, porque o tipo do usuario vem do useAuth.
-  if (usuario?.tipo === "interno") {
-    return <Navigate to="/tarefas" replace />;
-  }
-
   async function loadData() {
     if (!usuario) return;
     setLoading(true);
@@ -246,7 +238,14 @@ function DashboardPage() {
     );
   }
 
+  // Interno nao tem "Inicio": o dia de trabalho comeca em /tarefas (lista
+  // por prazo). Este dashboard segue sendo a home do PARCEIRO (visao dos
+  // casos dele via RLS). O redirect fica DEPOIS de todos os hooks (regra de
+  // hooks) e no render, porque o tipo do usuario vem do useAuth.
   const isInterno = usuario.tipo === "interno";
+  if (isInterno) {
+    return <Navigate to="/tarefas" replace />;
+  }
 
   return (
     <div className="space-y-6">

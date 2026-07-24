@@ -10,13 +10,7 @@ import { ClientOnly } from "@/components/client-only";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -115,9 +109,7 @@ function EtiquetasPage() {
         if (error) throw error;
         toast.success("Etiqueta atualizada.");
       } else {
-        const { error } = await supabase
-          .from("etiquetas")
-          .insert({ nome: nomeNorm, cor });
+        const { error } = await supabase.from("etiquetas").insert({ nome: nomeNorm, cor });
         if (error) throw error;
         toast.success("Etiqueta criada.");
       }
@@ -154,9 +146,7 @@ function EtiquetasPage() {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-2 text-center">
         <ShieldAlert className="h-8 w-8 text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">
-          Área restrita a usuários internos.
-        </p>
+        <p className="text-sm text-muted-foreground">Área restrita a usuários internos.</p>
       </div>
     );
   }
@@ -188,11 +178,10 @@ function EtiquetasPage() {
       >
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">
-              Lista ({lista.length})
-            </CardTitle>
+            <CardTitle className="text-base">Lista ({lista.length})</CardTitle>
             <CardDescription>
-              Etiquetas importadas do Tramitação Inteligente vêm marcadas com origem TI; podem ser editadas livremente.
+              Etiquetas importadas do Tramitação Inteligente vêm marcadas com origem TI; podem ser
+              editadas livremente.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -207,10 +196,7 @@ function EtiquetasPage() {
             ) : (
               <ul className="divide-y">
                 {lista.map((e) => (
-                  <li
-                    key={e.id}
-                    className="flex items-center justify-between gap-2 py-3"
-                  >
+                  <li key={e.id} className="flex items-center justify-between gap-2 py-3">
                     <div className="flex items-center gap-3 min-w-0">
                       <span
                         className="inline-block max-w-full rounded px-2 py-0.5 text-xs font-medium border [overflow-wrap:anywhere]"
@@ -255,9 +241,7 @@ function EtiquetasPage() {
       <Dialog open={criando} onOpenChange={(o) => !o && fechar()}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>
-              {editando ? "Editar etiqueta" : "Nova etiqueta"}
-            </DialogTitle>
+            <DialogTitle>{editando ? "Editar etiqueta" : "Nova etiqueta"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div>

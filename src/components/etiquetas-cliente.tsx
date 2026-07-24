@@ -8,11 +8,7 @@ import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
 import { ordenarEtiquetas } from "@/lib/etiquetas";
@@ -51,10 +47,7 @@ export function EtiquetasCliente({ clienteId, isInterno }: Props) {
       setVinculadas(ordenarEtiquetas(vincs));
 
       if (isInterno) {
-        const todasResp = await supabase
-          .from("etiquetas")
-          .select("id, nome, cor")
-          .order("nome");
+        const todasResp = await supabase.from("etiquetas").select("id, nome, cor").order("nome");
         if (!todasResp.error) {
           setTodas(ordenarEtiquetas((todasResp.data ?? []) as Array<Etiqueta>));
         }
@@ -105,11 +98,7 @@ export function EtiquetasCliente({ clienteId, isInterno }: Props) {
   const vinculadasIds = new Set(vinculadas.map((e) => e.id));
   const disponiveis = todas
     .filter((e) => !vinculadasIds.has(e.id))
-    .filter((e) =>
-      filtro
-        ? e.nome.toLowerCase().includes(filtro.toLowerCase())
-        : true,
-    );
+    .filter((e) => (filtro ? e.nome.toLowerCase().includes(filtro.toLowerCase()) : true));
 
   // Esconder "NOME/UF" do parceiro (tags internas).
   const tagsExibidas = isInterno
@@ -198,9 +187,7 @@ export function EtiquetasCliente({ clienteId, isInterno }: Props) {
                       style={{ backgroundColor: e.cor }}
                     />
                     <span className="truncate">{e.nome}</span>
-                    {salvando === e.id && (
-                      <Loader2 className="h-3 w-3 animate-spin ml-auto" />
-                    )}
+                    {salvando === e.id && <Loader2 className="h-3 w-3 animate-spin ml-auto" />}
                   </button>
                 ))
               )}

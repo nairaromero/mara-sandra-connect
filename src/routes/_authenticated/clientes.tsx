@@ -45,11 +45,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ImportarTiDialog } from "@/components/importar-ti-dialog";
 import { ImportarClientesExcelDialog } from "@/components/importar-clientes-excel-dialog";
 import { exportarClientesExcel } from "@/lib/clientes-excel";
@@ -170,9 +166,9 @@ function ClientesPage() {
   // Paginacao client-side (os dados ja estao todos carregados).
   const [pagina, setPagina] = useState(1);
   const [porPagina, setPorPagina] = useState(10);
-  const [etiquetasPorCliente, setEtiquetasPorCliente] = useState<
-    Map<string, Array<Etiqueta>>
-  >(new Map());
+  const [etiquetasPorCliente, setEtiquetasPorCliente] = useState<Map<string, Array<Etiqueta>>>(
+    new Map(),
+  );
   const [exportando, setExportando] = useState(false);
   const [importarDialogAberto, setImportarDialogAberto] = useState(false);
   // "+ Perícia" no cliente abre o TarefaSheet com o template
@@ -202,9 +198,7 @@ function ClientesPage() {
               "processos_judiciais(numero_processo)",
           )
           .order("created_at", { ascending: false }),
-        supabase
-          .from("clientes_etiquetas")
-          .select("cliente_id, etiqueta:etiquetas(id, nome, cor)"),
+        supabase.from("clientes_etiquetas").select("cliente_id, etiqueta:etiquetas(id, nome, cor)"),
       ]);
       if (resp.error) {
         console.error("Erro ao carregar casos:", resp.error);
@@ -313,13 +307,11 @@ function ClientesPage() {
         else mapa.set(e.id, { ...e, qtd: 1 });
       }
     }
-    return Array.from(mapa.values()).sort((a, b) =>
-      a.nome.localeCompare(b.nome, "pt-BR"),
-    );
+    return Array.from(mapa.values()).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
   }, [clientes]);
 
   const etiquetaSelecionada = etiquetaFiltro
-    ? etiquetasDisponiveis.find((e) => e.id === etiquetaFiltro) ?? null
+    ? (etiquetasDisponiveis.find((e) => e.id === etiquetaFiltro) ?? null)
     : null;
 
   // Filtra clientes pela busca + parceiro + etiqueta + status
@@ -376,8 +368,7 @@ function ClientesPage() {
   const totalPaginas = Math.max(1, Math.ceil(clientesFiltrados.length / porPagina));
   const paginaAtual = Math.min(pagina, totalPaginas);
   const clientesPagina = useMemo(
-    () =>
-      clientesFiltrados.slice((paginaAtual - 1) * porPagina, paginaAtual * porPagina),
+    () => clientesFiltrados.slice((paginaAtual - 1) * porPagina, paginaAtual * porPagina),
     [clientesFiltrados, paginaAtual, porPagina],
   );
 
@@ -459,8 +450,8 @@ function ClientesPage() {
           <CardHeader>
             <CardTitle className="text-base">Busca</CardTitle>
             <CardDescription>
-              Filtra por nome (parcial), CPF (só dígitos), número de processo (admin ou judicial)
-              ou etiqueta. Combine os filtros abaixo pra montar o recorte — o Exportar Excel baixa
+              Filtra por nome (parcial), CPF (só dígitos), número de processo (admin ou judicial) ou
+              etiqueta. Combine os filtros abaixo pra montar o recorte — o Exportar Excel baixa
               exatamente o que estiver filtrado.
             </CardDescription>
           </CardHeader>
@@ -542,8 +533,7 @@ function ClientesPage() {
                           >
                             <Check
                               className={
-                                "mr-2 h-3.5 w-3.5 " +
-                                (etiquetaFiltro ? "opacity-0" : "opacity-100")
+                                "mr-2 h-3.5 w-3.5 " + (etiquetaFiltro ? "opacity-0" : "opacity-100")
                               }
                             />
                             Todas
