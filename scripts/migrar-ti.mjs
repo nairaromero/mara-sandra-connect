@@ -37,8 +37,31 @@ const CHUNK = 50;
 
 // Tag do TI → email do usuário parceiro no sistema (usuarios.tipo='parceiro').
 // Casos de clientes com a tag nascem/ficam alocados nesse parceiro.
+// MARA/SP e MARA/MT NÃO entram: são a Mara Sandra (interna), não parceiro.
 const MAPA_PARCEIROS = {
+  "PARCERIA_ALUMINIO/SP": "nairaromerovian+andre@gmail.com", // André Servantes
+  "PARCERIA_CAMILA/SP": "nairaromerovian+camila@gmail.com",
+  "PARCERIA_PRISCILLA/MT": "nairaromerovian+priscilla@gmail.com",
+  "PARCERIA_MAIK/MT": "nairaromerovian+maik@gmail.com",
   "PARCERIA_ISABELA/MT": "nairaromerovian+isabella@gmail.com",
+  "PARCERIA_LUCAS/MT": "nairaromerovian+lucas@gmail.com",
+  "PARCERIA_BEATRIZ/SP": "nairaromerovian+beatrizsp@gmail.com", // parceira ≠ Beatriz interna
+  "PARCERIA_DAIANY/MT": "nairaromerovian+daiany@gmail.com",
+  "PARCERIA_TALISSA/MT": "nairaromerovian+talissa@gmail.com",
+  "PARCERIA_TREVISAN/SP": "nairaromerovian+trevisan@gmail.com",
+  "PARCERIA_RENATA/MT": "nairaromerovian+renata@gmail.com",
+  "PARCERIA_LUCILO/MT": "nairaromerovian+lucilo@gmail.com",
+  "PARCERIA_RITA_NAIRA/MT": "nairaromerovian+rita@gmail.com",
+  "PARCERIA_ERIKA/MT": "nairaromerovian+erika@gmail.com",
+  "PARCERIA_ELIZIARA/SP": "nairaromerovian+eliziara@gmail.com",
+  "PARCERIA_GUSTAVO_FIORI/SP": "nairaromerovian+gustavofiori@gmail.com",
+  "PARCERIA_JOSIANY/MT": "nairaromerovian+josiany@gmail.com",
+  "PARCERIA_MARCELLE/MT": "nairaromerovian+marcelle@gmail.com",
+  "PARCERIA_MARCOS/SP": "nairaromerovian+marcos@gmail.com",
+  "PARCERIA_MARINHO/SP": "nairaromerovian+marinho@gmail.com",
+  "PARCERIA_PEDRO_LEVINSKI/MT": "nairaromerovian+pedrolevinski@gmail.com",
+  "PARCERIA_VANIA_FORT/MT": "nairaromerovian+vaniafort@gmail.com",
+  "PARCERIA_TAINA/MT": "nairaromerovian+taina@gmail.com",
 };
 
 function readEnvLocal(key) {
