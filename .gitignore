@@ -39,3 +39,6 @@ planning/explorers/
 *.njsproj
 *.sln
 *.sw?
+
+# gerado pelo deno (check/lint das edge functions), não versionar
+deno.lock
