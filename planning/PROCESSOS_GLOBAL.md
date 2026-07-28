@@ -1,0 +1,93 @@
+# Processos — visão global (inspirado no Tramitação Inteligente)
+
+Status: fases 1 e 2 implementadas (branch `feat/processos-lista`)
+Aval: pendente validação da Naira; cron diário do DataJud pendente no n8n
+Referência estudada: https://planilha.tramitacaointeligente.com.br/processos (sessão de 2026-07-27)
+
+## Contexto
+
+O TI tem uma tela "Processos" que funciona como planilha global: importação
+automática por OAB, lista com busca/filtros, detalhe com timeline unificada
+(publicações + movimentações + documentos) e feed diário de movimentações com
+e-mail resumo. As fontes são públicas — DataJud/CNJ (movimentações e metadados)
+e Comunica API/DJEN (publicações, descoberta de processos por OAB) — então dá
+pra replicar sem dependência do TI.
+
+No nosso sistema, processos (`processos_admin` + `processos_judiciais`) só
+aparecem DENTRO do caso (aba Processos do `/casos/$id`). Não existe visão
+global. Este doc cobre as 4 fases pra fechar essa lacuna e superar o TI.
+
+## O que já temos (não refazer)
+
+- `processos_admin` / `processos_judiciais` com número normalizado (coluna
+  gerada + índice único global), hierarquia pai/filho e `etapa_tipo`.
+- `andamentos` com FKs opcionais pros dois tipos de processo, origem
+  (`djen`, `inss_email`, `tramitacao`, ...) e `visivel_parceiro`.
+- `tarefas` com FKs opcionais pros dois tipos de processo.
+- `oabs_monitoradas` com as duas OABs da Mara: **439.016/SP** e **22.928/MT**.
+- `publicacoes_dje` + tela `/publicacoes` (triagem vinculada/órfã).
+- Edge `cnj-consulta-processo` (DataJud) que auto-preenche tribunal/vara/comarca.
+- Plano DJE (`INTEGRACAO_DJE.md`) e plano geral (`SUBSTITUIR_TRAMITACAO.md`).
+
+## Fase 1 — Tela `/processos` (só frontend) ← ESTA BRANCH
+
+Planilha global unindo os dois tipos de processo. Interno-only (parceiro
+continua vendo processos por caso).
+
+- Rota `src/routes/_authenticated/processos.tsx` + item "Processos" no sidebar
+  (bloco interno).
+- 4 queries paralelas: processos admin, processos judiciais (ambos com join
+  `casos → clientes/parceiro`), último andamento e tarefas pendentes por
+  processo (agregação client-side; volume atual ~700 processos é tranquilo).
+- Colunas: número (com copiar), tipo (Admin/Judicial), cliente (+parceiro),
+  benefício, etapa, início (protocolo/distribuição), último andamento
+  (data + título), tarefas pendentes, ação "Abrir" → caso na aba Processos.
+- Busca (número ou cliente), filtros (tipo, etapa, benefício), ordenação
+  (último andamento — default —, início mais recente, cliente A–Z).
+- Chips de resumo: total, admin, judicial, sem andamento há 30+ dias
+  (processo "parado" — coisa que o TI não destaca).
+
+Vantagem sobre o TI já na fase 1: cada linha conectada a caso, cliente,
+parceiro e tarefas do nosso sistema.
+
+## Fase 2 — Movimentações automáticas (DataJud) ← IMPLEMENTADA
+
+- Edge `sync-datajud-movimentacoes` (deployada 2026-07-28): varre
+  `processos_judiciais`, consulta o endpoint DataJud do tribunal (deduzido do
+  número CNJ, mesma lógica da cnj-consulta-processo), grava movimentos novos
+  como `andamento` origem `datajud`, `visivel_parceiro=true`, dedup por
+  `metadata->>'datajud_mov'` = `<grau>:<codigo>:<dataHora>`. Params:
+  `dias` (janela, default 90), `limite`, `numeros` (teste), `dry_run`.
+  Invocar com header `x-region: sa-east-1`. Atualiza `ultima_sync`.
+  Testada em prod: 2 processos → 12 movimentos criados, re-run 0 duplicatas.
+- Migration `migration_andamento_origem_datajud.sql` aplicada em prod.
+- Feed `/processos/movimentacoes` agrupado por dia, com botão "Buscar agora"
+  (invoca a edge com dias=7) e link pro caso com foco no andamento.
+- PENDENTE: cron diário no n8n (mesmo esquema do djen-sync) — invoke da edge
+  com body `{"dias": 7}` + header `x-region: sa-east-1`, 1x/dia de manhã.
+- PENDENTE (decisão): backfill dos ~160 judiciais (rodar sem `numeros`,
+  `dias: 90`) — cria os andamentos históricos de todo mundo de uma vez;
+  esperar aval da Naira pra não inundar as timelines sem aviso.
+
+## Fase 3 — Descoberta por OAB + digest diário
+
+- `sync-djen-publicacoes` passa a criar fila "processo novo detectado" quando
+  vem publicação de CNJ desconhecido (hoje vira órfã) — triagem vincula a
+  caso/cliente existente ou cria caso.
+- E-mail diário de resumo (movimentações + publicações + tarefas vencendo) via
+  send-email-hook/Resend, com link direto pro caso. Espelho do e-mail do TI,
+  mas acionável.
+
+## Fase 4 — IA (diferencial)
+
+- Resumo em linguagem simples de cada movimentação/publicação.
+- Sugestão automática de tarefa com prazo a partir do tipo de movimento,
+  usando `tarefa_templates`.
+
+## Fora de escopo (por ora)
+
+- Download de PDF dos autos (Abrir/Baixar do TI): parcial via link de certidão
+  da Comunica API; inteiro teor exigiria scraping PJe/eproc. Reavaliar depois
+  da fase 3.
+- Importação em massa por OAB de processos históricos (a migração TI já cobriu
+  o acervo; a descoberta da fase 3 cobre os novos).
