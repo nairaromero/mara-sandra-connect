@@ -1,7 +1,9 @@
 # Processos — visão global (inspirado no Tramitação Inteligente)
 
-Status: fases 1 e 2 implementadas (branch `feat/processos-lista`)
-Aval: pendente validação da Naira; cron diário do DataJud pendente no n8n
+Status: fases 1, 2 e 3 implementadas (branch `feat/processos-lista`)
+Aval: pendente validação da Naira; crons (DataJud + digest) pendentes no n8n
+Escopo de teste: só 2 processos judiciais sincados no DataJud (casos Delma e
+Pedro) até a Naira liberar o backfill geral.
 Referência estudada: https://planilha.tramitacaointeligente.com.br/processos (sessão de 2026-07-27)
 
 ## Contexto
@@ -69,14 +71,25 @@ parceiro e tarefas do nosso sistema.
   `dias: 90`) — cria os andamentos históricos de todo mundo de uma vez;
   esperar aval da Naira pra não inundar as timelines sem aviso.
 
-## Fase 3 — Descoberta por OAB + digest diário
+## Fase 3 — Descoberta por OAB + digest diário ← IMPLEMENTADA
 
-- `sync-djen-publicacoes` passa a criar fila "processo novo detectado" quando
-  vem publicação de CNJ desconhecido (hoje vira órfã) — triagem vincula a
-  caso/cliente existente ou cria caso.
-- E-mail diário de resumo (movimentações + publicações + tarefas vencendo) via
-  send-email-hook/Resend, com link direto pro caso. Espelho do e-mail do TI,
-  mas acionável.
+- Edge `digest-diario` (deployada 2026-07-28): e-mail de resumo com 4 seções —
+  movimentações DataJud novas, publicações DJEN vinculadas, **fila "processos
+  fora do sistema"** (órfãs cujo CNJ não está em `processos_judiciais`, com
+  link pra triagem em /publicacoes) e tarefas atrasadas/vencendo hoje. Cada
+  item linka direto pro caso. Params: `horas` (default 24), `dry_run`, `para`
+  (override de destinatário), `sempre` (envia mesmo sem novidade). Sem
+  novidades → não envia. Destinatários: usuários internos. Envio via Resend
+  (mesma RESEND_API_KEY das notify-*).
+  Testada em prod: dry-run ok + envio real pra Naira (12 movimentações,
+  2 publicações, 2 processos novos detectados, 124 tarefas).
+- Descoberta por OAB: decidimos NÃO auto-criar processo/caso — a publicação
+  órfã já fica em `publicacoes_dje` (via sync-djen existente) e a fila aparece
+  no digest; a triagem manual em /publicacoes vincula (criando o processo) ou
+  ignora. Auto-criação de caso exigiria inventar cliente — fica pra depois, se
+  fizer falta.
+- PENDENTE: cron diário no n8n (invoke da digest-diario de manhã, depois dos
+  syncs DJEN e DataJud).
 
 ## Fase 4 — IA (diferencial)
 
