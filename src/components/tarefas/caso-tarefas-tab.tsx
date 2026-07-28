@@ -12,33 +12,16 @@ import { cn } from "@/lib/utils";
 import { TarefaCard } from "@/components/tarefas/tarefa-card";
 import { TarefaSheet } from "@/components/tarefas/tarefa-sheet";
 import { AgendaSheet } from "@/components/agenda/agenda-sheet";
-import {
-  atualizarTarefa,
-  excluirTarefa,
-  listarTarefas,
-} from "@/lib/tarefas/queries";
-import {
-  STATUS_LABEL,
-  type TarefaComJoins,
-  type TarefaStatus,
-} from "@/lib/tarefas/types";
+import { atualizarTarefa, excluirTarefa, listarTarefas } from "@/lib/tarefas/queries";
+import { STATUS_LABEL, type TarefaComJoins, type TarefaStatus } from "@/lib/tarefas/types";
 import { listarAgenda } from "@/lib/agenda/queries";
-import {
-  type AgendaEventoComJoins,
-  TIPO_CLASS,
-  TIPO_LABEL,
-} from "@/lib/agenda/types";
-import {
-  DESTAQUE_CLASSE_GLOBAL,
-  useDestaqueAtivo,
-} from "@/lib/destaque/destaque-context";
+import { type AgendaEventoComJoins, TIPO_CLASS, TIPO_LABEL } from "@/lib/agenda/types";
+import { DESTAQUE_CLASSE_GLOBAL, useDestaqueAtivo } from "@/lib/destaque/destaque-context";
 
 const STATUS_ATIVOS: TarefaStatus[] = ["a_fazer", "fazendo"];
 const STATUS_ARQUIVADOS: TarefaStatus[] = ["feito", "cancelado"];
 
-type Modo =
-  | { kind: "criar"; casoIdInicial: string }
-  | { kind: "editar"; tarefa: TarefaComJoins };
+type Modo = { kind: "criar"; casoIdInicial: string } | { kind: "editar"; tarefa: TarefaComJoins };
 
 interface Props {
   casoId: string;
@@ -52,9 +35,10 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
   const [tarefas, setTarefas] = useState<TarefaComJoins[]>([]);
   const [eventos, setEventos] = useState<AgendaEventoComJoins[]>([]);
   const [sheetModo, setSheetModo] = useState<Modo | null>(null);
-  const [agendaSheet, setAgendaSheet] = useState<
-    { kind: "editar"; evento: AgendaEventoComJoins } | null
-  >(null);
+  const [agendaSheet, setAgendaSheet] = useState<{
+    kind: "editar";
+    evento: AgendaEventoComJoins;
+  } | null>(null);
   const [aba, setAba] = useState<"ativos" | "arquivados">("ativos");
 
   const carregar = useCallback(async () => {
@@ -89,6 +73,14 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
       cancelado: [],
     };
     for (const t of tarefas) m[t.status].push(t);
+    // Regra da Naira (2026-07-29): tarefas do administrativo juntas EM CIMA,
+    // judiciais juntas EMBAIXO (sem vínculo por último). Sort estável mantém
+    // a ordem de vencimento dentro de cada grupo.
+    const esfera = (t: TarefaComJoins) =>
+      t.processo_admin_id ? 0 : t.processo_judicial_id ? 1 : 2;
+    for (const s of Object.keys(m) as TarefaStatus[]) {
+      m[s].sort((a, b) => esfera(a) - esfera(b));
+    }
     return m;
   }, [tarefas]);
 
@@ -129,9 +121,10 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
     [eventos, agora],
   );
   const eventosPassados = useMemo(
-    () => eventos
-      .filter((e) => new Date(e.end_at).getTime() < agora)
-      .sort((a, b) => new Date(b.start_at).getTime() - new Date(a.start_at).getTime()),
+    () =>
+      eventos
+        .filter((e) => new Date(e.end_at).getTime() < agora)
+        .sort((a, b) => new Date(b.start_at).getTime() - new Date(a.start_at).getTime()),
     [eventos, agora],
   );
   const eventosDaAba = aba === "ativos" ? eventosFuturos : eventosPassados;
@@ -151,10 +144,7 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
               : `${totalEventos} evento${totalEventos === 1 ? "" : "s"} · ${totalTarefas} tarefa${totalTarefas === 1 ? "" : "s"} · use o template para abrir um pacote.`}
           </p>
         </div>
-        <Button
-          size="sm"
-          onClick={() => setSheetModo({ kind: "criar", casoIdInicial: casoId })}
-        >
+        <Button size="sm" onClick={() => setSheetModo({ kind: "criar", casoIdInicial: casoId })}>
           <Plus className="h-4 w-4" />
           Nova tarefa
         </Button>
@@ -165,13 +155,15 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
           <TabsTrigger value="ativos">
             Ativos
             <Badge variant="outline" className="ml-2 font-normal">
-              {STATUS_ATIVOS.reduce((acc, s) => acc + porStatus[s].length, 0) + eventosFuturos.length}
+              {STATUS_ATIVOS.reduce((acc, s) => acc + porStatus[s].length, 0) +
+                eventosFuturos.length}
             </Badge>
           </TabsTrigger>
           <TabsTrigger value="arquivados">
             Arquivados
             <Badge variant="outline" className="ml-2 font-normal">
-              {STATUS_ARQUIVADOS.reduce((acc, s) => acc + porStatus[s].length, 0) + eventosPassados.length}
+              {STATUS_ARQUIVADOS.reduce((acc, s) => acc + porStatus[s].length, 0) +
+                eventosPassados.length}
             </Badge>
           </TabsTrigger>
         </TabsList>
@@ -188,7 +180,9 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
             <section className="space-y-2">
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-medium">Agenda</h3>
-                <Badge variant="outline" className="font-normal">{eventosDaAba.length}</Badge>
+                <Badge variant="outline" className="font-normal">
+                  {eventosDaAba.length}
+                </Badge>
               </div>
               <div className="grid grid-cols-1 gap-2">
                 {eventosDaAba.map((e) => (
@@ -236,17 +230,9 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
         </div>
       )}
 
-      <TarefaSheet
-        modo={sheetModo}
-        onClose={() => setSheetModo(null)}
-        onSaved={carregar}
-      />
+      <TarefaSheet modo={sheetModo} onClose={() => setSheetModo(null)} onSaved={carregar} />
 
-      <AgendaSheet
-        modo={agendaSheet}
-        onClose={() => setAgendaSheet(null)}
-        onSaved={carregar}
-      />
+      <AgendaSheet modo={agendaSheet} onClose={() => setAgendaSheet(null)} onSaved={carregar} />
     </div>
   );
 }
