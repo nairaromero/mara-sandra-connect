@@ -2,6 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2,
+  FileDown,
   Loader2,
   Newspaper,
   Search,
@@ -24,13 +25,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 export const Route = createFileRoute("/_authenticated/publicacoes")({
   component: PublicacoesPage,
@@ -57,6 +52,7 @@ interface PubView {
   status: PubStatus;
   caso_id: string | null;
   foco_id: string | null; // andamento p/ destacar na timeline do caso
+  certidao_url: string | null; // PDF oficial na Comunica API (precisa IP BR)
 }
 
 interface CasoOption {
@@ -100,9 +96,7 @@ function PublicacoesPage() {
     (async () => {
       const { data, error } = await supabase
         .from("casos")
-        .select(
-          "id, tipo_beneficio, status, cliente:cliente_id(nome, cpf)",
-        )
+        .select("id, tipo_beneficio, status, cliente:cliente_id(nome, cpf)")
         .order("created_at", { ascending: false })
         .limit(1000);
       if (!error) {
@@ -170,13 +164,11 @@ function PublicacoesPage() {
 
     if (isInterno) {
       // Interno: fonte da verdade = publicacoes_dje (vinculadas + órfãs), semana.
-      const desde = new Date(Date.now() - DIAS_JANELA * 86400000)
-        .toISOString()
-        .slice(0, 10);
+      const desde = new Date(Date.now() - DIAS_JANELA * 86400000).toISOString().slice(0, 10);
       const { data, error } = await supabase
         .from("publicacoes_dje")
         .select(
-          "id, numero_processo, sigla_tribunal, nome_orgao, tipo_comunicacao, data_disponibilizacao, texto, status, caso_id, andamento_id, casos:caso_id(cliente:cliente_id(nome))",
+          "id, numero_processo, sigla_tribunal, nome_orgao, tipo_comunicacao, data_disponibilizacao, texto, status, caso_id, andamento_id, certidao_url, casos:caso_id(cliente:cliente_id(nome))",
         )
         .gte("data_disponibilizacao", desde)
         .order("data_disponibilizacao", { ascending: false, nullsFirst: false })
@@ -186,8 +178,7 @@ function PublicacoesPage() {
           ((data || []) as Array<Record<string, unknown>>).map((r) => ({
             id: String(r.id),
             cliente_nome:
-              (r.casos as { cliente?: { nome?: string | null } } | null)
-                ?.cliente?.nome ?? null,
+              (r.casos as { cliente?: { nome?: string | null } } | null)?.cliente?.nome ?? null,
             numero_processo: (r.numero_processo as string | null) ?? null,
             tribunal: (r.sigla_tribunal as string | null) ?? null,
             orgao: (r.nome_orgao as string | null) ?? null,
@@ -197,6 +188,7 @@ function PublicacoesPage() {
             status: (r.status as PubStatus) ?? "sem_processo",
             caso_id: (r.caso_id as string | null) ?? null,
             foco_id: (r.andamento_id as string | null) ?? null,
+            certidao_url: (r.certidao_url as string | null) ?? null,
           })),
         );
       }
@@ -218,8 +210,7 @@ function PublicacoesPage() {
             return {
               id: String(r.id),
               cliente_nome:
-                (r.casos as { cliente?: { nome?: string | null } } | null)
-                  ?.cliente?.nome ?? null,
+                (r.casos as { cliente?: { nome?: string | null } } | null)?.cliente?.nome ?? null,
               numero_processo: (m.numero_processo as string | null) ?? null,
               tribunal: (m.sigla_tribunal as string | null) ?? null,
               orgao: (m.nome_orgao as string | null) ?? null,
@@ -229,6 +220,7 @@ function PublicacoesPage() {
               status: "vinculada" as PubStatus,
               caso_id: (r.caso_id as string | null) ?? null,
               foco_id: String(r.id),
+              certidao_url: (m.certidao_url as string | null) ?? null,
             };
           }),
         );
@@ -318,78 +310,84 @@ function PublicacoesPage() {
           />
         </div>
 
-        {loading
-          ? (
-            <div className="flex h-40 items-center justify-center">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          )
-          : filtradas.length === 0
-          ? (
-            <Card>
-              <CardContent className="flex flex-col items-center justify-center gap-2 py-12 text-center">
-                <Newspaper className="h-8 w-8 text-muted-foreground" />
-                <p className="text-sm font-medium">Nenhuma publicação</p>
-                <p className="text-xs text-muted-foreground">
-                  Publicações do DJEN dos seus processos aparecerão aqui.
-                </p>
-              </CardContent>
-            </Card>
-          )
-          : (
-            <div className="space-y-3">
-              {filtradas.map((p) => {
-                const vinculada = p.status === "vinculada";
-                const texto = p.texto || "";
-                const longo = texto.length > PREVIEW_CHARS;
-                const aberto = expandido[p.id];
-                const exibir = !longo || aberto
-                  ? texto
-                  : texto.slice(0, PREVIEW_CHARS) + "…";
-                return (
-                  <Card key={p.id}>
-                    <CardHeader className="pb-2">
-                      <div className="flex items-start justify-between gap-2 flex-wrap">
-                        <div className="min-w-0">
-                          <CardTitle className="text-base flex items-center gap-2">
-                            {vinculada
-                              ? (p.cliente_nome || "Cliente")
-                              : (
-                                <span className="font-mono text-sm">
-                                  {p.numero_processo || "Processo"}
-                                </span>
-                              )}
-                          </CardTitle>
-                          <CardDescription className="flex flex-wrap items-center gap-1.5 mt-1">
-                            {vinculada
-                              ? (
-                                <Badge className="bg-emerald-600 text-white hover:bg-emerald-600 gap-1">
-                                  <CheckCircle2 className="h-3 w-3" />
-                                  Vinculada
-                                </Badge>
-                              )
-                              : (
-                                <Badge
-                                  variant="outline"
-                                  className="border-amber-500 text-amber-700 dark:text-amber-400 gap-1"
-                                >
-                                  <AlertCircle className="h-3 w-3" />
-                                  Sem processo
-                                </Badge>
-                              )}
-                            {p.tipo && (
-                              <Badge variant="secondary" className="text-xs">
-                                {p.tipo}
-                              </Badge>
-                            )}
-                            {p.tribunal && (
-                              <Badge variant="outline" className="text-xs">
-                                {p.tribunal}
-                              </Badge>
-                            )}
-                            <span className="text-xs">{fmt(p.data)}</span>
-                          </CardDescription>
-                        </div>
+        {loading ? (
+          <div className="flex h-40 items-center justify-center">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : filtradas.length === 0 ? (
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center gap-2 py-12 text-center">
+              <Newspaper className="h-8 w-8 text-muted-foreground" />
+              <p className="text-sm font-medium">Nenhuma publicação</p>
+              <p className="text-xs text-muted-foreground">
+                Publicações do DJEN dos seus processos aparecerão aqui.
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-3">
+            {filtradas.map((p) => {
+              const vinculada = p.status === "vinculada";
+              const texto = p.texto || "";
+              const longo = texto.length > PREVIEW_CHARS;
+              const aberto = expandido[p.id];
+              const exibir = !longo || aberto ? texto : texto.slice(0, PREVIEW_CHARS) + "…";
+              return (
+                <Card key={p.id}>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-start justify-between gap-2 flex-wrap">
+                      <div className="min-w-0">
+                        <CardTitle className="text-base flex items-center gap-2">
+                          {vinculada ? (
+                            p.cliente_nome || "Cliente"
+                          ) : (
+                            <span className="font-mono text-sm">
+                              {p.numero_processo || "Processo"}
+                            </span>
+                          )}
+                        </CardTitle>
+                        <CardDescription className="flex flex-wrap items-center gap-1.5 mt-1">
+                          {vinculada ? (
+                            <Badge className="bg-emerald-600 text-white hover:bg-emerald-600 gap-1">
+                              <CheckCircle2 className="h-3 w-3" />
+                              Vinculada
+                            </Badge>
+                          ) : (
+                            <Badge
+                              variant="outline"
+                              className="border-amber-500 text-amber-700 dark:text-amber-400 gap-1"
+                            >
+                              <AlertCircle className="h-3 w-3" />
+                              Sem processo
+                            </Badge>
+                          )}
+                          {p.tipo && (
+                            <Badge variant="secondary" className="text-xs">
+                              {p.tipo}
+                            </Badge>
+                          )}
+                          {p.tribunal && (
+                            <Badge variant="outline" className="text-xs">
+                              {p.tribunal}
+                            </Badge>
+                          )}
+                          <span className="text-xs">{fmt(p.data)}</span>
+                        </CardDescription>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        {p.certidao_url && (
+                          <Button size="sm" variant="outline" asChild>
+                            <a
+                              href={p.certidao_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              title="Certidão oficial da publicação (PDF, Comunica API/CNJ)"
+                            >
+                              <FileDown className="mr-1.5 h-4 w-4" />
+                              Certidão
+                            </a>
+                          </Button>
+                        )}
                         {vinculada && p.caso_id && (
                           <Button size="sm" variant="outline" asChild>
                             <Link
@@ -404,68 +402,57 @@ function PublicacoesPage() {
                             </Link>
                           </Button>
                         )}
-                        {!vinculada && isInterno && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => abrirVincular(p)}
-                          >
-                            <Link2 className="h-4 w-4 mr-1.5" />
-                            Vincular a um caso
-                          </Button>
-                        )}
                       </div>
-                    </CardHeader>
-                    <CardContent className="space-y-2">
-                      {vinculada && p.numero_processo && (
-                        <p className="text-xs text-muted-foreground font-mono">
-                          {p.numero_processo}
-                          {p.orgao ? " · " + p.orgao : ""}
+                      {!vinculada && isInterno && (
+                        <Button size="sm" variant="outline" onClick={() => abrirVincular(p)}>
+                          <Link2 className="h-4 w-4 mr-1.5" />
+                          Vincular a um caso
+                        </Button>
+                      )}
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {vinculada && p.numero_processo && (
+                      <p className="text-xs text-muted-foreground font-mono">
+                        {p.numero_processo}
+                        {p.orgao ? " · " + p.orgao : ""}
+                      </p>
+                    )}
+                    {!vinculada && p.orgao && (
+                      <p className="text-xs text-muted-foreground">{p.orgao}</p>
+                    )}
+                    {texto && (
+                      <>
+                        <p className="text-sm whitespace-pre-wrap text-muted-foreground">
+                          {exibir}
                         </p>
-                      )}
-                      {!vinculada && p.orgao && (
-                        <p className="text-xs text-muted-foreground">
-                          {p.orgao}
-                        </p>
-                      )}
-                      {texto && (
-                        <>
-                          <p className="text-sm whitespace-pre-wrap text-muted-foreground">
-                            {exibir}
-                          </p>
-                          {longo && (
-                            <button
-                              type="button"
-                              className="text-xs font-medium text-[var(--gold)] hover:underline"
-                              onClick={() =>
-                                setExpandido((s) => ({ ...s, [p.id]: !aberto }))}
-                            >
-                              {aberto ? "ver menos" : "ver publicação completa"}
-                            </button>
-                          )}
-                        </>
-                      )}
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-          )}
+                        {longo && (
+                          <button
+                            type="button"
+                            className="text-xs font-medium text-[var(--gold)] hover:underline"
+                            onClick={() => setExpandido((s) => ({ ...s, [p.id]: !aberto }))}
+                          >
+                            {aberto ? "ver menos" : "ver publicação completa"}
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
       </ClientOnly>
 
-      <Dialog
-        open={vincularPub !== null}
-        onOpenChange={(o) => !o && setVincularPub(null)}
-      >
+      <Dialog open={vincularPub !== null} onOpenChange={(o) => !o && setVincularPub(null)}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Vincular publicação a um caso</DialogTitle>
             <DialogDescription>
-              {vincularPub?.numero_processo
-                ? `Processo ${vincularPub.numero_processo}. `
-                : ""}
-              Escolha o caso. O processo judicial é criado (se ainda não existir)
-              e a publicação vira um andamento.
+              {vincularPub?.numero_processo ? `Processo ${vincularPub.numero_processo}. ` : ""}
+              Escolha o caso. O processo judicial é criado (se ainda não existir) e a publicação
+              vira um andamento.
             </DialogDescription>
           </DialogHeader>
 
@@ -499,9 +486,7 @@ function PublicacoesPage() {
                   className="flex w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors hover:bg-accent disabled:opacity-50"
                 >
                   <span className="min-w-0">
-                    <span className="block truncate font-medium">
-                      {c.cliente_nome}
-                    </span>
+                    <span className="block truncate font-medium">{c.cliente_nome}</span>
                     <span className="block truncate text-xs text-muted-foreground">
                       {c.tipo_beneficio || "—"}
                     </span>
@@ -513,11 +498,7 @@ function PublicacoesPage() {
           </div>
 
           <DialogFooter>
-            <Button
-              variant="ghost"
-              onClick={() => setVincularPub(null)}
-              disabled={vinculando}
-            >
+            <Button variant="ghost" onClick={() => setVincularPub(null)} disabled={vinculando}>
               Cancelar
             </Button>
           </DialogFooter>

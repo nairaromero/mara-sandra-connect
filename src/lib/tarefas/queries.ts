@@ -15,7 +15,9 @@ const SELECT_COM_JOINS = `
   status, prioridade, titulo, descricao, due_at, origem, origem_ref, lembretes,
   gcal_event_id, metadata, created_by, created_at, updated_at, completed_at,
   responsavel:usuarios!tarefas_responsavel_id_fkey(id, nome),
-  caso:casos(id, cliente:clientes(id, nome))
+  caso:casos(id, cliente:clientes(id, nome)),
+  processo_admin:processo_admin_id(id, numero_requerimento),
+  processo_judicial:processo_judicial_id(id, numero_processo)
 `;
 
 export interface ListarTarefasFiltro {
@@ -27,9 +29,7 @@ export interface ListarTarefasFiltro {
   apenas_minhas_hoje?: { usuario_id: string };
 }
 
-export async function listarTarefas(
-  filtro: ListarTarefasFiltro = {},
-): Promise<TarefaComJoins[]> {
+export async function listarTarefas(filtro: ListarTarefasFiltro = {}): Promise<TarefaComJoins[]> {
   let q = supabase
     .from("tarefas")
     .select(SELECT_COM_JOINS)
@@ -112,19 +112,21 @@ export async function criarTarefa(input: CriarTarefaInput): Promise<TarefaRow> {
 
 export interface AtualizarTarefaInput {
   id: string;
-  patch: Partial<Pick<
-    TarefaRow,
-    | "titulo"
-    | "descricao"
-    | "due_at"
-    | "status"
-    | "prioridade"
-    | "tipo"
-    | "responsavel_id"
-    | "caso_id"
-    | "processo_admin_id"
-    | "processo_judicial_id"
-  >>;
+  patch: Partial<
+    Pick<
+      TarefaRow,
+      | "titulo"
+      | "descricao"
+      | "due_at"
+      | "status"
+      | "prioridade"
+      | "tipo"
+      | "responsavel_id"
+      | "caso_id"
+      | "processo_admin_id"
+      | "processo_judicial_id"
+    >
+  >;
 }
 
 export async function atualizarTarefa(input: AtualizarTarefaInput): Promise<TarefaRow> {
@@ -185,7 +187,7 @@ export interface ContextoCasoParaTemplate {
  */
 export async function obterContextoCaso(
   casoId: string,
-  processoToken: string,             // "" | "admin:<id>" | "judicial:<id>"
+  processoToken: string, // "" | "admin:<id>" | "judicial:<id>"
 ): Promise<ContextoCasoParaTemplate> {
   const ctx: ContextoCasoParaTemplate = {
     cliente_nome: "",
@@ -238,9 +240,7 @@ export async function obterContextoCaso(
   return ctx;
 }
 
-export async function listarProcessosDoCaso(
-  casoId: string,
-): Promise<ProcessoDoCasoOpcao[]> {
+export async function listarProcessosDoCaso(casoId: string): Promise<ProcessoDoCasoOpcao[]> {
   const [admins, judiciais] = await Promise.all([
     supabase
       .from("processos_admin")
@@ -255,11 +255,9 @@ export async function listarProcessosDoCaso(
   ]);
   const out: ProcessoDoCasoOpcao[] = [];
   for (const a of admins.data ?? []) {
-    const partes = [
-      "Admin",
-      a.numero_requerimento ?? "sem nº",
-      a.etapa_tipo ?? null,
-    ].filter(Boolean);
+    const partes = ["Admin", a.numero_requerimento ?? "sem nº", a.etapa_tipo ?? null].filter(
+      Boolean,
+    );
     out.push({
       id: a.id as string,
       natureza: "admin",

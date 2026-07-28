@@ -8,10 +8,7 @@ import { CalendarDays, MoreVertical, Trash2, User as UserIcon } from "lucide-rea
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  DESTAQUE_CLASSE_GLOBAL,
-  useDestaqueAtivo,
-} from "@/lib/destaque/destaque-context";
+import { DESTAQUE_CLASSE_GLOBAL, useDestaqueAtivo } from "@/lib/destaque/destaque-context";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -53,7 +50,6 @@ interface Props {
   compacto?: boolean;
 }
 
-
 export function TarefaCard({
   tarefa,
   onOpenSheet,
@@ -66,8 +62,16 @@ export function TarefaCard({
   const [menuOpen, setMenuOpen] = useState(false);
   const urg = urgenciaDoDueAt(tarefa.due_at, tarefa.status);
   const clienteNome = tarefa.caso?.cliente?.nome ?? null;
+  // Caso com admin E judicial correndo juntos: o badge diz de qual esfera é o
+  // prazo. Número curto = trecho antes do primeiro ponto (CNJ) ou o próprio.
+  const procJud = tarefa.processo_judicial?.numero_processo ?? null;
+  const procAdm = tarefa.processo_admin?.numero_requerimento ?? null;
+  const numeroCurto = (n: string) => (n.includes(".") ? n.split(".")[0] : n.slice(0, 12));
+  const PROC_BADGE_JUD = "border-[var(--gold)] text-amber-800 dark:text-amber-300";
+  const PROC_BADGE_ADM = "border-sky-500 text-sky-700 dark:text-sky-400";
   const ehAcompProcessual =
-    (tarefa.metadata as { acompanhamento_processual?: boolean })?.acompanhamento_processual === true;
+    (tarefa.metadata as { acompanhamento_processual?: boolean })?.acompanhamento_processual ===
+    true;
   const ehCumprimentoExigencia =
     (tarefa.metadata as { cumprimento_exigencia?: boolean })?.cumprimento_exigencia === true;
   const ehProtocoloRealizado =
@@ -163,6 +167,18 @@ export function TarefaCard({
                 {PRIORIDADE_LABEL[tarefa.prioridade]}
               </span>
             )}
+            {(tarefa.processo_judicial || tarefa.processo_admin) && (
+              <Badge
+                variant="outline"
+                className={cn(
+                  "font-normal px-1.5 py-0 text-[10px] shrink-0",
+                  tarefa.processo_judicial ? PROC_BADGE_JUD : PROC_BADGE_ADM,
+                )}
+                title={procJud ?? procAdm ?? undefined}
+              >
+                {tarefa.processo_judicial ? "Jud" : "Adm"}
+              </Badge>
+            )}
             {mostrarCaso && tarefa.caso_id ? (
               <Link
                 to="/casos/$id"
@@ -192,6 +208,24 @@ export function TarefaCard({
               <Badge variant="secondary" className="font-normal">
                 {TIPO_LABEL[tarefa.tipo]}
               </Badge>
+              {tarefa.processo_judicial && (
+                <Badge
+                  variant="outline"
+                  className={cn("font-normal", PROC_BADGE_JUD)}
+                  title={procJud ?? undefined}
+                >
+                  Judicial{procJud ? ` · ${numeroCurto(procJud)}` : ""}
+                </Badge>
+              )}
+              {tarefa.processo_admin && (
+                <Badge
+                  variant="outline"
+                  className={cn("font-normal", PROC_BADGE_ADM)}
+                  title={procAdm ?? undefined}
+                >
+                  Admin{procAdm ? ` · ${numeroCurto(procAdm)}` : ""}
+                </Badge>
+              )}
               {tarefa.prioridade <= 2 && (
                 <Badge
                   variant="outline"
@@ -210,9 +244,7 @@ export function TarefaCard({
             <div className="flex items-center justify-between text-xs text-muted-foreground">
               <div className="flex items-center gap-1 min-w-0">
                 <UserIcon className="h-3 w-3 shrink-0" />
-                <span className="truncate">
-                  {tarefa.responsavel?.nome ?? "Sem responsável"}
-                </span>
+                <span className="truncate">{tarefa.responsavel?.nome ?? "Sem responsável"}</span>
               </div>
               {mostrarCaso && tarefa.caso_id && (
                 <Link
