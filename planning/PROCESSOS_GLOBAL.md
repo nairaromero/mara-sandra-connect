@@ -99,8 +99,12 @@ parceiro e tarefas do nosso sistema.
   do usuário em `ia_integracoes`) → grava em `andamentos.metadata`:
   `ia_resumo` (linguagem simples), `ia_relevancia` (rotina/atencao/urgente),
   `ia_processado_em`. Sugestão de tarefa vira registro em `tarefas` com
-  `origem='ia'`, `origem_ref='ia:<andamento_id>'` (dedup pelo índice único),
-  prioridade 1 se urgente, due_at conservador limitado a 90 dias.
+  `origem='ia'` (dedup pelo índice único), prioridade 1 se urgente.
+- Regra de prazos do escritório (Naira, 2026-07-29): toda sugestão gera tarefa
+  de **ciência** vencendo D+1 da publicação (`origem_ref ia:<id>:ciencia`);
+  quando há prazo processual, tarefa adicional tipo `prazo` vencendo no
+  **fatal − 1** (`ia:<id>:fatal`), com o fatal estimado na descrição. Datas
+  passadas sobem pra hoje; fatal limitado a 90 dias.
 - Migration `migration_tarefas_origem_ia.sql` aplicada em prod (CHECK de
   `tarefas.origem` agora aceita 'ia').
 - Front: feed de movimentações mostra o resumo (✨ itálico) + badge

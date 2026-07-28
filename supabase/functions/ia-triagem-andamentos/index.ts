@@ -63,9 +63,10 @@ const SYSTEM_PROMPT =
   "titulo curto e acionável (ex.: 'Analisar sentença e avaliar recurso'), " +
   "tipo ('prazo' quando há prazo processual correndo, 'interna' pra análise/petição sem prazo formal, " +
   "'contato_cliente' quando é preciso avisar ou pedir algo ao cliente), " +
-  "dias_prazo (número de dias corridos a partir de hoje pro vencimento; prazos processuais comuns: " +
-  "15 dias úteis ≈ 21 corridos pra recurso/contestação; 5 úteis ≈ 7 corridos pra manifestação simples; " +
-  "seja conservador: melhor vencer antes) e motivo (1 frase).\n\n" +
+  "dias_prazo (prazo FATAL em dias corridos CONTADOS DA DATA do item — campo 'data' —, não de hoje; " +
+  "prazos processuais comuns: 15 dias úteis ≈ 21 corridos pra recurso/contestação/cumprimento de " +
+  "determinação; 5 úteis ≈ 7 corridos pra manifestação simples; se o texto disser o prazo, use ele) " +
+  "e motivo (1 frase).\n\n" +
   "Movimentações de mero expediente NÃO viram tarefa. Na dúvida entre 'atencao' e 'urgente', use 'urgente'. " +
   "Responda SOMENTE chamando a ferramenta registrar_triagem com todos os itens recebidos.";
 
@@ -278,32 +279,72 @@ serve(async (req) => {
     processados++;
 
     if (!item.tarefa || !item.tarefa.titulo) continue;
-    const dias = Math.max(1, Math.min(item.tarefa.dias_prazo || 7, 90));
-    const dueAt = new Date(Date.now() + dias * 86400000).toISOString().slice(0, 10);
-    const { error: tarErr } = await admin.from("tarefas").insert({
+
+    // Regra do escritório (Naira, 2026-07-29):
+    //   1. tarefa de CIÊNCIA vence 1 dia após a publicação/movimentação —
+    //      primeiro conhecimento do advogado;
+    //   2. quando há prazo processual, a tarefa do prazo vence no FATAL - 1.
+    // Datas no passado (item antigo/backfill) sobem pra HOJE — melhor uma
+    // tarefa vencendo hoje do que empurrar a ciência pra depois.
+    const pubMs = and.data_evento
+      ? new Date(String(and.data_evento)).getTime()
+      : Date.now();
+    const hojeMs = Date.now();
+    const diaISO = (ms: number) =>
+      new Date(Math.max(ms, hojeMs)).toISOString().slice(0, 10);
+
+    const base = {
       caso_id: and.caso_id,
       processo_judicial_id: and.processo_judicial_id,
       processo_admin_id: and.processo_admin_id,
-      tipo: item.tarefa.tipo || "interna",
       status: "a_fazer",
+      origem: "ia",
+      metadata: { andamento_id: item.id, ia_relevancia: item.relevancia },
+      created_by: usuarioId,
+    };
+    const inserts: Array<Record<string, unknown>> = [];
+
+    const temPrazoFatal = item.tarefa.tipo === "prazo";
+    inserts.push({
+      ...base,
+      tipo: temPrazoFatal ? "interna" : item.tarefa.tipo || "interna",
       prioridade: item.relevancia === "urgente" ? 1 : 2,
-      titulo: item.tarefa.titulo,
+      titulo: temPrazoFatal ? `Ciência: ${item.tarefa.titulo}` : item.tarefa.titulo,
       descricao:
         `${item.tarefa.motivo}\n\nSugerida pela IA a partir de: ` +
         `${and.titulo || "movimentação"} (${String(and.data_evento || "").slice(0, 10)}).`,
-      due_at: dueAt + "T17:00:00-03:00",
-      origem: "ia",
-      origem_ref: `ia:${item.id}`,
-      metadata: { andamento_id: item.id, ia_relevancia: item.relevancia },
-      created_by: usuarioId,
+      due_at: diaISO(pubMs + 86400000) + "T17:00:00-03:00",
+      origem_ref: `ia:${item.id}:ciencia`,
     });
-    if (tarErr) {
-      // 23505 = já existe tarefa pra esse andamento (reprocessamento) — ok.
-      if (!tarErr.message.includes("duplicate") && !tarErr.message.includes("23505")) {
-        erros.push(`tarefa ${item.id}: ${tarErr.message}`);
+
+    if (temPrazoFatal) {
+      const dias = Math.max(1, Math.min(item.tarefa.dias_prazo || 7, 90));
+      const fatalMs = pubMs + dias * 86400000;
+      const fatalISO = new Date(fatalMs).toISOString().slice(0, 10);
+      inserts.push({
+        ...base,
+        tipo: "prazo",
+        prioridade: 1,
+        titulo: item.tarefa.titulo,
+        descricao:
+          `${item.tarefa.motivo}\n\nPrazo fatal estimado: ${fatalISO} ` +
+          `(vencimento antecipado em 1 dia). Sugerida pela IA a partir de: ` +
+          `${and.titulo || "movimentação"} (${String(and.data_evento || "").slice(0, 10)}).`,
+        due_at: diaISO(fatalMs - 86400000) + "T17:00:00-03:00",
+        origem_ref: `ia:${item.id}:fatal`,
+      });
+    }
+
+    for (const ins of inserts) {
+      const { error: tarErr } = await admin.from("tarefas").insert(ins);
+      if (tarErr) {
+        // 23505 = já existe tarefa pra esse andamento (reprocessamento) — ok.
+        if (!tarErr.message.includes("duplicate") && !tarErr.message.includes("23505")) {
+          erros.push(`tarefa ${item.id}: ${tarErr.message}`);
+        }
+      } else {
+        tarefasCriadas++;
       }
-    } else {
-      tarefasCriadas++;
     }
   }
 
