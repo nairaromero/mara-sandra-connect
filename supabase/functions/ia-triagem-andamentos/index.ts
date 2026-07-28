@@ -34,6 +34,10 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
 const LIMITE_DEFAULT = 20;
 const MAX_LIMITE = 40;
+// Só tria movimentação recente. Protege contra backfill histórico (DataJud
+// 90 dias): item antigo não vira resumo nem tarefa — ação já foi tomada ou
+// prescreveu; triagem retroativa só geraria ruído.
+const DIAS_JANELA_DEFAULT = 10;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -127,6 +131,7 @@ serve(async (req) => {
   }
 
   let limite = LIMITE_DEFAULT;
+  let dias = DIAS_JANELA_DEFAULT;
   let dryRun = false;
   let usuarioId: string | null = null;
   try {
@@ -134,6 +139,7 @@ serve(async (req) => {
     if (typeof body.limite === "number" && body.limite > 0) {
       limite = Math.min(body.limite, MAX_LIMITE);
     }
+    if (typeof body.dias === "number" && body.dias > 0) dias = body.dias;
     if (body.dry_run === true) dryRun = true;
     if (body.usuario_id) usuarioId = String(body.usuario_id);
   } catch (err) {
@@ -187,6 +193,7 @@ serve(async (req) => {
     )
     .in("origem", ["datajud", "djen"])
     .is("metadata->>ia_resumo", null)
+    .gte("data_evento", new Date(Date.now() - dias * 86400000).toISOString().slice(0, 10))
     .order("created_at", { ascending: false })
     .limit(limite);
   if (pendErr) {

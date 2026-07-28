@@ -45,8 +45,10 @@ const DATAJUD_API_KEY =
 const DATAJUD_BASE = "https://api-publica.datajud.cnj.jus.br";
 
 const DELAY_MS = 150;
-// Edge functions têm teto de wall clock; paramos antes e reportamos.
-const BUDGET_MS = 300_000;
+// O gateway derruba a request em 150s sem resposta (IDLE_TIMEOUT); paramos
+// antes e reportamos `interrompido` — o chamador roda de novo (ultima_sync
+// nulls-first garante que a fila continua de onde parou).
+const BUDGET_MS = 110_000;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -237,12 +239,15 @@ serve(async (req) => {
 
     let sources: DataJudSource[] = [];
     try {
+      // Alguns endpoints do DataJud penduram; sem timeout um processo lento
+      // come o orçamento inteiro da execução.
       const resp = await fetch(`${DATAJUD_BASE}/${cfg.endpoint}/_search`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `APIKey ${DATAJUD_API_KEY}`,
         },
+        signal: AbortSignal.timeout(10_000),
         body: JSON.stringify({
           query: { match: { numeroProcesso: proc.cnj } },
           // Um hit por instância (1º grau, 2º grau, turma recursal...).
@@ -285,6 +290,7 @@ serve(async (req) => {
       }
     }
 
+    const novos: Array<Record<string, unknown>> = [];
     for (const src of sources) {
       const grau = src.grau || "";
       for (const mov of src.movimentos || []) {
@@ -296,6 +302,7 @@ serve(async (req) => {
           jaNoBanco++;
           continue;
         }
+        jaTem.add(chave);
 
         const descricao = descricaoDoMovimento(mov);
         if (dryRun) {
@@ -312,7 +319,7 @@ serve(async (req) => {
           continue;
         }
 
-        const { error: insErr } = await supabase.from("andamentos").insert({
+        novos.push({
           caso_id: proc.caso_id,
           origem: "datajud",
           titulo: grau ? `${mov.nome} (${grau})` : mov.nome,
@@ -331,15 +338,15 @@ serve(async (req) => {
             numero_processo: proc.numero,
           },
         });
-        if (insErr) {
-          erros.push({
-            numero: proc.numero,
-            motivo: "insert: " + insErr.message,
-          });
-        } else {
-          jaTem.add(chave);
-          criados++;
-        }
+      }
+    }
+    if (novos.length > 0) {
+      // Insert em lote: 1 round-trip por processo em vez de 1 por movimento.
+      const { error: insErr } = await supabase.from("andamentos").insert(novos);
+      if (insErr) {
+        erros.push({ numero: proc.numero, motivo: "insert: " + insErr.message });
+      } else {
+        criados += novos.length;
       }
     }
 

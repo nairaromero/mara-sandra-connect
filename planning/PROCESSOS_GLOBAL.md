@@ -1,9 +1,27 @@
 # Processos — visão global (inspirado no Tramitação Inteligente)
 
-Status: fases 1 a 4 implementadas (branch `feat/processos-lista`)
-Aval: pendente validação da Naira; crons (DataJud + digest + IA) pendentes no n8n
-Escopo de teste: só 2 processos judiciais sincados no DataJud (casos Delma e
-Pedro) até a Naira liberar o backfill geral.
+Status: fases 1 a 4 implementadas + crons ligados (branch `feat/processos-lista`)
+Aval: pendente validação da Naira (PR #87 → staging)
+
+## Operação diária (ligada em 2026-07-29)
+
+Crons no pg_cron do próprio banco (`migration_cron_processos.sql`; ver jobs
+com `SELECT * FROM cron.job`, histórico em `cron.job_run_details` e respostas
+em `net._http_response`):
+
+| BRT   | job                  | o que faz                                      |
+|-------|----------------------|------------------------------------------------|
+| ~madrugada | djen-sync (n8n, EXISTENTE) | publicações DJEN por OAB              |
+| 06:00/06:06/06:12 | msc-datajud-sync-1/2/3 | movimentações DataJud, 3 passadas de 60 processos, dias=90 |
+| 06:30 | msc-ia-triagem       | resumo IA + tarefas (ciência D+1 / fatal−1), janela 10 dias |
+| 06:45 | msc-digest-diario    | e-mail resumo — POR ORA só pra Naira (campo `para`; remover pra ir a todos os internos) |
+
+Backfill DataJud (90 dias, 161 judiciais): iniciado em 2026-07-28/29 — 40
+processos e ~370 movimentações importados antes de a API pública do CNJ ficar
+instável (timeout global à noite). Os 121 restantes entram pelas passadas
+diárias do cron (fila por `ultima_sync` nulls-first; processo com erro fica na
+frente e re-tenta). A triagem IA ignora movimentação com mais de 10 dias, então
+o histórico não vira tarefa retroativa.
 Referência estudada: https://planilha.tramitacaointeligente.com.br/processos (sessão de 2026-07-27)
 
 ## Contexto
