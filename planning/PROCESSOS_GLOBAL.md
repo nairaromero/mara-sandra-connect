@@ -1,7 +1,7 @@
 # Processos — visão global (inspirado no Tramitação Inteligente)
 
-Status: fases 1, 2 e 3 implementadas (branch `feat/processos-lista`)
-Aval: pendente validação da Naira; crons (DataJud + digest) pendentes no n8n
+Status: fases 1 a 4 implementadas (branch `feat/processos-lista`)
+Aval: pendente validação da Naira; crons (DataJud + digest + IA) pendentes no n8n
 Escopo de teste: só 2 processos judiciais sincados no DataJud (casos Delma e
 Pedro) até a Naira liberar o backfill geral.
 Referência estudada: https://planilha.tramitacaointeligente.com.br/processos (sessão de 2026-07-27)
@@ -91,11 +91,26 @@ parceiro e tarefas do nosso sistema.
 - PENDENTE: cron diário no n8n (invoke da digest-diario de manhã, depois dos
   syncs DJEN e DataJud).
 
-## Fase 4 — IA (diferencial)
+## Fase 4 — IA (diferencial) ← IMPLEMENTADA
 
-- Resumo em linguagem simples de cada movimentação/publicação.
-- Sugestão automática de tarefa com prazo a partir do tipo de movimento,
-  usando `tarefa_templates`.
+- Edge `ia-triagem-andamentos` (deployada 2026-07-28): batch de andamentos
+  datajud/djen ainda sem análise → UMA chamada ao modelo (tool-use como saída
+  estruturada, provider-agnóstica via `_shared/ia-providers.ts` + integração
+  do usuário em `ia_integracoes`) → grava em `andamentos.metadata`:
+  `ia_resumo` (linguagem simples), `ia_relevancia` (rotina/atencao/urgente),
+  `ia_processado_em`. Sugestão de tarefa vira registro em `tarefas` com
+  `origem='ia'`, `origem_ref='ia:<andamento_id>'` (dedup pelo índice único),
+  prioridade 1 se urgente, due_at conservador limitado a 90 dias.
+- Migration `migration_tarefas_origem_ia.sql` aplicada em prod (CHECK de
+  `tarefas.origem` agora aceita 'ia').
+- Front: feed de movimentações mostra o resumo (✨ itálico) + badge
+  Urgente/Atenção; botão "Analisar com IA" (interno, usa o JWT da sessão).
+- Testada em prod: 19 andamentos triados (12 rotina, 5 atenção, 2 urgente),
+  2 tarefas criadas — uma detectou prazo judicial de 15 dias numa intimação.
+  Re-run: 0 reprocessados (idempotente).
+- Nota: `tarefa_templates` acabou não sendo necessário — a IA gera título/
+  tipo/prazo direto, com regras de prazo processual no system prompt.
+- PENDENTE: cron no n8n (depois dos syncs: DJEN → DataJud → IA → digest).
 
 ## Fora de escopo (por ora)
 

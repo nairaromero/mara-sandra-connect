@@ -7,7 +7,7 @@
 
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, History, Loader2, RefreshCw, Search } from "lucide-react";
+import { ArrowLeft, History, Loader2, RefreshCw, Search, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -33,7 +33,14 @@ interface MovRow {
   cliente: string;
   numero: string | null;
   tribunal: string | null;
+  iaResumo: string | null;
+  iaRelevancia: string | null; // rotina | atencao | urgente
 }
+
+const RELEVANCIA_BADGE: Record<string, { label: string; cls: string }> = {
+  urgente: { label: "Urgente", cls: "bg-destructive text-destructive-foreground" },
+  atencao: { label: "Atenção", cls: "bg-amber-500 text-white" },
+};
 
 function chaveDia(iso: string | null): string {
   if (!iso) return "";
@@ -74,6 +81,7 @@ function MovimentacoesPage() {
   const [movs, setMovs] = useState<MovRow[]>([]);
   const [busca, setBusca] = useState("");
   const [sincronizando, setSincronizando] = useState(false);
+  const [analisando, setAnalisando] = useState(false);
 
   useEffect(() => {
     if (usuario && !isInterno) navigate({ to: "/casos" });
@@ -107,6 +115,8 @@ function MovimentacoesPage() {
               "Cliente",
             numero: (m.numero_processo as string | null) ?? null,
             tribunal: (m.tribunal as string | null) ?? null,
+            iaResumo: (m.ia_resumo as string | null) ?? null,
+            iaRelevancia: (m.ia_relevancia as string | null) ?? null,
           };
         }),
       );
@@ -149,6 +159,45 @@ function MovimentacoesPage() {
       toast.error("Falha ao sincronizar com o DataJud.");
     } finally {
       setSincronizando(false);
+    }
+  }
+
+  async function analisarComIA() {
+    setAnalisando(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("ia-triagem-andamentos", {
+        body: { limite: 40 },
+      });
+      if (error) throw error;
+      const r = (data || {}) as {
+        processados?: number;
+        tarefas_criadas?: number;
+        motivo?: string;
+        error?: string;
+        code?: string;
+      };
+      if (r.error) {
+        toast.error(
+          r.code === "nao_configurado"
+            ? "Configure o assistente de IA em Configurações antes de analisar."
+            : r.error,
+        );
+        return;
+      }
+      if ((r.processados ?? 0) === 0) {
+        toast.info("Nenhuma movimentação nova pra analisar.");
+        return;
+      }
+      const tarefas = r.tarefas_criadas ?? 0;
+      toast.success(
+        `${r.processados} movimentação${r.processados === 1 ? "" : "s"} analisada${r.processados === 1 ? "" : "s"} · ${tarefas} tarefa${tarefas === 1 ? "" : "s"} sugerida${tarefas === 1 ? "" : "s"}.`,
+      );
+      await carregar();
+    } catch (err) {
+      console.error(err);
+      toast.error("Falha na análise com IA.");
+    } finally {
+      setAnalisando(false);
     }
   }
 
@@ -199,6 +248,20 @@ function MovimentacoesPage() {
               <ArrowLeft className="mr-1.5 h-4 w-4" />
               Processos
             </Link>
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={analisarComIA}
+            disabled={analisando}
+            title="Resumo em linguagem simples + sugestão de tarefas para as movimentações novas"
+          >
+            {analisando ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="mr-1.5 h-4 w-4 text-[var(--gold)]" />
+            )}
+            Analisar com IA
           </Button>
           <Button size="sm" onClick={sincronizar} disabled={sincronizando}>
             {sincronizando ? (
@@ -263,6 +326,21 @@ function MovimentacoesPage() {
                         </p>
                         {m.descricao && (
                           <p className="mt-0.5 text-xs text-muted-foreground">{m.descricao}</p>
+                        )}
+                        {m.iaResumo && (
+                          <p className="mt-1 flex items-start gap-1.5 text-xs">
+                            <Sparkles className="mt-0.5 h-3 w-3 shrink-0 text-[var(--gold)]" />
+                            <span className="italic text-foreground/80">
+                              {m.iaResumo}
+                              {m.iaRelevancia && RELEVANCIA_BADGE[m.iaRelevancia] && (
+                                <Badge
+                                  className={`ml-1.5 align-middle text-[10px] ${RELEVANCIA_BADGE[m.iaRelevancia].cls}`}
+                                >
+                                  {RELEVANCIA_BADGE[m.iaRelevancia].label}
+                                </Badge>
+                              )}
+                            </span>
+                          </p>
                         )}
                         <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                           <span className="font-medium text-foreground">{m.cliente}</span>
