@@ -23,9 +23,61 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import https from "node:https";
+import { execFileSync } from "node:child_process";
 
 const PROJECT_REF = process.env.SUPABASE_PROJECT_REF || "llugytkdsfsrciavhrfw";
 const SUPABASE_URL = `https://${PROJECT_REF}.supabase.co`;
+
+// Segredos do certificado A1 vêm do Keychain do macOS — NUNCA de arquivo no
+// repo nem de variável commitada. O valor só é lido em runtime, na máquina da
+// advogada. Config (uma vez, pela própria advogada):
+//   security add-generic-password -a msc-mni -s msc-cert-path -w '/caminho/mara.pfx'
+//   security add-generic-password -a msc-mni -s msc-cert-pfx  -w 'senha-do-pfx'
+function keychain(service) {
+  try {
+    return execFileSync(
+      "security",
+      ["find-generic-password", "-a", "msc-mni", "-s", service, "-w"],
+      { encoding: "utf8" },
+    ).replace(/\n$/, "");
+  } catch {
+    return null;
+  }
+}
+
+// Carrega o certificado A1 (pfx + senha) do Keychain e devolve um https.Agent
+// pra TLS mútuo, além do CPF extraído do próprio certificado (sem digitar).
+function carregarCertificado() {
+  const pfxPath = keychain("msc-cert-path");
+  const passphrase = keychain("msc-cert-pfx");
+  if (!pfxPath || !passphrase) return null;
+  let pfx;
+  try {
+    pfx = fs.readFileSync(pfxPath);
+  } catch {
+    return null;
+  }
+  // CPF do titular = dígitos após "CN=NOME:" no subject do certificado.
+  let cpf = null;
+  try {
+    const subject = execFileSync(
+      "bash",
+      [
+        "-c",
+        `printf '%s' "${passphrase.replace(/"/g, '\\"')}" | ` +
+          `openssl pkcs12 -in "${pfxPath}" -clcerts -nokeys -passin stdin 2>/dev/null | ` +
+          `openssl x509 -noout -subject 2>/dev/null`,
+      ],
+      { encoding: "utf8" },
+    );
+    cpf = subject.match(/CN=[^:]+:(\d{11})/)?.[1] ?? null;
+  } catch {
+    /* CPF pode vir do .env.local como fallback */
+  }
+  const agent = new https.Agent({ pfx, passphrase, keepAlive: false });
+  return { agent, cpf };
+}
 
 // Endpoints MNI por J.TR do número CNJ (dígitos 14-16).
 const ENDPOINTS = {
@@ -73,7 +125,42 @@ function slugArquivo(s) {
     .slice(0, 120);
 }
 
-async function consultarProcesso({ endpoint, cpf, senha, numero, incluirDocumentos }) {
+// POST SOAP via node:https pra poder anexar o certificado A1 (TLS mútuo).
+// TJMT aceita sem cert; TRF1/TRF3 e portais que fazem WAF por client-cert
+// passam a autenticar pela identidade da advogada. `senha` (senhaConsultante)
+// pode ser vazia nos tribunais que autenticam só pelo certificado.
+function httpsPost(endpoint, body, agent) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(endpoint);
+    const req = https.request(
+      {
+        hostname: u.hostname,
+        port: u.port || 443,
+        path: u.pathname + u.search,
+        method: "POST",
+        agent: agent ?? undefined,
+        headers: {
+          "Content-Type": "text/xml; charset=utf-8",
+          SOAPAction: '""',
+          "Content-Length": Buffer.byteLength(body),
+          "User-Agent": "MaraSandraConnect-MNI/1.0",
+        },
+        timeout: 120_000,
+      },
+      (res) => {
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => resolve({ status: res.statusCode, buffer: Buffer.concat(chunks) }));
+      },
+    );
+    req.on("timeout", () => req.destroy(new Error("timeout")));
+    req.on("error", reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+async function consultarProcesso({ endpoint, cpf, senha, numero, incluirDocumentos, agent }) {
   const envelope =
     '<?xml version="1.0" encoding="UTF-8"?>' +
     '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"' +
@@ -81,25 +168,18 @@ async function consultarProcesso({ endpoint, cpf, senha, numero, incluirDocument
     ' xmlns:tip="http://www.cnj.jus.br/tipos-servico-intercomunicacao-2.2.2">' +
     "<soapenv:Header/><soapenv:Body><ser:consultarProcesso>" +
     `<tip:idConsultante>${xmlEscape(cpf)}</tip:idConsultante>` +
-    `<tip:senhaConsultante>${xmlEscape(senha)}</tip:senhaConsultante>` +
+    `<tip:senhaConsultante>${xmlEscape(senha ?? "")}</tip:senhaConsultante>` +
     `<tip:numeroProcesso>${xmlEscape(numero)}</tip:numeroProcesso>` +
     "<tip:movimentos>true</tip:movimentos>" +
     "<tip:incluirCabecalho>true</tip:incluirCabecalho>" +
     `<tip:incluirDocumentos>${incluirDocumentos ? "true" : "false"}</tip:incluirDocumentos>` +
     "</ser:consultarProcesso></soapenv:Body></soapenv:Envelope>";
 
-  const resp = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "text/xml; charset=utf-8", SOAPAction: '""' },
-    body: envelope,
-    signal: AbortSignal.timeout(120_000),
-  });
+  const { status, buffer } = await httpsPost(endpoint, envelope, agent);
   // PJe responde em MTOM/XOP (multipart): o XML é a 1ª parte e os PDFs podem
-  // vir como partes binárias referenciadas por cid. Lemos como Buffer pra não
-  // corromper os binários.
-  const bruto = Buffer.from(await resp.arrayBuffer());
-  const { texto, anexos } = separarMtom(bruto);
-  return { status: resp.status, texto, anexos };
+  // vir como partes binárias referenciadas por cid. Buffer preserva binários.
+  const { texto, anexos } = separarMtom(buffer);
+  return { status, texto, anexos };
 }
 
 // Separa resposta MTOM: devolve o XML (utf8) e um mapa cid → Buffer.
@@ -202,20 +282,33 @@ async function main() {
     process.exit(1);
   }
 
-  const cpf = readEnvLocal("MNI_CPF");
-  const senha = readEnvLocal("MNI_SENHA");
-  if (!cpf || !senha) {
-    console.error("Configure MNI_CPF e MNI_SENHA no .env.local (senha do PJe do tribunal).");
+  // Autenticação: certificado A1 (Keychain) é o caminho preferido — dispensa
+  // MFA e não guarda senha em texto. CPF sai do próprio certificado.
+  // Fallback: CPF + senha do PJe no .env.local (tribunais que só aceitam isso).
+  const cert = carregarCertificado();
+  const cpf = cert?.cpf ?? readEnvLocal("MNI_CPF");
+  // senhaConsultante (senha do PJe). Preferência: Keychain; fallback .env.local.
+  // Alguns tribunais (ex.: TJMT) exigem mesmo com certificado; outros dispensam.
+  const senha = keychain("msc-mni-senha") ?? readEnvLocal("MNI_SENHA");
+  if (!cert && !cpf) {
+    console.error(
+      "Sem credencial. Configure o certificado A1 no Keychain (msc-cert-path / " +
+        "msc-cert-pfx) ou MNI_CPF+MNI_SENHA no .env.local.",
+    );
     process.exit(1);
   }
+  const modoAuth = cert
+    ? `certificado A1 da Mara${senha ? " + senha PJe" : ""}`
+    : "CPF + senha (.env.local)";
 
-  console.log(`Consultando ${numeroRaw} no ${ep.nome} via MNI...`);
+  console.log(`Consultando ${numeroRaw} no ${ep.nome} via MNI [${modoAuth}]...`);
   const { status, texto, anexos } = await consultarProcesso({
     endpoint: ep.url,
     cpf,
     senha,
     numero,
     incluirDocumentos: true,
+    agent: cert?.agent,
   });
   const r = parseResposta(texto);
   if (r.erro) {

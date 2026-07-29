@@ -31,17 +31,35 @@ Certificado A1 da Mara: válido até 29/04/2027 (Keychain). Pro MNI de consulta
 a senha do PJe basta; o A1 fica como plano B (TLS client cert) se algum
 tribunal exigir.
 
-## Como usar (Naira)
+## Autenticação (tudo no Keychain — nada em texto no repo)
 
-1. No `.env.local` (raiz do repo), adicionar:
-   ```
-   MNI_CPF=18448524829        # CPF da Mara (advogada habilitada nos processos)
-   MNI_SENHA=<senha do PJe-TJMT dela>
-   ```
-2. Testar (dry-run, só lista): 
+O conector lê os segredos do Keychain do macOS em runtime (a IA nunca vê os
+valores). Configurar UMA vez, pela própria Naira, no Terminal:
+
+```bash
+# Certificado A1 da Mara (já feito e validado 2026-07-29):
+security add-generic-password -a msc-mni -s msc-cert-path -w '/Users/.../MARA...pfx'
+security add-generic-password -a msc-mni -s msc-cert-pfx  -w 'senha-do-pfx'
+# Senha do PJe da Mara (senhaConsultante — exigida pelo TJMT mesmo com cert):
+security add-generic-password -a msc-mni -s msc-mni-senha -w 'senha-do-PJe-TJMT'
+```
+
+O CPF é extraído do próprio certificado (não precisa digitar). O certificado
+dispensa MFA e é o que destrava TRF1/TRF3/Jus.br (camada de conexão).
+
+## Como usar
+
+1. Testar (dry-run, só lista os documentos):
    `node scripts/conector-mni.mjs --numero 1000767-26.2024.8.11.0025`
-3. Arquivar de verdade:
+2. Arquivar de verdade:
    `node scripts/conector-mni.mjs --numero <cnj> --salvar [--max-docs 10]`
+
+## Estado do teste (2026-07-29)
+
+- Certificado A1 da Mara carregando do Keychain ✔ · CPF extraído do cert ✔ ·
+  TLS mútuo com TJMT ✔ (HTTP 200).
+- TJMT respondeu "Acesso não Autorizado" com senhaConsultante vazia → falta
+  guardar a senha do PJe-TJMT no Keychain (`msc-mni-senha`). Com ela, autentica.
 
 ## Pendências
 
