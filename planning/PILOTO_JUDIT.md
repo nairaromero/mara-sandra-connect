@@ -1,53 +1,30 @@
-# Piloto Judit — autos do processo (documentos/PDFs)
+# Piloto Judit — DESCARTADO (2026-07-29)
 
-Status: edge function pronta e deployada; aguardando chave de API (trial)
-Decisão: Judit escolhida sobre Escavador (2026-07-29) — API em tempo real com
-webhooks e captura automática de anexos, vs fluxo assíncrono de até 3 dias
-úteis + certificado digital no Escavador.
-Referências: https://docs.judit.io · https://judit.io/planos-api/ ·
-https://judit.io/calculadora/
+Decisão da Naira ao ver https://judit.io/planos-api/: o plano mais barato é
+~R$ 1.000/mês pra entregar essencialmente o que já temos de graça. Sem
+vantagem. Piloto encerrado antes de contratar — a edge `sync-judit-autos`
+foi removida do prod e do repo (o código fica no histórico do git, commit
+14028ee, se um dia quisermos ressuscitar).
 
-## O que o piloto entrega
+## Por que não compensa
 
-Traz os PDFs dos autos (sentença, decisões, petições — o "Abrir/Baixar" do
-Tramitação Inteligente) pro nosso sistema:
+O que a Judit cobre vs o que já rodamos gratuitamente:
 
-- Edge `sync-judit-autos`: consulta o processo na Judit com
-  `with_attachments`, baixa os anexos e arquiva na aba **Documentos** do caso
-  (pasta "Processo <nº>", tipo Outro + nome da peça, `visivel_parceiro=false`
-  — interno libera o que quiser).
-- Dedup por arquivo: rodar de novo não duplica.
-- Se a consulta demorar, a function devolve `request_id` — invocar de novo com
-  ele retoma sem custo extra de nova consulta.
+| Judit (pago) | Nosso stack (grátis) |
+|---|---|
+| Movimentações processuais | DataJud/CNJ — crons diários já ligados |
+| Publicações/intimações | DJEN/Comunica API — teor completo + certidão PDF |
+| Descoberta de processo novo por OAB | DJEN órfãs → fila de triagem + digest |
+| Resumo com IA ("Judit IA") | Nossa triagem IA (centavos/mês na chave própria) |
+| **Inteiro teor dos autos (PDFs de petições)** | **Única lacuna real** — suprida manualmente no PJe/eproc quando precisar |
 
-## Passos pra ativar (Naira)
+A lacuna dos autos completos não vale R$ 12k/ano pro volume do escritório:
+sentenças e despachos relevantes já chegam com teor no DJEN, e a certidão
+oficial em PDF já tem botão na tela de Publicações.
 
-1. Criar conta trial em https://judit.io (falar com o comercial ou self-serve)
-   e gerar a chave de API.
-2. Configurar o secret (a chave NÃO vai pro git):
-   `bunx supabase secrets set JUDIT_API_KEY=<chave> --project-ref llugytkdsfsrciavhrfw`
-3. Testar num dos casos-piloto (dry-run primeiro — só lista os anexos):
+## Se o cenário mudar
 
-```bash
-curl -X POST "https://llugytkdsfsrciavhrfw.supabase.co/functions/v1/sync-judit-autos" \
-  -H "Content-Type: application/json" \
-  -d '{"numero": "5009313-34.2026.4.03.6315", "dry_run": true}'
-```
-
-4. Gravação real (baixa até 10 docs): mesmo comando sem `dry_run`.
-5. Conferir na aba Documentos do caso da Edina (pasta "Processo 5009313-...").
-
-## Custos (conferir na calculadora)
-
-- Consulta histórica: ~R$ 0,25/processo + filtro; anexos são opcionais e
-  encarecem a consulta — por isso o piloto baixa sob demanda (por processo),
-  não em massa.
-- Se o piloto aprovar: avaliar o TRACKING da Judit (monitoramento com webhook)
-  como evolução — poderia substituir nosso polling do DataJud E trazer os
-  docs novos automaticamente. Decisão de custo pra depois do trial.
-
-## Fora do piloto (se aprovar, próximos passos)
-
-- Botão "Buscar autos" na aba Processos do caso (hoje o invoke é manual).
-- Anexo linkado ao andamento correspondente na timeline (igual TI).
-- Tracking/webhook da Judit substituindo parte dos crons.
+Reavaliar só se: (a) o volume de processos crescer muito, (b) surgir provedor
+mais barato por consulta avulsa sem mensalidade, ou (c) a consulta manual de
+autos virar gargalo de horas relevante. Nesse caso, recuperar o código do
+commit 14028ee e refazer a conta.
