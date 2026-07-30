@@ -2380,6 +2380,33 @@ function TabAndamentos(props: TabAndamentosProps) {
   const [ocultarRotina, setOcultarRotina] = useState(true);
   const ehRotina = (a: Andamento) =>
     (a.metadata as { ia_relevancia?: string } | null)?.ia_relevancia === "rotina";
+
+  // Busca o teor completo das publicações do caso no DJEN (por nº de processo).
+  const [buscandoTeor, setBuscandoTeor] = useState(false);
+  async function buscarTeorPublicacoes() {
+    setBuscandoTeor(true);
+    toast.info("Buscando publicações no Diário (DJEN)…");
+    try {
+      const { data, error } = await supabase.functions.invoke("sync-djen-caso", {
+        body: { caso_id: casoId, usuario_id: usuarioId },
+        headers: { "x-region": "sa-east-1" },
+      });
+      if (error) throw error;
+      const r = (data || {}) as { andamentos_criados?: number; erros?: unknown[] };
+      const novos = r.andamentos_criados ?? 0;
+      if (novos > 0) {
+        toast.success(`${novos} publicação${novos === 1 ? "" : "ões"} com teor importada${novos === 1 ? "" : "s"}.`);
+        onChange?.();
+      } else {
+        toast.info("Nenhuma publicação nova no DJEN pra este processo.");
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error("Falha ao buscar publicações no DJEN.");
+    } finally {
+      setBuscandoTeor(false);
+    }
+  }
   useEffect(() => {
     if (!andamentoAbertoId) return;
     function onDocMouseDown(ev: MouseEvent) {
@@ -3049,15 +3076,35 @@ function TabAndamentos(props: TabAndamentosProps) {
         </div>
       )}
 
-      {/* Toggle: esconder movimentações de rotina (classificadas pela IA). */}
-      {totalRotina > 0 && (
-        <div className="flex items-center justify-end">
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 text-xs text-muted-foreground"
-            onClick={() => setOcultarRotina((v) => !v)}
-          >
+      {/* Barra: buscar teor das publicações (interno) + toggle de rotina. */}
+      {(isInterno || totalRotina > 0) && (
+        <div className="flex items-center justify-between gap-2">
+          {isInterno ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={buscarTeorPublicacoes}
+              disabled={buscandoTeor}
+              title="Puxa o texto integral das publicações deste processo no Diário (DJEN)"
+            >
+              {buscandoTeor ? (
+                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+              ) : (
+                <FileDown className="h-3.5 w-3.5 mr-1.5" />
+              )}
+              Buscar publicações
+            </Button>
+          ) : (
+            <span />
+          )}
+          {totalRotina > 0 ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs text-muted-foreground"
+              onClick={() => setOcultarRotina((v) => !v)}
+            >
             {ocultarRotina ? (
               <>
                 <Eye className="h-3.5 w-3.5 mr-1.5" />
@@ -3069,7 +3116,10 @@ function TabAndamentos(props: TabAndamentosProps) {
                 Ocultar {totalRotina} de rotina
               </>
             )}
-          </Button>
+            </Button>
+          ) : (
+            <span />
+          )}
         </div>
       )}
 
