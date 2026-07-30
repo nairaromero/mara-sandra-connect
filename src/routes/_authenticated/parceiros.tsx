@@ -61,6 +61,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 
 export const Route = createFileRoute("/_authenticated/parceiros")({
   component: ParceirosPage,
@@ -187,6 +188,7 @@ function ParceirosPage() {
   const [editTelefone, setEditTelefone] = useState("");
   const [editPercentual, setEditPercentual] = useState("30");
   const [editSalvando, setEditSalvando] = useState(false);
+  const [editEnviarLink, setEditEnviarLink] = useState(false);
 
   // ---- Excluir parceiro ----
   // Acao destrutiva mas com cascade que preserva historico: casos viram
@@ -254,6 +256,7 @@ function ParceirosPage() {
     setEditOab(p.oab ?? "");
     setEditTelefone(p.telefone ?? "");
     setEditPercentual(String(p.percentual_parceiro ?? 30));
+    setEditEnviarLink(false);
     setEditAberto(true);
   }
 
@@ -278,17 +281,18 @@ function ParceirosPage() {
           oab: editOab.trim(),
           telefone: editTelefone.trim(),
           percentual: Number(editPercentual) || 30,
-          enviar_link: emailMudou, // so envia magic link se email mudou
+          // envia magic link se o email mudou OU se a Naira marcou o checkbox
+          enviar_link: emailMudou || editEnviarLink,
           redirect_to:
             typeof window !== "undefined" ? `${window.location.origin}/login` : undefined,
         },
       });
       if (resp.error) throw resp.error;
       const data = resp.data as { link_enviado?: boolean } | null;
-      if (emailMudou) {
+      if (emailMudou || editEnviarLink) {
         toast.success(
           data?.link_enviado
-            ? "Parceiro atualizado. Magic link enviado pro novo email."
+            ? `Parceiro atualizado. Magic link enviado pro ${emailMudou ? "novo email" : "email do parceiro"}.`
             : "Parceiro atualizado. (Magic link não foi enviado - veja logs.)",
         );
       } else {
@@ -1016,6 +1020,15 @@ function ParceirosPage() {
                   />
                 </div>
               </div>
+              <label className="flex items-center gap-2 pt-1 cursor-pointer">
+                <Checkbox
+                  checked={editEnviarLink}
+                  onCheckedChange={(c) => setEditEnviarLink(c === true)}
+                />
+                <span className="text-sm">
+                  Enviar novo link de acesso por e-mail ao salvar
+                </span>
+              </label>
             </div>
             <DialogFooter>
               <Button variant="ghost" onClick={() => setEditAberto(false)} disabled={editSalvando}>
