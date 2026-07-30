@@ -2373,6 +2373,13 @@ function TabAndamentos(props: TabAndamentosProps) {
   // Qual andamento está aberto (expansão inline com texto completo).
   // Apenas UM andamento por vez. Click fora fecha automaticamente.
   const [andamentoAbertoId, setAndamentoAbertoId] = useState<string | null>(null);
+
+  // Movimentações de rotina (classificadas pela IA como 'rotina' — publicação,
+  // disponibilização, decurso de prazo etc.) poluem a timeline. Escondidas por
+  // padrão; toggle mostra tudo. Só afeta andamentos que a IA marcou 'rotina'.
+  const [ocultarRotina, setOcultarRotina] = useState(true);
+  const ehRotina = (a: Andamento) =>
+    (a.metadata as { ia_relevancia?: string } | null)?.ia_relevancia === "rotina";
   useEffect(() => {
     if (!andamentoAbertoId) return;
     function onDocMouseDown(ev: MouseEvent) {
@@ -2627,7 +2634,13 @@ function TabAndamentos(props: TabAndamentosProps) {
     }
   }
 
-  const lista = isInterno ? andamentos : andamentos.filter((a) => a.visivel_parceiro === true);
+  const listaVisivel = isInterno
+    ? andamentos
+    : andamentos.filter((a) => a.visivel_parceiro === true);
+  // Quantas de rotina existem (pra rotular o toggle) e a lista efetiva.
+  const totalRotina = listaVisivel.filter(ehRotina).length;
+  const lista =
+    ocultarRotina && totalRotina > 0 ? listaVisivel.filter((a) => !ehRotina(a)) : listaVisivel;
 
   async function adicionar() {
     if (!titulo.trim() || !usuarioId) return;
@@ -2748,6 +2761,20 @@ function TabAndamentos(props: TabAndamentosProps) {
             <Badge variant="outline" className="text-xs">
               {ORIGEM_LABEL[a.origem] || a.origem}
             </Badge>
+            {(() => {
+              const rel = (a.metadata as { ia_relevancia?: string } | null)?.ia_relevancia;
+              if (rel === "urgente") {
+                return (
+                  <Badge className="text-xs bg-destructive text-destructive-foreground hover:bg-destructive">
+                    Urgente
+                  </Badge>
+                );
+              }
+              if (rel === "atencao") {
+                return <Badge className="text-xs bg-amber-500 text-white hover:bg-amber-500">Atenção</Badge>;
+              }
+              return null;
+            })()}
             <span className="text-xs text-muted-foreground">
               {formatDateTime(a.data_evento || a.created_at)}
             </span>
@@ -3018,6 +3045,30 @@ function TabAndamentos(props: TabAndamentosProps) {
             disabled={transferindo}
           >
             Limpar seleção
+          </Button>
+        </div>
+      )}
+
+      {/* Toggle: esconder movimentações de rotina (classificadas pela IA). */}
+      {totalRotina > 0 && (
+        <div className="flex items-center justify-end">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 text-xs text-muted-foreground"
+            onClick={() => setOcultarRotina((v) => !v)}
+          >
+            {ocultarRotina ? (
+              <>
+                <Eye className="h-3.5 w-3.5 mr-1.5" />
+                Mostrar {totalRotina} movimentaç{totalRotina === 1 ? "ão" : "ões"} de rotina
+              </>
+            ) : (
+              <>
+                <EyeOff className="h-3.5 w-3.5 mr-1.5" />
+                Ocultar {totalRotina} de rotina
+              </>
+            )}
           </Button>
         </div>
       )}
