@@ -4471,6 +4471,8 @@ function TabDocumentos(props: TabDocumentosProps) {
       }
       const resp = await supabase.from("solicitacoes_documento").update(update).eq("id", s.id);
       if (resp.error) throw resp.error;
+      // Atualiza o badge de pendentes na sidebar sem esperar o poll.
+      window.dispatchEvent(new Event("msc:solicitacoes-mudou"));
       toast.success("Solicitação atualizada");
       onChange();
     } catch (err) {
@@ -4599,6 +4601,8 @@ function TabDocumentos(props: TabDocumentosProps) {
         .update(update)
         .eq("id", acaoAlvo.solic.id);
       if (resp.error) throw resp.error;
+      // Atualiza o badge de pendentes na sidebar sem esperar o poll.
+      window.dispatchEvent(new Event("msc:solicitacoes-mudou"));
       // Se quem cumpriu foi o PARCEIRO, avisa o sino da equipe (interno).
       if (usuario?.tipo === "parceiro") {
         notificarEquipe({
@@ -5792,6 +5796,8 @@ function SolicitarDocBotao(props: {
         .select("id")
         .single();
       if (resp.error) throw resp.error;
+      // Nova pendente: sobe o badge da sidebar sem esperar o poll.
+      window.dispatchEvent(new Event("msc:solicitacoes-mudou"));
       toast.success("Solicitação criada");
 
       // Notifica parceiro por email (fire-and-forget; nao bloqueia UI).

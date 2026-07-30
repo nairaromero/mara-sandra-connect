@@ -371,6 +371,8 @@ function DocumentosPendentesPage() {
         .update(update)
         .eq("id", acaoAlvo.solic.id);
       if (resp.error) throw resp.error;
+      // Atualiza o badge de pendentes na sidebar sem esperar o poll.
+      window.dispatchEvent(new Event("msc:solicitacoes-mudou"));
       toast.success(
         documentoId
           ? "Solicitação cumprida e documento anexado"

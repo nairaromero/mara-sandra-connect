@@ -114,6 +114,34 @@ export function AppSidebar() {
     };
   }, []);
 
+  // Badge de solicitacoes de documento pendentes. RLS escopa por usuario
+  // (interno ve todas; parceiro so as dos casos dele). Cai na hora em que
+  // o parceiro cumpre: as telas disparam msc:solicitacoes-mudou apos
+  // criar/atender/dispensar, e ha um poll de fundo como reserva.
+  const [docBadge, setDocBadge] = useState(0);
+  useEffect(() => {
+    let vivo = true;
+    async function calc() {
+      const { count } = await supabase
+        .from("solicitacoes_documento")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "pendente");
+      if (vivo) setDocBadge(count || 0);
+    }
+    calc();
+    const t = setInterval(calc, 60000);
+    if (typeof window !== "undefined") {
+      window.addEventListener("msc:solicitacoes-mudou", calc);
+    }
+    return () => {
+      vivo = false;
+      clearInterval(t);
+      if (typeof window !== "undefined") {
+        window.removeEventListener("msc:solicitacoes-mudou", calc);
+      }
+    };
+  }, []);
+
   return (
     <Sidebar collapsible="icon">
       {/* Faixa dourada sob o logo ecoa a identidade visual MSV. */}
@@ -158,7 +186,12 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {items.map((item) => {
-                const badge = item.url === "/publicacoes" ? pubBadge : 0;
+                const badge =
+                  item.url === "/publicacoes"
+                    ? pubBadge
+                    : item.url === "/documentos"
+                      ? docBadge
+                      : 0;
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
