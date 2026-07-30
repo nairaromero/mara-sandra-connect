@@ -134,6 +134,7 @@ serve(async (req) => {
   let dias = DIAS_JANELA_DEFAULT;
   let dryRun = false;
   let usuarioId: string | null = null;
+  let casosFiltro: string[] | null = null;
   try {
     const body = await req.json().catch(() => ({}));
     if (typeof body.limite === "number" && body.limite > 0) {
@@ -142,6 +143,11 @@ serve(async (req) => {
     if (typeof body.dias === "number" && body.dias > 0) dias = body.dias;
     if (body.dry_run === true) dryRun = true;
     if (body.usuario_id) usuarioId = String(body.usuario_id);
+    // Escopo opcional: só triar andamentos destes casos (demo controlada,
+    // sem tocar em outros clientes). Sem o filtro, roda em todos (cron).
+    if (Array.isArray(body.casos) && body.casos.length > 0) {
+      casosFiltro = body.casos.map((c: unknown) => String(c));
+    }
   } catch (err) {
     return jsonResponse({ error: "body invalido", detail: String(err) }, 400);
   }
@@ -184,7 +190,7 @@ serve(async (req) => {
   }
 
   // --- Andamentos pendentes de triagem --------------------------------------
-  const { data: pendentes, error: pendErr } = await admin
+  let pendQ = admin
     .from("andamentos")
     .select(
       "id, caso_id, origem, titulo, descricao, data_evento, metadata, " +
@@ -193,7 +199,9 @@ serve(async (req) => {
     )
     .in("origem", ["datajud", "djen"])
     .is("metadata->>ia_resumo", null)
-    .gte("data_evento", new Date(Date.now() - dias * 86400000).toISOString().slice(0, 10))
+    .gte("data_evento", new Date(Date.now() - dias * 86400000).toISOString().slice(0, 10));
+  if (casosFiltro) pendQ = pendQ.in("caso_id", casosFiltro);
+  const { data: pendentes, error: pendErr } = await pendQ
     .order("created_at", { ascending: false })
     .limit(limite);
   if (pendErr) {
