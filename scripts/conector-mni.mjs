@@ -79,14 +79,33 @@ function carregarCertificado() {
   return { agent, cpf };
 }
 
-// Endpoints MNI por J.TR do número CNJ (dígitos 14-16).
+// Endpoints MNI por J.TR do número CNJ (dígitos 14-16) e por grau (g1/g2).
+// `senha` = nome do serviço no Keychain (msc-mni-<slug>). URLs sondadas em
+// 2026-07-30: 200 = WSDL responde; 403 = WAF (o certificado A1 passa por cima).
 const ENDPOINTS = {
   "811": {
-    nome: "TJMT (PJe)",
-    url: "https://pje.tjmt.jus.br/pje/intercomunicacao",
+    nome: "TJMT",
+    g1: { url: "https://pje.tjmt.jus.br/pje/intercomunicacao", senha: "msc-mni-tjmt-g1" },
+    // TJMT 2º grau: URL do WSDL ainda não localizada.
+    g2: { url: null, senha: "msc-mni-tjmt-g2" },
   },
-  // "401": TRF1 (PJe) — 403/WAF: exige credenciamento prévio no tribunal.
-  // "403": TRF3 (PJe) — conexão bloqueada: idem.
+  "401": {
+    nome: "TRF1",
+    g1: { url: "https://pje1g.trf1.jus.br/pje/intercomunicacao", senha: "msc-mni-trf1-g1" },
+    g2: { url: "https://pje2g.trf1.jus.br/pje/intercomunicacao", senha: "msc-mni-trf1-g2" },
+  },
+  "403": {
+    nome: "TRF3",
+    // TRF3 fica atrás de Akamai/geo-bloqueio (como o DataJud) — host do WSDL a
+    // confirmar; provavelmente precisa sair por IP BR.
+    g1: { url: null, senha: "msc-mni-trf3-g1" },
+    g2: { url: null, senha: "msc-mni-trf3-g2" },
+  },
+  "819": {
+    nome: "TJRJ",
+    g1: { url: "https://tjrj.pje.jus.br/1g/intercomunicacao", senha: "msc-mni-tjrj-g1" },
+    g2: { url: "https://tjrj.pje.jus.br/2g/intercomunicacao", senha: "msc-mni-tjrj-g1" },
+  },
 };
 
 function readEnvLocal(key) {
@@ -273,23 +292,31 @@ async function main() {
     process.exit(1);
   }
   const jtr = numero.slice(13, 16);
-  const ep = ENDPOINTS[jtr];
-  if (!ep) {
+  const trib = ENDPOINTS[jtr];
+  if (!trib) {
     console.error(
       `Tribunal J.TR=${jtr} ainda não habilitado no conector. Disponíveis: ` +
         Object.entries(ENDPOINTS).map(([k, v]) => `${k} (${v.nome})`).join(", "),
     );
     process.exit(1);
   }
+  // Grau: default 1º; --grau 2 pra segunda instância.
+  const grauNum = arg("grau") === "2" ? "g2" : "g1";
+  const ep = trib[grauNum];
+  const grauLabel = grauNum === "g2" ? "2º grau" : "1º grau";
+  if (!ep?.url) {
+    console.error(
+      `${trib.nome} ${grauLabel}: endpoint MNI ainda não configurado ` +
+        `(URL do WSDL a confirmar). Tribunais prontos: TJMT/TRF1/TJRJ 1º grau.`,
+    );
+    process.exit(1);
+  }
 
-  // Autenticação: certificado A1 (Keychain) é o caminho preferido — dispensa
-  // MFA e não guarda senha em texto. CPF sai do próprio certificado.
-  // Fallback: CPF + senha do PJe no .env.local (tribunais que só aceitam isso).
+  // Autenticação: certificado A1 (Keychain) — dispensa MFA, CPF sai do cert.
   const cert = carregarCertificado();
   const cpf = cert?.cpf ?? readEnvLocal("MNI_CPF");
-  // senhaConsultante (senha do PJe). Preferência: Keychain; fallback .env.local.
-  // Alguns tribunais (ex.: TJMT) exigem mesmo com certificado; outros dispensam.
-  const senha = keychain("msc-mni-senha") ?? readEnvLocal("MNI_SENHA");
+  // senhaConsultante (senha do PJe) do tribunal+grau específico, no Keychain.
+  const senha = keychain(ep.senha) ?? keychain("msc-mni-senha") ?? readEnvLocal("MNI_SENHA");
   if (!cert && !cpf) {
     console.error(
       "Sem credencial. Configure o certificado A1 no Keychain (msc-cert-path / " +
@@ -301,7 +328,9 @@ async function main() {
     ? `certificado A1 da Mara${senha ? " + senha PJe" : ""}`
     : "CPF + senha (.env.local)";
 
-  console.log(`Consultando ${numeroRaw} no ${ep.nome} via MNI [${modoAuth}]...`);
+  console.log(
+    `Consultando ${numeroRaw} no ${trib.nome} ${grauLabel} via MNI [${modoAuth}]...`,
+  );
   const { status, texto, anexos } = await consultarProcesso({
     endpoint: ep.url,
     cpf,
