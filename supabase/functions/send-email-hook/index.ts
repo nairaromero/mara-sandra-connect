@@ -41,19 +41,43 @@ function verifyLink(emailData: EmailData, tokenHash: string, type: string) {
   return `${SUPABASE_URL}/auth/v1/verify?token=${tokenHash}&type=${type}&redirect_to=${encodeURIComponent(redirect)}`;
 }
 
+// Paleta do app (src/styles.css, tema claro, oklch -> hex):
+//   background #FCFAF6 | card #FFFFFF | foreground #1B150F | primary #201914
+//   muted-fg #6A615B | border #DED6C9 | gold #AF7C00 | gold-soft #F7E6C3
+const LOGO_URL = "https://marasandraconnect.com/logo.png";
+
 function buildEmail(emailData: EmailData): { subject: string; html: string } {
   const type = emailData.email_action_type;
   const link = verifyLink(emailData, emailData.token_hash, type);
   const btn = (label: string) =>
-    `<p style="margin:24px 0"><a href="${link}" style="background:#1a56db;color:#fff;` +
-    `padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block">${label}</a></p>` +
-    `<p style="color:#666;font-size:13px">Se o botao nao funcionar, copie e cole este endereco no navegador:<br>${link}</p>` +
-    `<p style="color:#666;font-size:13px">O link e de uso unico e expira em 1 hora.</p>`;
+    `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:28px auto 8px">` +
+    `<tr><td style="background:#201914;border-radius:8px">` +
+    `<a href="${link}" style="display:inline-block;padding:13px 36px;font-family:Arial,Helvetica,sans-serif;` +
+    `font-size:15px;font-weight:bold;color:#FCFAF6;text-decoration:none">${label}</a>` +
+    `</td></tr></table>` +
+    `<p style="margin:20px 0 0;color:#6A615B;font-size:12px;line-height:1.6">` +
+    `Se o botao nao funcionar, copie e cole este endereco no navegador:<br>` +
+    `<a href="${link}" style="color:#AF7C00;word-break:break-all">${link}</a></p>` +
+    `<p style="margin:12px 0 0;color:#6A615B;font-size:12px">O link e de uso unico e expira em 1 hora.</p>`;
   const wrap = (title: string, body: string) =>
-    `<div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:24px">` +
-    `<h2 style="color:#111">${title}</h2>${body}` +
-    `<hr style="border:none;border-top:1px solid #eee;margin:32px 0 16px">` +
-    `<p style="color:#999;font-size:12px">Mara Sandra Advocacia &middot; marasandraconnect.com</p></div>`;
+    `<body style="margin:0;padding:0;background:#FCFAF6">` +
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FCFAF6">` +
+    `<tr><td align="center" style="padding:40px 16px">` +
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:540px">` +
+    // logo
+    `<tr><td align="center" style="padding-bottom:28px">` +
+    `<img src="${LOGO_URL}" width="170" alt="Mara Sandra Vian Advocacia" style="display:block;border:0;max-width:170px;height:auto"></td></tr>` +
+    // card
+    `<tr><td style="background:#FFFFFF;border:1px solid #DED6C9;border-top:3px solid #AF7C00;border-radius:12px;padding:36px 40px" align="center">` +
+    `<h2 style="margin:0 0 16px;font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:normal;color:#1B150F">${title}</h2>` +
+    `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.7;color:#1B150F">${body}</div>` +
+    `</td></tr>` +
+    // footer
+    `<tr><td align="center" style="padding-top:24px">` +
+    `<p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#6A615B">` +
+    `Mara Sandra Vian Advocacia &middot; <a href="https://marasandraconnect.com" style="color:#AF7C00;text-decoration:none">marasandraconnect.com</a></p>` +
+    `</td></tr>` +
+    `</table></td></tr></table></body>`;
 
   switch (type) {
     case "invite":
