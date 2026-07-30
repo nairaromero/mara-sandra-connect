@@ -23,7 +23,8 @@
 //       email: "...",
 //       oab: "...",
 //       telefone: "...",
-//       enviar_link: true   // opcional, default true se email mudou
+//       enviar_link: true,  // opcional, default true se email mudou
+//       redirect_to: "https://.../login"  // opcional, fallback APP_BASE_URL/login
 //     }
 //   });
 //
@@ -115,6 +116,7 @@ serve(async (req) => {
     telefone?: string;
     percentual?: number;
     enviar_link?: boolean;
+    redirect_to?: string;
   };
   try {
     body = await req.json();
@@ -216,6 +218,9 @@ serve(async (req) => {
   // ---------------------------------------------------------------------------
   let linkEnviado = false;
   if (enviarLink && novoEmail) {
+    const redirectTo = body.redirect_to
+      ? String(body.redirect_to)
+      : `${APP_BASE_URL}/login`;
     // signInWithOtp envia magic link via SMTP configurado (Resend).
     // Como usamos service role, o cliente nao tem sessao - signInWithOtp
     // funciona normal porque so dispara o email.
@@ -223,7 +228,7 @@ serve(async (req) => {
       email: novoEmail,
       options: {
         shouldCreateUser: false, // usuario ja existe
-        emailRedirectTo: `${APP_BASE_URL}/login`,
+        emailRedirectTo: redirectTo,
       },
     });
     if (otp.error) {

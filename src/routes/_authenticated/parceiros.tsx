@@ -279,6 +279,8 @@ function ParceirosPage() {
           telefone: editTelefone.trim(),
           percentual: Number(editPercentual) || 30,
           enviar_link: emailMudou, // so envia magic link se email mudou
+          redirect_to:
+            typeof window !== "undefined" ? `${window.location.origin}/login` : undefined,
         },
       });
       if (resp.error) throw resp.error;
