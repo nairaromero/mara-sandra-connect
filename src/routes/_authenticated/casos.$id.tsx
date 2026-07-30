@@ -1,5 +1,5 @@
 import { createFileRoute, useParams, useNavigate, Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -2250,6 +2250,44 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
   );
 }
 
+// Descricao de andamento com clamp de 3 linhas + "Ler mais". Em vez de
+// heuristica por tamanho do texto (falhava com quebras de linha + wrap),
+// mede se o paragrafo esta de fato cortado (scrollHeight > clientHeight).
+function DescricaoAndamento(props: { texto: string; aberto: boolean; onToggle: () => void }) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  const [cortada, setCortada] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || props.aberto) return;
+    setCortada(el.scrollHeight > el.clientHeight + 1);
+  }, [props.texto, props.aberto]);
+  return (
+    <div className="mt-1">
+      <p
+        ref={ref}
+        className={
+          "text-sm whitespace-pre-wrap text-muted-foreground " +
+          (props.aberto ? "" : "line-clamp-3")
+        }
+      >
+        {props.texto}
+      </p>
+      {(cortada || props.aberto) && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            props.onToggle();
+          }}
+          className="mt-1 text-xs underline text-muted-foreground hover:text-foreground"
+        >
+          {props.aberto ? "Fechar" : "Ler mais"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function Linha(props: { label: string; valor: string }) {
   return (
     <div className="flex items-baseline gap-2">
@@ -2348,13 +2386,6 @@ function TabAndamentos(props: TabAndamentosProps) {
     document.addEventListener("mousedown", onDocMouseDown);
     return () => document.removeEventListener("mousedown", onDocMouseDown);
   }, [andamentoAbertoId]);
-
-  // Heurística: descrição "longa" o suficiente pra valer o botão "Ler mais".
-  function descricaoEhLonga(s: string | null): boolean {
-    if (!s) return false;
-    if (s.length > 180) return true;
-    return (s.match(/\n/g) ?? []).length >= 3;
-  }
 
   // Ao chegar via notificacao (?foco=<andamento>), expande o accordion que
   // contem o andamento pra ele ficar visivel (e o destaque rola ate ele).
@@ -2772,28 +2803,13 @@ function TabAndamentos(props: TabAndamentosProps) {
         </div>
         {a.titulo && <p className="text-sm font-medium mt-1">{a.titulo}</p>}
         {a.descricao && (
-          <div className="mt-1">
-            <p
-              className={
-                "text-sm whitespace-pre-wrap text-muted-foreground " +
-                (andamentoAbertoId === a.id ? "" : "line-clamp-3")
-              }
-            >
-              {a.descricao}
-            </p>
-            {(descricaoEhLonga(a.descricao) || andamentoAbertoId === a.id) && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setAndamentoAbertoId(andamentoAbertoId === a.id ? null : a.id);
-                }}
-                className="mt-1 text-xs underline text-muted-foreground hover:text-foreground"
-              >
-                {andamentoAbertoId === a.id ? "Fechar" : "Ler mais"}
-              </button>
-            )}
-          </div>
+          <DescricaoAndamento
+            texto={a.descricao}
+            aberto={andamentoAbertoId === a.id}
+            onToggle={() =>
+              setAndamentoAbertoId(andamentoAbertoId === a.id ? null : a.id)
+            }
+          />
         )}
       </div>
     );
