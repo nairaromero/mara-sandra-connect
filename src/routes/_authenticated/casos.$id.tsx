@@ -37,6 +37,7 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
+import { useTiposBeneficio } from "@/hooks/use-tipos-beneficio";
 import { DESTAQUE_CLASSE, useFocoItem } from "@/hooks/use-foco-item";
 import { notificarEquipe } from "@/lib/notificar";
 import { iaAnalise } from "@/lib/ia/client";
@@ -375,22 +376,6 @@ interface ProcNode {
 // ===========================================================================
 // Constantes (alinhadas aos enums reais)
 // ===========================================================================
-
-const TIPOS_BENEFICIO = [
-  "Aposentadoria por idade",
-  "Aposentadoria por tempo de contribuição",
-  "Aposentadoria especial",
-  "Aposentadoria da PCD (LC 142/2013)",
-  "Aposentadoria por incapacidade permanente",
-  "Auxílio por incapacidade temporária",
-  "Auxílio-acidente",
-  "Pensão por morte",
-  "Salário-maternidade",
-  "BPC/LOAS",
-  "Revisão da vida toda",
-  "Revisão de aposentadoria",
-  "Outro",
-];
 
 const FASES_CASO = [
   { value: "analise", label: "Em análise" },
@@ -1296,6 +1281,7 @@ interface TabVisaoGeralProps {
 }
 
 function TabVisaoGeral(props: TabVisaoGeralProps) {
+  const tiposBeneficio = useTiposBeneficio();
   const { caso, cliente, parceiro, parceirosDisponiveis, isInterno, onChange } = props;
   const navigate = useNavigate();
 
@@ -1883,7 +1869,14 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {TIPOS_BENEFICIO.map((t) => (
+                          {/* Valor atual fora da lista (ex.: desativado em
+                              Configuracoes ou "a_definir"): mantem visivel. */}
+                          {csTipoBeneficio && !tiposBeneficio.includes(csTipoBeneficio) && (
+                            <SelectItem value={csTipoBeneficio}>
+                              {csTipoBeneficio} (atual)
+                            </SelectItem>
+                          )}
+                          {tiposBeneficio.map((t) => (
                             <SelectItem key={t} value={t}>
                               {t}
                             </SelectItem>
@@ -2149,7 +2142,10 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {TIPOS_BENEFICIO.map((t) => (
+                    {csTipoBeneficio && !tiposBeneficio.includes(csTipoBeneficio) && (
+                      <SelectItem value={csTipoBeneficio}>{csTipoBeneficio} (atual)</SelectItem>
+                    )}
+                    {tiposBeneficio.map((t) => (
                       <SelectItem key={t} value={t}>
                         {t}
                       </SelectItem>
@@ -6772,6 +6768,7 @@ interface ResultadoBuscaLM {
 }
 
 function TabProcessos(props: TabProcessosProps) {
+  const tiposBeneficio = useTiposBeneficio();
   const {
     casoId,
     cliente,
@@ -7421,7 +7418,12 @@ function TabProcessos(props: TabProcessosProps) {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__none__">Não informado</SelectItem>
-                        {TIPOS_BENEFICIO.map((b) => (
+                        {tipoBeneficioAdmin && !tiposBeneficio.includes(tipoBeneficioAdmin) && (
+                          <SelectItem value={tipoBeneficioAdmin}>
+                            {tipoBeneficioAdmin} (atual)
+                          </SelectItem>
+                        )}
+                        {tiposBeneficio.map((b) => (
                           <SelectItem key={b} value={b}>
                             {b}
                           </SelectItem>

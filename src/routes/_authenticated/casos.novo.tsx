@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { ArrowLeft, Loader2, Eye, EyeOff, Plus, X, FileText, FileDown, Search } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
+import { useTiposBeneficio } from "@/hooks/use-tipos-beneficio";
 import { supabase } from "@/lib/supabase";
 import { MAX_FILE_SIZE_MB, validateFileSizes } from "@/lib/upload-limits";
 import { ClientOnly } from "@/components/client-only";
@@ -43,22 +44,6 @@ import {
 export const Route = createFileRoute("/_authenticated/casos/novo")({
   component: NovoCasoPage,
 });
-
-const TIPOS_BENEFICIO = [
-  "Aposentadoria por idade",
-  "Aposentadoria por tempo de contribuição",
-  "Aposentadoria especial",
-  "Aposentadoria da PCD (LC 142/2013)",
-  "Aposentadoria por incapacidade permanente",
-  "Auxílio por incapacidade temporária",
-  "Auxílio-acidente",
-  "Pensão por morte",
-  "Salário-maternidade",
-  "BPC/LOAS",
-  "Revisão da vida toda",
-  "Revisão de aposentadoria",
-  "Outro",
-];
 
 const TIPOS_DOCUMENTO = [
   { value: "cnis", label: "CNIS" },
@@ -193,6 +178,7 @@ interface PostgresError {
 
 function NovoCasoPage() {
   const { usuario } = useAuth();
+  const tiposBeneficio = useTiposBeneficio();
   const navigate = useNavigate();
   const [parceiros, setParceiros] = useState<Array<ParceiroOption>>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -873,7 +859,7 @@ function NovoCasoPage() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {TIPOS_BENEFICIO.map((t) => (
+                          {tiposBeneficio.map((t) => (
                             <SelectItem key={t} value={t}>
                               {t}
                             </SelectItem>

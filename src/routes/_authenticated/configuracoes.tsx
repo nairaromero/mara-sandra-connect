@@ -19,6 +19,7 @@ import { ClientOnly } from "@/components/client-only";
 import { IntegracaoIaCard } from "@/components/ia/integracao-ia-card";
 import { ConexaoClaudeCard } from "@/components/ia/conexao-claude-card";
 import { IntegracaoGmailCard } from "@/components/integracoes/integracao-gmail-card";
+import { TiposBeneficioCard } from "@/components/tipos-beneficio-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -480,6 +481,9 @@ function ConfiguracoesPage() {
             </Button>
           </CardContent>
         </Card>
+
+        {/* Card: Tipos de beneficio (so interno gerencia o cadastro) */}
+        {dados?.tipo === "interno" && <TiposBeneficioCard />}
 
         {/* Cards de IA: so interno por enquanto. Backend mantido intacto -
           parceiro nao ve a UI mas as APIs ainda existem. */}
