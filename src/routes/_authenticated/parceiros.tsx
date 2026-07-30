@@ -288,13 +288,17 @@ function ParceirosPage() {
         },
       });
       if (resp.error) throw resp.error;
-      const data = resp.data as { link_enviado?: boolean } | null;
+      const data = resp.data as { link_enviado?: boolean; warning?: string } | null;
       if (emailMudou || editEnviarLink) {
-        toast.success(
-          data?.link_enviado
-            ? `Parceiro atualizado. Magic link enviado pro ${emailMudou ? "novo email" : "email do parceiro"}.`
-            : "Parceiro atualizado. (Magic link não foi enviado - veja logs.)",
-        );
+        if (data?.link_enviado) {
+          toast.success(
+            `Parceiro atualizado. Magic link enviado pro ${emailMudou ? "novo email" : "email do parceiro"}.`,
+          );
+        } else {
+          toast.warning(
+            `Parceiro atualizado, mas o magic link não foi enviado: ${data?.warning ?? "erro desconhecido"}`,
+          );
+        }
       } else {
         toast.success("Parceiro atualizado.");
       }
