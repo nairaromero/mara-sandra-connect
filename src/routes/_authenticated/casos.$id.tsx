@@ -404,6 +404,23 @@ const ORIGEM_LABEL: Record<string, string> = {
   sistema: "Sistema",
 };
 
+// Traduz o "grau" que o DataJud carimba no fim do título do movimento
+// (ex.: "Outras Decisões (JE)") pra algo legível pra quem não é da área.
+const GRAU_LABEL: Record<string, string> = {
+  JE: "Juizado Especial",
+  G1: "1º grau",
+  G2: "2º grau",
+  TR: "Turma Recursal",
+  TRU: "Turma Recursal",
+  SUP: "Instância superior",
+};
+function rotuloTituloAndamento(titulo: string | null): string {
+  if (!titulo) return "";
+  return titulo.replace(/\s*\(([A-Z]{2,3})\)\s*$/, (m, g) =>
+    GRAU_LABEL[g] ? ` · ${GRAU_LABEL[g]}` : m,
+  );
+}
+
 const TIPOS_DOCUMENTO_LABEL: Record<string, string> = {
   cnis: "CNIS",
   rg_cpf: "RG / CPF",
@@ -2853,7 +2870,11 @@ function TabAndamentos(props: TabAndamentosProps) {
             </div>
           )}
         </div>
-        {a.titulo && <p className="text-sm font-medium mt-1">{a.titulo}</p>}
+        {a.titulo && (
+          <p className="text-sm font-medium mt-1">
+            {a.origem === "datajud" ? rotuloTituloAndamento(a.titulo) : a.titulo}
+          </p>
+        )}
         {a.descricao && (
           <DescricaoAndamento
             texto={a.descricao}
