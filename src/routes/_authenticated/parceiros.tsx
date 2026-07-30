@@ -442,12 +442,21 @@ function ParceirosPage() {
           telefone: p.telefone ?? "",
           percentual_parceiro: p.percentual_parceiro,
           redirect_to: redirectTo,
+          reenviar_link: true,
         },
       });
       if (resp.error) throw resp.error;
-      const data = resp.data as { error?: string };
+      const data = resp.data as {
+        error?: string;
+        ja_existia?: boolean;
+        link_enviado?: boolean;
+        warning?: string;
+      };
       if (data?.error) throw new Error(data.error);
-      toast.success(`Convite reenviado para ${p.email}.`);
+      if (data?.ja_existia && !data?.link_enviado) {
+        throw new Error(data?.warning || "Não foi possível reenviar o link.");
+      }
+      toast.success(`Novo link de acesso enviado para ${p.email}.`);
       await loadParceiros();
     } catch (err) {
       const msg = (err as { message?: string })?.message ?? "Falha ao reenviar convite.";

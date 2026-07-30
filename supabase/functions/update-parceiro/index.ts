@@ -167,7 +167,10 @@ serve(async (req) => {
     : undefined;
 
   const emailMudou = novoEmail !== a.email;
-  const enviarLink = emailMudou && (body.enviar_link !== false);
+  // enviar_link=true forca reenvio mesmo sem mudanca de email (ex.: parceiro
+  // perdeu o email); default continua sendo enviar so quando o email muda.
+  const enviarLink = body.enviar_link === true ||
+    (emailMudou && body.enviar_link !== false);
 
   // ---------------------------------------------------------------------------
   // 3) Se email mudou, atualiza auth.users via admin
