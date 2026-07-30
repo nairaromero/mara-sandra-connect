@@ -59,7 +59,7 @@ function UploadPage() {
 
           {!u && (
             <p className="flex items-center gap-2 text-sm text-destructive">
-              <AlertTriangle className="h-4 w-4" /> Link invalido ou incompleto.
+              <AlertTriangle className="h-4 w-4" /> Link inválido ou incompleto.
             </p>
           )}
 
@@ -67,7 +67,7 @@ function UploadPage() {
             <div className="flex flex-col items-center gap-2 py-6 text-center">
               <CheckCircle2 className="h-10 w-10 text-success" />
               <p className="font-medium">Documento enviado com sucesso!</p>
-              <p className="text-sm text-muted-foreground">Pode fechar esta pagina.</p>
+              <p className="text-sm text-muted-foreground">Pode fechar esta página.</p>
             </div>
           )}
 

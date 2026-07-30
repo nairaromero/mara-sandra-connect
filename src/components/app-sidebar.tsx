@@ -31,10 +31,12 @@ import {
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/use-auth";
 
+// "/" e o site publico (landing). Interno NAO tem "Inicio": entra direto em
+// /tarefas (o /casos redireciona). O dashboard /casos segue como home do
+// PARCEIRO, que nao tem acesso a /tarefas.
+const itemInicioParceiro = { title: "Início", url: "/casos", icon: Home };
+
 const itemsBase = [
-  // "/" e o site publico (landing). A tela inicial do SISTEMA e /casos
-  // (mesmo destino do login e do logo do header).
-  { title: "Início", url: "/casos", icon: Home },
   { title: "Clientes", url: "/clientes", icon: UserCircle },
   { title: "Documentos pendentes", url: "/documentos", icon: FileWarning },
   { title: "Publicações", url: "/publicacoes", icon: Newspaper },
@@ -43,11 +45,15 @@ const itemsBase = [
   // pendente sobre o que fazer com essas paginas no futuro.
 ];
 
+// Tarefas/Agenda no topo: sao o dia a dia do interno (Tarefas e a "home").
+const itemsInternosTopo = [
+  { title: "Tarefas", url: "/tarefas", icon: ListTodo },
+  { title: "Agenda", url: "/agenda", icon: Calendar },
+];
+
 const itemsInternos = [
   { title: "Comercial", url: "/comercial", icon: Handshake },
   { title: "Processos", url: "/processos", icon: Briefcase },
-  { title: "Tarefas", url: "/tarefas", icon: ListTodo },
-  { title: "Agenda", url: "/agenda", icon: Calendar },
   { title: "Equipe", url: "/equipe", icon: UserCog },
   { title: "Parceiros", url: "/parceiros", icon: Users },
   { title: "Etiquetas", url: "/etiquetas", icon: Tag },
@@ -58,15 +64,23 @@ const itemsInternos = [
 const itemsFooter = [{ title: "Configurações", url: "/configuracoes", icon: Settings }];
 
 export function AppSidebar() {
-  const { state } = useSidebar();
+  const { state, isMobile, setOpenMobile } = useSidebar();
   const { usuario } = useAuth();
   const isInterno = usuario?.tipo === "interno";
   const collapsed = state === "collapsed";
+  // No modo estreito o sidebar e um painel (Sheet) que cobre o conteudo;
+  // sem isso ele fica aberto depois do clique e a pessoa precisa clicar
+  // fora pra fechar. No desktop expandido nao faz nada.
+  const fecharSeMobile = () => {
+    if (isMobile) setOpenMobile(false);
+  };
   const currentPath = useRouterState({ select: (r) => r.location.pathname });
   const isActive = (path: string) =>
     path === "/" ? currentPath === "/" : currentPath.startsWith(path);
 
-  const items = [...itemsBase, ...(isInterno ? itemsInternos : []), ...itemsFooter];
+  const items = isInterno
+    ? [...itemsInternosTopo, ...itemsBase, ...itemsInternos, ...itemsFooter]
+    : [itemInicioParceiro, ...itemsBase, ...itemsFooter];
 
   // Badge de publicacoes novas (DJEN) desde a ultima visita. RLS escopa por
   // usuario (interno ve todas; parceiro so as dos casos dele).
@@ -99,6 +113,34 @@ export function AppSidebar() {
     };
   }, []);
 
+  // Badge de solicitacoes de documento pendentes. RLS escopa por usuario
+  // (interno ve todas; parceiro so as dos casos dele). Cai na hora em que
+  // o parceiro cumpre: as telas disparam msc:solicitacoes-mudou apos
+  // criar/atender/dispensar, e ha um poll de fundo como reserva.
+  const [docBadge, setDocBadge] = useState(0);
+  useEffect(() => {
+    let vivo = true;
+    async function calc() {
+      const { count } = await supabase
+        .from("solicitacoes_documento")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "pendente");
+      if (vivo) setDocBadge(count || 0);
+    }
+    calc();
+    const t = setInterval(calc, 60000);
+    if (typeof window !== "undefined") {
+      window.addEventListener("msc:solicitacoes-mudou", calc);
+    }
+    return () => {
+      vivo = false;
+      clearInterval(t);
+      if (typeof window !== "undefined") {
+        window.removeEventListener("msc:solicitacoes-mudou", calc);
+      }
+    };
+  }, []);
+
   return (
     <Sidebar collapsible="icon">
       {/* Faixa dourada sob o logo ecoa a identidade visual MSV. */}
@@ -114,6 +156,7 @@ export function AppSidebar() {
           to="/casos"
           aria-label="Mara Sandra Vian Advocacia - voltar para a página inicial"
           className="flex items-center justify-center px-2 py-3 hover:opacity-80 transition-opacity"
+          onClick={fecharSeMobile}
         >
           {collapsed ? (
             // Estado colapsado: mostra so o mark "msv" em um badge dourado.
@@ -141,11 +184,20 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {items.map((item) => {
-                const badge = item.url === "/publicacoes" ? pubBadge : 0;
+                const badge =
+                  item.url === "/publicacoes"
+                    ? pubBadge
+                    : item.url === "/documentos"
+                      ? docBadge
+                      : 0;
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
-                      <Link to={item.url} className="relative flex items-center gap-2">
+                      <Link
+                        to={item.url}
+                        className="relative flex items-center gap-2"
+                        onClick={fecharSeMobile}
+                      >
                         <item.icon className="h-4 w-4" />
                         {!collapsed && <span>{item.title}</span>}
                         {badge > 0 &&

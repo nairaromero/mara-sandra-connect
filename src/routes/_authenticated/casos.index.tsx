@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
@@ -136,9 +136,18 @@ function DashboardPage() {
 
   useEffect(() => {
     if (!usuario) return;
+    if (usuario.tipo === "interno") return; // interno redireciona pra /tarefas
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [usuario?.id, usuario?.tipo]);
+
+  // Interno nao tem "Inicio": o dia de trabalho comeca em /tarefas (lista
+  // por prazo). Este dashboard segue sendo a home do PARCEIRO (visao dos
+  // casos dele via RLS). O redirect fica DEPOIS dos hooks (regra de hooks)
+  // e no render, porque o tipo do usuario vem do useAuth.
+  if (usuario?.tipo === "interno") {
+    return <Navigate to="/tarefas" replace />;
+  }
 
   async function loadData() {
     if (!usuario) return;
