@@ -1420,6 +1420,10 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
             );
           } else {
             toast.success(clTemSenha ? "Senha MEU INSS substituída" : "Senha MEU INSS cadastrada");
+            // Invalida o cache do olhinho: proxima leitura busca a nova.
+            setSenhaCarregada(false);
+            setSenhaValor(null);
+            setSenhaVisivel(false);
           }
         }
       }
@@ -1474,12 +1478,16 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
     }
   }
 
-  // ---- Dialog: Ver senha MEU INSS (interno) ----
-  // Chama RPC get_senha_meu_inss que decripta + registra audit.
-  const [abrirSenha, setAbrirSenha] = useState(false);
+  // ---- Senha MEU INSS inline (olhinho) ----
+  // Interno e parceiro vinculado leem via RPC get_senha_meu_inss (decripta
+  // + registra audit). Cache em memoria pra nao re-logar audit a cada toggle
+  // do olhinho na mesma visita.
   const [carregandoSenha, setCarregandoSenha] = useState(false);
   const [senhaValor, setSenhaValor] = useState<string | null>(null);
-  const [erroSenha, setErroSenha] = useState<string | null>(null);
+  const [senhaCarregada, setSenhaCarregada] = useState(false);
+  const [senhaVisivel, setSenhaVisivel] = useState(false);
+  // Parceiro: CPF mascarado por padrao, olhinho revela (sem copiar).
+  const [cpfVisivelParc, setCpfVisivelParc] = useState(false);
 
   // ---- Dialog: Alterar senha MEU INSS (parceiro, write-only) ----
   // Parceiro escreve mas nao le. Mesmo fluxo do interno usaria, mas
@@ -1518,6 +1526,10 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
       toast.success(senhaParcTemSenha ? "Senha MEU INSS substituída" : "Senha MEU INSS cadastrada");
       setAbrirSenhaParc(false);
       setSenhaParcValor("");
+      // Invalida o cache do olhinho: proxima leitura busca a nova.
+      setSenhaCarregada(false);
+      setSenhaValor(null);
+      setSenhaVisivel(false);
     } catch (err) {
       console.error(err);
       const errObj = err as { message?: string };
@@ -1527,38 +1539,59 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
     }
   }
 
-  async function abrirVerSenha() {
-    setAbrirSenha(true);
+  // Busca a senha via RPC (com audit) e guarda em cache. Retorna ok=false
+  // em erro (ja mostra toast); valor=null quando nao ha senha cadastrada.
+  async function carregarSenha(): Promise<{ ok: boolean; valor: string | null }> {
+    if (senhaCarregada) return { ok: true, valor: senhaValor };
     setCarregandoSenha(true);
-    setSenhaValor(null);
-    setErroSenha(null);
     try {
       const resp = await supabase.rpc("get_senha_meu_inss", {
         p_cliente_id: cliente.id,
       });
       if (resp.error) throw resp.error;
-      const data = resp.data as string | null;
+      const data = (resp.data as string | null) ?? null;
       setSenhaValor(data);
+      setSenhaCarregada(true);
+      return { ok: true, valor: data };
     } catch (err) {
       console.error(err);
       const errObj = err as { message?: string };
-      setErroSenha(errObj.message || "Erro ao decifrar senha");
+      toast.error(errObj.message || "Erro ao decifrar senha");
+      return { ok: false, valor: null };
     } finally {
       setCarregandoSenha(false);
     }
   }
 
-  function fecharSenha() {
-    setAbrirSenha(false);
-    setSenhaValor(null);
-    setErroSenha(null);
+  async function toggleVerSenha() {
+    if (senhaVisivel) {
+      setSenhaVisivel(false);
+      return;
+    }
+    const r = await carregarSenha();
+    if (r.ok) setSenhaVisivel(true);
   }
 
   async function copiarSenha() {
-    if (!senhaValor) return;
+    const r = await carregarSenha();
+    if (!r.ok) return;
+    if (r.valor === null) {
+      toast.error("Este cliente não tem senha do MEU INSS cadastrada");
+      return;
+    }
     try {
-      await navigator.clipboard.writeText(senhaValor);
+      await navigator.clipboard.writeText(r.valor);
       toast.success("Senha copiada");
+    } catch (err) {
+      console.error(err);
+      toast.error("Não foi possível copiar (clipboard bloqueado)");
+    }
+  }
+
+  async function copiarCpf() {
+    try {
+      await navigator.clipboard.writeText(cliente.cpf.replace(/\D/g, ""));
+      toast.success("CPF copiado");
     } catch (err) {
       console.error(err);
       toast.error("Não foi possível copiar (clipboard bloqueado)");
@@ -1636,46 +1669,140 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
             <Linha label="Nome" valor={cliente.nome} />
-            <Linha
-              label="CPF"
-              valor={isInterno ? maskCPF(cliente.cpf) : maskCPFParceiro(cliente.cpf)}
-            />
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground min-w-[7rem]">CPF:</span>
+              {isInterno ? (
+                <>
+                  <span className="text-sm">{maskCPF(cliente.cpf)}</span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 w-6 p-0"
+                    onClick={copiarCpf}
+                    title="Copiar CPF"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </Button>
+                </>
+              ) : (
+                <>
+                  {/* select-none + copy bloqueado: parceiro ve, nao copia */}
+                  <span
+                    className="text-sm select-none"
+                    onCopy={(e) => e.preventDefault()}
+                    onContextMenu={(e) => e.preventDefault()}
+                  >
+                    {cpfVisivelParc ? maskCPF(cliente.cpf) : maskCPFParceiro(cliente.cpf)}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 w-6 p-0"
+                    onClick={() => setCpfVisivelParc((v) => !v)}
+                    title={cpfVisivelParc ? "Ocultar CPF" : "Ver CPF completo"}
+                  >
+                    {cpfVisivelParc ? (
+                      <EyeOff className="h-3.5 w-3.5" />
+                    ) : (
+                      <Eye className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                </>
+              )}
+            </div>
             <Linha label="Nascimento" valor={formatDate(cliente.data_nascimento)} />
             {isInterno && <Linha label="Telefone" valor={cliente.telefone || "-"} />}
             {isInterno && <Linha label="E-mail" valor={cliente.email || "-"} />}
             {isInterno && (
-              // Botao Ver senha MEU INSS. O clique dispara RPC com audit.
-              <div className="pt-2 border-t flex items-center justify-between">
-                <span className="text-xs text-muted-foreground flex items-center gap-1">
+              // Senha MEU INSS inline: olhinho revela (RPC com audit) e o
+              // copiar fica ao lado pra praticidade.
+              <div className="pt-2 border-t flex items-center justify-between gap-2">
+                <span className="text-xs text-muted-foreground flex items-center gap-1 shrink-0">
                   <KeyRound className="h-3.5 w-3.5" />
                   Senha MEU INSS
                 </span>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={abrirVerSenha}
-                  disabled={carregandoSenha}
-                >
-                  {carregandoSenha ? (
-                    <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-                  ) : (
-                    <Eye className="h-3.5 w-3.5 mr-1" />
-                  )}
-                  Ver senha
-                </Button>
+                <div className="flex items-center gap-1 min-w-0">
+                  {senhaVisivel &&
+                    (senhaValor !== null ? (
+                      <span className="text-sm font-mono truncate">{senhaValor}</span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground italic">
+                        não cadastrada
+                      </span>
+                    ))}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 w-7 p-0"
+                    onClick={toggleVerSenha}
+                    disabled={carregandoSenha}
+                    title={senhaVisivel ? "Ocultar senha" : "Ver senha"}
+                  >
+                    {carregandoSenha ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : senhaVisivel ? (
+                      <EyeOff className="h-3.5 w-3.5" />
+                    ) : (
+                      <Eye className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 w-7 p-0"
+                    onClick={copiarSenha}
+                    disabled={carregandoSenha}
+                    title="Copiar senha"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
               </div>
             )}
             {!isInterno && (
-              // Parceiro: write-only. Nao tem botao "Ver", so "Alterar".
-              <div className="pt-2 border-t flex items-center justify-between">
-                <span className="text-xs text-muted-foreground flex items-center gap-1">
+              // Parceiro: olhinho revela a senha (RPC com audit; sem copiar
+              // nem selecionar). Alterar continua write-only via dialog.
+              <div className="pt-2 border-t flex items-center justify-between gap-2">
+                <span className="text-xs text-muted-foreground flex items-center gap-1 shrink-0">
                   <KeyRound className="h-3.5 w-3.5" />
                   Senha MEU INSS
                 </span>
-                <Button size="sm" variant="outline" onClick={abrirAlterarSenhaParceiro}>
-                  <Pencil className="h-3.5 w-3.5 mr-1" />
-                  Alterar
-                </Button>
+                <div className="flex items-center gap-1 min-w-0">
+                  {senhaVisivel &&
+                    (senhaValor !== null ? (
+                      <span
+                        className="text-sm font-mono truncate select-none"
+                        onCopy={(e) => e.preventDefault()}
+                        onContextMenu={(e) => e.preventDefault()}
+                      >
+                        {senhaValor}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground italic">
+                        não cadastrada
+                      </span>
+                    ))}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 w-7 p-0"
+                    onClick={toggleVerSenha}
+                    disabled={carregandoSenha}
+                    title={senhaVisivel ? "Ocultar senha" : "Ver senha"}
+                  >
+                    {carregandoSenha ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : senhaVisivel ? (
+                      <EyeOff className="h-3.5 w-3.5" />
+                    ) : (
+                      <Eye className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={abrirAlterarSenhaParceiro}>
+                    <Pencil className="h-3.5 w-3.5 mr-1" />
+                    Alterar
+                  </Button>
+                </div>
               </div>
             )}
             {cliente.observacoes && (
@@ -1943,68 +2070,6 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
-          )}
-          {isInterno && (
-            // Dialog para exibir a senha MEU INSS decifrada.
-            // O backend ja registrou audit antes de retornar a senha.
-            <Dialog
-              open={abrirSenha}
-              onOpenChange={(o) => {
-                if (!o) fecharSenha();
-              }}
-            >
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle className="flex items-center gap-2">
-                    <KeyRound className="h-4 w-4" />
-                    Senha MEU INSS
-                  </DialogTitle>
-                  <DialogDescription className="text-xs text-warning bg-warning/10 border border-warning/30 rounded p-2 mt-1">
-                    Acesso registrado em auditoria. A senha é confidencial - use apenas no portal
-                    MEU INSS do cliente.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-3">
-                  {carregandoSenha && (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Decifrando senha...
-                    </div>
-                  )}
-                  {!carregandoSenha && erroSenha && (
-                    <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-                      {erroSenha}
-                    </div>
-                  )}
-                  {!carregandoSenha && !erroSenha && senhaValor === null && (
-                    <p className="text-sm text-muted-foreground">
-                      Este cliente não tem senha do MEU INSS cadastrada.
-                    </p>
-                  )}
-                  {!carregandoSenha && !erroSenha && senhaValor !== null && (
-                    <div className="space-y-2">
-                      <Label className="text-xs">Senha</Label>
-                      <div className="flex items-center gap-2">
-                        <Input value={senhaValor} readOnly className="font-mono" />
-                        <Button
-                          onClick={copiarSenha}
-                          size="sm"
-                          variant="outline"
-                          title="Copiar senha"
-                        >
-                          <Copy className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={fecharSenha}>
-                    Fechar
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
           )}
           {!isInterno && (
             // Dialog write-only do parceiro. So input + Salvar.
