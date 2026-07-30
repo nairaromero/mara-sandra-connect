@@ -3976,6 +3976,17 @@ function TabDocumentos(props: TabDocumentosProps) {
   }
 
   async function abrirPreview(d: Documento) {
+    // So PDF e imagem renderizam no browser. Qualquer outro formato (docx,
+    // zip, etc.) dentro do iframe vira download forcado pelo Chrome - o que
+    // furaria o bloqueio de download do parceiro. Avisa e nao abre.
+    if (!ehImagemDoc(d.nome_arquivo) && !ehPdfDoc(d.nome_arquivo)) {
+      toast.error(
+        "Visualização disponível apenas para PDF e imagens. Este arquivo (" +
+          (d.nome_arquivo.split(".").pop() || "?").toUpperCase() +
+          ") precisa ser baixado para abrir.",
+      );
+      return;
+    }
     setCarregandoPreview(true);
     try {
       const resp = await supabase.storage.from("documentos").createSignedUrl(d.storage_path, 300); // 5 min de TTL
@@ -4029,6 +4040,13 @@ function TabDocumentos(props: TabDocumentosProps) {
   function ehImagemDoc(nome: string | null | undefined): boolean {
     if (!nome) return false;
     return /\.(jpe?g|png|gif|webp|bmp)$/i.test(nome);
+  }
+
+  // Detecta PDF - unico formato alem de imagem que o browser renderiza
+  // inline no iframe (viewer interno do Chrome).
+  function ehPdfDoc(nome: string | null | undefined): boolean {
+    if (!nome) return false;
+    return /\.pdf$/i.test(nome);
   }
 
   async function baixarSelecionados() {
