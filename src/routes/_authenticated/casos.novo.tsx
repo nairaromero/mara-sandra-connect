@@ -46,17 +46,17 @@ export const Route = createFileRoute("/_authenticated/casos/novo")({
 
 const TIPOS_BENEFICIO = [
   "Aposentadoria por idade",
-  "Aposentadoria por tempo de contribuicao",
+  "Aposentadoria por tempo de contribuição",
   "Aposentadoria especial",
   "Aposentadoria da PCD (LC 142/2013)",
   "Aposentadoria por incapacidade permanente",
-  "Auxilio por incapacidade temporaria",
-  "Auxilio-acidente",
-  "Pensao por morte",
-  "Salario-maternidade",
+  "Auxílio por incapacidade temporária",
+  "Auxílio-acidente",
+  "Pensão por morte",
+  "Salário-maternidade",
   "BPC/LOAS",
-  "Revisao da vida toda",
-  "Revisao de aposentadoria",
+  "Revisão da vida toda",
+  "Revisão de aposentadoria",
   "Outro",
 ];
 

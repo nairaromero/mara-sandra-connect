@@ -786,7 +786,7 @@ function ClientesPage() {
                                     }}
                                     className="rounded border border-border bg-muted/40 px-1.5 py-0.5 text-[11px] font-normal text-muted-foreground hover:bg-muted hover:text-foreground"
                                     title={
-                                      "Abrir caso: " + (ca.tipo_beneficio ?? "(sem beneficio)")
+                                      "Abrir caso: " + (ca.tipo_beneficio ?? "(sem benefício)")
                                     }
                                   >
                                     {ca.tipo_beneficio ?? "(sem benefício)"}

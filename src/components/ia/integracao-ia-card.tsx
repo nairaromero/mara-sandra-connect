@@ -69,7 +69,7 @@ export function IntegracaoIaCard() {
       api_key: apiKey.trim() || undefined,
     });
     setTestando(false);
-    if (data?.ok) toast.success("Conexao OK");
+    if (data?.ok) toast.success("Conexão OK");
     else toast.error(error?.message || "Falha ao testar");
   }
 
@@ -79,7 +79,7 @@ export function IntegracaoIaCard() {
       return;
     }
     if (apiKey.trim().length < 12) {
-      toast.error("Cole uma chave de API valida");
+      toast.error("Cole uma chave de API válida");
       return;
     }
     setSalvando(true);
@@ -91,7 +91,7 @@ export function IntegracaoIaCard() {
     });
     setSalvando(false);
     if (data?.ok) {
-      toast.success("Integracao salva e ativada");
+      toast.success("Integração salva e ativada");
       setApiKey("");
       await carregar();
     } else {
@@ -116,12 +116,12 @@ export function IntegracaoIaCard() {
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
           <Sparkles className="h-4 w-4" />
-          Integracao de IA
+          Integração de IA
         </CardTitle>
         <CardDescription>
-          Conecte seu provedor de IA (cada um usa a propria chave). O assistente consulta seus dados
-          e pode criar/atualizar registros (respeitando suas permissoes), sempre pedindo
-          confirmacao.
+          Conecte seu provedor de IA (cada um usa a própria chave). O assistente consulta seus dados
+          e pode criar/atualizar registros (respeitando suas permissões), sempre pedindo
+          confirmação.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -177,7 +177,7 @@ export function IntegracaoIaCard() {
                 autoComplete="off"
               />
               <p className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
-                <ShieldCheck className="h-3 w-3" />A chave e cifrada no servidor e nunca volta para
+                <ShieldCheck className="h-3 w-3" />A chave é cifrada no servidor e nunca volta para
                 a tela.
               </p>
             </div>
@@ -189,7 +189,7 @@ export function IntegracaoIaCard() {
                 ) : (
                   <Plug className="h-3 w-3 mr-2" />
                 )}
-                Testar conexao
+                Testar conexão
               </Button>
               <Button size="sm" onClick={salvar} disabled={salvando}>
                 {salvando ? (
@@ -206,7 +206,7 @@ export function IntegracaoIaCard() {
                 <div>
                   <p className="text-sm font-medium">Assistente ativo</p>
                   <p className="text-xs text-muted-foreground">
-                    Mostra o botao do assistente nas telas.
+                    Mostra o botão do assistente nas telas.
                   </p>
                 </div>
                 <Switch

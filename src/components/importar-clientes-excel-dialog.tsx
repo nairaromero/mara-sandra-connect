@@ -123,7 +123,7 @@ export function ImportarClientesExcelDialog(
             raw,
             cpfDigits,
             status: "erro",
-            erro: "CPF invalido (precisa 11 digitos)",
+            erro: "CPF inválido (precisa 11 dígitos)",
           };
         }
         return {

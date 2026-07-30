@@ -52,7 +52,7 @@ type FnResult<T> = { data?: T; error?: FnError };
 async function callFn<T>(name: string, body: Record<string, unknown>): Promise<FnResult<T>> {
   const { data, error } = await supabase.functions.invoke(name, { body });
   if (error) {
-    let message = error.message || "Falha na funcao";
+    let message = error.message || "Falha na função";
     let code: string | undefined;
     let status: number | undefined;
     const ctx = (error as { context?: Response }).context;

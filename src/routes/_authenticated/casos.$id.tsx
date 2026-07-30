@@ -305,57 +305,57 @@ interface ProcessoJudicial {
 // Etapas da cadeia de processos (lista fixa). "" = sem classificacao.
 const ETAPAS_ADMIN = [
   "Requerimento inicial",
-  "Recurso ordinario",
-  "Prorrogacao",
-  "Pedido de revisao",
-  "Cumprimento de exigencia",
+  "Recurso ordinário",
+  "Prorrogação",
+  "Pedido de revisão",
+  "Cumprimento de exigência",
   "Outro",
 ];
 const ETAPAS_JUDICIAL = [
-  "Acao inicial",
-  "Recurso (apelacao)",
+  "Ação inicial",
+  "Recurso (apelação)",
   "Embargos",
-  "Cumprimento de sentenca",
+  "Cumprimento de sentença",
   "Outro",
 ];
 
 // Tribunais relevantes para o previdenciario: Justica Federal (TRFs) + TJs.
 const TRIBUNAIS_FEDERAIS = [
-  "TRF1 - Tribunal Regional Federal da 1a Regiao",
-  "TRF2 - Tribunal Regional Federal da 2a Regiao",
-  "TRF3 - Tribunal Regional Federal da 3a Regiao",
-  "TRF4 - Tribunal Regional Federal da 4a Regiao",
-  "TRF5 - Tribunal Regional Federal da 5a Regiao",
-  "TRF6 - Tribunal Regional Federal da 6a Regiao",
+  "TRF1 - Tribunal Regional Federal da 1ª Região",
+  "TRF2 - Tribunal Regional Federal da 2ª Região",
+  "TRF3 - Tribunal Regional Federal da 3ª Região",
+  "TRF4 - Tribunal Regional Federal da 4ª Região",
+  "TRF5 - Tribunal Regional Federal da 5ª Região",
+  "TRF6 - Tribunal Regional Federal da 6ª Região",
 ];
 const TRIBUNAIS_ESTADUAIS = [
-  "TJAC - Tribunal de Justica do Acre",
-  "TJAL - Tribunal de Justica de Alagoas",
-  "TJAP - Tribunal de Justica do Amapa",
-  "TJAM - Tribunal de Justica do Amazonas",
-  "TJBA - Tribunal de Justica da Bahia",
-  "TJCE - Tribunal de Justica do Ceara",
-  "TJDFT - Tribunal de Justica do Distrito Federal e Territorios",
-  "TJES - Tribunal de Justica do Espirito Santo",
-  "TJGO - Tribunal de Justica de Goias",
-  "TJMA - Tribunal de Justica do Maranhao",
-  "TJMT - Tribunal de Justica de Mato Grosso",
-  "TJMS - Tribunal de Justica de Mato Grosso do Sul",
-  "TJMG - Tribunal de Justica de Minas Gerais",
-  "TJPA - Tribunal de Justica do Para",
-  "TJPB - Tribunal de Justica da Paraiba",
-  "TJPR - Tribunal de Justica do Parana",
-  "TJPE - Tribunal de Justica de Pernambuco",
-  "TJPI - Tribunal de Justica do Piaui",
-  "TJRJ - Tribunal de Justica do Rio de Janeiro",
-  "TJRN - Tribunal de Justica do Rio Grande do Norte",
-  "TJRS - Tribunal de Justica do Rio Grande do Sul",
-  "TJRO - Tribunal de Justica de Rondonia",
-  "TJRR - Tribunal de Justica de Roraima",
-  "TJSC - Tribunal de Justica de Santa Catarina",
-  "TJSP - Tribunal de Justica de Sao Paulo",
-  "TJSE - Tribunal de Justica de Sergipe",
-  "TJTO - Tribunal de Justica do Tocantins",
+  "TJAC - Tribunal de Justiça do Acre",
+  "TJAL - Tribunal de Justiça de Alagoas",
+  "TJAP - Tribunal de Justiça do Amapá",
+  "TJAM - Tribunal de Justiça do Amazonas",
+  "TJBA - Tribunal de Justiça da Bahia",
+  "TJCE - Tribunal de Justiça do Ceará",
+  "TJDFT - Tribunal de Justiça do Distrito Federal e Territórios",
+  "TJES - Tribunal de Justiça do Espírito Santo",
+  "TJGO - Tribunal de Justiça de Goiás",
+  "TJMA - Tribunal de Justiça do Maranhão",
+  "TJMT - Tribunal de Justiça de Mato Grosso",
+  "TJMS - Tribunal de Justiça de Mato Grosso do Sul",
+  "TJMG - Tribunal de Justiça de Minas Gerais",
+  "TJPA - Tribunal de Justiça do Pará",
+  "TJPB - Tribunal de Justiça da Paraíba",
+  "TJPR - Tribunal de Justiça do Paraná",
+  "TJPE - Tribunal de Justiça de Pernambuco",
+  "TJPI - Tribunal de Justiça do Piauí",
+  "TJRJ - Tribunal de Justiça do Rio de Janeiro",
+  "TJRN - Tribunal de Justiça do Rio Grande do Norte",
+  "TJRS - Tribunal de Justiça do Rio Grande do Sul",
+  "TJRO - Tribunal de Justiça de Rondônia",
+  "TJRR - Tribunal de Justiça de Roraima",
+  "TJSC - Tribunal de Justiça de Santa Catarina",
+  "TJSP - Tribunal de Justiça de São Paulo",
+  "TJSE - Tribunal de Justiça de Sergipe",
+  "TJTO - Tribunal de Justiça do Tocantins",
 ];
 const TRIBUNAIS = [...TRIBUNAIS_FEDERAIS, ...TRIBUNAIS_ESTADUAIS];
 
@@ -378,22 +378,22 @@ interface ProcNode {
 
 const TIPOS_BENEFICIO = [
   "Aposentadoria por idade",
-  "Aposentadoria por tempo de contribuicao",
+  "Aposentadoria por tempo de contribuição",
   "Aposentadoria especial",
   "Aposentadoria da PCD (LC 142/2013)",
   "Aposentadoria por incapacidade permanente",
-  "Auxilio por incapacidade temporaria",
-  "Auxilio-acidente",
-  "Pensao por morte",
-  "Salario-maternidade",
+  "Auxílio por incapacidade temporária",
+  "Auxílio-acidente",
+  "Pensão por morte",
+  "Salário-maternidade",
   "BPC/LOAS",
-  "Revisao da vida toda",
-  "Revisao de aposentadoria",
+  "Revisão da vida toda",
+  "Revisão de aposentadoria",
   "Outro",
 ];
 
 const FASES_CASO = [
-  { value: "analise", label: "Em analise" },
+  { value: "analise", label: "Em análise" },
   { value: "admin", label: "Administrativo" },
   { value: "judicial", label: "Judicial" },
   { value: "finalizado", label: "Finalizado" },
@@ -401,11 +401,11 @@ const FASES_CASO = [
 
 const STATUS_CASO = [
   { value: "aguardando_documentos", label: "Aguardando documentos" },
-  { value: "em_analise", label: "Em analise" },
-  { value: "em_revisao", label: "Em revisao" },
+  { value: "em_analise", label: "Em análise" },
+  { value: "em_revisao", label: "Em revisão" },
   { value: "em_andamento", label: "Em andamento" },
-  { value: "concluido_exito", label: "Concluido com exito" },
-  { value: "concluido_sem_exito", label: "Concluido sem exito" },
+  { value: "concluido_exito", label: "Concluído com êxito" },
+  { value: "concluido_sem_exito", label: "Concluído sem êxito" },
   { value: "arquivado", label: "Arquivado" },
 ];
 
@@ -1126,7 +1126,7 @@ function CasoHeader(props: CasoHeaderProps) {
             ".";
         }
         if (notasJa > 0) {
-          msg += " " + notasJa + " ja existia" + (notasJa === 1 ? "" : "m") + " (dedup).";
+          msg += " " + notasJa + " já existia" + (notasJa === 1 ? "" : "m") + " (dedup).";
         }
         toast.success(msg);
         onChange();
@@ -2143,7 +2143,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
             </DialogHeader>
             <div className="space-y-3">
               <div>
-                <Label className="text-xs">Tipo de beneficio</Label>
+                <Label className="text-xs">Tipo de benefício</Label>
                 <Select value={csTipoBeneficio} onValueChange={setCsTipoBeneficio}>
                   <SelectTrigger>
                     <SelectValue />

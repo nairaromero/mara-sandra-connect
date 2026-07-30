@@ -23,7 +23,7 @@ import { iaTokens, IA_MCP_URL, type IaToken } from "@/lib/ia/client";
 function copiar(texto: string, msg = "Copiado") {
   navigator.clipboard.writeText(texto).then(
     () => toast.success(msg),
-    () => toast.error("Nao foi possivel copiar"),
+    () => toast.error("Não foi possível copiar"),
   );
 }
 
@@ -88,8 +88,8 @@ export function ConexaoClaudeCard() {
           Conectar Claude / ChatGPT
         </CardTitle>
         <CardDescription>
-          Use o assistente dentro do seu proprio Claude (ou ChatGPT) via MCP, com o modelo da sua
-          assinatura - sem precisar de chave de API. Gere um token e conecte. Por enquanto, so
+          Use o assistente dentro do seu próprio Claude (ou ChatGPT) via MCP, com o modelo da sua
+          assinatura - sem precisar de chave de API. Gere um token e conecte. Por enquanto, só
           leitura.
         </CardDescription>
       </CardHeader>
@@ -99,7 +99,7 @@ export function ConexaoClaudeCard() {
           <div className="rounded-md border border-[var(--gold)]/50 bg-[var(--gold-soft)]/30 p-3">
             <p className="mb-1 flex items-center gap-1 text-xs font-medium">
               <AlertTriangle className="h-3.5 w-3.5" />
-              Copie agora - este token nao sera mostrado de novo.
+              Copie agora - este token não será mostrado de novo.
             </p>
             <div className="flex items-center gap-2">
               <code className="flex-1 overflow-x-auto rounded bg-background px-2 py-1 text-xs">
@@ -114,7 +114,7 @@ export function ConexaoClaudeCard() {
               </Button>
             </div>
             <Button variant="ghost" size="sm" className="mt-2" onClick={() => setNovoToken(null)}>
-              Ja copiei
+              Já copiei
             </Button>
           </div>
         )}
@@ -151,7 +151,7 @@ export function ConexaoClaudeCard() {
                 <SelectItem value="30">30 dias</SelectItem>
                 <SelectItem value="90">90 dias</SelectItem>
                 <SelectItem value="365">1 ano</SelectItem>
-                <SelectItem value="0">Sem expiracao</SelectItem>
+                <SelectItem value="0">Sem expiração</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -195,7 +195,7 @@ export function ConexaoClaudeCard() {
                       {t.prefixo}... -{" "}
                       {t.expira_em
                         ? "expira " + new Date(t.expira_em).toLocaleDateString("pt-BR")
-                        : "sem expiracao"}
+                        : "sem expiração"}
                       {t.ultimo_uso
                         ? " - usado " + new Date(t.ultimo_uso).toLocaleDateString("pt-BR")
                         : " - nunca usado"}
