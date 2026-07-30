@@ -399,6 +399,8 @@ const ORIGEM_LABEL: Record<string, string> = {
   tramitacao: "Tramitação Inteligente",
   legalmail: "Legalmail",
   djen: "Diário (DJEN)",
+  datajud: "Movimentação (DataJud)",
+  inss_email: "E-mail INSS",
   sistema: "Sistema",
 };
 
@@ -2807,6 +2809,17 @@ function TabAndamentos(props: TabAndamentosProps) {
             }
           />
         )}
+        {/* Resumo da IA: explica em linguagem simples o que a movimentação
+            significa (movimentos do DataJud vêm só com o título técnico). */}
+        {(() => {
+          const meta = a.metadata as { ia_resumo?: string } | null;
+          return meta?.ia_resumo ? (
+            <p className="mt-1 flex items-start gap-1.5 text-xs">
+              <Sparkles className="mt-0.5 h-3 w-3 shrink-0 text-[var(--gold)]" />
+              <span className="italic text-foreground/80">{meta.ia_resumo}</span>
+            </p>
+          ) : null;
+        })()}
       </div>
     );
   }
