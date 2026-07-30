@@ -139,6 +139,36 @@ const PARCEIRO_BENEFITS = [
   "Acompanhe cada andamento em tempo real pelo portal",
 ];
 
+const PARCEIRO_LOGOS = [
+  { nome: "Escritório Parceiro 1" },
+  { nome: "Escritório Parceiro 2" },
+  { nome: "Escritório Parceiro 3" },
+  { nome: "Escritório Parceiro 4" },
+  { nome: "Escritório Parceiro 5" },
+  { nome: "Escritório Parceiro 6" },
+];
+
+const PARCEIRO_DEPOIMENTOS = [
+  {
+    inicial: "R",
+    nome: "Dr. Nome Sobrenome",
+    escritorio: "Escritório Exemplo — OAB/XX 00.000",
+    texto: "Depoimento do parceiro aqui. Substituir pelo texto real.",
+  },
+  {
+    inicial: "C",
+    nome: "Dra. Nome Sobrenome",
+    escritorio: "Escritório Exemplo — OAB/XX 00.000",
+    texto: "Depoimento do parceiro aqui. Substituir pelo texto real.",
+  },
+  {
+    inicial: "F",
+    nome: "Dr. Nome Sobrenome",
+    escritorio: "Escritório Exemplo — OAB/XX 00.000",
+    texto: "Depoimento do parceiro aqui. Substituir pelo texto real.",
+  },
+];
+
 const FAQ = [
   {
     q: "O INSS negou meu pedido. Ainda tenho chance?",
@@ -222,6 +252,12 @@ function HomePage() {
   const irParaFormParceiro = () => setContatoTab("parceiro");
   return (
     <div className="bg-background font-sans text-foreground">
+      <style>{`
+        @keyframes scroll-left {
+          from { transform: translateX(0); }
+          to { transform: translateX(-50%); }
+        }
+      `}</style>
       {/* ===== HEADER ===== */}
       <header className="sticky top-0 z-50 border-b border-border bg-background/90 backdrop-blur-md">
         <div className="mx-auto flex h-[72px] max-w-[1140px] items-center justify-between px-5 sm:px-6">
@@ -274,8 +310,8 @@ function HomePage() {
             background: "radial-gradient(circle at 80% 20%,rgba(184,134,46,.28),transparent 45%)",
           }}
         />
-        <div className="relative z-[2] mx-auto grid max-w-[1140px] items-center gap-12 px-5 py-16 sm:px-6 lg:grid-cols-[1.15fr_.85fr] lg:py-24">
-          <div>
+        <div className="relative z-[2] mx-auto max-w-[1140px] px-5 py-16 sm:px-6 lg:py-24">
+          <div className="max-w-3xl">
             <Eyebrow light>Direito Previdenciário</Eyebrow>
             <h1 className="mt-5 font-serif text-4xl font-semibold leading-[1.08] sm:text-5xl lg:text-[54px]">
               Seu benefício foi <span className="text-[#caa14e]">negado pelo INSS</span>? A gente
@@ -317,14 +353,6 @@ function HomePage() {
             </div>
           </div>
 
-          {/* card de análise */}
-          <div className="rounded-2xl border border-[#caa14e]/30 bg-white/[0.06] p-7 backdrop-blur-sm">
-            <h3 className="font-serif text-2xl text-white">Análise gratuita</h3>
-            <p className="mb-5 mt-1 text-sm text-[#cfc8b8]">
-              Conte seu caso. Respondemos rápido pelo WhatsApp.
-            </p>
-            <LeadForm origem="form-hero" dark />
-          </div>
         </div>
       </section>
 
@@ -368,6 +396,66 @@ function HomePage() {
                 </li>
               ))}
             </ul>
+          </div>
+        </div>
+      </section>
+
+      {/* ===== PLANEJAMENTO PREVIDENCIÁRIO ===== */}
+      <section className="py-20 sm:py-24">
+        <div className="mx-auto max-w-[1140px] px-5 sm:px-6">
+          <div className="overflow-hidden rounded-2xl" style={{ background: "linear-gradient(135deg,#2a251b 0%,#3a3324 55%,#4a4029 100%)" }}>
+            <div className="relative">
+              <div
+                className="pointer-events-none absolute inset-0"
+                style={{ background: "radial-gradient(circle at 90% 30%,rgba(184,134,46,.2),transparent 50%)" }}
+              />
+              <div className="relative grid gap-10 p-8 sm:p-12 lg:grid-cols-[1.1fr_0.9fr] lg:gap-14">
+                <div>
+                  <Eyebrow light>Serviço em destaque</Eyebrow>
+                  <h2 className="mt-3 font-serif text-3xl font-semibold text-white sm:text-4xl">
+                    Planejamento Previdenciário
+                  </h2>
+                  <p className="mt-4 text-base text-[#cfc8b8]">
+                    Não espere ter o benefício negado para procurar um advogado. Com o planejamento
+                    previdenciário, analisamos toda a sua vida contributiva para encontrar o melhor
+                    caminho — e o melhor momento — para você se aposentar com o maior valor possível.
+                  </p>
+                  <ul className="my-6 grid gap-3">
+                    {[
+                      "Análise completa do CNIS e vínculos",
+                      "Simulação de cenários de aposentadoria",
+                      "Identificação do melhor momento para requerer",
+                      "Estratégias para maximizar o valor do benefício",
+                      "Orientação sobre contribuições futuras",
+                    ].map((item) => (
+                      <li key={item} className="flex items-start gap-3 text-[15px] text-[#e4ddcd]">
+                        <Check className="mt-0.5 h-5 w-5 shrink-0 text-[#caa14e]" />
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                  <a
+                    href="#contato"
+                    className={`${btn} bg-gold text-white shadow-[0_6px_20px_-6px_rgba(184,134,46,.6)] hover:bg-[#a3741f]`}
+                  >
+                    Quero planejar minha aposentadoria
+                  </a>
+                </div>
+                <div className="flex items-center justify-center">
+                  <div className="text-center">
+                    <div className="mx-auto flex h-32 w-32 items-center justify-center rounded-full bg-[#caa14e]/15">
+                      <TrendingUp className="h-16 w-16 text-[#caa14e]" />
+                    </div>
+                    <p className="mt-6 font-serif text-xl text-white">
+                      Aposentadoria certa,<br />no momento certo.
+                    </p>
+                    <p className="mt-2 text-sm text-[#cfc8b8]">
+                      Cada caso tem uma estratégia ideal.<br />A gente encontra a sua.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -560,6 +648,50 @@ function HomePage() {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+
+        {/* logos parceiros */}
+        <div className="mx-auto max-w-[1140px] px-5 pb-10 pt-4 sm:px-6">
+          <p className="mb-8 text-center text-xs font-semibold uppercase tracking-[0.14em] text-[#caa14e]">
+            Escritórios que confiam no nosso trabalho
+          </p>
+          <div className="relative overflow-hidden [mask-image:linear-gradient(to_right,transparent,black_10%,black_90%,transparent)]">
+            <div
+              className="flex w-max gap-10"
+              style={{ animation: "scroll-left 25s linear infinite" }}
+            >
+              {[...PARCEIRO_LOGOS, ...PARCEIRO_LOGOS].map((p, i) => (
+                <div
+                  key={i}
+                  className="flex h-14 w-44 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.06] px-4"
+                >
+                  <span className="text-sm font-medium text-white/50">{p.nome}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* depoimentos parceiros */}
+          <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {PARCEIRO_DEPOIMENTOS.map((d, i) => (
+              <div
+                key={i}
+                className="rounded-xl border border-[#caa14e]/20 bg-white/[0.04] p-6"
+              >
+                <div className="tracking-[2px] text-[#caa14e]">★★★★★</div>
+                <p className="mt-3 text-[15px] italic text-[#e4ddcd]">"{d.texto}"</p>
+                <div className="mt-4 flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#caa14e]/15 font-bold text-[#caa14e]">
+                    {d.inicial}
+                  </div>
+                  <div>
+                    <b className="block text-sm text-white">{d.nome}</b>
+                    <small className="text-[12.5px] text-[#cfc8b8]">{d.escritorio}</small>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
