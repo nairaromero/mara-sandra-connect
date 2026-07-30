@@ -4940,17 +4940,19 @@ function TabDocumentos(props: TabDocumentosProps) {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        {!isInterno && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => abrirPreview(d)}
-                            disabled={carregandoPreview}
-                          >
-                            <Eye className="h-4 w-4 mr-2" />
-                            Visualizar
-                          </Button>
-                        )}
+                        {/* Visualizar: parceiro (botao com rotulo) e interno
+                            (so icone, pra nao lotar a linha de acoes). */}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => abrirPreview(d)}
+                          disabled={carregandoPreview}
+                          title="Visualizar"
+                          aria-label="Visualizar documento"
+                        >
+                          <Eye className={isInterno ? "h-4 w-4" : "h-4 w-4 mr-2"} />
+                          {!isInterno && "Visualizar"}
+                        </Button>
                         {/* Interno: toggle de autorizacao pro parceiro baixar.
                           Padrao = nao baixa; equipe libera por doc. */}
                         {isInterno && (
