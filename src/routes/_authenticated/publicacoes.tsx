@@ -2,6 +2,8 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   FileDown,
   Loader2,
   Newspaper,
@@ -66,6 +68,22 @@ function fmt(iso: string | null): string {
   if (!iso) return "-";
   const d = new Date(iso.length <= 10 ? iso + "T00:00:00" : iso);
   return d.toLocaleDateString("pt-BR");
+}
+
+function parseData(iso: string | null): Date | null {
+  if (!iso) return null;
+  const d = new Date(iso.length <= 10 ? iso + "T00:00:00" : iso);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+// "2026-07" -> "Julho de 2026" (cabecalho dos grupos de antigas)
+function labelMes(key: string): string {
+  const [ano, mes] = key.split("-").map(Number);
+  const nome = new Date(ano, mes - 1, 1).toLocaleDateString("pt-BR", {
+    month: "long",
+    year: "numeric",
+  });
+  return nome.charAt(0).toUpperCase() + nome.slice(1);
 }
 
 function PublicacoesPage() {
@@ -163,14 +181,14 @@ function PublicacoesPage() {
     setLoading(true);
 
     if (isInterno) {
-      // Interno: fonte da verdade = publicacoes_dje (vinculadas + órfãs), semana.
-      const desde = new Date(Date.now() - DIAS_JANELA * 86400000).toISOString().slice(0, 10);
+      // Interno: fonte da verdade = publicacoes_dje (vinculadas + órfãs).
+      // Carrega tudo (até 500 mais recentes); a UI separa última semana em
+      // destaque e agrupa o resto por mês em seções recolhidas.
       const { data, error } = await supabase
         .from("publicacoes_dje")
         .select(
           "id, numero_processo, sigla_tribunal, nome_orgao, tipo_comunicacao, data_disponibilizacao, texto, status, caso_id, andamento_id, certidao_url, casos:caso_id(cliente:cliente_id(nome))",
         )
-        .gte("data_disponibilizacao", desde)
         .order("data_disponibilizacao", { ascending: false, nullsFirst: false })
         .limit(500);
       if (!error) {
@@ -255,15 +273,164 @@ function PublicacoesPage() {
     });
   }, [pubs, busca]);
 
+  // Separa: última semana em destaque; o resto agrupado por mês/ano
+  // (mais recente primeiro), em seções recolhidas por padrão.
+  const { recentes, gruposAntigos } = useMemo(() => {
+    const corte = Date.now() - DIAS_JANELA * 86400000;
+    const rec: Array<PubView> = [];
+    const map = new Map<string, Array<PubView>>();
+    for (const p of filtradas) {
+      const d = parseData(p.data);
+      // Sem data legível: mantém em destaque pra não sumir da tela.
+      if (!d || d.getTime() >= corte) {
+        rec.push(p);
+        continue;
+      }
+      const key = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+      const arr = map.get(key) || [];
+      arr.push(p);
+      map.set(key, arr);
+    }
+    const grupos = Array.from(map.entries()).sort(([a], [b]) => b.localeCompare(a));
+    return { recentes: rec, gruposAntigos: grupos };
+  }, [filtradas]);
+
+  const [gruposAbertos, setGruposAbertos] = useState<Set<string>>(new Set());
+  function toggleGrupo(key: string) {
+    setGruposAbertos((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  // Badges do topo contam só a janela da semana (o destaque da tela).
   const resumo = useMemo(() => {
+    const corte = Date.now() - DIAS_JANELA * 86400000;
+    let total = 0;
     let vinc = 0;
     let orfa = 0;
     for (const p of pubs) {
+      const d = parseData(p.data);
+      if (d && d.getTime() < corte) continue;
+      total++;
       if (p.status === "vinculada") vinc++;
       else orfa++;
     }
-    return { total: pubs.length, vinc, orfa };
+    return { total, vinc, orfa };
   }, [pubs]);
+
+  // Card de uma publicação (usado na lista da semana e nos grupos antigos).
+  function renderPub(p: PubView) {
+    const vinculada = p.status === "vinculada";
+    const texto = p.texto || "";
+    const longo = texto.length > PREVIEW_CHARS;
+    const aberto = expandido[p.id];
+    const exibir = !longo || aberto ? texto : texto.slice(0, PREVIEW_CHARS) + "…";
+    return (
+      <Card key={p.id}>
+        <CardHeader className="pb-2">
+          <div className="flex items-start justify-between gap-2 flex-wrap">
+            <div className="min-w-0">
+              <CardTitle className="text-base flex items-center gap-2">
+                {vinculada ? (
+                  p.cliente_nome || "Cliente"
+                ) : (
+                  <span className="font-mono text-sm">{p.numero_processo || "Processo"}</span>
+                )}
+              </CardTitle>
+              <CardDescription className="flex flex-wrap items-center gap-1.5 mt-1">
+                {vinculada ? (
+                  <Badge className="bg-emerald-600 text-white hover:bg-emerald-600 gap-1">
+                    <CheckCircle2 className="h-3 w-3" />
+                    Vinculada
+                  </Badge>
+                ) : (
+                  <Badge
+                    variant="outline"
+                    className="border-amber-500 text-amber-700 dark:text-amber-400 gap-1"
+                  >
+                    <AlertCircle className="h-3 w-3" />
+                    Sem processo
+                  </Badge>
+                )}
+                {p.tipo && (
+                  <Badge variant="secondary" className="text-xs">
+                    {p.tipo}
+                  </Badge>
+                )}
+                {p.tribunal && (
+                  <Badge variant="outline" className="text-xs">
+                    {p.tribunal}
+                  </Badge>
+                )}
+                <span className="text-xs">{fmt(p.data)}</span>
+              </CardDescription>
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5">
+              {p.certidao_url && (
+                <Button size="sm" variant="outline" asChild>
+                  <a
+                    href={p.certidao_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="Certidão oficial da publicação (PDF, Comunica API/CNJ)"
+                  >
+                    <FileDown className="mr-1.5 h-4 w-4" />
+                    Certidão
+                  </a>
+                </Button>
+              )}
+              {vinculada && p.caso_id && (
+                <Button size="sm" variant="outline" asChild>
+                  <Link
+                    to="/casos/$id"
+                    params={{ id: p.caso_id }}
+                    search={{
+                      tab: "andamentos",
+                      foco: p.foco_id || undefined,
+                    }}
+                  >
+                    Ver no caso
+                  </Link>
+                </Button>
+              )}
+            </div>
+            {!vinculada && isInterno && (
+              <Button size="sm" variant="outline" onClick={() => abrirVincular(p)}>
+                <Link2 className="h-4 w-4 mr-1.5" />
+                Vincular a um caso
+              </Button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {vinculada && p.numero_processo && (
+            <p className="text-xs text-muted-foreground font-mono">
+              {p.numero_processo}
+              {p.orgao ? " · " + p.orgao : ""}
+            </p>
+          )}
+          {!vinculada && p.orgao && <p className="text-xs text-muted-foreground">{p.orgao}</p>}
+          {texto && (
+            <>
+              <p className="text-sm whitespace-pre-wrap text-muted-foreground">{exibir}</p>
+              {longo && (
+                <button
+                  type="button"
+                  className="text-xs font-medium text-[var(--gold)] hover:underline"
+                  onClick={() => setExpandido((s) => ({ ...s, [p.id]: !aberto }))}
+                >
+                  {aberto ? "ver menos" : "ver publicação completa"}
+                </button>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -274,8 +441,8 @@ function PublicacoesPage() {
         </h1>
         <p className="text-sm text-muted-foreground">
           {isInterno
-            ? `Publicações do Diário de Justiça (DJEN) dos últimos ${DIAS_JANELA} dias. As vinculadas viram andamento no caso; as sem processo cadastrado ficam aqui para triagem.`
-            : "Publicações do Diário de Justiça (DJEN) vinculadas aos processos dos seus clientes."}
+            ? 'Publicações do Diário de Justiça (DJEN). A última semana fica em destaque; as anteriores ficam agrupadas por mês em "Publicações antigas".'
+            : "Publicações do Diário de Justiça (DJEN) vinculadas aos processos dos seus clientes. A última semana em destaque; as anteriores agrupadas por mês."}
         </p>
         {isInterno && pubs.length > 0 && (
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
@@ -325,123 +492,53 @@ function PublicacoesPage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="space-y-3">
-            {filtradas.map((p) => {
-              const vinculada = p.status === "vinculada";
-              const texto = p.texto || "";
-              const longo = texto.length > PREVIEW_CHARS;
-              const aberto = expandido[p.id];
-              const exibir = !longo || aberto ? texto : texto.slice(0, PREVIEW_CHARS) + "…";
-              return (
-                <Card key={p.id}>
-                  <CardHeader className="pb-2">
-                    <div className="flex items-start justify-between gap-2 flex-wrap">
-                      <div className="min-w-0">
-                        <CardTitle className="text-base flex items-center gap-2">
-                          {vinculada ? (
-                            p.cliente_nome || "Cliente"
+          <>
+            <div className="space-y-3">
+              {recentes.length === 0 ? (
+                <p className="py-4 text-center text-sm text-muted-foreground">
+                  Nenhuma publicação na última semana.
+                </p>
+              ) : (
+                recentes.map(renderPub)
+              )}
+            </div>
+            {gruposAntigos.length > 0 && (
+              <div className="space-y-2">
+                <h2 className="pt-2 text-sm font-medium text-muted-foreground">
+                  Publicações antigas
+                </h2>
+                {gruposAntigos.map(([key, lista]) => {
+                  // Busca ativa: abre os grupos com resultado pra nada ficar
+                  // escondido atrás do accordion.
+                  const aberto = gruposAbertos.has(key) || busca.trim() !== "";
+                  return (
+                    <div key={key} className="overflow-hidden rounded-md border">
+                      <button
+                        type="button"
+                        onClick={() => toggleGrupo(key)}
+                        className="flex w-full items-center justify-between p-3 text-left transition-colors hover:bg-muted/50"
+                      >
+                        <span className="flex items-center gap-2 text-sm font-medium">
+                          {aberto ? (
+                            <ChevronDown className="h-4 w-4 shrink-0" />
                           ) : (
-                            <span className="font-mono text-sm">
-                              {p.numero_processo || "Processo"}
-                            </span>
+                            <ChevronRight className="h-4 w-4 shrink-0" />
                           )}
-                        </CardTitle>
-                        <CardDescription className="flex flex-wrap items-center gap-1.5 mt-1">
-                          {vinculada ? (
-                            <Badge className="bg-emerald-600 text-white hover:bg-emerald-600 gap-1">
-                              <CheckCircle2 className="h-3 w-3" />
-                              Vinculada
-                            </Badge>
-                          ) : (
-                            <Badge
-                              variant="outline"
-                              className="border-amber-500 text-amber-700 dark:text-amber-400 gap-1"
-                            >
-                              <AlertCircle className="h-3 w-3" />
-                              Sem processo
-                            </Badge>
-                          )}
-                          {p.tipo && (
-                            <Badge variant="secondary" className="text-xs">
-                              {p.tipo}
-                            </Badge>
-                          )}
-                          {p.tribunal && (
-                            <Badge variant="outline" className="text-xs">
-                              {p.tribunal}
-                            </Badge>
-                          )}
-                          <span className="text-xs">{fmt(p.data)}</span>
-                        </CardDescription>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1.5">
-                        {p.certidao_url && (
-                          <Button size="sm" variant="outline" asChild>
-                            <a
-                              href={p.certidao_url}
-                              target="_blank"
-                              rel="noreferrer"
-                              title="Certidão oficial da publicação (PDF, Comunica API/CNJ)"
-                            >
-                              <FileDown className="mr-1.5 h-4 w-4" />
-                              Certidão
-                            </a>
-                          </Button>
-                        )}
-                        {vinculada && p.caso_id && (
-                          <Button size="sm" variant="outline" asChild>
-                            <Link
-                              to="/casos/$id"
-                              params={{ id: p.caso_id }}
-                              search={{
-                                tab: "andamentos",
-                                foco: p.foco_id || undefined,
-                              }}
-                            >
-                              Ver no caso
-                            </Link>
-                          </Button>
-                        )}
-                      </div>
-                      {!vinculada && isInterno && (
-                        <Button size="sm" variant="outline" onClick={() => abrirVincular(p)}>
-                          <Link2 className="h-4 w-4 mr-1.5" />
-                          Vincular a um caso
-                        </Button>
+                          {labelMes(key)}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {lista.length} publicaç{lista.length === 1 ? "ão" : "ões"}
+                        </span>
+                      </button>
+                      {aberto && (
+                        <div className="space-y-3 border-t p-3">{lista.map(renderPub)}</div>
                       )}
                     </div>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    {vinculada && p.numero_processo && (
-                      <p className="text-xs text-muted-foreground font-mono">
-                        {p.numero_processo}
-                        {p.orgao ? " · " + p.orgao : ""}
-                      </p>
-                    )}
-                    {!vinculada && p.orgao && (
-                      <p className="text-xs text-muted-foreground">{p.orgao}</p>
-                    )}
-                    {texto && (
-                      <>
-                        <p className="text-sm whitespace-pre-wrap text-muted-foreground">
-                          {exibir}
-                        </p>
-                        {longo && (
-                          <button
-                            type="button"
-                            className="text-xs font-medium text-[var(--gold)] hover:underline"
-                            onClick={() => setExpandido((s) => ({ ...s, [p.id]: !aberto }))}
-                          >
-                            {aberto ? "ver menos" : "ver publicação completa"}
-                          </button>
-                        )}
-                      </>
-                    )}
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
         )}
       </ClientOnly>
 
