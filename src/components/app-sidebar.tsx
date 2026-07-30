@@ -1,7 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import {
-  Home,
   UserCircle,
   FileWarning,
   Newspaper,
@@ -31,11 +30,8 @@ import {
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/use-auth";
 
-// "/" e o site publico (landing). Interno NAO tem "Inicio": entra direto em
-// /tarefas (o /casos redireciona). O dashboard /casos segue como home do
-// PARCEIRO, que nao tem acesso a /tarefas.
-const itemInicioParceiro = { title: "Início", url: "/casos", icon: Home };
-
+// "/" e o site publico (landing). Ninguem tem "Inicio": /casos redireciona
+// interno pra /tarefas e parceiro pra /clientes (home de cada um).
 const itemsBase = [
   { title: "Clientes", url: "/clientes", icon: UserCircle },
   { title: "Documentos pendentes", url: "/documentos", icon: FileWarning },
@@ -80,7 +76,7 @@ export function AppSidebar() {
 
   const items = isInterno
     ? [...itemsInternosTopo, ...itemsBase, ...itemsInternos, ...itemsFooter]
-    : [itemInicioParceiro, ...itemsBase, ...itemsFooter];
+    : [...itemsBase, ...itemsFooter];
 
   // Badge de publicacoes novas (DJEN) desde a ultima visita. RLS escopa por
   // usuario (interno ve todas; parceiro so as dos casos dele).
