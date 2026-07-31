@@ -11,14 +11,14 @@ import { Input } from "@/components/ui/input";
 
 const SUGESTOES = [
   "Liste meus 5 casos mais recentes",
-  "Quais casos estao na fase judicial?",
-  "Mostre as solicitacoes de documento pendentes",
+  "Quais casos estão na fase judicial?",
+  "Mostre as solicitações de documento pendentes",
 ];
 
 const SUGESTOES_CASO = [
   "Resuma este caso",
   "Liste os andamentos deste caso",
-  "Quais solicitacoes de documento estao pendentes neste caso?",
+  "Quais solicitações de documento estão pendentes neste caso?",
 ];
 
 // Transforma URLs http(s) em links clicaveis. Seguro: nao usa
@@ -97,8 +97,8 @@ export function IaAssistantPanel({ ia, noCaso }: { ia: UseIaAssistant; noCaso?: 
           <div className="space-y-3 pt-6 text-center">
             <p className="text-sm text-muted-foreground">
               Pergunte sobre seus casos, clientes e andamentos. Eu consulto os dados reais e posso
-              criar ou atualizar registros (respeitando suas permissoes) - sempre pedindo sua
-              confirmacao antes de gravar. Nunca apago nada.
+              criar ou atualizar registros (respeitando suas permissões) - sempre pedindo sua
+              confirmação antes de gravar. Nunca apago nada.
             </p>
             <div className="flex flex-col gap-2">
               {sugestoes.map((s) => (
@@ -135,7 +135,7 @@ export function IaAssistantPanel({ ia, noCaso }: { ia: UseIaAssistant; noCaso?: 
             className="rounded-xl border border-[var(--gold)]/50 bg-[var(--gold-soft)]/20 p-3"
           >
             <p className="mb-1 flex items-center gap-1 text-xs font-semibold text-[var(--gold)]">
-              <AlertTriangle className="h-3.5 w-3.5" /> Confirmar acao
+              <AlertTriangle className="h-3.5 w-3.5" /> Confirmar ação
             </p>
             <p className="mb-2 break-words text-sm">{p.preview}</p>
             <div className="flex gap-2">
@@ -189,7 +189,7 @@ export function IaAssistantPanel({ ia, noCaso }: { ia: UseIaAssistant; noCaso?: 
           </Button>
         </form>
         <p className="mt-2 text-center text-[10px] text-muted-foreground">
-          Respostas geradas por IA podem conter erros. Confira dados sensiveis.
+          Respostas geradas por IA podem conter erros. Confira dados sensíveis.
         </p>
       </div>
     </div>

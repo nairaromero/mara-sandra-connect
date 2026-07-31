@@ -8,7 +8,9 @@
 //     parceiro), oab opcional.
 //   - tipo='parceiro': onboarded_em=NULL (passa por /boas-vindas).
 //
-// Body: { nome, email, tipo: 'interno'|'parceiro', oab?, telefone?, observacoes?, redirect_to? }
+// Body: { nome, email, tipo: 'interno'|'parceiro', oab?, telefone?, observacoes?, redirect_to?, reenviar_link? }
+//   reenviar_link=true: se o usuario ja existir, envia um novo magic link de
+//   acesso (signInWithOtp) em vez de so responder ja_existia.
 // Auth: JWT de usuario interno.
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
@@ -107,9 +109,24 @@ serve(async (req) => {
         .eq("email", email)
         .maybeSingle();
       if (existente?.id) {
+        let linkEnviado = false;
+        let warning: string | undefined;
+        if (body.reenviar_link === true) {
+          const otp = await admin.auth.signInWithOtp({
+            email,
+            options: { shouldCreateUser: false, emailRedirectTo: redirectTo },
+          });
+          if (otp.error) {
+            warning = "novo magic link falhou: " + otp.error.message;
+          } else {
+            linkEnviado = true;
+          }
+        }
         return jsonResponse({
           ok: true,
           ja_existia: true,
+          link_enviado: linkEnviado,
+          ...(warning ? { warning } : {}),
           id: existente.id,
           nome: existente.nome,
           email: existente.email,

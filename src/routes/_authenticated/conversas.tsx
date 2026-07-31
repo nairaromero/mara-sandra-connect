@@ -345,8 +345,7 @@ function ConversaItem(props: ConversaItemProps) {
               {truncar(ultimaMensagem.texto, 200)}
             </p>
             <p className="text-[10px] text-muted-foreground mt-1">
-              {totalMensagens} mensagem
-              {totalMensagens > 1 ? "ns" : ""} - última em{" "}
+              {totalMensagens} {totalMensagens > 1 ? "mensagens" : "mensagem"} - última em{" "}
               {formatDateTime(ultimaMensagem.created_at)}
             </p>
           </div>

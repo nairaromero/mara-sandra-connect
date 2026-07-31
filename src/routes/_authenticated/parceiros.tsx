@@ -61,6 +61,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 
 export const Route = createFileRoute("/_authenticated/parceiros")({
   component: ParceirosPage,
@@ -187,6 +188,7 @@ function ParceirosPage() {
   const [editTelefone, setEditTelefone] = useState("");
   const [editPercentual, setEditPercentual] = useState("30");
   const [editSalvando, setEditSalvando] = useState(false);
+  const [editEnviarLink, setEditEnviarLink] = useState(false);
 
   // ---- Excluir parceiro ----
   // Acao destrutiva mas com cascade que preserva historico: casos viram
@@ -254,6 +256,7 @@ function ParceirosPage() {
     setEditOab(p.oab ?? "");
     setEditTelefone(p.telefone ?? "");
     setEditPercentual(String(p.percentual_parceiro ?? 30));
+    setEditEnviarLink(false);
     setEditAberto(true);
   }
 
@@ -278,17 +281,24 @@ function ParceirosPage() {
           oab: editOab.trim(),
           telefone: editTelefone.trim(),
           percentual: Number(editPercentual) || 30,
-          enviar_link: emailMudou, // so envia magic link se email mudou
+          // envia magic link se o email mudou OU se a Naira marcou o checkbox
+          enviar_link: emailMudou || editEnviarLink,
+          redirect_to:
+            typeof window !== "undefined" ? `${window.location.origin}/login` : undefined,
         },
       });
       if (resp.error) throw resp.error;
-      const data = resp.data as { link_enviado?: boolean } | null;
-      if (emailMudou) {
-        toast.success(
-          data?.link_enviado
-            ? "Parceiro atualizado. Magic link enviado pro novo email."
-            : "Parceiro atualizado. (Magic link não foi enviado - veja logs.)",
-        );
+      const data = resp.data as { link_enviado?: boolean; warning?: string } | null;
+      if (emailMudou || editEnviarLink) {
+        if (data?.link_enviado) {
+          toast.success(
+            `Parceiro atualizado. Magic link enviado pro ${emailMudou ? "novo email" : "email do parceiro"}.`,
+          );
+        } else {
+          toast.warning(
+            `Parceiro atualizado, mas o magic link não foi enviado: ${data?.warning ?? "erro desconhecido"}`,
+          );
+        }
       } else {
         toast.success("Parceiro atualizado.");
       }
@@ -440,12 +450,21 @@ function ParceirosPage() {
           telefone: p.telefone ?? "",
           percentual_parceiro: p.percentual_parceiro,
           redirect_to: redirectTo,
+          reenviar_link: true,
         },
       });
       if (resp.error) throw resp.error;
-      const data = resp.data as { error?: string };
+      const data = resp.data as {
+        error?: string;
+        ja_existia?: boolean;
+        link_enviado?: boolean;
+        warning?: string;
+      };
       if (data?.error) throw new Error(data.error);
-      toast.success(`Convite reenviado para ${p.email}.`);
+      if (data?.ja_existia && !data?.link_enviado) {
+        throw new Error(data?.warning || "Não foi possível reenviar o link.");
+      }
+      toast.success(`Novo link de acesso enviado para ${p.email}.`);
       await loadParceiros();
     } catch (err) {
       const msg = (err as { message?: string })?.message ?? "Falha ao reenviar convite.";
@@ -1005,6 +1024,15 @@ function ParceirosPage() {
                   />
                 </div>
               </div>
+              <label className="flex items-center gap-2 pt-1 cursor-pointer">
+                <Checkbox
+                  checked={editEnviarLink}
+                  onCheckedChange={(c) => setEditEnviarLink(c === true)}
+                />
+                <span className="text-sm">
+                  Enviar novo link de acesso por e-mail ao salvar
+                </span>
+              </label>
             </div>
             <DialogFooter>
               <Button variant="ghost" onClick={() => setEditAberto(false)} disabled={editSalvando}>

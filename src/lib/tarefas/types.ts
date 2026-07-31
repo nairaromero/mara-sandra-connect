@@ -1,18 +1,15 @@
 // Tipos de tarefas (mirror do schema em planning/sql-migrations/migration_tarefas.sql).
 
 export type TarefaStatus = "a_fazer" | "fazendo" | "feito" | "cancelado";
-export type TarefaTipo =
-  | "interna"
-  | "prazo"
-  | "pericia"
-  | "pos_protocolo"
-  | "contato_cliente";
+export type TarefaTipo = "interna" | "prazo" | "pericia" | "pos_protocolo" | "contato_cliente";
 export type TarefaOrigem =
   | "manual"
   | "template"
   | "sync_inss_email"
   | "sync_djen"
-  | "sync_legalmail";
+  | "sync_legalmail"
+  | "migracao_ti"
+  | "ia";
 
 export interface TarefaRow {
   id: string;
@@ -49,6 +46,9 @@ export interface TarefaComJoins extends TarefaRow {
     id: string;
     cliente: { id: string; nome: string | null } | null;
   } | null;
+  // Processo vinculado (mutuamente exclusivos) — badge Admin/Judicial no card.
+  processo_admin?: { id: string; numero_requerimento: string | null } | null;
+  processo_judicial?: { id: string; numero_processo: string | null } | null;
 }
 
 // Item de template. Pode criar uma TAREFA (default) ou um EVENTO de agenda.
@@ -134,4 +134,6 @@ export const ORIGEM_LABEL: Record<TarefaOrigem, string> = {
   sync_inss_email: "INSS (e-mail)",
   sync_djen: "DJEN",
   sync_legalmail: "LegalMail",
+  migracao_ti: "Migração TI",
+  ia: "Sugerida pela IA",
 };

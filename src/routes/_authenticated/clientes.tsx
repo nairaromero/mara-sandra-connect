@@ -53,6 +53,7 @@ import {
 import { ImportarTiDialog } from "@/components/importar-ti-dialog";
 import { ImportarClientesExcelDialog } from "@/components/importar-clientes-excel-dialog";
 import { exportarClientesExcel } from "@/lib/clientes-excel";
+import { ordenarEtiquetas } from "@/lib/etiquetas";
 import { TarefaSheet, type TarefaSheetModo } from "@/components/tarefas/tarefa-sheet";
 
 export const Route = createFileRoute("/_authenticated/clientes")({
@@ -228,8 +229,8 @@ function ClientesPage() {
           lista.push(et);
           mapa.set(row.cliente_id, lista);
         }
-        for (const lista of mapa.values()) {
-          lista.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+        for (const [cid, lista] of mapa) {
+          mapa.set(cid, ordenarEtiquetas(lista));
         }
         setEtiquetasPorCliente(mapa);
       }
@@ -785,7 +786,7 @@ function ClientesPage() {
                                     }}
                                     className="rounded border border-border bg-muted/40 px-1.5 py-0.5 text-[11px] font-normal text-muted-foreground hover:bg-muted hover:text-foreground"
                                     title={
-                                      "Abrir caso: " + (ca.tipo_beneficio ?? "(sem beneficio)")
+                                      "Abrir caso: " + (ca.tipo_beneficio ?? "(sem benefício)")
                                     }
                                   >
                                     {ca.tipo_beneficio ?? "(sem benefício)"}

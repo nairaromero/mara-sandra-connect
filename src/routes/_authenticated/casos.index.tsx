@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
@@ -136,9 +136,21 @@ function DashboardPage() {
 
   useEffect(() => {
     if (!usuario) return;
+    if (usuario.tipo === "interno") return; // interno redireciona pra /tarefas
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [usuario?.id, usuario?.tipo]);
+
+  // Ninguem tem "Inicio": interno comeca o dia em /tarefas e parceiro em
+  // /clientes. O dashboard abaixo ficou sem uso (mesma situacao de /repasses
+  // e /conversas - decisao de produto pendente). O redirect fica DEPOIS dos
+  // hooks (regra de hooks) e no render, porque o tipo vem do useAuth.
+  if (usuario?.tipo === "interno") {
+    return <Navigate to="/tarefas" replace />;
+  }
+  if (usuario?.tipo === "parceiro") {
+    return <Navigate to="/clientes" replace />;
+  }
 
   async function loadData() {
     if (!usuario) return;

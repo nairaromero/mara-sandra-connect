@@ -1,5 +1,5 @@
 import { createFileRoute, useParams, useNavigate, Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -31,11 +31,13 @@ import {
   KeyRound,
   X,
   ListTodo,
+  ListOrdered,
   Lock,
   Unlock,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
+import { useTiposBeneficio } from "@/hooks/use-tipos-beneficio";
 import { DESTAQUE_CLASSE, useFocoItem } from "@/hooks/use-foco-item";
 import { notificarEquipe } from "@/lib/notificar";
 import { iaAnalise } from "@/lib/ia/client";
@@ -304,57 +306,57 @@ interface ProcessoJudicial {
 // Etapas da cadeia de processos (lista fixa). "" = sem classificacao.
 const ETAPAS_ADMIN = [
   "Requerimento inicial",
-  "Recurso ordinario",
-  "Prorrogacao",
-  "Pedido de revisao",
-  "Cumprimento de exigencia",
+  "Recurso ordinário",
+  "Prorrogação",
+  "Pedido de revisão",
+  "Cumprimento de exigência",
   "Outro",
 ];
 const ETAPAS_JUDICIAL = [
-  "Acao inicial",
-  "Recurso (apelacao)",
+  "Ação inicial",
+  "Recurso (apelação)",
   "Embargos",
-  "Cumprimento de sentenca",
+  "Cumprimento de sentença",
   "Outro",
 ];
 
 // Tribunais relevantes para o previdenciario: Justica Federal (TRFs) + TJs.
 const TRIBUNAIS_FEDERAIS = [
-  "TRF1 - Tribunal Regional Federal da 1a Regiao",
-  "TRF2 - Tribunal Regional Federal da 2a Regiao",
-  "TRF3 - Tribunal Regional Federal da 3a Regiao",
-  "TRF4 - Tribunal Regional Federal da 4a Regiao",
-  "TRF5 - Tribunal Regional Federal da 5a Regiao",
-  "TRF6 - Tribunal Regional Federal da 6a Regiao",
+  "TRF1 - Tribunal Regional Federal da 1ª Região",
+  "TRF2 - Tribunal Regional Federal da 2ª Região",
+  "TRF3 - Tribunal Regional Federal da 3ª Região",
+  "TRF4 - Tribunal Regional Federal da 4ª Região",
+  "TRF5 - Tribunal Regional Federal da 5ª Região",
+  "TRF6 - Tribunal Regional Federal da 6ª Região",
 ];
 const TRIBUNAIS_ESTADUAIS = [
-  "TJAC - Tribunal de Justica do Acre",
-  "TJAL - Tribunal de Justica de Alagoas",
-  "TJAP - Tribunal de Justica do Amapa",
-  "TJAM - Tribunal de Justica do Amazonas",
-  "TJBA - Tribunal de Justica da Bahia",
-  "TJCE - Tribunal de Justica do Ceara",
-  "TJDFT - Tribunal de Justica do Distrito Federal e Territorios",
-  "TJES - Tribunal de Justica do Espirito Santo",
-  "TJGO - Tribunal de Justica de Goias",
-  "TJMA - Tribunal de Justica do Maranhao",
-  "TJMT - Tribunal de Justica de Mato Grosso",
-  "TJMS - Tribunal de Justica de Mato Grosso do Sul",
-  "TJMG - Tribunal de Justica de Minas Gerais",
-  "TJPA - Tribunal de Justica do Para",
-  "TJPB - Tribunal de Justica da Paraiba",
-  "TJPR - Tribunal de Justica do Parana",
-  "TJPE - Tribunal de Justica de Pernambuco",
-  "TJPI - Tribunal de Justica do Piaui",
-  "TJRJ - Tribunal de Justica do Rio de Janeiro",
-  "TJRN - Tribunal de Justica do Rio Grande do Norte",
-  "TJRS - Tribunal de Justica do Rio Grande do Sul",
-  "TJRO - Tribunal de Justica de Rondonia",
-  "TJRR - Tribunal de Justica de Roraima",
-  "TJSC - Tribunal de Justica de Santa Catarina",
-  "TJSP - Tribunal de Justica de Sao Paulo",
-  "TJSE - Tribunal de Justica de Sergipe",
-  "TJTO - Tribunal de Justica do Tocantins",
+  "TJAC - Tribunal de Justiça do Acre",
+  "TJAL - Tribunal de Justiça de Alagoas",
+  "TJAP - Tribunal de Justiça do Amapá",
+  "TJAM - Tribunal de Justiça do Amazonas",
+  "TJBA - Tribunal de Justiça da Bahia",
+  "TJCE - Tribunal de Justiça do Ceará",
+  "TJDFT - Tribunal de Justiça do Distrito Federal e Territórios",
+  "TJES - Tribunal de Justiça do Espírito Santo",
+  "TJGO - Tribunal de Justiça de Goiás",
+  "TJMA - Tribunal de Justiça do Maranhão",
+  "TJMT - Tribunal de Justiça de Mato Grosso",
+  "TJMS - Tribunal de Justiça de Mato Grosso do Sul",
+  "TJMG - Tribunal de Justiça de Minas Gerais",
+  "TJPA - Tribunal de Justiça do Pará",
+  "TJPB - Tribunal de Justiça da Paraíba",
+  "TJPR - Tribunal de Justiça do Paraná",
+  "TJPE - Tribunal de Justiça de Pernambuco",
+  "TJPI - Tribunal de Justiça do Piauí",
+  "TJRJ - Tribunal de Justiça do Rio de Janeiro",
+  "TJRN - Tribunal de Justiça do Rio Grande do Norte",
+  "TJRS - Tribunal de Justiça do Rio Grande do Sul",
+  "TJRO - Tribunal de Justiça de Rondônia",
+  "TJRR - Tribunal de Justiça de Roraima",
+  "TJSC - Tribunal de Justiça de Santa Catarina",
+  "TJSP - Tribunal de Justiça de São Paulo",
+  "TJSE - Tribunal de Justiça de Sergipe",
+  "TJTO - Tribunal de Justiça do Tocantins",
 ];
 const TRIBUNAIS = [...TRIBUNAIS_FEDERAIS, ...TRIBUNAIS_ESTADUAIS];
 
@@ -375,24 +377,8 @@ interface ProcNode {
 // Constantes (alinhadas aos enums reais)
 // ===========================================================================
 
-const TIPOS_BENEFICIO = [
-  "Aposentadoria por idade",
-  "Aposentadoria por tempo de contribuicao",
-  "Aposentadoria especial",
-  "Aposentadoria da PCD (LC 142/2013)",
-  "Aposentadoria por incapacidade permanente",
-  "Auxilio por incapacidade temporaria",
-  "Auxilio-acidente",
-  "Pensao por morte",
-  "Salario-maternidade",
-  "BPC/LOAS",
-  "Revisao da vida toda",
-  "Revisao de aposentadoria",
-  "Outro",
-];
-
 const FASES_CASO = [
-  { value: "analise", label: "Em analise" },
+  { value: "analise", label: "Em análise" },
   { value: "admin", label: "Administrativo" },
   { value: "judicial", label: "Judicial" },
   { value: "finalizado", label: "Finalizado" },
@@ -400,11 +386,11 @@ const FASES_CASO = [
 
 const STATUS_CASO = [
   { value: "aguardando_documentos", label: "Aguardando documentos" },
-  { value: "em_analise", label: "Em analise" },
-  { value: "em_revisao", label: "Em revisao" },
+  { value: "em_analise", label: "Em análise" },
+  { value: "em_revisao", label: "Em revisão" },
   { value: "em_andamento", label: "Em andamento" },
-  { value: "concluido_exito", label: "Concluido com exito" },
-  { value: "concluido_sem_exito", label: "Concluido sem exito" },
+  { value: "concluido_exito", label: "Concluído com êxito" },
+  { value: "concluido_sem_exito", label: "Concluído sem êxito" },
   { value: "arquivado", label: "Arquivado" },
 ];
 
@@ -413,8 +399,27 @@ const ORIGEM_LABEL: Record<string, string> = {
   tramitacao: "Tramitação Inteligente",
   legalmail: "Legalmail",
   djen: "Diário (DJEN)",
+  datajud: "Movimentação (DataJud)",
+  inss_email: "E-mail INSS",
   sistema: "Sistema",
 };
+
+// Traduz o "grau" que o DataJud carimba no fim do título do movimento
+// (ex.: "Outras Decisões (JE)") pra algo legível pra quem não é da área.
+const GRAU_LABEL: Record<string, string> = {
+  JE: "Juizado Especial",
+  G1: "1º grau",
+  G2: "2º grau",
+  TR: "Turma Recursal",
+  TRU: "Turma Recursal",
+  SUP: "Instância superior",
+};
+function rotuloTituloAndamento(titulo: string | null): string {
+  if (!titulo) return "";
+  return titulo.replace(/\s*\(([A-Z]{2,3})\)\s*$/, (m, g) =>
+    GRAU_LABEL[g] ? ` · ${GRAU_LABEL[g]}` : m,
+  );
+}
 
 const TIPOS_DOCUMENTO_LABEL: Record<string, string> = {
   cnis: "CNIS",
@@ -515,6 +520,16 @@ const GRUPO_LABELS: Record<number, string> = {
 function displayNomeArquivo(nome: string | null | undefined): string {
   if (!nome) return "";
   return nome.replace(/^\d+\s*[-_.]\s*/, "").trim();
+}
+
+// Extrai o prefixo numerico do nome do arquivo (ex.: "03 - Procuracao.pdf"
+// -> 3). Retorna null se o arquivo nao tem prefixo. Arquivos numerados vem
+// de pastas do Drive organizadas manualmente pelo escritorio, entao a
+// numeracao e a ordem de exibicao desejada.
+function prefixoNumerico(nome: string | null | undefined): number | null {
+  if (!nome) return null;
+  const m = nome.match(/^(\d+)\s*[-_.]\s*/);
+  return m ? parseInt(m[1], 10) : null;
 }
 
 // Feature de Repasses PAUSADA na UI (tabela/componente/logica mantidos no
@@ -1115,7 +1130,7 @@ function CasoHeader(props: CasoHeaderProps) {
             ".";
         }
         if (notasJa > 0) {
-          msg += " " + notasJa + " ja existia" + (notasJa === 1 ? "" : "m") + " (dedup).";
+          msg += " " + notasJa + " já existia" + (notasJa === 1 ? "" : "m") + " (dedup).";
         }
         toast.success(msg);
         onChange();
@@ -1285,6 +1300,7 @@ interface TabVisaoGeralProps {
 }
 
 function TabVisaoGeral(props: TabVisaoGeralProps) {
+  const tiposBeneficio = useTiposBeneficio();
   const { caso, cliente, parceiro, parceirosDisponiveis, isInterno, onChange } = props;
   const navigate = useNavigate();
 
@@ -1409,6 +1425,10 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
             );
           } else {
             toast.success(clTemSenha ? "Senha MEU INSS substituída" : "Senha MEU INSS cadastrada");
+            // Invalida o cache do olhinho: proxima leitura busca a nova.
+            setSenhaCarregada(false);
+            setSenhaValor(null);
+            setSenhaVisivel(false);
           }
         }
       }
@@ -1463,12 +1483,16 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
     }
   }
 
-  // ---- Dialog: Ver senha MEU INSS (interno) ----
-  // Chama RPC get_senha_meu_inss que decripta + registra audit.
-  const [abrirSenha, setAbrirSenha] = useState(false);
+  // ---- Senha MEU INSS inline (olhinho) ----
+  // Interno e parceiro vinculado leem via RPC get_senha_meu_inss (decripta
+  // + registra audit). Cache em memoria pra nao re-logar audit a cada toggle
+  // do olhinho na mesma visita.
   const [carregandoSenha, setCarregandoSenha] = useState(false);
   const [senhaValor, setSenhaValor] = useState<string | null>(null);
-  const [erroSenha, setErroSenha] = useState<string | null>(null);
+  const [senhaCarregada, setSenhaCarregada] = useState(false);
+  const [senhaVisivel, setSenhaVisivel] = useState(false);
+  // Parceiro: CPF mascarado por padrao, olhinho revela (sem copiar).
+  const [cpfVisivelParc, setCpfVisivelParc] = useState(false);
 
   // ---- Dialog: Alterar senha MEU INSS (parceiro, write-only) ----
   // Parceiro escreve mas nao le. Mesmo fluxo do interno usaria, mas
@@ -1507,6 +1531,10 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
       toast.success(senhaParcTemSenha ? "Senha MEU INSS substituída" : "Senha MEU INSS cadastrada");
       setAbrirSenhaParc(false);
       setSenhaParcValor("");
+      // Invalida o cache do olhinho: proxima leitura busca a nova.
+      setSenhaCarregada(false);
+      setSenhaValor(null);
+      setSenhaVisivel(false);
     } catch (err) {
       console.error(err);
       const errObj = err as { message?: string };
@@ -1516,38 +1544,59 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
     }
   }
 
-  async function abrirVerSenha() {
-    setAbrirSenha(true);
+  // Busca a senha via RPC (com audit) e guarda em cache. Retorna ok=false
+  // em erro (ja mostra toast); valor=null quando nao ha senha cadastrada.
+  async function carregarSenha(): Promise<{ ok: boolean; valor: string | null }> {
+    if (senhaCarregada) return { ok: true, valor: senhaValor };
     setCarregandoSenha(true);
-    setSenhaValor(null);
-    setErroSenha(null);
     try {
       const resp = await supabase.rpc("get_senha_meu_inss", {
         p_cliente_id: cliente.id,
       });
       if (resp.error) throw resp.error;
-      const data = resp.data as string | null;
+      const data = (resp.data as string | null) ?? null;
       setSenhaValor(data);
+      setSenhaCarregada(true);
+      return { ok: true, valor: data };
     } catch (err) {
       console.error(err);
       const errObj = err as { message?: string };
-      setErroSenha(errObj.message || "Erro ao decifrar senha");
+      toast.error(errObj.message || "Erro ao decifrar senha");
+      return { ok: false, valor: null };
     } finally {
       setCarregandoSenha(false);
     }
   }
 
-  function fecharSenha() {
-    setAbrirSenha(false);
-    setSenhaValor(null);
-    setErroSenha(null);
+  async function toggleVerSenha() {
+    if (senhaVisivel) {
+      setSenhaVisivel(false);
+      return;
+    }
+    const r = await carregarSenha();
+    if (r.ok) setSenhaVisivel(true);
   }
 
   async function copiarSenha() {
-    if (!senhaValor) return;
+    const r = await carregarSenha();
+    if (!r.ok) return;
+    if (r.valor === null) {
+      toast.error("Este cliente não tem senha do MEU INSS cadastrada");
+      return;
+    }
     try {
-      await navigator.clipboard.writeText(senhaValor);
+      await navigator.clipboard.writeText(r.valor);
       toast.success("Senha copiada");
+    } catch (err) {
+      console.error(err);
+      toast.error("Não foi possível copiar (clipboard bloqueado)");
+    }
+  }
+
+  async function copiarCpf() {
+    try {
+      await navigator.clipboard.writeText(cliente.cpf.replace(/\D/g, ""));
+      toast.success("CPF copiado");
     } catch (err) {
       console.error(err);
       toast.error("Não foi possível copiar (clipboard bloqueado)");
@@ -1625,46 +1674,140 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
             <Linha label="Nome" valor={cliente.nome} />
-            <Linha
-              label="CPF"
-              valor={isInterno ? maskCPF(cliente.cpf) : maskCPFParceiro(cliente.cpf)}
-            />
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground min-w-[7rem]">CPF:</span>
+              {isInterno ? (
+                <>
+                  <span className="text-sm">{maskCPF(cliente.cpf)}</span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 w-6 p-0"
+                    onClick={copiarCpf}
+                    title="Copiar CPF"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </Button>
+                </>
+              ) : (
+                <>
+                  {/* select-none + copy bloqueado: parceiro ve, nao copia */}
+                  <span
+                    className="text-sm select-none"
+                    onCopy={(e) => e.preventDefault()}
+                    onContextMenu={(e) => e.preventDefault()}
+                  >
+                    {cpfVisivelParc ? maskCPF(cliente.cpf) : maskCPFParceiro(cliente.cpf)}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 w-6 p-0"
+                    onClick={() => setCpfVisivelParc((v) => !v)}
+                    title={cpfVisivelParc ? "Ocultar CPF" : "Ver CPF completo"}
+                  >
+                    {cpfVisivelParc ? (
+                      <EyeOff className="h-3.5 w-3.5" />
+                    ) : (
+                      <Eye className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                </>
+              )}
+            </div>
             <Linha label="Nascimento" valor={formatDate(cliente.data_nascimento)} />
             {isInterno && <Linha label="Telefone" valor={cliente.telefone || "-"} />}
             {isInterno && <Linha label="E-mail" valor={cliente.email || "-"} />}
             {isInterno && (
-              // Botao Ver senha MEU INSS. O clique dispara RPC com audit.
-              <div className="pt-2 border-t flex items-center justify-between">
-                <span className="text-xs text-muted-foreground flex items-center gap-1">
+              // Senha MEU INSS inline: olhinho revela (RPC com audit) e o
+              // copiar fica ao lado pra praticidade.
+              <div className="pt-2 border-t flex items-center justify-between gap-2">
+                <span className="text-xs text-muted-foreground flex items-center gap-1 shrink-0">
                   <KeyRound className="h-3.5 w-3.5" />
                   Senha MEU INSS
                 </span>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={abrirVerSenha}
-                  disabled={carregandoSenha}
-                >
-                  {carregandoSenha ? (
-                    <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-                  ) : (
-                    <Eye className="h-3.5 w-3.5 mr-1" />
-                  )}
-                  Ver senha
-                </Button>
+                <div className="flex items-center gap-1 min-w-0">
+                  {senhaVisivel &&
+                    (senhaValor !== null ? (
+                      <span className="text-sm font-mono truncate">{senhaValor}</span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground italic">
+                        não cadastrada
+                      </span>
+                    ))}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 w-7 p-0"
+                    onClick={toggleVerSenha}
+                    disabled={carregandoSenha}
+                    title={senhaVisivel ? "Ocultar senha" : "Ver senha"}
+                  >
+                    {carregandoSenha ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : senhaVisivel ? (
+                      <EyeOff className="h-3.5 w-3.5" />
+                    ) : (
+                      <Eye className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 w-7 p-0"
+                    onClick={copiarSenha}
+                    disabled={carregandoSenha}
+                    title="Copiar senha"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
               </div>
             )}
             {!isInterno && (
-              // Parceiro: write-only. Nao tem botao "Ver", so "Alterar".
-              <div className="pt-2 border-t flex items-center justify-between">
-                <span className="text-xs text-muted-foreground flex items-center gap-1">
+              // Parceiro: olhinho revela a senha (RPC com audit; sem copiar
+              // nem selecionar). Alterar continua write-only via dialog.
+              <div className="pt-2 border-t flex items-center justify-between gap-2">
+                <span className="text-xs text-muted-foreground flex items-center gap-1 shrink-0">
                   <KeyRound className="h-3.5 w-3.5" />
                   Senha MEU INSS
                 </span>
-                <Button size="sm" variant="outline" onClick={abrirAlterarSenhaParceiro}>
-                  <Pencil className="h-3.5 w-3.5 mr-1" />
-                  Alterar
-                </Button>
+                <div className="flex items-center gap-1 min-w-0">
+                  {senhaVisivel &&
+                    (senhaValor !== null ? (
+                      <span
+                        className="text-sm font-mono truncate select-none"
+                        onCopy={(e) => e.preventDefault()}
+                        onContextMenu={(e) => e.preventDefault()}
+                      >
+                        {senhaValor}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground italic">
+                        não cadastrada
+                      </span>
+                    ))}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 w-7 p-0"
+                    onClick={toggleVerSenha}
+                    disabled={carregandoSenha}
+                    title={senhaVisivel ? "Ocultar senha" : "Ver senha"}
+                  >
+                    {carregandoSenha ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : senhaVisivel ? (
+                      <EyeOff className="h-3.5 w-3.5" />
+                    ) : (
+                      <Eye className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={abrirAlterarSenhaParceiro}>
+                    <Pencil className="h-3.5 w-3.5 mr-1" />
+                    Alterar
+                  </Button>
+                </div>
               </div>
             )}
             {cliente.observacoes && (
@@ -1745,7 +1888,14 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {TIPOS_BENEFICIO.map((t) => (
+                          {/* Valor atual fora da lista (ex.: desativado em
+                              Configuracoes ou "a_definir"): mantem visivel. */}
+                          {csTipoBeneficio && !tiposBeneficio.includes(csTipoBeneficio) && (
+                            <SelectItem value={csTipoBeneficio}>
+                              {csTipoBeneficio} (atual)
+                            </SelectItem>
+                          )}
+                          {tiposBeneficio.map((t) => (
                             <SelectItem key={t} value={t}>
                               {t}
                             </SelectItem>
@@ -1933,68 +2083,6 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
               </AlertDialogContent>
             </AlertDialog>
           )}
-          {isInterno && (
-            // Dialog para exibir a senha MEU INSS decifrada.
-            // O backend ja registrou audit antes de retornar a senha.
-            <Dialog
-              open={abrirSenha}
-              onOpenChange={(o) => {
-                if (!o) fecharSenha();
-              }}
-            >
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle className="flex items-center gap-2">
-                    <KeyRound className="h-4 w-4" />
-                    Senha MEU INSS
-                  </DialogTitle>
-                  <DialogDescription className="text-xs text-warning bg-warning/10 border border-warning/30 rounded p-2 mt-1">
-                    Acesso registrado em auditoria. A senha é confidencial - use apenas no portal
-                    MEU INSS do cliente.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-3">
-                  {carregandoSenha && (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Decifrando senha...
-                    </div>
-                  )}
-                  {!carregandoSenha && erroSenha && (
-                    <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-                      {erroSenha}
-                    </div>
-                  )}
-                  {!carregandoSenha && !erroSenha && senhaValor === null && (
-                    <p className="text-sm text-muted-foreground">
-                      Este cliente não tem senha do MEU INSS cadastrada.
-                    </p>
-                  )}
-                  {!carregandoSenha && !erroSenha && senhaValor !== null && (
-                    <div className="space-y-2">
-                      <Label className="text-xs">Senha</Label>
-                      <div className="flex items-center gap-2">
-                        <Input value={senhaValor} readOnly className="font-mono" />
-                        <Button
-                          onClick={copiarSenha}
-                          size="sm"
-                          variant="outline"
-                          title="Copiar senha"
-                        >
-                          <Copy className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={fecharSenha}>
-                    Fechar
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-          )}
           {!isInterno && (
             // Dialog write-only do parceiro. So input + Salvar.
             <Dialog
@@ -2067,13 +2155,16 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
             </DialogHeader>
             <div className="space-y-3">
               <div>
-                <Label className="text-xs">Tipo de beneficio</Label>
+                <Label className="text-xs">Tipo de benefício</Label>
                 <Select value={csTipoBeneficio} onValueChange={setCsTipoBeneficio}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {TIPOS_BENEFICIO.map((t) => (
+                    {csTipoBeneficio && !tiposBeneficio.includes(csTipoBeneficio) && (
+                      <SelectItem value={csTipoBeneficio}>{csTipoBeneficio} (atual)</SelectItem>
+                    )}
+                    {tiposBeneficio.map((t) => (
                       <SelectItem key={t} value={t}>
                         {t}
                       </SelectItem>
@@ -2174,6 +2265,44 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
   );
 }
 
+// Descricao de andamento com clamp de 3 linhas + "Ler mais". Em vez de
+// heuristica por tamanho do texto (falhava com quebras de linha + wrap),
+// mede se o paragrafo esta de fato cortado (scrollHeight > clientHeight).
+function DescricaoAndamento(props: { texto: string; aberto: boolean; onToggle: () => void }) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  const [cortada, setCortada] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || props.aberto) return;
+    setCortada(el.scrollHeight > el.clientHeight + 1);
+  }, [props.texto, props.aberto]);
+  return (
+    <div className="mt-1">
+      <p
+        ref={ref}
+        className={
+          "text-sm whitespace-pre-wrap text-muted-foreground " +
+          (props.aberto ? "" : "line-clamp-3")
+        }
+      >
+        {props.texto}
+      </p>
+      {(cortada || props.aberto) && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            props.onToggle();
+          }}
+          className="mt-1 text-xs underline text-muted-foreground hover:text-foreground"
+        >
+          {props.aberto ? "Fechar" : "Ler mais"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function Linha(props: { label: string; valor: string }) {
   return (
     <div className="flex items-baseline gap-2">
@@ -2261,6 +2390,40 @@ function TabAndamentos(props: TabAndamentosProps) {
   // Qual andamento está aberto (expansão inline com texto completo).
   // Apenas UM andamento por vez. Click fora fecha automaticamente.
   const [andamentoAbertoId, setAndamentoAbertoId] = useState<string | null>(null);
+
+  // Movimentações de rotina (classificadas pela IA como 'rotina' — publicação,
+  // disponibilização, decurso de prazo etc.) poluem a timeline. Escondidas por
+  // padrão; toggle mostra tudo. Só afeta andamentos que a IA marcou 'rotina'.
+  const [ocultarRotina, setOcultarRotina] = useState(true);
+  const ehRotina = (a: Andamento) =>
+    (a.metadata as { ia_relevancia?: string } | null)?.ia_relevancia === "rotina";
+
+  // Busca o teor completo das publicações do caso no DJEN (por nº de processo).
+  const [buscandoTeor, setBuscandoTeor] = useState(false);
+  async function buscarTeorPublicacoes() {
+    setBuscandoTeor(true);
+    toast.info("Buscando publicações no Diário (DJEN)…");
+    try {
+      const { data, error } = await supabase.functions.invoke("sync-djen-caso", {
+        body: { caso_id: casoId, usuario_id: usuarioId },
+        headers: { "x-region": "sa-east-1" },
+      });
+      if (error) throw error;
+      const r = (data || {}) as { andamentos_criados?: number; erros?: unknown[] };
+      const novos = r.andamentos_criados ?? 0;
+      if (novos > 0) {
+        toast.success(`${novos} publicação${novos === 1 ? "" : "ões"} com teor importada${novos === 1 ? "" : "s"}.`);
+        onChange?.();
+      } else {
+        toast.info("Nenhuma publicação nova no DJEN pra este processo.");
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error("Falha ao buscar publicações no DJEN.");
+    } finally {
+      setBuscandoTeor(false);
+    }
+  }
   useEffect(() => {
     if (!andamentoAbertoId) return;
     function onDocMouseDown(ev: MouseEvent) {
@@ -2272,13 +2435,6 @@ function TabAndamentos(props: TabAndamentosProps) {
     document.addEventListener("mousedown", onDocMouseDown);
     return () => document.removeEventListener("mousedown", onDocMouseDown);
   }, [andamentoAbertoId]);
-
-  // Heurística: descrição "longa" o suficiente pra valer o botão "Ler mais".
-  function descricaoEhLonga(s: string | null): boolean {
-    if (!s) return false;
-    if (s.length > 180) return true;
-    return (s.match(/\n/g) ?? []).length >= 3;
-  }
 
   // Ao chegar via notificacao (?foco=<andamento>), expande o accordion que
   // contem o andamento pra ele ficar visivel (e o destaque rola ate ele).
@@ -2522,7 +2678,13 @@ function TabAndamentos(props: TabAndamentosProps) {
     }
   }
 
-  const lista = isInterno ? andamentos : andamentos.filter((a) => a.visivel_parceiro === true);
+  const listaVisivel = isInterno
+    ? andamentos
+    : andamentos.filter((a) => a.visivel_parceiro === true);
+  // Quantas de rotina existem (pra rotular o toggle) e a lista efetiva.
+  const totalRotina = listaVisivel.filter(ehRotina).length;
+  const lista =
+    ocultarRotina && totalRotina > 0 ? listaVisivel.filter((a) => !ehRotina(a)) : listaVisivel;
 
   async function adicionar() {
     if (!titulo.trim() || !usuarioId) return;
@@ -2643,6 +2805,20 @@ function TabAndamentos(props: TabAndamentosProps) {
             <Badge variant="outline" className="text-xs">
               {ORIGEM_LABEL[a.origem] || a.origem}
             </Badge>
+            {(() => {
+              const rel = (a.metadata as { ia_relevancia?: string } | null)?.ia_relevancia;
+              if (rel === "urgente") {
+                return (
+                  <Badge className="text-xs bg-destructive text-destructive-foreground hover:bg-destructive">
+                    Urgente
+                  </Badge>
+                );
+              }
+              if (rel === "atencao") {
+                return <Badge className="text-xs bg-amber-500 text-white hover:bg-amber-500">Atenção</Badge>;
+              }
+              return null;
+            })()}
             <span className="text-xs text-muted-foreground">
               {formatDateTime(a.data_evento || a.created_at)}
             </span>
@@ -2694,31 +2870,31 @@ function TabAndamentos(props: TabAndamentosProps) {
             </div>
           )}
         </div>
-        {a.titulo && <p className="text-sm font-medium mt-1">{a.titulo}</p>}
-        {a.descricao && (
-          <div className="mt-1">
-            <p
-              className={
-                "text-sm whitespace-pre-wrap text-muted-foreground " +
-                (andamentoAbertoId === a.id ? "" : "line-clamp-3")
-              }
-            >
-              {a.descricao}
-            </p>
-            {(descricaoEhLonga(a.descricao) || andamentoAbertoId === a.id) && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setAndamentoAbertoId(andamentoAbertoId === a.id ? null : a.id);
-                }}
-                className="mt-1 text-xs underline text-muted-foreground hover:text-foreground"
-              >
-                {andamentoAbertoId === a.id ? "Fechar" : "Ler mais"}
-              </button>
-            )}
-          </div>
+        {a.titulo && (
+          <p className="text-sm font-medium mt-1">
+            {a.origem === "datajud" ? rotuloTituloAndamento(a.titulo) : a.titulo}
+          </p>
         )}
+        {a.descricao && (
+          <DescricaoAndamento
+            texto={a.descricao}
+            aberto={andamentoAbertoId === a.id}
+            onToggle={() =>
+              setAndamentoAbertoId(andamentoAbertoId === a.id ? null : a.id)
+            }
+          />
+        )}
+        {/* Resumo da IA: explica em linguagem simples o que a movimentação
+            significa (movimentos do DataJud vêm só com o título técnico). */}
+        {(() => {
+          const meta = a.metadata as { ia_resumo?: string } | null;
+          return meta?.ia_resumo ? (
+            <p className="mt-1 flex items-start gap-1.5 text-xs">
+              <Sparkles className="mt-0.5 h-3 w-3 shrink-0 text-[var(--gold)]" />
+              <span className="italic text-foreground/80">{meta.ia_resumo}</span>
+            </p>
+          ) : null;
+        })()}
       </div>
     );
   }
@@ -2918,6 +3094,53 @@ function TabAndamentos(props: TabAndamentosProps) {
           >
             Limpar seleção
           </Button>
+        </div>
+      )}
+
+      {/* Barra: buscar teor das publicações (interno) + toggle de rotina. */}
+      {(isInterno || totalRotina > 0) && (
+        <div className="flex items-center justify-between gap-2">
+          {isInterno ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={buscarTeorPublicacoes}
+              disabled={buscandoTeor}
+              title="Puxa o texto integral das publicações deste processo no Diário (DJEN)"
+            >
+              {buscandoTeor ? (
+                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+              ) : (
+                <FileDown className="h-3.5 w-3.5 mr-1.5" />
+              )}
+              Buscar publicações
+            </Button>
+          ) : (
+            <span />
+          )}
+          {totalRotina > 0 ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs text-muted-foreground"
+              onClick={() => setOcultarRotina((v) => !v)}
+            >
+            {ocultarRotina ? (
+              <>
+                <Eye className="h-3.5 w-3.5 mr-1.5" />
+                Mostrar {totalRotina} movimentaç{totalRotina === 1 ? "ão" : "ões"} de rotina
+              </>
+            ) : (
+              <>
+                <EyeOff className="h-3.5 w-3.5 mr-1.5" />
+                Ocultar {totalRotina} de rotina
+              </>
+            )}
+            </Button>
+          ) : (
+            <span />
+          )}
         </div>
       )}
 
@@ -3429,6 +3652,8 @@ function TabDocumentos(props: TabDocumentosProps) {
   const [carregandoPreview, setCarregandoPreview] = useState(false);
   // Multi-select de documentos para deletar em batch (so interno usa)
   const [docsSelecionados, setDocsSelecionados] = useState<Set<string>>(new Set());
+  // Progresso da numeracao em lote (null = nao esta numerando)
+  const [numerando, setNumerando] = useState<{ feito: number; total: number } | null>(null);
   // Accordions dos grupos 6, 7, 8 (Laudos medicos, Laudos INSS, Holerites).
   // Por padrao recolhidos para nao poluir a tela quando ha muitos arquivos.
   const [gruposExpandidos, setGruposExpandidos] = useState<Set<number>>(new Set());
@@ -3861,13 +4086,25 @@ function TabDocumentos(props: TabDocumentosProps) {
     ? documentos
     : documentos.filter((d) => d.visivel_parceiro === true);
 
-  // Ordena por grupo (categoria). Dentro do mesmo grupo:
-  //   - Grupos 1-8 (categorias estruturadas): alfabetico pelo nome de
-  //     arquivo sem prefixo numerico - fica previsivel.
-  //   - Grupo 9 (Outros): por created_at crescente - preserva a ordem
-  //     em que foram uploadados, util porque sao documentos diversos
-  //     onde a ordem manual faz sentido.
+  // Ordenacao:
+  //   - Arquivos com prefixo numerico ("01 - RG.pdf") vem primeiro, na
+  //     ordem do numero - espelha exatamente a pasta do Drive, que o
+  //     escritorio ja organiza manualmente.
+  //   - Depois os sem prefixo, ordenados por grupo (categoria). Dentro do
+  //     mesmo grupo:
+  //       - Grupos 1-8 (categorias estruturadas): alfabetico pelo nome.
+  //       - Grupo 9 (Outros): por created_at crescente - preserva a ordem
+  //         em que foram uploadados.
   const lista = listaFiltrada.slice().sort((a, b) => {
+    const pa = prefixoNumerico(a.nome_arquivo);
+    const pb = prefixoNumerico(b.nome_arquivo);
+    if (pa !== null && pb !== null) {
+      if (pa !== pb) return pa - pb;
+      // Mesmo numero (ex.: "17 - X.docx" e "17 - X.pdf"): alfabetico
+      return a.nome_arquivo.localeCompare(b.nome_arquivo);
+    }
+    if (pa !== null) return -1;
+    if (pb !== null) return 1;
     const ga = getDocGroup(a.tipo);
     const gb = getDocGroup(b.tipo);
     if (ga !== gb) return ga - gb;
@@ -3951,6 +4188,17 @@ function TabDocumentos(props: TabDocumentosProps) {
   }
 
   async function abrirPreview(d: Documento) {
+    // So PDF e imagem renderizam no browser. Qualquer outro formato (docx,
+    // zip, etc.) dentro do iframe vira download forcado pelo Chrome - o que
+    // furaria o bloqueio de download do parceiro. Avisa e nao abre.
+    if (!ehImagemDoc(d.nome_arquivo) && !ehPdfDoc(d.nome_arquivo)) {
+      toast.error(
+        "Visualização disponível apenas para PDF e imagens. Este arquivo (" +
+          (d.nome_arquivo.split(".").pop() || "?").toUpperCase() +
+          ") precisa ser baixado para abrir.",
+      );
+      return;
+    }
     setCarregandoPreview(true);
     try {
       const resp = await supabase.storage.from("documentos").createSignedUrl(d.storage_path, 300); // 5 min de TTL
@@ -4004,6 +4252,13 @@ function TabDocumentos(props: TabDocumentosProps) {
   function ehImagemDoc(nome: string | null | undefined): boolean {
     if (!nome) return false;
     return /\.(jpe?g|png|gif|webp|bmp)$/i.test(nome);
+  }
+
+  // Detecta PDF - unico formato alem de imagem que o browser renderiza
+  // inline no iframe (viewer interno do Chrome).
+  function ehPdfDoc(nome: string | null | undefined): boolean {
+    if (!nome) return false;
+    return /\.pdf$/i.test(nome);
   }
 
   async function baixarSelecionados() {
@@ -4250,6 +4505,86 @@ function TabDocumentos(props: TabDocumentosProps) {
     }
   }
 
+  // ---- Numerar documentos sem prefixo (interno only) ----
+  // Renomeia em lote os documentos da raiz que nao tem prefixo numerico,
+  // atribuindo "NN - " na mesma ordem de categoria da lista. Continua a
+  // contagem a partir do maior numero ja existente no caso, e propaga o
+  // rename pro Drive quando o arquivo esta espelhado la. Docs em subpastas
+  // do Drive ficam de fora - a organizacao deles e a da subpasta.
+  async function numerarDocumentos() {
+    const semNumero = documentos
+      .filter((d) => !d.pasta_relativa && prefixoNumerico(d.nome_arquivo) === null)
+      .sort((a, b) => {
+        const ga = getDocGroup(a.tipo);
+        const gb = getDocGroup(b.tipo);
+        if (ga !== gb) return ga - gb;
+        if (ga === 9) return a.created_at.localeCompare(b.created_at);
+        return a.nome_arquivo.localeCompare(b.nome_arquivo);
+      });
+    if (semNumero.length === 0) {
+      toast.info("Todos os documentos já estão numerados.");
+      return;
+    }
+    let proximo = 1;
+    for (const d of documentos) {
+      const p = prefixoNumerico(d.nome_arquivo);
+      if (p !== null && p >= proximo) proximo = p + 1;
+    }
+    const ok = window.confirm(
+      "Numerar " +
+        semNumero.length +
+        " documento(s) sem número, começando do " +
+        String(proximo).padStart(2, "0") +
+        ", seguindo a ordem das categorias?\n\nOs arquivos serão renomeados no app e na pasta do Drive.",
+    );
+    if (!ok) return;
+    setNumerando({ feito: 0, total: semNumero.length });
+    // Token do Drive obtido uma vez so pro lote inteiro
+    let token: string | null = null;
+    if (semNumero.some((d) => d.gdrive_file_id)) {
+      try {
+        token = await obterAccessToken();
+      } catch {
+        toast.warning(
+          "Sem acesso ao Drive agora — renomeando só no app. Renames pendentes lá.",
+        );
+      }
+    }
+    let okCount = 0;
+    let falhaDrive = 0;
+    for (const d of semNumero) {
+      const novoNome = String(proximo).padStart(2, "0") + " - " + d.nome_arquivo;
+      try {
+        const { error } = await supabase
+          .from("documentos")
+          .update({ nome_arquivo: novoNome })
+          .eq("id", d.id);
+        if (error) throw error;
+        proximo++;
+        okCount++;
+        if (d.gdrive_file_id && token) {
+          try {
+            await renomearArquivoDrive(d.gdrive_file_id, novoNome, token);
+          } catch (errDrive) {
+            console.warn("[drive] falha ao renomear", novoNome, errDrive);
+            falhaDrive++;
+          }
+        }
+      } catch (err) {
+        console.error("erro ao numerar", d.nome_arquivo, err);
+      }
+      setNumerando((prev) => (prev ? { ...prev, feito: prev.feito + 1 } : prev));
+    }
+    setNumerando(null);
+    if (okCount > 0) toast.success(okCount + " documento(s) numerado(s).");
+    if (falhaDrive > 0) {
+      toast.warning(
+        falhaDrive + " rename(s) não propagaram pro Drive — renomeie manual lá ou tente de novo.",
+      );
+    }
+    onChange();
+  }
+
   async function atualizarStatusSolic(
     s: SolicitacaoDocumento,
     novoStatus: string,
@@ -4271,6 +4606,8 @@ function TabDocumentos(props: TabDocumentosProps) {
       }
       const resp = await supabase.from("solicitacoes_documento").update(update).eq("id", s.id);
       if (resp.error) throw resp.error;
+      // Atualiza o badge de pendentes na sidebar sem esperar o poll.
+      window.dispatchEvent(new Event("msc:solicitacoes-mudou"));
       toast.success("Solicitação atualizada");
       onChange();
     } catch (err) {
@@ -4406,6 +4743,8 @@ function TabDocumentos(props: TabDocumentosProps) {
         .update(update)
         .eq("id", acaoAlvo.solic.id);
       if (resp.error) throw resp.error;
+      // Atualiza o badge de pendentes na sidebar sem esperar o poll.
+      window.dispatchEvent(new Event("msc:solicitacoes-mudou"));
       // Se quem cumpriu foi o PARCEIRO, avisa o sino da equipe (interno).
       if (usuario?.tipo === "parceiro") {
         notificarEquipe({
@@ -4495,6 +4834,35 @@ function TabDocumentos(props: TabDocumentosProps) {
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}
+              {/* Numerar documentos sem prefixo (ordem de categoria) */}
+              {isInterno &&
+                (() => {
+                  const semNumeroCount = documentos.filter(
+                    (d) => !d.pasta_relativa && prefixoNumerico(d.nome_arquivo) === null,
+                  ).length;
+                  if (semNumeroCount === 0 && !numerando) return null;
+                  return (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={numerarDocumentos}
+                      disabled={!!numerando}
+                      title={`Numerar ${semNumeroCount} documento(s) sem número, na ordem das categorias (renomeia no app e no Drive)`}
+                    >
+                      {numerando ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Numerando {numerando.feito}/{numerando.total}
+                        </>
+                      ) : (
+                        <>
+                          <ListOrdered className="h-4 w-4 mr-2" />
+                          Numerar ({semNumeroCount})
+                        </>
+                      )}
+                    </Button>
+                  );
+                })()}
               {/* Botoes de Drive: vincular pasta / sync / importar avulso */}
               {isInterno && isGoogleDriveConfigured() && gdriveFolderId && (
                 <Button
@@ -4623,7 +4991,10 @@ function TabDocumentos(props: TabDocumentosProps) {
                   const secoes: Array<Secao> = [];
                   for (const d of docs) {
                     const g = getDocGroup(d.tipo);
-                    if (GRUPOS_ACCORDION.has(g)) {
+                    // Arquivos numerados ficam sempre na lista plana, na
+                    // posicao exata da numeracao - nunca dentro de accordion,
+                    // senao a ordem da pasta do Drive quebra visualmente.
+                    if (GRUPOS_ACCORDION.has(g) && prefixoNumerico(d.nome_arquivo) === null) {
                       const ultima = secoes[secoes.length - 1];
                       if (ultima && ultima.kind === "accordion" && ultima.grupo === g) {
                         ultima.docs.push(d);
@@ -4698,9 +5069,10 @@ function TabDocumentos(props: TabDocumentosProps) {
                         )}
                         <FileText className="h-5 w-5 text-muted-foreground flex-shrink-0" />
                         <div className="min-w-0">
-                          <p className="text-sm font-medium truncate">
-                            {displayNomeArquivo(d.nome_arquivo)}
-                          </p>
+                          {/* Nome completo (com prefixo numerico, se tiver):
+                              a numeracao agora define a ordem da lista, entao
+                              mostrar o numero deixa a tela igual a pasta. */}
+                          <p className="text-sm font-medium truncate">{d.nome_arquivo}</p>
                           <p className="text-xs text-muted-foreground">
                             {d.tipo === "outro" && d.tipo_personalizado
                               ? d.tipo_personalizado
@@ -4710,17 +5082,19 @@ function TabDocumentos(props: TabDocumentosProps) {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        {!isInterno && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => abrirPreview(d)}
-                            disabled={carregandoPreview}
-                          >
-                            <Eye className="h-4 w-4 mr-2" />
-                            Visualizar
-                          </Button>
-                        )}
+                        {/* Visualizar: parceiro (botao com rotulo) e interno
+                            (so icone, pra nao lotar a linha de acoes). */}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => abrirPreview(d)}
+                          disabled={carregandoPreview}
+                          title="Visualizar"
+                          aria-label="Visualizar documento"
+                        >
+                          <Eye className={isInterno ? "h-4 w-4" : "h-4 w-4 mr-2"} />
+                          {!isInterno && "Visualizar"}
+                        </Button>
                         {/* Interno: toggle de autorizacao pro parceiro baixar.
                           Padrao = nao baixa; equipe libera por doc. */}
                         {isInterno && (
@@ -5159,7 +5533,7 @@ function TabDocumentos(props: TabDocumentosProps) {
         >
           <DialogHeader className="px-4 pt-4 pb-2">
             <DialogTitle className="text-base">
-              {previewDoc ? displayNomeArquivo(previewDoc.doc.nome_arquivo) : ""}
+              {previewDoc ? previewDoc.doc.nome_arquivo : ""}
             </DialogTitle>
             <DialogDescription className="text-xs text-destructive bg-destructive/10 border border-destructive/30 rounded p-2 mt-1">
               <strong>Documento confidencial.</strong> Captura de tela, gravação ou compartilhamento
@@ -5564,6 +5938,8 @@ function SolicitarDocBotao(props: {
         .select("id")
         .single();
       if (resp.error) throw resp.error;
+      // Nova pendente: sobe o badge da sidebar sem esperar o poll.
+      window.dispatchEvent(new Event("msc:solicitacoes-mudou"));
       toast.success("Solicitação criada");
 
       // Notifica parceiro por email (fire-and-forget; nao bloqueia UI).
@@ -6540,6 +6916,7 @@ interface ResultadoBuscaLM {
 }
 
 function TabProcessos(props: TabProcessosProps) {
+  const tiposBeneficio = useTiposBeneficio();
   const {
     casoId,
     cliente,
@@ -7189,7 +7566,12 @@ function TabProcessos(props: TabProcessosProps) {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__none__">Não informado</SelectItem>
-                        {TIPOS_BENEFICIO.map((b) => (
+                        {tipoBeneficioAdmin && !tiposBeneficio.includes(tipoBeneficioAdmin) && (
+                          <SelectItem value={tipoBeneficioAdmin}>
+                            {tipoBeneficioAdmin} (atual)
+                          </SelectItem>
+                        )}
+                        {tiposBeneficio.map((b) => (
                           <SelectItem key={b} value={b}>
                             {b}
                           </SelectItem>

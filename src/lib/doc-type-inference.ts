@@ -50,7 +50,15 @@ export function inferirTipoPorNome(filename: string): string {
     return "declaracao_ausencia_duplicidade";
   }
   if (has("honorario")) return "contrato_honorarios";
-  if (has("procuracao")) return "procuracao";
+  // "procurac" cobre singular e plural (procuracao / procuracoes).
+  // KIT contrato+procuracao entra como contrato de honorarios (grupo 3).
+  if (has("contrato") && has("procurac")) return "contrato_honorarios";
+  if (has("procurac")) return "procuracao";
+  // "Contrato Fulano.pdf" sozinho e contrato de honorarios no escritorio,
+  // exceto contrato de trabalho / contrato social de empresa.
+  if (hasWord("contrato") && !has("trabalho") && !has("empresa")) {
+    return "contrato_honorarios";
+  }
   if (has("uniao estavel") || (has("uniao") && has("estavel"))) {
     return "declaracao_uniao_estavel";
   }
