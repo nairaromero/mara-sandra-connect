@@ -4669,11 +4669,16 @@ function TabDocumentos(props: TabDocumentosProps) {
         const nomeArq = nomeArquivoEdit.trim() || nomearArquivo(acaoAlvo.solic.tipo, arquivoUpload);
         // Storage rejeita chave com acento ("Invalid key") — path sempre
         // sanitizado; nome_arquivo mantém o nome com acento pra exibição.
-        const path = casoId + "/" + sanitizeFileName(nomeArq);
         // upsert só pra interno: a RLS de UPDATE em storage.objects exige
         // is_interno(), e supabase-js com upsert=true dispara INSERT ON
         // CONFLICT DO UPDATE — que tropeça na policy mesmo sem conflito real.
-        // Parceiro envia com nome único (auto-rename pelo tipo); colisão é rara.
+        // Parceiro leva prefixo de timestamp no path (nome auto-gerado é fixo
+        // por tipo, então re-solicitação do mesmo tipo colidiria).
+        const path =
+          casoId +
+          "/" +
+          (isInterno ? "" : Date.now() + "_") +
+          sanitizeFileName(nomeArq);
         const upResp = await supabase.storage
           .from("documentos")
           .upload(path, arquivoUpload, { upsert: isInterno });
