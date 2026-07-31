@@ -4667,7 +4667,9 @@ function TabDocumentos(props: TabDocumentosProps) {
       if (acaoAlvo.novoStatus === "atendido" && comAnexo && arquivoUpload && usuarioId) {
         // Usa nome editado pelo usuario (ou fallback pra auto-rename)
         const nomeArq = nomeArquivoEdit.trim() || nomearArquivo(acaoAlvo.solic.tipo, arquivoUpload);
-        const path = casoId + "/" + nomeArq;
+        // Storage rejeita chave com acento ("Invalid key") — path sempre
+        // sanitizado; nome_arquivo mantém o nome com acento pra exibição.
+        const path = casoId + "/" + sanitizeFileName(nomeArq);
         // upsert só pra interno: a RLS de UPDATE em storage.objects exige
         // is_interno(), e supabase-js com upsert=true dispara INSERT ON
         // CONFLICT DO UPDATE — que tropeça na policy mesmo sem conflito real.

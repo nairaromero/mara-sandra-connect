@@ -276,6 +276,15 @@ function DocumentosPendentesPage() {
     setComAnexo(false);
   }
 
+  // Mesma sanitizacao usada nos uploads avulsos (casos.$id.tsx): Storage
+  // rejeita chave com acento ("Invalid key").
+  function sanitizeFileName(name: string): string {
+    return name
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9._-]/g, "_");
+  }
+
   // Renomeia arquivo para o nome do tipo solicitado (ex.: CNIS.pdf)
   function nomearArquivo(tipoSolic: string, arquivoOriginal: File): string {
     const ext = arquivoOriginal.name.includes(".")
@@ -329,7 +338,8 @@ function DocumentosPendentesPage() {
         // Usa nome editado (ou fallback pra auto-rename)
         const nomeArq = nomeArquivoEdit.trim() ||
           nomearArquivo(acaoAlvo.solic.tipo, arquivoUpload);
-        const path = acaoAlvo.solic.caso_id + "/" + nomeArq;
+        // Path sempre sanitizado; nome_arquivo mantém acento pra exibição.
+        const path = acaoAlvo.solic.caso_id + "/" + sanitizeFileName(nomeArq);
         // upsert=true permite re-enviar mesmo nome (sobrescreve)
         const upResp = await supabase.storage
           .from("documentos")
