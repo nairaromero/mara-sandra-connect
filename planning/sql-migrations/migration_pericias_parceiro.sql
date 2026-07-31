@@ -23,7 +23,8 @@ returns table (
   titulo text,
   start_at timestamptz,
   end_at timestamptz,
-  local text
+  local text,
+  natureza text     -- 'judicial' | 'admin' | null (não identificada)
 )
 language sql
 stable
@@ -32,7 +33,14 @@ set search_path to 'public', 'pg_temp'
 as $$
   select
     'evento'::text as fonte,
-    e.id, e.caso_id, cl.nome, e.titulo, e.start_at, e.end_at, e.local
+    e.id, e.caso_id, cl.nome, e.titulo, e.start_at, e.end_at, e.local,
+    case
+      when e.processo_judicial_id is not null then 'judicial'
+      when e.processo_admin_id is not null then 'admin'
+      when e.titulo ~* 'judicial' then 'judicial'
+      when e.titulo ~* 'inss' then 'admin'
+      else null
+    end as natureza
   from public.agenda_eventos e
   join public.casos c on c.id = e.caso_id and c.parceiro_id = auth.uid()
   left join public.clientes cl on cl.id = c.cliente_id
@@ -44,7 +52,14 @@ as $$
     t.id, t.caso_id, cl.nome, t.titulo,
     t.due_at as start_at,
     t.due_at as end_at,     -- tarefa não tem hora de fim; front trata por dia
-    null::text as local
+    null::text as local,
+    case
+      when t.processo_judicial_id is not null then 'judicial'
+      when t.processo_admin_id is not null then 'admin'
+      when t.titulo ~* 'judicial' then 'judicial'
+      when t.titulo ~* 'inss' then 'admin'
+      else null
+    end as natureza
   from public.tarefas t
   join public.casos c on c.id = t.caso_id and c.parceiro_id = auth.uid()
   left join public.clientes cl on cl.id = c.cliente_id

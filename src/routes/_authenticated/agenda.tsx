@@ -27,8 +27,7 @@ import { AgendaMes } from "@/components/agenda/agenda-mes";
 import { listarAgenda } from "@/lib/agenda/queries";
 import {
   type AgendaEventoComJoins,
-  TIPO_CLASS,
-  TIPO_LABEL,
+  tipoBadge,
 } from "@/lib/agenda/types";
 import { TarefaSheet, type TarefaSheetModo } from "@/components/tarefas/tarefa-sheet";
 import { listarTarefas } from "@/lib/tarefas/queries";
@@ -281,8 +280,8 @@ function AgendaPage() {
                       <div className="p-3 space-y-2">
                         <div className="flex items-center justify-between gap-2 flex-wrap">
                           <div className="flex items-center gap-2 min-w-0">
-                            <Badge variant="outline" className={cn("font-normal", TIPO_CLASS[e.tipo])}>
-                              {TIPO_LABEL[e.tipo]}
+                            <Badge variant="outline" className={cn("font-normal", tipoBadge(e).className)}>
+                              {tipoBadge(e).label}
                             </Badge>
                             {ehEventoDeTarefa(e) && (
                               <Badge variant="outline" className="font-normal text-[10px]">

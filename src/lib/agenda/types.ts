@@ -47,3 +47,40 @@ export const TIPO_CLASS: Record<AgendaTipo, string> = {
   reuniao: "border-amber-500/50 bg-amber-50 text-amber-900 dark:bg-amber-950 dark:text-amber-200",
   interno: "border-border bg-muted text-muted-foreground",
 };
+
+// Perícia JUDICIAL destaca em violeta; perícia INSS/administrativa fica no
+// verde padrão do tipo. Natureza vem do processo vinculado; sem vínculo,
+// heurística pelo título ("Perícia Judicial - X" / "Perícia INSS - X").
+export const PERICIA_JUDICIAL_CLASS =
+  "border-violet-500/50 bg-violet-50 text-violet-900 dark:bg-violet-950 dark:text-violet-200";
+
+export type PericiaNatureza = "admin" | "judicial" | null;
+
+export function naturezaPericia(e: {
+  tipo: string;
+  processo_judicial_id?: string | null;
+  processo_admin_id?: string | null;
+  titulo: string;
+}): PericiaNatureza {
+  if (e.tipo !== "pericia") return null;
+  if (e.processo_judicial_id) return "judicial";
+  if (e.processo_admin_id) return "admin";
+  if (/judicial/i.test(e.titulo)) return "judicial";
+  if (/inss/i.test(e.titulo)) return "admin";
+  return null;
+}
+
+// Rótulo + classe do badge considerando a natureza da perícia.
+export function tipoBadge(e: {
+  tipo: AgendaTipo;
+  processo_judicial_id?: string | null;
+  processo_admin_id?: string | null;
+  titulo: string;
+}): { label: string; className: string } {
+  const nat = naturezaPericia(e);
+  if (nat === "judicial")
+    return { label: "Perícia Judicial", className: PERICIA_JUDICIAL_CLASS };
+  if (nat === "admin")
+    return { label: "Perícia INSS", className: TIPO_CLASS.pericia };
+  return { label: TIPO_LABEL[e.tipo], className: TIPO_CLASS[e.tipo] };
+}

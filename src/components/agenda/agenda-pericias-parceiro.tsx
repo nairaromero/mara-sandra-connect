@@ -18,7 +18,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
+import { PERICIA_JUDICIAL_CLASS, TIPO_CLASS } from "@/lib/agenda/types";
 
 interface PericiaParceiro {
   fonte: "evento" | "tarefa";
@@ -29,6 +31,19 @@ interface PericiaParceiro {
   start_at: string;
   end_at: string;
   local: string | null;
+  natureza: "admin" | "judicial" | null;
+}
+
+// Mesma convenção de cores da agenda interna: judicial violeta, INSS verde.
+function badgePericia(natureza: PericiaParceiro["natureza"]): {
+  label: string;
+  className: string;
+} {
+  if (natureza === "judicial")
+    return { label: "Perícia Judicial", className: PERICIA_JUDICIAL_CLASS };
+  if (natureza === "admin")
+    return { label: "Perícia INSS", className: TIPO_CLASS.pericia };
+  return { label: "Perícia", className: "" };
 }
 
 function formatarDataLonga(iso: string): string {
@@ -175,7 +190,12 @@ export function AgendaPericiasParceiro() {
                     ) : null}
                   </p>
                 </div>
-                <Badge variant="outline">Perícia</Badge>
+                <Badge
+                  variant="outline"
+                  className={cn("font-normal", badgePericia(p.natureza).className)}
+                >
+                  {badgePericia(p.natureza).label}
+                </Badge>
                 {p.caso_id && (
                   <Link
                     to="/casos/$id"
