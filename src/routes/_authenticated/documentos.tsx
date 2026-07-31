@@ -15,6 +15,7 @@ import {
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { notificarEquipe } from "@/lib/notificar";
 import { MAX_FILE_SIZE_MB, validateFileSize } from "@/lib/upload-limits";
 import { ClientOnly } from "@/components/client-only";
 import { Button } from "@/components/ui/button";
@@ -391,6 +392,19 @@ function DocumentosPendentesPage() {
       if (resp.error) throw resp.error;
       // Atualiza o badge de pendentes na sidebar sem esperar o poll.
       window.dispatchEvent(new Event("msc:solicitacoes-mudou"));
+      // Se quem cumpriu foi o PARCEIRO, avisa o sino da equipe (interno) —
+      // mesmo padrão da tela do caso (casos.$id.tsx).
+      if (usuario?.tipo === "parceiro") {
+        notificarEquipe({
+          tipo: documentoId ? "documento" : "solicitacao",
+          titulo: documentoId
+            ? `Documento enviado por ${usuario.nome || "parceiro"}`
+            : `Solicitação atualizada por ${usuario.nome || "parceiro"}`,
+          descricao: acaoAlvo.solic.tipo,
+          caso_id: acaoAlvo.solic.caso_id,
+          foco_id: documentoId || acaoAlvo.solic.id,
+        });
+      }
       toast.success(
         documentoId
           ? "Solicitação cumprida e documento anexado"
