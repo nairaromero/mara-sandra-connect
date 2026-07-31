@@ -33,6 +33,8 @@ import {
 import { TarefaSheet, type TarefaSheetModo } from "@/components/tarefas/tarefa-sheet";
 import { listarTarefas } from "@/lib/tarefas/queries";
 import type { TarefaComJoins } from "@/lib/tarefas/types";
+import { AgendaPericiasParceiro } from "@/components/agenda/agenda-pericias-parceiro";
+import { useAuth } from "@/hooks/use-auth";
 
 // A agenda mescla DUAS fontes: agenda_eventos + tarefas tipo='pericia' ativas
 // (migradas do TI, criadas pelo processador do INSS ou na tela de Tarefas).
@@ -86,8 +88,24 @@ function ehPericiaEmSi(t: TarefaComJoins): boolean {
 }
 
 export const Route = createFileRoute("/_authenticated/agenda")({
-  component: AgendaPage,
+  component: AgendaRoute,
 });
+
+// Parceiro vê a agenda restrita: só perícias dos casos dele, sem criar/editar.
+// Componentes separados (não early-return dentro de AgendaPage) pra não
+// violar a ordem de hooks quando o tipo do usuário resolve.
+function AgendaRoute() {
+  const { usuario } = useAuth();
+  if (!usuario) {
+    return (
+      <div className="flex h-96 items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (usuario.tipo === "parceiro") return <AgendaPericiasParceiro />;
+  return <AgendaPage />;
+}
 
 type Modo =
   | { kind: "criar" }
