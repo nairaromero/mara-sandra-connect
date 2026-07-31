@@ -118,6 +118,12 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   >([]);
   const [templates, setTemplates] = useState<TarefaTemplateRow[]>([]);
   const [templateSelecionado, setTemplateSelecionado] = useState<string>("");
+  // Responsável POR ITEM quando o template cria mais de uma tarefa. index =
+  // posição do item no template (template_item_index). respId aceita um uuid
+  // de interno, "herdar" (usa o responsável do form) ou "sem".
+  const [extrasResp, setExtrasResp] = useState<
+    Array<{ index: number; titulo: string; respId: string }>
+  >([]);
   const [processosDoCaso, setProcessosDoCaso] = useState<ProcessoDoCasoOpcao[]>([]);
 
   const [salvando, setSalvando] = useState(false);
@@ -167,9 +173,15 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   // popula o form, demais viram tarefas extras.
   useEffect(() => {
     if (editando) return;
-    if (!templateSelecionado || !casoId) return;
+    if (!templateSelecionado || !casoId) {
+      setExtrasResp([]);
+      return;
+    }
     const tpl = templates.find((t) => t.nome === templateSelecionado);
-    if (!tpl || tpl.itens.length === 0) return;
+    if (!tpl || tpl.itens.length === 0) {
+      setExtrasResp([]);
+      return;
+    }
     const agendaItem = tpl.itens.find((i) => i.destino === "agenda");
     // Main = item de agenda (se houver) → form é a perícia. Senão, o
     // primeiro item destino=tarefa (ou sem destino). Itens destino=
@@ -193,6 +205,34 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       setDescricao(substituirPlaceholders(main.descricao ?? "", ph));
       setTipo((main.tipo as TarefaTipo) || "interna");
       setPrioridade(main.prioridade ?? 3);
+      // Responsáveis por item: o executor_email de cada item do template é o
+      // default; sem executor (ou sem match), herda do responsável do form.
+      const emailParaIdPrefill = new Map<string, string>();
+      for (const u of internos) {
+        if (u.email) emailParaIdPrefill.set(u.email.toLowerCase(), u.id);
+      }
+      setExtrasResp(
+        tpl.itens
+          .map((item, i) => ({ item, i }))
+          .filter(
+            ({ item }) =>
+              item !== main && (!item.destino || item.destino === "tarefa"),
+          )
+          .map(({ item, i }) => ({
+            index: i,
+            titulo: substituirPlaceholders(item.titulo, ph),
+            respId: item.executor_email
+              ? (emailParaIdPrefill.get(item.executor_email.toLowerCase()) ??
+                "herdar")
+              : "herdar",
+          })),
+      );
+      // Main também tem executor default no template — pré-seleciona se a
+      // Naira ainda não escolheu ninguém no form.
+      if (main.executor_email) {
+        const mainResp = emailParaIdPrefill.get(main.executor_email.toLowerCase());
+        if (mainResp) setResponsavelId((prev) => prev ?? mainResp);
+      }
       if (agendaItem) {
         // Pra agenda: form começa vazio (Naira preenche data/hora/local).
         // Não inferimos data — perícia é específica.
@@ -208,7 +248,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
     return () => {
       cancelado = true;
     };
-  }, [templateSelecionado, casoId, processoToken, templates, editando]);
+  }, [templateSelecionado, casoId, processoToken, templates, editando, internos]);
 
   // Sincroniza o formulário com o modo (abertura).
   useEffect(() => {
@@ -226,6 +266,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       setLocal("");
       setDocsExigencia("");
       setPericiaEvento(true);
+      setExtrasResp([]);
       setTemplateSelecionado(modo.templateInicial ?? "");
     } else {
       const t = modo.tarefa;
@@ -254,6 +295,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       setDueDate(inputDateTimeValueFromIso(t.due_at));
       setLocal("");
       setDocsExigencia("");
+      setExtrasResp([]);
       setTemplateSelecionado("");
     }
   }, [modo]);
@@ -482,9 +524,24 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
             }
 
             // ----- destino=tarefa (default) -----
-            let respFinal: string | null = responsavelId;
-            if (!respFinal && item.executor_email) {
-              respFinal = emailParaId.get(item.executor_email.toLowerCase()) ?? null;
+            // Responsável: o select por item (UI) manda. "herdar" = usa o
+            // responsável do form; "sem" = fica vazio. Se o select não
+            // renderizou (edge: prefill não rodou), cai no comportamento
+            // antigo: form → executor_email do template.
+            const escolhido = extrasResp.find((e) => e.index === i);
+            let respFinal: string | null;
+            if (escolhido) {
+              respFinal =
+                escolhido.respId === "herdar"
+                  ? responsavelId
+                  : escolhido.respId === "sem"
+                    ? null
+                    : escolhido.respId;
+            } else {
+              respFinal = responsavelId;
+              if (!respFinal && item.executor_email) {
+                respFinal = emailParaId.get(item.executor_email.toLowerCase()) ?? null;
+              }
             }
             const ancora = item.due_relative_to ?? "hoje";
             const extraDueAt =
@@ -836,7 +893,11 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           )}
 
           <div className="space-y-1.5">
-            <Label>Responsável</Label>
+            <Label>
+              {!editando && extrasResp.length > 0
+                ? "Responsável (tarefa principal)"
+                : "Responsável"}
+            </Label>
             <Select
               value={responsavelId ?? "sem"}
               onValueChange={(v) => setResponsavelId(v === "sem" ? null : v)}
@@ -852,6 +913,40 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
               </SelectContent>
             </Select>
           </div>
+
+          {/* Template que cria mais tarefas: um responsável por tarefa extra,
+              pré-preenchido com o executor padrão do template. */}
+          {!editando && extrasResp.length > 0 && (
+            <div className="space-y-2 rounded-md border p-3">
+              <Label>Responsáveis das outras tarefas do template</Label>
+              {extrasResp.map((e) => (
+                <div key={e.index} className="space-y-1">
+                  <p className="text-xs text-muted-foreground">{e.titulo}</p>
+                  <Select
+                    value={e.respId}
+                    onValueChange={(v) =>
+                      setExtrasResp((prev) =>
+                        prev.map((x) =>
+                          x.index === e.index ? { ...x, respId: v } : x,
+                        ),
+                      )
+                    }
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="herdar">Mesmo da tarefa principal</SelectItem>
+                      <SelectItem value="sem">Sem responsável</SelectItem>
+                      {internos.map((u) => (
+                        <SelectItem key={u.id} value={u.id}>
+                          {u.nome ?? "(sem nome)"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ))}
+            </div>
+          )}
 
         </div>
 
