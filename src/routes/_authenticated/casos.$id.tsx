@@ -4701,7 +4701,9 @@ function TabDocumentos(props: TabDocumentosProps) {
 
         // Espelha no Drive se o caso tem pasta vinculada. Não bloqueia o
         // fluxo se falhar — app é fonte de verdade, Drive é espelho.
-        if (gdriveFolderId) {
+        // Só interno: o token OAuth é da conta Google do escritório; pro
+        // parceiro isso abriria popup de login do Google.
+        if (gdriveFolderId && isInterno) {
           try {
             const gdriveId = await uploadDocumentoDriveSeNecessario(
               arquivoUpload,
@@ -5722,7 +5724,9 @@ function UploadDoc(props: {
 
           // Espelha no Drive se o caso tem pasta vinculada. Falha não
           // bloqueia o resto do batch — app é fonte de verdade.
-          if (gdriveFolderId && insertResp.data?.id) {
+          // Só interno: o token OAuth é da conta Google do escritório; pro
+          // parceiro isso abriria popup de login do Google.
+          if (gdriveFolderId && !souParceiro && insertResp.data?.id) {
             try {
               const gdriveId = await uploadDocumentoDriveSeNecessario(
                 it.arquivo,

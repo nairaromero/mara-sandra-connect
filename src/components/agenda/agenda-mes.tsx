@@ -21,7 +21,7 @@ import { ptBR } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { type AgendaEventoComJoins, TIPO_CLASS, TIPO_LABEL } from "@/lib/agenda/types";
+import { type AgendaEventoComJoins, tipoBadge } from "@/lib/agenda/types";
 
 interface Props {
   eventos: AgendaEventoComJoins[];
@@ -134,7 +134,7 @@ export function AgendaMes({ eventos, onEventoClick, onDiaClick }: Props) {
                     }}
                     className={cn(
                       "rounded px-1 py-0.5 text-[10px] truncate border cursor-pointer hover:opacity-80",
-                      TIPO_CLASS[e.tipo],
+                      tipoBadge(e).className,
                     )}
                     title={`${format(new Date(e.start_at), "HH:mm")} ${e.titulo}`}
                   >
@@ -185,8 +185,8 @@ export function AgendaMes({ eventos, onEventoClick, onDiaClick }: Props) {
                   className="w-full text-left rounded-md border bg-background p-2 hover:bg-muted/30"
                 >
                   <div className="flex items-center gap-2 flex-wrap">
-                    <Badge variant="outline" className={cn("font-normal text-xs", TIPO_CLASS[e.tipo])}>
-                      {TIPO_LABEL[e.tipo]}
+                    <Badge variant="outline" className={cn("font-normal text-xs", tipoBadge(e).className)}>
+                      {tipoBadge(e).label}
                     </Badge>
                     <span className="text-xs text-muted-foreground tabular-nums">
                       {format(new Date(e.start_at), "HH:mm")}—{format(new Date(e.end_at), "HH:mm")}

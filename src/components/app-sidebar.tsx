@@ -47,6 +47,9 @@ const itemsInternosTopo = [
   { title: "Agenda", url: "/agenda", icon: Calendar },
 ];
 
+// Parceiro: /agenda renderiza a visao restrita (so pericias dos casos dele).
+const itemParceiroPericias = { title: "Perícias", url: "/agenda", icon: Calendar };
+
 const itemsInternos = [
   { title: "Comercial", url: "/comercial", icon: Handshake },
   { title: "Processos", url: "/processos", icon: Briefcase },
@@ -76,7 +79,7 @@ export function AppSidebar() {
 
   const items = isInterno
     ? [...itemsInternosTopo, ...itemsBase, ...itemsInternos, ...itemsFooter]
-    : [...itemsBase, ...itemsFooter];
+    : [itemsBase[0], itemParceiroPericias, ...itemsBase.slice(1), ...itemsFooter];
 
   // Badge de publicacoes novas (DJEN) desde a ultima visita. RLS escopa por
   // usuario (interno ve todas; parceiro so as dos casos dele).
