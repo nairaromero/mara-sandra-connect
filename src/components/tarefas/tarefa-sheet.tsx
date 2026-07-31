@@ -716,15 +716,34 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
                   {templates.map((t) => (
                     <SelectItem key={t.id} value={t.nome}>
                       {(() => {
-                        const ehAgenda = templateTemAgenda(t);
-                        const tarefasN = t.itens.filter((i) => i.destino !== "agenda").length;
+                        // Conta cada destino pelo nome — andamento e
+                        // solicitação não são tarefas.
+                        const tarefasN = t.itens.filter(
+                          (i) => !i.destino || i.destino === "tarefa",
+                        ).length;
+                        const andamentosN = t.itens.filter(
+                          (i) => i.destino === "andamento",
+                        ).length;
+                        const solicN = t.itens.filter(
+                          (i) => i.destino === "solicitacao_documento",
+                        ).length;
+                        const partes: string[] = [];
+                        if (templateTemAgenda(t)) partes.push("agenda");
+                        if (tarefasN > 0)
+                          partes.push(`${tarefasN} tarefa${tarefasN === 1 ? "" : "s"}`);
+                        if (andamentosN > 0)
+                          partes.push(
+                            `${andamentosN} andamento${andamentosN === 1 ? "" : "s"}`,
+                          );
+                        if (solicN > 0)
+                          partes.push(
+                            `${solicN} solicitação${solicN === 1 ? "" : "ões"} de doc`,
+                          );
                         return (
                           <>
                             {t.rotulo ?? t.nome}{" "}
                             <span className="text-muted-foreground">
-                              ({ehAgenda
-                                ? `agenda + ${tarefasN} tarefa${tarefasN === 1 ? "" : "s"}`
-                                : `${t.itens.length} tarefa${t.itens.length > 1 ? "s" : ""}`})
+                              ({partes.join(" + ") || "vazio"})
                             </span>
                           </>
                         );
@@ -898,6 +917,11 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
                 ? "Responsável (tarefa principal)"
                 : "Responsável"}
             </Label>
+            {/* Com várias tarefas no template, mostra QUAL é a principal —
+                mesmo estilo das extras logo abaixo. */}
+            {!editando && extrasResp.length > 0 && titulo.trim() && (
+              <p className="text-xs text-muted-foreground">{titulo}</p>
+            )}
             <Select
               value={responsavelId ?? "sem"}
               onValueChange={(v) => setResponsavelId(v === "sem" ? null : v)}
