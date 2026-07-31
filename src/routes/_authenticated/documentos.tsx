@@ -339,11 +339,19 @@ function DocumentosPendentesPage() {
         const nomeArq = nomeArquivoEdit.trim() ||
           nomearArquivo(acaoAlvo.solic.tipo, arquivoUpload);
         // Path sempre sanitizado; nome_arquivo mantém acento pra exibição.
-        const path = acaoAlvo.solic.caso_id + "/" + sanitizeFileName(nomeArq);
-        // upsert=true permite re-enviar mesmo nome (sobrescreve)
+        // upsert só pra interno: a RLS de UPDATE em storage.objects exige
+        // is_interno(), e supabase-js com upsert=true dispara INSERT ON
+        // CONFLICT DO UPDATE — que tropeça na policy mesmo sem conflito real.
+        // Parceiro leva prefixo de timestamp no path (nome auto-gerado é fixo
+        // por tipo, então re-solicitação do mesmo tipo colidiria).
+        const path =
+          acaoAlvo.solic.caso_id +
+          "/" +
+          (isInterno ? "" : Date.now() + "_") +
+          sanitizeFileName(nomeArq);
         const upResp = await supabase.storage
           .from("documentos")
-          .upload(path, arquivoUpload, { upsert: true });
+          .upload(path, arquivoUpload, { upsert: isInterno });
         if (upResp.error) throw upResp.error;
         const docInsert = await supabase
           .from("documentos")
