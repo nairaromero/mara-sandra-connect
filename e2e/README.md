@@ -6,12 +6,18 @@ e o banco de **produção** (único). Leia as regras de segurança abaixo.
 ## Rodar
 
 ```bash
-bun run e2e        # sobe o vite dev em :8085 sozinho e roda tudo
-bun run e2e:ui     # modo interativo (debug)
+bun run e2e            # frontend local (vite dev :8085)
+bun run e2e:staging    # frontend da branch STAGING (URL estável do Cloudflare)
+bun run e2e:ui         # modo interativo (debug)
 
-# Contra uma preview URL do Cloudflare (ou produção):
+# Contra qualquer preview URL (versão de PR):
 PLAYWRIGHT_BASE_URL=https://<versao>-mara-sandra-connect.nairaromerovian.workers.dev bun run e2e
 ```
+
+**Atenção — o que muda com o alvo é só o FRONTEND.** O banco/Storage/edge
+functions são os de **produção** em todos os casos (o projeto tem backend
+único). É por isso que existem as regras de marcador `[E2E]` + cleanup abaixo.
+Isolamento real de dados exigiria um segundo projeto Supabase só de teste.
 
 ## Segredos (`.env.local`, gitignored — em CI, GitHub Actions secrets)
 
