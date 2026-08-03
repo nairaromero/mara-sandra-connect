@@ -6341,28 +6341,20 @@ function TabComentarios(props: TabComentariosProps) {
   const [enviando, setEnviando] = useState(false);
   const [excluindoId, setExcluindoId] = useState<string | null>(null);
 
-  // Agrupa comentarios em threads: top-level + replies
-  const threads = useMemo(() => {
-    const tops = comentarios.filter((c) => c.parent_id === null);
-    const byParent = new Map<string, Array<ComentarioRow>>();
-    for (const c of comentarios) {
-      if (c.parent_id) {
-        const arr = byParent.get(c.parent_id) || [];
-        arr.push(c);
-        byParent.set(c.parent_id, arr);
-      }
-    }
-    // Top-level mais recente primeiro; replies cronologico (mais antigo primeiro)
-    return tops
-      .slice()
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-      .map((top) => ({
-        top,
-        replies: (byParent.get(top.id) || [])
-          .slice()
-          .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()),
-      }));
-  }, [comentarios]);
+  // Chat estilo WhatsApp: todos os comentários em ordem cronológica (sem thread).
+  const ordenados = useMemo(
+    () =>
+      comentarios
+        .slice()
+        .sort(
+          (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+        ),
+    [comentarios],
+  );
+  const fimRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    fimRef.current?.scrollIntoView({ block: "end" });
+  }, [ordenados.length]);
 
   async function recarregar() {
     const resp = await supabase
@@ -6453,186 +6445,131 @@ function TabComentarios(props: TabComentariosProps) {
   }
 
   return (
-    <div className="space-y-4">
-      {/* Input pra novo comentario top-level */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Novo comentário</CardTitle>
-          <CardDescription>
-            {temParceiro
-              ? "Inicie um novo tópico. O destinatário (parceiro ou equipe) recebe email avisando."
-              : "Caso sem parceiro vinculado - comentários funcionam como notas internas da equipe. Outros internos são notificados por email."}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+    <Card className="flex flex-col overflow-hidden">
+      <div className="px-4 py-2 border-b text-xs text-muted-foreground">
+        {temParceiro
+          ? "Conversa do caso entre equipe e parceiro. Cada mensagem avisa a outra parte por e-mail."
+          : "Caso sem parceiro — funciona como notas internas da equipe. Outros internos são avisados por e-mail."}
+      </div>
+
+      {/* Histórico (balões) */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-2 max-h-[26rem] min-h-[200px]">
+        {ordenados.length === 0 ? (
+          <p className="text-center text-sm text-muted-foreground py-10">
+            Nenhuma mensagem ainda. Escreva a primeira abaixo.
+          </p>
+        ) : (
+          ordenados.map((c) => (
+            <ComentarioBolha
+              key={c.id}
+              comentario={c}
+              meu={c.autor_id === usuarioId}
+              podeExcluir={c.autor_id === usuarioId || isInterno}
+              onExcluir={() => excluirComentario(c.id)}
+              excluindo={excluindoId === c.id}
+              destacado={foco === c.id}
+            />
+          ))
+        )}
+        <div ref={fimRef} />
+      </div>
+
+      {/* Composer */}
+      <div className="border-t p-3">
+        <div className="flex items-end gap-2">
           <Textarea
-            rows={3}
-            placeholder="Escreva um comentário..."
+            rows={2}
+            placeholder="Escreva uma mensagem..."
             value={novoTexto}
             onChange={(e) => setNovoTexto(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                enviarComentario(novoTexto, null);
+              }
+            }}
+            className="resize-none"
           />
-          <div className="flex justify-end mt-2">
-            <Button
-              onClick={() => enviarComentario(novoTexto, null)}
-              disabled={enviando || !novoTexto.trim()}
-            >
-              {enviando ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Send className="h-4 w-4 mr-2" />
-              )}
-              Publicar comentário
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Lista de threads */}
-      {threads.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center text-sm text-muted-foreground">
-            Nenhum comentário ainda. Inicie um novo tópico acima.
-          </CardContent>
-        </Card>
-      ) : (
-        threads.map(({ top, replies }) => (
-          <Card key={top.id}>
-            <CardContent className="py-4 space-y-3">
-              {/* Top-level */}
-              <ComentarioItem
-                comentario={top}
-                podeExcluir={top.autor_id === usuarioId || isInterno}
-                onExcluir={() => excluirComentario(top.id)}
-                excluindo={excluindoId === top.id}
-                destacado={foco === top.id}
-              />
-
-              {/* Replies (recuadas) */}
-              {replies.length > 0 && (
-                <div className="ml-6 pl-3 border-l-2 border-border space-y-3">
-                  {replies.map((r) => (
-                    <ComentarioItem
-                      key={r.id}
-                      comentario={r}
-                      podeExcluir={r.autor_id === usuarioId || isInterno}
-                      onExcluir={() => excluirComentario(r.id)}
-                      excluindo={excluindoId === r.id}
-                      destacado={foco === r.id}
-                    />
-                  ))}
-                </div>
-              )}
-
-              {/* Input de resposta (inline) */}
-              {respondendoEm === top.id ? (
-                <div className="ml-6 pl-3 border-l-2 border-[var(--gold)]/40">
-                  <Textarea
-                    rows={2}
-                    placeholder="Sua resposta..."
-                    value={respostaTexto[top.id] || ""}
-                    onChange={(e) =>
-                      setRespostaTexto((prev) => ({
-                        ...prev,
-                        [top.id]: e.target.value,
-                      }))
-                    }
-                    className="text-sm"
-                    autoFocus
-                  />
-                  <div className="flex justify-end gap-2 mt-2">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-                        setRespondendoEm(null);
-                        setRespostaTexto((prev) => ({ ...prev, [top.id]: "" }));
-                      }}
-                      disabled={enviando}
-                    >
-                      Cancelar
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => enviarComentario(respostaTexto[top.id] || "", top.id)}
-                      disabled={enviando || !(respostaTexto[top.id] || "").trim()}
-                    >
-                      {enviando && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
-                      Responder
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="ml-6">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setRespondendoEm(top.id)}
-                    className="text-xs h-7 text-muted-foreground hover:text-foreground"
-                  >
-                    Responder
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        ))
-      )}
-    </div>
+          <Button
+            onClick={() => enviarComentario(novoTexto, null)}
+            disabled={enviando || !novoTexto.trim()}
+          >
+            {enviando ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
+        <p className="text-[10px] text-muted-foreground mt-1">Enter + Ctrl/⌘ envia.</p>
+      </div>
+    </Card>
   );
 }
 
-function ComentarioItem(props: {
+function ComentarioBolha(props: {
   comentario: ComentarioRow;
+  meu: boolean;
   podeExcluir: boolean;
   onExcluir: () => void;
   excluindo: boolean;
   destacado?: boolean;
 }) {
-  const { comentario, podeExcluir, onExcluir, excluindo, destacado } = props;
+  const { comentario, meu, podeExcluir, onExcluir, excluindo, destacado } = props;
   const autorNome = comentario.autor?.nome || comentario.autor?.email || "(sem nome)";
   const tipo = comentario.autor?.tipo;
 
   return (
     <div
       id={"foco-" + comentario.id}
-      className={"flex gap-3 " + (destacado ? DESTAQUE_CLASSE + " p-2" : "")}
+      className={"flex " + (meu ? "justify-end" : "justify-start")}
     >
-      <Avatar className="h-8 w-8 shrink-0">
-        <AvatarFallback className="bg-primary text-primary-foreground text-xs">
-          {autorNome
-            .split(" ")
-            .map((p) => p[0])
-            .slice(0, 2)
-            .join("")
-            .toUpperCase()}
-        </AvatarFallback>
-      </Avatar>
-      <div className="flex-1 min-w-0">
-        <div className="flex flex-wrap items-baseline gap-2 mb-1">
-          <span className="text-sm font-medium">{autorNome}</span>
-          <Badge variant="outline" className={"text-[10px] font-normal " + tipoBadgeClasses(tipo)}>
-            {tipoBadgeLabel(tipo)}
-          </Badge>
-          <span className="text-xs text-muted-foreground">
+      <div
+        className={
+          "group max-w-[85%] sm:max-w-[75%] rounded-lg px-3 py-2 " +
+          (meu ? "bg-primary text-primary-foreground" : "bg-muted text-foreground") +
+          (destacado ? " ring-2 ring-[var(--gold)]" : "")
+        }
+      >
+        {!meu && (
+          <div className="flex items-center gap-1.5 mb-0.5">
+            <span className="text-[11px] font-medium">{autorNome}</span>
+            <span className={"text-[9px] px-1 rounded " + tipoBadgeClasses(tipo)}>
+              {tipoBadgeLabel(tipo)}
+            </span>
+          </div>
+        )}
+        <p className="text-sm whitespace-pre-wrap break-words">{comentario.texto}</p>
+        <div className={"flex items-center gap-2 mt-1 " + (meu ? "justify-end" : "")}>
+          <span
+            className={
+              "text-[10px] " +
+              (meu ? "text-primary-foreground/70" : "text-muted-foreground")
+            }
+          >
             {formatDateTime(comentario.created_at)}
           </span>
           {podeExcluir && (
-            <Button
-              size="sm"
-              variant="ghost"
+            <button
+              type="button"
               onClick={onExcluir}
               disabled={excluindo}
-              className="h-5 px-1 text-xs text-muted-foreground hover:text-destructive ml-auto"
+              aria-label="Excluir"
+              className={
+                "opacity-0 group-hover:opacity-100 transition-opacity " +
+                (meu
+                  ? "text-primary-foreground/70 hover:text-primary-foreground"
+                  : "text-muted-foreground hover:text-destructive")
+              }
             >
               {excluindo ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
               ) : (
                 <Trash2 className="h-3 w-3" />
               )}
-            </Button>
+            </button>
           )}
         </div>
-        <p className="text-sm whitespace-pre-wrap text-foreground/90">{comentario.texto}</p>
       </div>
     </div>
   );
