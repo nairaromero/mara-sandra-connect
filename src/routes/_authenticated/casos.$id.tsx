@@ -59,6 +59,7 @@ import {
   uploadDocumentoDriveSeNecessario,
   type DrivePickedFile,
 } from "@/lib/google-drive";
+import { BlocoPericiaCaso } from "@/components/bloco-pericia-caso";
 import { ClientOnly } from "@/components/client-only";
 import { DocTypeCombobox } from "@/components/doc-type-combobox";
 import { DrivePickerDialog, type DriveImportedFile } from "@/components/drive-picker-dialog";
@@ -3041,6 +3042,10 @@ function TabAndamentos(props: TabAndamentosProps) {
 
   return (
     <div className="space-y-4">
+      {/* Bloco "Perícia": mostra, no topo dos andamentos, se o caso tem perícia
+          agendada (equipe e parceiro), colorido pela natureza (judicial=violeta,
+          INSS/adm=verde). Some quando não há perícia. */}
+      <BlocoPericiaCaso casoId={casoId} />
       {/* Barra global de transferência (aparece quando há andamentos vinculados
           selecionados em qualquer accordion). Permite mover entre processos do
           mesmo tipo OU entre admin↔judicial. */}
