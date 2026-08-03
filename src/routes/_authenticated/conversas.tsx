@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Loader2,
@@ -8,6 +8,9 @@ import {
   ChevronDown,
   ChevronRight,
   UserRound,
+  ArrowLeft,
+  Send,
+  ExternalLink,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -16,6 +19,8 @@ import { ClientOnly } from "@/components/client-only";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 
 export const Route = createFileRoute("/_authenticated/conversas")({
@@ -49,7 +54,6 @@ interface ComentarioComCaso {
   casos: CasoLite | null;
 }
 
-// Uma thread = um caso com seus comentários.
 interface Thread {
   caso: CasoLite;
   ultimo: ComentarioComCaso;
@@ -57,7 +61,6 @@ interface Thread {
   naoLidas: number;
 }
 
-// Um grupo = um parceiro (ou "Interno") com suas threads.
 interface Grupo {
   parceiroId: string | null;
   parceiroNome: string;
@@ -83,6 +86,16 @@ function formatRelativo(iso: string): string {
   return d.toLocaleDateString("pt-BR");
 }
 
+function formatHora(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  return (
+    d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) +
+    " " +
+    d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+  );
+}
+
 function truncar(texto: string, max: number): string {
   if (texto.length <= max) return texto;
   return texto.slice(0, max - 1) + "...";
@@ -102,23 +115,26 @@ const FASE_LABEL: Record<string, string> = {
 function ConversasPage() {
   const { usuario } = useAuth();
   const usuarioId = usuario ? usuario.id : null;
-  const navigate = useNavigate();
 
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [comentarios, setComentarios] = useState<Array<ComentarioComCaso>>([]);
   const [leituraPorCaso, setLeituraPorCaso] = useState<Map<string, string>>(new Map());
-  const [nomePorParceiro, setNomePorParceiro] = useState<Map<string, string>>(new Map());
+  const [nomePorUsuario, setNomePorUsuario] = useState<Map<string, string>>(new Map());
+  const [parceiroIds, setParceiroIds] = useState<Set<string>>(new Set());
   const [colapsados, setColapsados] = useState<Set<string>>(new Set());
   const jaCarregouRef = useRef(false);
 
   const [busca, setBusca] = useState("");
+  const [selecionado, setSelecionado] = useState<string | null>(null);
+  const [resposta, setResposta] = useState("");
+  const [enviando, setEnviando] = useState(false);
 
   const carregar = useCallback(async () => {
     if (!jaCarregouRef.current) setLoading(true);
     setErro(null);
     try {
-      const [comResp, leiResp, parResp] = await Promise.all([
+      const [comResp, leiResp, usrResp] = await Promise.all([
         supabase
           .from("comentarios")
           .select(
@@ -127,7 +143,7 @@ function ConversasPage() {
           .eq("rascunho", false)
           .order("created_at", { ascending: false }),
         supabase.from("conversa_leitura").select("caso_id, last_read_at"),
-        supabase.from("usuarios").select("id, nome").eq("tipo", "parceiro"),
+        supabase.from("usuarios").select("id, nome, tipo"),
       ]);
       if (comResp.error) throw comResp.error;
       setComentarios((comResp.data || []) as unknown as Array<ComentarioComCaso>);
@@ -138,11 +154,14 @@ function ConversasPage() {
       }
       setLeituraPorCaso(lmap);
 
-      const pmap = new Map<string, string>();
-      for (const p of (parResp.data || []) as Array<{ id: string; nome: string }>) {
-        pmap.set(p.id, p.nome);
+      const nmap = new Map<string, string>();
+      const pset = new Set<string>();
+      for (const u of (usrResp.data || []) as Array<{ id: string; nome: string; tipo: string }>) {
+        nmap.set(u.id, u.nome);
+        if (u.tipo === "parceiro") pset.add(u.id);
       }
-      setNomePorParceiro(pmap);
+      setNomePorUsuario(nmap);
+      setParceiroIds(pset);
     } catch (err) {
       console.error(err);
       const errObj = err as { message?: string };
@@ -157,16 +176,90 @@ function ConversasPage() {
     carregar();
   }, [carregar]);
 
-  // Polling leve a cada 30s (fase 3 troca por realtime).
+  // Tempo real: qualquer mudança em comentarios recarrega a caixa (fase 3).
   useEffect(() => {
-    const id = setInterval(() => carregar(), 30000);
-    return () => clearInterval(id);
+    const canal = supabase
+      .channel("conversas-comentarios")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "comentarios" },
+        () => carregar(),
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(canal);
+    };
   }, [carregar]);
 
-  // Agrupa comentários -> threads (por caso) -> grupos (por parceiro).
+  // Marca a conversa como lida (upsert + evento pro badge da sidebar).
+  const marcarLida = useCallback(
+    async (casoId: string) => {
+      if (!usuarioId) return;
+      try {
+        await supabase.from("conversa_leitura").upsert(
+          { usuario_id: usuarioId, caso_id: casoId, last_read_at: new Date().toISOString() },
+          { onConflict: "usuario_id,caso_id" },
+        );
+        setLeituraPorCaso((prev) => {
+          const n = new Map(prev);
+          n.set(casoId, new Date().toISOString());
+          return n;
+        });
+        window.dispatchEvent(new CustomEvent("msc:conversas-mudou"));
+      } catch {
+        // best-effort
+      }
+    },
+    [usuarioId],
+  );
+
+  function abrirThread(casoId: string) {
+    setSelecionado(casoId);
+    setResposta("");
+    marcarLida(casoId);
+  }
+
+  async function enviarResposta() {
+    if (!selecionado || !usuarioId) return;
+    const texto = resposta.trim();
+    if (!texto) return;
+    setEnviando(true);
+    try {
+      const { data, error } = await supabase
+        .from("comentarios")
+        .insert({ caso_id: selecionado, autor_id: usuarioId, texto, rascunho: false })
+        .select("id")
+        .single();
+      if (error) throw error;
+      setResposta("");
+      await carregar();
+      await marcarLida(selecionado);
+      // Notifica a outra parte (e-mail/notificação). Best-effort.
+      if (data?.id) {
+        supabase.functions
+          .invoke("notify-novo-comentario", { body: { comentario_id: data.id } })
+          .catch(() => {});
+      }
+    } catch (err) {
+      const errObj = err as { message?: string };
+      setErro(errObj.message || "Falha ao enviar.");
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  function toggleGrupo(chave: string) {
+    setColapsados((prev) => {
+      const n = new Set(prev);
+      if (n.has(chave)) n.delete(chave);
+      else n.add(chave);
+      return n;
+    });
+  }
+
+  // ---- Agrupamento: comentários -> threads (caso) -> grupos (parceiro) ----
   const grupos = useMemo<Array<Grupo>>(() => {
     const threadsPorCaso = new Map<string, Thread>();
-    // comentarios vem desc por created_at: o 1º de cada caso é o mais recente.
     for (const c of comentarios) {
       if (!c.casos) continue;
       const lida = leituraPorCaso.get(c.caso_id);
@@ -188,24 +281,23 @@ function ConversasPage() {
       }
     }
 
-    const gruposPorParceiro = new Map<string, Grupo>();
+    const porParceiro = new Map<string, Grupo>();
     for (const t of threadsPorCaso.values()) {
       const pid = t.caso.parceiro_id;
       const chave = pid || "__interno__";
       const nome = pid
-        ? nomePorParceiro.get(pid) || "Parceiro"
+        ? nomePorUsuario.get(pid) || "Parceiro"
         : "Interno / sem parceiro";
-      let g = gruposPorParceiro.get(chave);
+      let g = porParceiro.get(chave);
       if (!g) {
         g = { parceiroId: pid, parceiroNome: nome, threads: [], naoLidas: 0 };
-        gruposPorParceiro.set(chave, g);
+        porParceiro.set(chave, g);
       }
       g.threads.push(t);
       g.naoLidas += t.naoLidas;
     }
 
-    const lista = Array.from(gruposPorParceiro.values());
-    // Threads por mais recente; grupos por não-lidas desc, depois nome.
+    const lista = Array.from(porParceiro.values());
     for (const g of lista) {
       g.threads.sort(
         (a, b) =>
@@ -218,9 +310,8 @@ function ConversasPage() {
       return a.parceiroNome.localeCompare(b.parceiroNome, "pt-BR");
     });
     return lista;
-  }, [comentarios, leituraPorCaso, nomePorParceiro, usuarioId]);
+  }, [comentarios, leituraPorCaso, nomePorUsuario, usuarioId]);
 
-  // Filtro por busca (cliente, benefício, parceiro ou texto do comentário).
   const gruposFiltrados = useMemo(() => {
     const q = busca.trim().toLowerCase();
     if (!q) return grupos;
@@ -242,39 +333,23 @@ function ConversasPage() {
       .filter((g) => g.threads.length > 0);
   }, [grupos, busca]);
 
-  const totalThreadsNaoLidas = grupos.reduce(
+  const totalNaoLidas = grupos.reduce(
     (acc, g) => acc + g.threads.filter((t) => t.naoLidas > 0).length,
     0,
   );
 
-  // Marca a conversa como lida e abre o caso na aba de comentários.
-  async function abrirThread(casoId: string) {
-    if (usuarioId) {
-      try {
-        await supabase.from("conversa_leitura").upsert(
-          {
-            usuario_id: usuarioId,
-            caso_id: casoId,
-            last_read_at: new Date().toISOString(),
-          },
-          { onConflict: "usuario_id,caso_id" },
-        );
-        window.dispatchEvent(new CustomEvent("msc:conversas-mudou"));
-      } catch {
-        // marcar leitura é best-effort; não bloqueia a navegação
-      }
-    }
-    navigate({ to: "/casos/$id", params: { id: casoId }, hash: "comentarios" });
-  }
-
-  function toggleGrupo(chave: string) {
-    setColapsados((prev) => {
-      const n = new Set(prev);
-      if (n.has(chave)) n.delete(chave);
-      else n.add(chave);
-      return n;
-    });
-  }
+  // Mensagens da conversa selecionada (ordem cronológica).
+  const conversaSel = useMemo(() => {
+    if (!selecionado) return null;
+    const msgs = comentarios
+      .filter((c) => c.caso_id === selecionado)
+      .slice()
+      .sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+      );
+    const caso = msgs[0]?.casos || null;
+    return { caso, msgs };
+  }, [selecionado, comentarios]);
 
   if (loading) {
     return (
@@ -292,132 +367,165 @@ function ConversasPage() {
         </div>
       }
     >
-      <div className="space-y-6">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div>
-            <h1 className="font-serif text-3xl font-semibold tracking-tight flex items-center gap-2">
-              <MessagesSquare className="h-6 w-6" />
-              Conversas
-              {totalThreadsNaoLidas > 0 && (
-                <Badge className="bg-destructive hover:bg-destructive text-destructive-foreground">
-                  {totalThreadsNaoLidas} não lida
-                  {totalThreadsNaoLidas > 1 ? "s" : ""}
-                </Badge>
-              )}
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Comunicação com os parceiros, agrupada por parceiro.
-            </p>
-          </div>
+      <div className="space-y-4">
+        <div>
+          <h1 className="font-serif text-3xl font-semibold tracking-tight flex items-center gap-2">
+            <MessagesSquare className="h-6 w-6" />
+            Conversas
+            {totalNaoLidas > 0 && (
+              <Badge className="bg-destructive hover:bg-destructive text-destructive-foreground">
+                {totalNaoLidas} não lida{totalNaoLidas > 1 ? "s" : ""}
+              </Badge>
+            )}
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Comunicação com os parceiros, agrupada por parceiro.
+          </p>
         </div>
-
-        <Card>
-          <CardContent className="pt-4">
-            <Label className="text-xs">Buscar</Label>
-            <div className="relative">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                className="pl-8"
-                placeholder="Parceiro, cliente, benefício ou trecho da mensagem..."
-                value={busca}
-                onChange={(e) => setBusca(e.target.value)}
-              />
-            </div>
-          </CardContent>
-        </Card>
 
         {erro && (
           <Card>
-            <CardContent className="py-6 text-center">
-              <AlertCircle className="h-8 w-8 mx-auto text-destructive mb-2" />
+            <CardContent className="py-4 text-center">
+              <AlertCircle className="h-6 w-6 mx-auto text-destructive mb-1" />
               <p className="text-sm text-destructive">{erro}</p>
             </CardContent>
           </Card>
         )}
 
-        {!erro && gruposFiltrados.length === 0 ? (
-          <Card>
-            <CardContent className="py-12 text-center">
-              <MessagesSquare className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
-              <p className="text-sm text-muted-foreground">
-                {grupos.length === 0
-                  ? "Nenhuma conversa ainda. Quando um parceiro comentar num caso, aparece aqui."
-                  : "Nenhuma conversa encontrada com a busca aplicada."}
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-4">
-            {gruposFiltrados.map((g) => {
-              const chave = g.parceiroId || "__interno__";
-              const colapsado = colapsados.has(chave);
-              return (
-                <Card key={chave}>
-                  <button
-                    type="button"
-                    onClick={() => toggleGrupo(chave)}
-                    className="flex w-full items-center gap-2 p-4 text-left hover:bg-muted/40 transition-colors"
-                  >
-                    {colapsado ? (
-                      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    ) : (
-                      <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    )}
-                    <UserRound className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <span className="font-medium">{g.parceiroNome}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {g.threads.length} conversa{g.threads.length > 1 ? "s" : ""}
-                    </span>
-                    {g.naoLidas > 0 && (
-                      <Badge className="ml-auto bg-destructive hover:bg-destructive text-destructive-foreground">
-                        {g.naoLidas > 99 ? "99+" : g.naoLidas}
-                      </Badge>
-                    )}
-                  </button>
-                  {!colapsado && (
-                    <CardContent className="p-0">
-                      <ul className="divide-y border-t">
-                        {g.threads.map((t) => (
-                          <ThreadItem key={t.caso.id} thread={t} onAbrir={abrirThread} />
-                        ))}
-                      </ul>
-                    </CardContent>
-                  )}
-                </Card>
-              );
-            })}
+        <div className="flex gap-4 items-start">
+          {/* Lista (esconde no mobile quando há conversa aberta) */}
+          <div
+            className={
+              (selecionado ? "hidden md:flex" : "flex") +
+              " flex-col gap-3 w-full md:w-[360px] shrink-0"
+            }
+          >
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                className="pl-8"
+                placeholder="Parceiro, cliente ou mensagem..."
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+              />
+            </div>
+
+            {gruposFiltrados.length === 0 ? (
+              <Card>
+                <CardContent className="py-10 text-center">
+                  <MessagesSquare className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                  <p className="text-sm text-muted-foreground">
+                    {grupos.length === 0
+                      ? "Nenhuma conversa ainda. Quando um parceiro comentar num caso, aparece aqui."
+                      : "Nada encontrado com a busca."}
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-3">
+                {gruposFiltrados.map((g) => {
+                  const chave = g.parceiroId || "__interno__";
+                  const colapsado = colapsados.has(chave);
+                  return (
+                    <Card key={chave}>
+                      <button
+                        type="button"
+                        onClick={() => toggleGrupo(chave)}
+                        className="flex w-full items-center gap-2 p-3 text-left hover:bg-muted/40 transition-colors"
+                      >
+                        {colapsado ? (
+                          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        ) : (
+                          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        )}
+                        <UserRound className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="font-medium text-sm truncate">{g.parceiroNome}</span>
+                        {g.naoLidas > 0 && (
+                          <Badge className="ml-auto bg-destructive hover:bg-destructive text-destructive-foreground">
+                            {g.naoLidas > 99 ? "99+" : g.naoLidas}
+                          </Badge>
+                        )}
+                      </button>
+                      {!colapsado && (
+                        <CardContent className="p-0">
+                          <ul className="divide-y border-t">
+                            {g.threads.map((t) => (
+                              <ThreadItem
+                                key={t.caso.id}
+                                thread={t}
+                                ativo={t.caso.id === selecionado}
+                                onAbrir={abrirThread}
+                              />
+                            ))}
+                          </ul>
+                        </CardContent>
+                      )}
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
           </div>
-        )}
+
+          {/* Painel da conversa */}
+          <div className={(selecionado ? "flex" : "hidden md:flex") + " flex-1 min-w-0"}>
+            {conversaSel && conversaSel.caso ? (
+              <ConversaPanel
+                caso={conversaSel.caso}
+                msgs={conversaSel.msgs}
+                usuarioId={usuarioId}
+                nomePorUsuario={nomePorUsuario}
+                parceiroIds={parceiroIds}
+                resposta={resposta}
+                setResposta={setResposta}
+                enviando={enviando}
+                onEnviar={enviarResposta}
+                onVoltar={() => setSelecionado(null)}
+              />
+            ) : (
+              <Card className="w-full">
+                <CardContent className="py-20 text-center">
+                  <MessagesSquare className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
+                  <p className="text-sm text-muted-foreground">
+                    Escolha uma conversa à esquerda para ler e responder.
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </div>
       </div>
     </ClientOnly>
   );
 }
 
 // ===========================================================================
-// Sub-componente: ThreadItem
+// ThreadItem
 // ===========================================================================
 
 interface ThreadItemProps {
   thread: Thread;
+  ativo: boolean;
   onAbrir: (casoId: string) => void;
 }
 
-function ThreadItem(props: ThreadItemProps) {
-  const { thread, onAbrir } = props;
-  const { caso, ultimo, total, naoLidas } = thread;
+function ThreadItem({ thread, ativo, onAbrir }: ThreadItemProps) {
+  const { caso, ultimo, naoLidas } = thread;
   const nomeCliente = caso.clientes ? caso.clientes.nome : "(cliente sem nome)";
-
   return (
     <li>
       <button
         type="button"
         onClick={() => onAbrir(caso.id)}
-        className="block w-full text-left hover:bg-muted/40 transition-colors"
+        className={
+          "block w-full text-left transition-colors " +
+          (ativo ? "bg-muted" : "hover:bg-muted/40")
+        }
       >
-        <div className="flex items-start gap-3 p-4">
+        <div className="flex items-start gap-3 p-3">
           <div
             className={
-              "flex h-10 w-10 shrink-0 items-center justify-center rounded-full " +
+              "flex h-9 w-9 shrink-0 items-center justify-center rounded-full " +
               (naoLidas > 0
                 ? "bg-primary text-primary-foreground"
                 : "bg-muted text-muted-foreground")
@@ -427,12 +535,7 @@ function ThreadItem(props: ThreadItemProps) {
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 min-w-0">
-                <p className="text-sm font-medium truncate">{nomeCliente}</p>
-                <Badge variant="outline" className="text-xs shrink-0">
-                  {FASE_LABEL[caso.fase] || caso.fase}
-                </Badge>
-              </div>
+              <p className="text-sm font-medium truncate">{nomeCliente}</p>
               <div className="flex items-center gap-2 shrink-0">
                 {naoLidas > 0 && (
                   <Badge className="bg-destructive hover:bg-destructive text-destructive-foreground">
@@ -444,24 +547,155 @@ function ThreadItem(props: ThreadItemProps) {
                 </span>
               </div>
             </div>
-            <p className="text-xs text-muted-foreground mt-0.5 truncate">
-              {caso.tipo_beneficio}
-            </p>
             <p
               className={
-                "text-sm mt-1 line-clamp-2 " +
+                "text-sm mt-0.5 line-clamp-1 " +
                 (naoLidas > 0 ? "text-foreground font-medium" : "text-muted-foreground")
               }
-              title={ultimo.texto}
             >
-              {truncar(ultimo.texto, 200)}
-            </p>
-            <p className="text-[10px] text-muted-foreground mt-1">
-              {total} {total > 1 ? "mensagens" : "mensagem"}
+              {truncar(ultimo.texto, 120)}
             </p>
           </div>
         </div>
       </button>
     </li>
+  );
+}
+
+// ===========================================================================
+// ConversaPanel
+// ===========================================================================
+
+interface ConversaPanelProps {
+  caso: CasoLite;
+  msgs: Array<ComentarioComCaso>;
+  usuarioId: string | null;
+  nomePorUsuario: Map<string, string>;
+  parceiroIds: Set<string>;
+  resposta: string;
+  setResposta: (v: string) => void;
+  enviando: boolean;
+  onEnviar: () => void;
+  onVoltar: () => void;
+}
+
+function ConversaPanel(props: ConversaPanelProps) {
+  const {
+    caso,
+    msgs,
+    usuarioId,
+    nomePorUsuario,
+    parceiroIds,
+    resposta,
+    setResposta,
+    enviando,
+    onEnviar,
+    onVoltar,
+  } = props;
+  const fimRef = useRef<HTMLDivElement>(null);
+  const nomeCliente = caso.clientes ? caso.clientes.nome : "(cliente sem nome)";
+
+  useEffect(() => {
+    fimRef.current?.scrollIntoView({ block: "end" });
+  }, [msgs.length]);
+
+  return (
+    <Card className="w-full flex flex-col" style={{ maxHeight: "calc(100vh - 12rem)" }}>
+      <div className="flex items-center gap-2 p-3 border-b">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 md:hidden"
+          onClick={onVoltar}
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <p className="font-medium truncate">{nomeCliente}</p>
+            <Badge variant="outline" className="text-xs shrink-0">
+              {FASE_LABEL[caso.fase] || caso.fase}
+            </Badge>
+          </div>
+          <p className="text-xs text-muted-foreground truncate">{caso.tipo_beneficio}</p>
+        </div>
+        <Link
+          to="/casos/$id"
+          params={{ id: caso.id }}
+          className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 shrink-0"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">Abrir caso</span>
+        </Link>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-3 space-y-2 min-h-[240px]">
+        {msgs.map((m) => {
+          const meu = m.autor_id === usuarioId;
+          const autorNome = m.autor_id
+            ? nomePorUsuario.get(m.autor_id) || "Usuário"
+            : "—";
+          const ehParceiro = m.autor_id ? parceiroIds.has(m.autor_id) : false;
+          return (
+            <div key={m.id} className={"flex " + (meu ? "justify-end" : "justify-start")}>
+              <div
+                className={
+                  "max-w-[80%] rounded-lg px-3 py-2 " +
+                  (meu
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-foreground")
+                }
+              >
+                {!meu && (
+                  <p className="text-[11px] font-medium mb-0.5 opacity-80">
+                    {autorNome}
+                    {ehParceiro ? " · parceiro" : ""}
+                  </p>
+                )}
+                <p className="text-sm whitespace-pre-wrap break-words">{m.texto}</p>
+                <p
+                  className={
+                    "text-[10px] mt-1 " +
+                    (meu ? "text-primary-foreground/70" : "text-muted-foreground")
+                  }
+                >
+                  {formatHora(m.created_at)}
+                </p>
+              </div>
+            </div>
+          );
+        })}
+        <div ref={fimRef} />
+      </div>
+
+      <div className="border-t p-3">
+        <Label className="sr-only">Responder</Label>
+        <div className="flex items-end gap-2">
+          <Textarea
+            rows={2}
+            placeholder="Escreva uma resposta..."
+            value={resposta}
+            onChange={(e) => setResposta(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                onEnviar();
+              }
+            }}
+            className="resize-none"
+          />
+          <Button onClick={onEnviar} disabled={enviando || !resposta.trim()}>
+            {enviando ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
+        <p className="text-[10px] text-muted-foreground mt-1">
+          Enter + Ctrl/⌘ envia. A mensagem vira um comentário no caso e notifica a outra parte.
+        </p>
+      </div>
+    </Card>
   );
 }

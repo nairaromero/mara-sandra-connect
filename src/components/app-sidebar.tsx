@@ -172,12 +172,22 @@ export function AppSidebar() {
     }
     calc();
     const t = setInterval(calc, 60000);
+    // Tempo real: recalcula na hora quando chega comentário novo (fase 3).
+    const canal = supabase
+      .channel("sidebar-conversas")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "comentarios" },
+        () => calc(),
+      )
+      .subscribe();
     if (typeof window !== "undefined") {
       window.addEventListener("msc:conversas-mudou", calc);
     }
     return () => {
       vivo = false;
       clearInterval(t);
+      supabase.removeChannel(canal);
       if (typeof window !== "undefined") {
         window.removeEventListener("msc:conversas-mudou", calc);
       }

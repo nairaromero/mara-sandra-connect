@@ -92,20 +92,19 @@ dedicada — escala melhor e não incha o comentário.
 - **Pendente de dado real:** hoje os únicos comentários são rascunhos, então a
   caixa mostra o estado vazio até os parceiros enviarem de fato.
 
-### Fase 2 — Agrupar por parceiro *(a organização aprovada)*
-- Nível 1: lista de parceiros com contagem de não-lido; nível 2: threads por cliente.
-- Filtro/busca por parceiro e por cliente.
-- Item na **sidebar** ("Conversas") com **badge de não-lidas**, igual ao de
-  "Documentos pendentes" que já existe. Replicar o padrão de `app-sidebar.tsx`:
-  - Estado `conversasBadge` (hoje há `docBadge` e `pubBadge`), contagem de threads
-    com comentário novo (`created_at > last_read_at`, autor ≠ eu).
-  - Atualiza via evento `window` (hoje: `msc:solicitacoes-mudou`) — disparar um
-    `msc:conversas-mudou` ao abrir/ler uma thread, pra zerar/atualizar na hora.
-  - Render igual: número no badge dourado, "9+" acima de 9.
+### Fase 2 — Agrupar por parceiro + responder na caixa ✅ *(2026-08-03)*
+- Agrupamento por parceiro (dois níveis) + badge na sidebar: entregues junto na fase 1.
+- **Novo: painel de conversa + responder inline.** Clicar numa thread abre a
+  conversa (histórico em balões, minha mensagem à direita / a do parceiro à
+  esquerda) e um campo de resposta **dentro da própria caixa** — não precisa mais
+  ir pro caso. Enviar grava um `comentario` (rascunho=false) e dispara
+  `notify-novo-comentario`. Layout duas colunas (lista + conversa) responsivo.
 
-### Fase 3 — Tempo real
-- Trocar polling de 30s por **Supabase Realtime** em `comentarios` (chega na hora).
-- Indicador de "digitando"/nova mensagem opcional.
+### Fase 3 — Tempo real ✅ *(2026-08-03)*
+- `comentarios` adicionada à publicação `supabase_realtime` (prod + staging).
+- **Supabase Realtime** na caixa e no badge da sidebar: comentário novo aparece
+  na hora e o badge recalcula sozinho — sem esperar o polling.
+- Indicador de "digitando" fica como opcional pra depois.
 
 ### Fase 4 — Sininho vira atalho
 - Notificação de comentário deep-linka pra thread na caixa.
