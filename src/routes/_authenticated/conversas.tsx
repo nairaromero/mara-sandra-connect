@@ -15,6 +15,7 @@ import {
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { notificarEquipe } from "@/lib/notificar";
 import { ClientOnly } from "@/components/client-only";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -248,11 +249,22 @@ function ConversasPage() {
       setResposta("");
       await carregar();
       await marcarLida(selecionado);
-      // Notifica a outra parte (e-mail/notificação). Best-effort.
+      // Notifica a outra parte por e-mail (com anti-repique). Best-effort.
       if (data?.id) {
         supabase.functions
           .invoke("notify-novo-comentario", { body: { comentario_id: data.id } })
           .catch(() => {});
+      }
+      // Se quem enviou foi o parceiro, toca o sino da equipe (interno) —
+      // consistente com o chat do caso.
+      if (usuario?.tipo === "parceiro" && data?.id) {
+        notificarEquipe({
+          tipo: "comentario",
+          titulo: `Comentário de ${usuario.nome || "parceiro"}`,
+          descricao: texto.slice(0, 140),
+          caso_id: selecionado,
+          foco_id: data.id,
+        });
       }
     } catch (err) {
       const errObj = err as { message?: string };
