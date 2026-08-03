@@ -308,9 +308,26 @@ serve(async (req) => {
     });
   }
 
-  // 3) Envia email pra cada destinatario
+  // 3) Envia email pra cada destinatario — com ANTI-REPIQUE de 30 min por
+  //    (caso, destinatario): mensagens em sequencia nao re-emailam a mesma
+  //    pessoa dentro da janela. Evita spam no chat (WhatsApp-style).
+  const THROTTLE_MIN = 30;
+  const agora = Date.now();
   const resultados: Array<{ email: string; ok: boolean; detail?: string }> = [];
   for (const dest of destinatarios) {
+    // pula se ja emailamos esse destinatario neste caso ha menos de 30 min
+    const { data: th } = await supabase
+      .from("comentario_email_throttle")
+      .select("ultimo_envio")
+      .eq("caso_id", c.casos.id)
+      .eq("destinatario_email", dest.email)
+      .maybeSingle();
+    const ultimo = (th as { ultimo_envio?: string } | null)?.ultimo_envio;
+    if (ultimo && (agora - new Date(ultimo).getTime()) / 60000 < THROTTLE_MIN) {
+      resultados.push({ email: dest.email, ok: false, detail: "anti-repique (30min)" });
+      continue;
+    }
+
     const { html, text } = renderEmail({
       destinatarioNome: dest.nome,
       autorNome,
@@ -343,6 +360,15 @@ serve(async (req) => {
       const detail = await resp.text();
       resultados.push({ email: dest.email, ok: false, detail });
     } else {
+      // registra o envio pra a janela de anti-repique
+      await supabase.from("comentario_email_throttle").upsert(
+        {
+          caso_id: c.casos.id,
+          destinatario_email: dest.email,
+          ultimo_envio: new Date().toISOString(),
+        },
+        { onConflict: "caso_id,destinatario_email" },
+      );
       resultados.push({ email: dest.email, ok: true });
     }
   }
