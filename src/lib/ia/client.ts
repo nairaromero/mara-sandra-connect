@@ -1,7 +1,7 @@
 // Wrappers tipados das edge functions do plugin de IA.
 // supabase.functions.invoke ja anexa o JWT da sessao automaticamente.
 
-import { supabase } from "@/lib/supabase";
+import { supabase, SUPABASE_URL } from "@/lib/supabase";
 
 export type IaProviderInfo = { label: string; models: string[] };
 
@@ -125,7 +125,8 @@ export const iaAssistant = {
 // --- Superficie B (Claude/ChatGPT externos) ---
 
 // URL do servidor MCP (espelha o projeto Supabase usado pelo app).
-export const IA_MCP_URL = "https://llugytkdsfsrciavhrfw.supabase.co/functions/v1/ia-mcp";
+// Deriva do projeto do ambiente (produção ou staging) — ver src/lib/supabase.ts.
+export const IA_MCP_URL = `${SUPABASE_URL}/functions/v1/ia-mcp`;
 
 export type IaToken = {
   id: string;

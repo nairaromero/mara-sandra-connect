@@ -32,14 +32,23 @@ function pega(nome: string, obrigatorio = true): string {
   return v;
 }
 
+const supabaseUrl = pega("VITE_SUPABASE_URL");
+// Ambiente STAGING (padrão desde a separação dos bancos): a service key e a
+// senha dos usuários sintéticos são as do projeto de staging. Se algum dia o
+// VITE_SUPABASE_URL local voltar pra produção, os testes seguem coerentes.
+const ehStaging = supabaseUrl.includes("alhqbpbekmxpoibrrnbi");
+
 export const ENV = {
-  supabaseUrl: pega("VITE_SUPABASE_URL"),
+  supabaseUrl,
   anonKey: pega("VITE_SUPABASE_PUBLISHABLE_KEY"),
-  serviceRoleKey: pega("SUPABASE_SERVICE_ROLE_KEY"),
+  serviceRoleKey: ehStaging
+    ? pega("STAGING_SERVICE_ROLE_KEY")
+    : pega("SUPABASE_SERVICE_ROLE_KEY"),
   // Usuário interno dedicado aos testes (criado pelo auth.setup se não existir).
   internoEmail: process.env.E2E_INTERNO_EMAIL ?? "e2e+interno@marasandraconnect.com",
-  internoPassword: pega("E2E_INTERNO_PASSWORD"),
-  // Parceira de teste que já existe em produção (login por magic link).
+  // No staging todos os usuários sintéticos usam a mesma senha do espelho.
+  internoPassword: ehStaging ? pega("STAGING_SYNTH_PASSWORD") : pega("E2E_INTERNO_PASSWORD"),
+  // Parceira de teste (login por magic link; e-mail preservado no espelho).
   parceiroEmail: process.env.E2E_PARCEIRO_EMAIL ?? "nairaromerovian+isabella@gmail.com",
 };
 

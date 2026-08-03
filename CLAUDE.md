@@ -17,11 +17,11 @@ feature branch  ──merge──▶  staging  ──merge (após validação)�
 
 **Pra abrir PR:** sempre `base: staging ← compare: <minha-branch>`. NÃO abrir PR direto pra `main` — só Naira merge `staging → main` quando tudo estiver pronto pra produção.
 
-**Mudanças que vão direto pra prod (sem passar por staging):**
-- Migrations de DB (já são aplicadas em prod no momento que `node scripts/msc-sql.mjs` roda, porque o banco é único).
-- Edge function deploys (mesmo motivo).
-
-Frontend (Cloudflare Pages) é o que tem o workflow real de branches. Backend é prod único.
+**Bancos separados desde 2026-08-03 (ver planning/AMBIENTES.md):**
+- Produção: projeto Supabase `llugytkdsfsrciavhrfw`. Staging/dev/E2E: projeto `alhqbpbekmxpoibrrnbi` (espelho anonimizado semanal).
+- Migrations: rodar PRIMEIRO `node scripts/msc-sql.mjs --staging --file ...`, validar, depois sem a flag (produção).
+- Edge functions: deploy no staging (`--project-ref alhqbpbekmxpoibrrnbi`) antes de produção.
+- Build de branch ≠ main no Cloudflare aponta pro banco de staging automaticamente (vite.config.ts).
 
 ## Rotina deploy
 
@@ -34,7 +34,7 @@ Frontend (Cloudflare Pages) é o que tem o workflow real de branches. Backend é
 ## DB
 
 - Toda alteração via migration em `planning/sql-migrations/migration_*.sql`.
-- Apply via `node scripts/msc-sql.mjs --file planning/sql-migrations/migration_xxx.sql`.
+- Apply: `node scripts/msc-sql.mjs --staging --file <arq>` (staging primeiro), depois sem a flag (produção).
 - Migrations devem ser idempotentes quando possível.
 
 ## IA (importante)
