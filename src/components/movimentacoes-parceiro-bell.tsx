@@ -304,40 +304,55 @@ export function MovimentacoesParceiroBell() {
                 {itens.map((m) => {
                   const cfg = CFG[m.tipo];
                   const Icon = cfg.icon;
+                  const fecharEDispensar = () => {
+                    dispensar(m.id);
+                    setOpen(false);
+                  };
+                  const corpo = (
+                    <div className="flex items-start gap-2">
+                      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate">
+                          {m.cliente}
+                          <span className="text-xs font-normal text-muted-foreground">
+                            {" · " + cfg.label}
+                          </span>
+                        </p>
+                        <p className="text-xs text-muted-foreground line-clamp-2">
+                          {m.texto}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          {tempoRelativo(m.created_at)}
+                        </p>
+                      </div>
+                      <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-destructive" />
+                    </div>
+                  );
                   return (
                     <li
                       key={m.id}
                       className="p-3 hover:bg-muted/50 transition-colors"
                     >
-                      <Link
-                        to="/casos/$id"
-                        params={{ id: m.caso_id }}
-                        search={{ tab: cfg.tab, foco: m.refId }}
-                        onClick={() => {
-                          dispensar(m.id);
-                          setOpen(false);
-                        }}
-                        className="block"
-                      >
-                        <div className="flex items-start gap-2">
-                          <Icon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium truncate">
-                              {m.cliente}
-                              <span className="text-xs font-normal text-muted-foreground">
-                                {" · " + cfg.label}
-                              </span>
-                            </p>
-                            <p className="text-xs text-muted-foreground line-clamp-2">
-                              {m.texto}
-                            </p>
-                            <p className="text-[11px] text-muted-foreground mt-0.5">
-                              {tempoRelativo(m.created_at)}
-                            </p>
-                          </div>
-                          <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-destructive" />
-                        </div>
-                      </Link>
+                      {m.tipo === "comentario" ? (
+                        <Link
+                          to="/conversas"
+                          search={{ caso: m.caso_id }}
+                          onClick={fecharEDispensar}
+                          className="block"
+                        >
+                          {corpo}
+                        </Link>
+                      ) : (
+                        <Link
+                          to="/casos/$id"
+                          params={{ id: m.caso_id }}
+                          search={{ tab: cfg.tab, foco: m.refId }}
+                          onClick={fecharEDispensar}
+                          className="block"
+                        >
+                          {corpo}
+                        </Link>
+                      )}
                     </li>
                   );
                 })}

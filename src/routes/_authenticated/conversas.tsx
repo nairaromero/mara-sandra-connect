@@ -25,6 +25,10 @@ import { Card, CardContent } from "@/components/ui/card";
 
 export const Route = createFileRoute("/_authenticated/conversas")({
   component: ConversasPage,
+  // ?caso=<id> abre direto a conversa daquele caso (deep-link do sininho, fase 4).
+  validateSearch: (s: Record<string, unknown>): { caso?: string } => ({
+    caso: typeof s.caso === "string" ? s.caso : undefined,
+  }),
 });
 
 // ===========================================================================
@@ -115,6 +119,8 @@ const FASE_LABEL: Record<string, string> = {
 function ConversasPage() {
   const { usuario } = useAuth();
   const usuarioId = usuario ? usuario.id : null;
+  const isParceiro = usuario?.tipo === "parceiro";
+  const search = Route.useSearch();
 
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
@@ -212,6 +218,14 @@ function ConversasPage() {
     },
     [usuarioId],
   );
+
+  // Deep-link do sininho: ?caso=<id> abre a conversa daquele caso.
+  useEffect(() => {
+    if (search.caso) {
+      setSelecionado(search.caso);
+      marcarLida(search.caso);
+    }
+  }, [search.caso, marcarLida]);
 
   function abrirThread(casoId: string) {
     setSelecionado(casoId);
@@ -419,6 +433,28 @@ function ConversasPage() {
                       ? "Nenhuma conversa ainda. Quando um parceiro comentar num caso, aparece aqui."
                       : "Nada encontrado com a busca."}
                   </p>
+                </CardContent>
+              </Card>
+            ) : isParceiro ? (
+              <Card>
+                <CardContent className="p-0">
+                  <ul className="divide-y">
+                    {gruposFiltrados
+                      .flatMap((g) => g.threads)
+                      .sort(
+                        (a, b) =>
+                          new Date(b.ultimo.created_at).getTime() -
+                          new Date(a.ultimo.created_at).getTime(),
+                      )
+                      .map((t) => (
+                        <ThreadItem
+                          key={t.caso.id}
+                          thread={t}
+                          ativo={t.caso.id === selecionado}
+                          onAbrir={abrirThread}
+                        />
+                      ))}
+                  </ul>
                 </CardContent>
               </Card>
             ) : (
