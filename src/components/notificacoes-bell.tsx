@@ -264,7 +264,21 @@ export function NotificacoesBell() {
                       key={n.id}
                       className="p-3 hover:bg-muted/50 transition-colors"
                     >
-                      {n.caso_id
+                      {n.tipo === "comentario" && n.caso_id
+                        ? (
+                          <Link
+                            to="/conversas"
+                            search={{ caso: n.caso_id }}
+                            onClick={() => {
+                              dispensar(n.id);
+                              setOpen(false);
+                            }}
+                            className="block"
+                          >
+                            {corpo}
+                          </Link>
+                        )
+                        : n.caso_id
                         ? (
                           <Link
                             to="/casos/$id"

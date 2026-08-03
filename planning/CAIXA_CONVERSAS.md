@@ -106,9 +106,17 @@ dedicada — escala melhor e não incha o comentário.
   na hora e o badge recalcula sozinho — sem esperar o polling.
 - Indicador de "digitando" fica como opcional pra depois.
 
-### Fase 4 — Sininho vira atalho
-- Notificação de comentário deep-linka pra thread na caixa.
-- Opcional: silenciar o sininho pra quem já acompanha pela caixa.
+### Fase 4 — Sininho vira atalho ✅ *(2026-08-03)*
+- Notificação/movimentação de **comentário** deep-linka pra `/conversas?caso=<id>`,
+  abrindo a thread direto na caixa (antes ia pra aba de comentários do caso).
+- Vale pros **dois sininhos**: `notificacoes-bell` (interno) e
+  `movimentacoes-parceiro-bell` (parceiro).
+- A rota `/conversas` aceita `?caso=` (`validateSearch`) e abre a conversa.
+
+### Parceiro *(2026-08-03)*
+- O parceiro já tinha o item "Conversas" (via `itemsBase`). Agora a caixa dele
+  mostra a **lista plana** das conversas (agrupar por parceiro não faz sentido
+  quando o usuário É o parceiro) — ele vê e responde igual, RLS escopa aos casos dele.
 
 ---
 
