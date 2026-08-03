@@ -1,0 +1,329 @@
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+import {
+  Loader2,
+  Send,
+  AlertCircle,
+  Stethoscope,
+  ExternalLink,
+  Inbox,
+} from "lucide-react";
+
+import { useAuth } from "@/hooks/use-auth";
+import { supabase } from "@/lib/supabase";
+import { ClientOnly } from "@/components/client-only";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Card, CardContent } from "@/components/ui/card";
+
+export const Route = createFileRoute("/_authenticated/a-enviar")({
+  component: AEnviarPage,
+});
+
+// ===========================================================================
+// Tipos
+// ===========================================================================
+
+interface ClienteLite {
+  id: string;
+  nome: string;
+}
+
+interface CasoLite {
+  id: string;
+  tipo_beneficio: string;
+  fase: string;
+  parceiro_id: string | null;
+  clientes: ClienteLite | null;
+}
+
+interface RascunhoRow {
+  id: string;
+  caso_id: string;
+  texto: string;
+  created_at: string;
+  andamento_id: string | null;
+  evento_id: string | null;
+  casos: CasoLite | null;
+}
+
+// ===========================================================================
+// Helpers
+// ===========================================================================
+
+const FASE_LABEL: Record<string, string> = {
+  analise: "Em análise",
+  admin: "Administrativo",
+  judicial: "Judicial",
+  finalizado: "Finalizado",
+};
+
+function formatRelativo(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "-";
+  const diffMs = Date.now() - d.getTime();
+  const min = Math.floor(diffMs / (1000 * 60));
+  if (min < 1) return "agora";
+  if (min < 60) return min + " min atrás";
+  const horas = Math.floor(min / 60);
+  if (horas < 24) return horas + "h atrás";
+  const dias = Math.floor(horas / 24);
+  if (dias < 7) return dias + "d atrás";
+  return d.toLocaleDateString("pt-BR");
+}
+
+// ===========================================================================
+// Componente principal
+// ===========================================================================
+
+function AEnviarPage() {
+  const { usuario } = useAuth();
+  const usuarioId = usuario ? usuario.id : null;
+  const isInterno = usuario?.tipo === "interno";
+
+  const [loading, setLoading] = useState(true);
+  const [erro, setErro] = useState<string | null>(null);
+  const [rascunhos, setRascunhos] = useState<Array<RascunhoRow>>([]);
+  // Texto editado por linha (id -> texto). Ausente = usa o texto original.
+  const [editados, setEditados] = useState<Record<string, string>>({});
+  const [enviandoId, setEnviandoId] = useState<string | null>(null);
+  const jaCarregou = useRef(false);
+
+  const carregar = useCallback(async () => {
+    if (!jaCarregou.current) setLoading(true);
+    setErro(null);
+    try {
+      const resp = await supabase
+        .from("comentarios")
+        .select(
+          "id, caso_id, texto, created_at, andamento_id, evento_id, casos(id, tipo_beneficio, fase, parceiro_id, clientes(id, nome))",
+        )
+        .eq("rascunho", true)
+        .order("created_at", { ascending: false });
+      if (resp.error) throw resp.error;
+      setRascunhos((resp.data || []) as unknown as Array<RascunhoRow>);
+    } catch (err) {
+      const e = err as { message?: string };
+      setErro(e.message || "Erro ao carregar rascunhos");
+    } finally {
+      setLoading(false);
+      jaCarregou.current = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    carregar();
+  }, [carregar]);
+
+  // Reserva: recarrega periodicamente e quando outra tela mexe em rascunho.
+  useEffect(() => {
+    const t = setInterval(carregar, 60000);
+    if (typeof window !== "undefined") {
+      window.addEventListener("msc:rascunhos-mudou", carregar);
+    }
+    return () => {
+      clearInterval(t);
+      if (typeof window !== "undefined") {
+        window.removeEventListener("msc:rascunhos-mudou", carregar);
+      }
+    };
+  }, [carregar]);
+
+  async function enviar(row: RascunhoRow) {
+    const texto = (editados[row.id] ?? row.texto).trim();
+    if (!texto) {
+      toast.error("O comentário está vazio.");
+      return;
+    }
+    setEnviandoId(row.id);
+    try {
+      // Enviar = rascunho vira comentário normal (autor = quem enviou). Isso
+      // dispara notify-novo-comentario (e-mail ao parceiro) e o WhatsApp.
+      const upd = await supabase
+        .from("comentarios")
+        .update({ texto, rascunho: false, autor_id: usuarioId })
+        .eq("id", row.id);
+      if (upd.error) throw upd.error;
+
+      // E-mail fire-and-forget; não trava a UI.
+      supabase.functions
+        .invoke("notify-novo-comentario", { body: { comentario_id: row.id } })
+        .then((r) => {
+          if (r.error) console.warn("notify-novo-comentario:", r.error);
+        });
+
+      // Some da fila + avisa sidebar (badge) e caixa de conversas.
+      setRascunhos((atual) => atual.filter((r) => r.id !== row.id));
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("msc:rascunhos-mudou"));
+        window.dispatchEvent(new Event("msc:conversas-mudou"));
+      }
+      const nome = row.casos?.clientes?.nome;
+      toast.success(nome ? `Enviado ao parceiro de ${nome}.` : "Comentário enviado.");
+    } catch (err) {
+      const e = err as { message?: string };
+      toast.error(e.message || "Não foi possível enviar.");
+    } finally {
+      setEnviandoId(null);
+    }
+  }
+
+  if (!isInterno) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center">
+          <AlertCircle className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">
+            Área restrita à equipe interna.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="flex h-96 items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return (
+    <ClientOnly
+      fallback={
+        <div className="flex h-96 items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      }
+    >
+      <div className="space-y-6">
+        <div>
+          <h1 className="flex items-center gap-2 font-serif text-3xl font-semibold tracking-tight">
+            <Send className="h-6 w-6" />
+            A enviar
+            {rascunhos.length > 0 && (
+              <Badge className="bg-destructive text-destructive-foreground hover:bg-destructive">
+                {rascunhos.length}
+              </Badge>
+            )}
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Rascunhos de aviso aguardando revisão e envio ao parceiro. Revise o
+            texto e clique em <strong>Enviar ao parceiro</strong> — só aí o
+            e-mail é disparado e fica registrado na conversa.
+          </p>
+        </div>
+
+        {erro && (
+          <Card>
+            <CardContent className="py-6 text-center">
+              <AlertCircle className="mx-auto mb-2 h-8 w-8 text-destructive" />
+              <p className="text-sm text-destructive">{erro}</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {!erro && rascunhos.length === 0 ? (
+          <Card>
+            <CardContent className="py-12 text-center">
+              <Inbox className="mx-auto mb-2 h-10 w-10 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">
+                Nenhum rascunho aguardando envio.
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <ul className="space-y-4">
+            {rascunhos.map((row) => {
+              const nome = row.casos?.clientes?.nome || "(cliente sem nome)";
+              const ehPericia = !!(row.andamento_id || row.evento_id);
+              const semParceiro = !row.casos?.parceiro_id;
+              const enviando = enviandoId === row.id;
+              return (
+                <li key={row.id}>
+                  <Card>
+                    <CardContent className="space-y-3 pt-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-medium">{nome}</span>
+                          {row.casos && (
+                            <Badge variant="outline" className="text-xs">
+                              {FASE_LABEL[row.casos.fase] || row.casos.fase}
+                            </Badge>
+                          )}
+                          {ehPericia && (
+                            <Badge className="border-emerald-500/50 bg-emerald-50 text-emerald-900 hover:bg-emerald-50 dark:bg-emerald-950 dark:text-emerald-200">
+                              <Stethoscope className="mr-1 h-3 w-3" />
+                              Perícia
+                            </Badge>
+                          )}
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {formatRelativo(row.created_at)}
+                        </span>
+                      </div>
+
+                      {row.casos && (
+                        <p className="text-xs text-muted-foreground">
+                          {row.casos.tipo_beneficio}
+                        </p>
+                      )}
+
+                      <Textarea
+                        value={editados[row.id] ?? row.texto}
+                        onChange={(e) =>
+                          setEditados((m) => ({ ...m, [row.id]: e.target.value }))
+                        }
+                        rows={5}
+                        className="text-sm"
+                      />
+
+                      {semParceiro && (
+                        <p className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-500">
+                          <AlertCircle className="h-3.5 w-3.5" />
+                          Este caso não tem parceiro vinculado — nenhum e-mail
+                          será enviado (vira comentário interno).
+                        </p>
+                      )}
+
+                      <div className="flex items-center justify-between gap-2">
+                        {row.casos ? (
+                          <Link
+                            to="/casos/$id"
+                            params={{ id: row.casos.id }}
+                            search={{ tab: "comentarios" }}
+                            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                            Abrir caso
+                          </Link>
+                        ) : (
+                          <span />
+                        )}
+                        <Button
+                          size="sm"
+                          onClick={() => enviar(row)}
+                          disabled={enviando}
+                        >
+                          {enviando ? (
+                            <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                          ) : (
+                            <Send className="mr-1 h-4 w-4" />
+                          )}
+                          {semParceiro ? "Publicar comentário" : "Enviar ao parceiro"}
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </ClientOnly>
+  );
+}
