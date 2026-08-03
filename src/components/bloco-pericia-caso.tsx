@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { CalendarClock, Stethoscope } from "lucide-react";
+import {
+  CalendarClock,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Stethoscope,
+} from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
 import {
@@ -85,61 +91,103 @@ export function BlocoPericiaCaso(props: BlocoPericiaCasoProps) {
     carregar();
   }, [carregar, recarregarSinal]);
 
+  const [mostrarRealizadas, setMostrarRealizadas] = useState(false);
+
   // Enquanto não carregou, ou sem perícia: não renderiza nada (bloco discreto).
   if (!carregado || pericias.length === 0) return null;
 
-  // Próximas primeiro (as futuras no topo, ordenadas por data).
+  // Ordena por data e separa em próximas (futuras/hoje) e já realizadas.
   const ordenadas = [...pericias].sort(
     (a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime(),
   );
+  const proximas = ordenadas.filter((p) => ehFutura(p.start_at));
+  // Realizadas: mais recentes primeiro (a última perícia feita no topo).
+  const realizadas = ordenadas
+    .filter((p) => !ehFutura(p.start_at))
+    .reverse();
 
   return (
     <div className="rounded-md border bg-card p-3 shadow-sm">
       <div className="mb-2 flex items-center gap-2">
         <Stethoscope className="h-4 w-4 text-muted-foreground" />
         <span className="text-sm font-medium">Perícia</span>
-        {ordenadas.length > 1 && (
+        {proximas.length > 1 && (
           <span className="text-xs text-muted-foreground">
-            ({ordenadas.length})
+            ({proximas.length})
           </span>
         )}
       </div>
-      <ul className="space-y-2">
-        {ordenadas.map((p) => {
-          const futura = ehFutura(p.start_at);
-          return (
-            <li
-              key={p.fonte + ":" + p.id}
-              className={
-                "flex flex-col gap-1 rounded-md border px-3 py-2 text-sm " +
-                classeNatureza(p.natureza) +
-                (futura ? "" : " opacity-70")
-              }
-            >
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded-full bg-black/5 px-2 py-0.5 text-[11px] font-medium dark:bg-white/10">
-                  {rotuloNatureza(p.natureza)}
-                </span>
-                {!futura && (
-                  <span className="text-[11px] font-medium opacity-80">
-                    já realizada
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-1.5 font-medium">
-                <CalendarClock className="h-3.5 w-3.5 shrink-0" />
-                {formatarQuando(p.start_at)}
-              </div>
-              {p.titulo && (
-                <div className="text-xs opacity-90">{p.titulo}</div>
-              )}
-              {p.local && (
-                <div className="text-xs opacity-80">Local: {p.local}</div>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+
+      {proximas.length > 0 ? (
+        <ul className="space-y-2">
+          {proximas.map((p) => (
+            <PericiaItem key={p.fonte + ":" + p.id} pericia={p} />
+          ))}
+        </ul>
+      ) : (
+        realizadas.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            Nenhuma perícia futura agendada.
+          </p>
+        )
+      )}
+
+      {realizadas.length > 0 && (
+        <div className={proximas.length > 0 ? "mt-2" : "mt-1"}>
+          <button
+            type="button"
+            onClick={() => setMostrarRealizadas((v) => !v)}
+            className="flex w-full items-center gap-1.5 rounded-md px-1 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/60"
+          >
+            {mostrarRealizadas ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            Perícias realizadas ({realizadas.length})
+          </button>
+          {mostrarRealizadas && (
+            <ul className="mt-2 space-y-2">
+              {realizadas.map((p) => (
+                <PericiaItem key={p.fonte + ":" + p.id} pericia={p} realizada />
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
+  );
+}
+
+// Um cartão de perícia (usado tanto nas próximas quanto nas realizadas).
+function PericiaItem(props: { pericia: PericiaDoCaso; realizada?: boolean }) {
+  const { pericia: p, realizada } = props;
+  return (
+    <li
+      className={
+        "flex flex-col gap-1 rounded-md border px-3 py-2 text-sm " +
+        classeNatureza(p.natureza) +
+        (realizada ? " opacity-70" : "")
+      }
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="rounded-full bg-black/5 px-2 py-0.5 text-[11px] font-medium dark:bg-white/10">
+          {rotuloNatureza(p.natureza)}
+        </span>
+        {realizada && (
+          <span className="flex items-center gap-1 text-[11px] font-medium opacity-80">
+            <CheckCircle2 className="h-3 w-3" />
+            já realizada
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-1.5 font-medium">
+        <CalendarClock className="h-3.5 w-3.5 shrink-0" />
+        {formatarQuando(p.start_at)}
+      </div>
+      {p.titulo && <div className="text-xs opacity-90">{p.titulo}</div>}
+      {p.local && <div className="text-xs opacity-80">Local: {p.local}</div>}
+    </li>
   );
 }
