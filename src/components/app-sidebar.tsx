@@ -14,6 +14,7 @@ import {
   Tag,
   Handshake,
   Briefcase,
+  MessagesSquare,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import {
@@ -34,11 +35,11 @@ import { useAuth } from "@/hooks/use-auth";
 // interno pra /tarefas e parceiro pra /clientes (home de cada um).
 const itemsBase = [
   { title: "Clientes", url: "/clientes", icon: UserCircle },
+  { title: "Conversas", url: "/conversas", icon: MessagesSquare },
   { title: "Documentos pendentes", url: "/documentos", icon: FileWarning },
   { title: "Publicações", url: "/publicacoes", icon: Newspaper },
-  // "Repasses" e "Conversas" removidas da sidebar mas as rotas /repasses
-  // e /conversas continuam existindo no codigo - decisao de produto
-  // pendente sobre o que fazer com essas paginas no futuro.
+  // "Repasses" removida da sidebar mas a rota /repasses continua existindo
+  // no codigo - decisao de produto pendente.
 ];
 
 // Tarefas/Agenda no topo: sao o dia a dia do interno (Tarefas e a "home").
@@ -140,6 +141,49 @@ export function AppSidebar() {
     };
   }, []);
 
+  // Badge de conversas não lidas (comentários novos por caso desde a última
+  // leitura). Mesmo padrão do docBadge: poll + evento msc:conversas-mudou
+  // disparado pela tela de Conversas ao abrir/ler uma thread. Fase 1 calcula
+  // no cliente (dado pequeno); otimizar com RPC quando escalar.
+  const meuId = usuario?.id ?? null;
+  const [conversasBadge, setConversasBadge] = useState(0);
+  useEffect(() => {
+    let vivo = true;
+    async function calc() {
+      const [comResp, leiResp] = await Promise.all([
+        supabase.from("comentarios").select("caso_id, autor_id, created_at").eq("rascunho", false),
+        supabase.from("conversa_leitura").select("caso_id, last_read_at"),
+      ]);
+      const lmap = new Map<string, string>();
+      for (const r of (leiResp.data || []) as Array<{ caso_id: string; last_read_at: string }>) {
+        lmap.set(r.caso_id, r.last_read_at);
+      }
+      const naoLidos = new Set<string>();
+      for (const c of (comResp.data || []) as Array<{
+        caso_id: string;
+        autor_id: string | null;
+        created_at: string;
+      }>) {
+        if (meuId && c.autor_id === meuId) continue;
+        const lr = lmap.get(c.caso_id);
+        if (!lr || new Date(c.created_at) > new Date(lr)) naoLidos.add(c.caso_id);
+      }
+      if (vivo) setConversasBadge(naoLidos.size);
+    }
+    calc();
+    const t = setInterval(calc, 60000);
+    if (typeof window !== "undefined") {
+      window.addEventListener("msc:conversas-mudou", calc);
+    }
+    return () => {
+      vivo = false;
+      clearInterval(t);
+      if (typeof window !== "undefined") {
+        window.removeEventListener("msc:conversas-mudou", calc);
+      }
+    };
+  }, [meuId]);
+
   return (
     <Sidebar collapsible="icon">
       {/* Faixa dourada sob o logo ecoa a identidade visual MSV. */}
@@ -188,7 +232,9 @@ export function AppSidebar() {
                     ? pubBadge
                     : item.url === "/documentos"
                       ? docBadge
-                      : 0;
+                      : item.url === "/conversas"
+                        ? conversasBadge
+                        : 0;
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
