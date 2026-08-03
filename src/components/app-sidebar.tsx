@@ -15,6 +15,7 @@ import {
   Handshake,
   Briefcase,
   MessagesSquare,
+  Send,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import {
@@ -46,6 +47,7 @@ const itemsBase = [
 const itemsInternosTopo = [
   { title: "Tarefas", url: "/tarefas", icon: ListTodo },
   { title: "Agenda", url: "/agenda", icon: Calendar },
+  { title: "A enviar", url: "/a-enviar", icon: Send },
 ];
 
 // Parceiro: /agenda renderiza a visao restrita (so pericias dos casos dele).
@@ -194,6 +196,46 @@ export function AppSidebar() {
     };
   }, [meuId]);
 
+  // Badge de rascunhos a enviar (avisos de perícia gerados aguardando a equipe
+  // revisar e enviar ao parceiro). Só interno tem rascunho (RLS). Mesmo padrão:
+  // poll + tempo real em comentarios + evento msc:rascunhos-mudou ao enviar.
+  const [rascunhoBadge, setRascunhoBadge] = useState(0);
+  useEffect(() => {
+    if (!isInterno) {
+      setRascunhoBadge(0);
+      return;
+    }
+    let vivo = true;
+    async function calc() {
+      const { count } = await supabase
+        .from("comentarios")
+        .select("id", { count: "exact", head: true })
+        .eq("rascunho", true);
+      if (vivo) setRascunhoBadge(count || 0);
+    }
+    calc();
+    const t = setInterval(calc, 60000);
+    const canal = supabase
+      .channel("sidebar-rascunhos")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "comentarios" },
+        () => calc(),
+      )
+      .subscribe();
+    if (typeof window !== "undefined") {
+      window.addEventListener("msc:rascunhos-mudou", calc);
+    }
+    return () => {
+      vivo = false;
+      clearInterval(t);
+      supabase.removeChannel(canal);
+      if (typeof window !== "undefined") {
+        window.removeEventListener("msc:rascunhos-mudou", calc);
+      }
+    };
+  }, [isInterno]);
+
   return (
     <Sidebar collapsible="icon">
       {/* Faixa dourada sob o logo ecoa a identidade visual MSV. */}
@@ -244,7 +286,9 @@ export function AppSidebar() {
                       ? docBadge
                       : item.url === "/conversas"
                         ? conversasBadge
-                        : 0;
+                        : item.url === "/a-enviar"
+                          ? rascunhoBadge
+                          : 0;
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
