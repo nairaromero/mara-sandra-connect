@@ -1,26 +1,20 @@
-// Agenda do PARCEIRO — só leitura, só PERÍCIAS dos casos dele.
+// Agenda do PARCEIRO — só leitura, só PERÍCIAS dos casos dele, no MESMO
+// calendário mensal da equipe (AgendaMes). Antes era uma lista de próximas/
+// passadas; agora é o calendário, mostrando todas as perícias.
 //
 // Os dados vêm da RPC pericias_do_parceiro() (SECURITY DEFINER): a RLS de
 // agenda_eventos e tarefas é só-interno, então a função devolve a união
-// sanitizada das duas fontes (eventos de agenda + tarefas de perícia),
-// já filtrada por casos.parceiro_id = auth.uid().
+// sanitizada (eventos de agenda + tarefas de perícia) já filtrada por
+// casos.parceiro_id = auth.uid(). Aqui só mapeamos pro formato do calendário.
 
-import { Link } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import {
-  CalendarDays,
-  ExternalLink,
-  Loader2,
-  MapPin,
-} from "lucide-react";
+import { CalendarDays, Loader2 } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
-import { PERICIA_JUDICIAL_CLASS, TIPO_CLASS } from "@/lib/agenda/types";
+import { AgendaMes } from "@/components/agenda/agenda-mes";
+import type { AgendaEventoComJoins } from "@/lib/agenda/types";
 
 interface PericiaParceiro {
   fonte: "evento" | "tarefa";
@@ -34,64 +28,41 @@ interface PericiaParceiro {
   natureza: "admin" | "judicial" | null;
 }
 
-// Mesma convenção de cores da agenda interna: judicial violeta, INSS verde.
-function badgePericia(natureza: PericiaParceiro["natureza"]): {
-  label: string;
-  className: string;
-} {
-  if (natureza === "judicial")
-    return { label: "Perícia Judicial", className: PERICIA_JUDICIAL_CLASS };
-  if (natureza === "admin")
-    return { label: "Perícia INSS", className: TIPO_CLASS.pericia };
-  return { label: "Perícia", className: "" };
-}
-
-function formatarDataLonga(iso: string): string {
-  return new Date(iso).toLocaleDateString("pt-BR", {
-    weekday: "long",
-    day: "2-digit",
-    month: "long",
-  });
-}
-
-function formatarHora(iso: string): string {
-  return new Date(iso).toLocaleTimeString("pt-BR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-// Perícia "passa" só no fim do dia local: a de hoje de manhã continua em
-// Próximas o dia inteiro (mesmo critério da agenda interna).
-function fimDoDiaLocal(iso: string): Date {
-  const d = new Date(iso);
-  d.setHours(23, 59, 59, 999);
-  return d;
-}
-
-function agruparPorDia(itens: PericiaParceiro[]): Array<{
-  diaKey: string;
-  diaLabel: string;
-  itens: PericiaParceiro[];
-}> {
-  const map = new Map<string, PericiaParceiro[]>();
-  for (const p of itens) {
-    const d = new Date(p.start_at);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    if (!map.has(key)) map.set(key, []);
-    map.get(key)!.push(p);
-  }
-  return Array.from(map.entries()).map(([key, its]) => ({
-    diaKey: key,
-    diaLabel: formatarDataLonga(its[0].start_at),
-    itens: its,
-  }));
+// Mapeia a perícia do parceiro pro formato que o calendário (AgendaMes)
+// consome. natureza -> processo_*_id só pra o badge sair com a cor certa
+// (naturezaPericia checa judicial, depois admin).
+function paraEvento(p: PericiaParceiro): AgendaEventoComJoins {
+  return {
+    id: `${p.fonte}:${p.id}`,
+    caso_id: p.caso_id,
+    processo_admin_id: p.natureza === "admin" ? p.caso_id : null,
+    processo_judicial_id: p.natureza === "judicial" ? p.caso_id : null,
+    responsavel_id: null,
+    tipo: "pericia",
+    titulo: p.titulo,
+    descricao: null,
+    start_at: p.start_at,
+    end_at: p.end_at,
+    local: p.local,
+    participantes: null,
+    metadata: {},
+    gcal_event_id: null,
+    gcal_calendar_id: null,
+    gcal_synced_at: null,
+    created_by: null,
+    created_at: p.start_at,
+    updated_at: p.start_at,
+    responsavel: null,
+    caso: p.caso_id
+      ? { id: p.caso_id, cliente: { id: "", nome: p.cliente_nome } }
+      : null,
+  };
 }
 
 export function AgendaPericiasParceiro() {
+  const navigate = useNavigate();
   const [carregando, setCarregando] = useState(true);
   const [pericias, setPericias] = useState<PericiaParceiro[]>([]);
-  const [aba, setAba] = useState<"proximas" | "passadas">("proximas");
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -111,20 +82,20 @@ export function AgendaPericiasParceiro() {
     carregar();
   }, [carregar]);
 
-  const { proximas, passadas } = useMemo(() => {
-    const agora = new Date();
-    const prox: PericiaParceiro[] = [];
-    const pass: PericiaParceiro[] = [];
+  const eventos = useMemo(() => pericias.map(paraEvento), [pericias]);
+  // Lookup id do evento -> caso, pra abrir o caso ao clicar.
+  const casoPorEvento = useMemo(() => {
+    const m = new Map<string, string>();
     for (const p of pericias) {
-      (fimDoDiaLocal(p.end_at) < agora ? pass : prox).push(p);
+      if (p.caso_id) m.set(`${p.fonte}:${p.id}`, p.caso_id);
     }
-    prox.sort((a, b) => a.start_at.localeCompare(b.start_at));
-    pass.sort((a, b) => b.start_at.localeCompare(a.start_at));
-    return { proximas: prox, passadas: pass };
+    return m;
   }, [pericias]);
 
-  const lista = aba === "proximas" ? proximas : passadas;
-  const grupos = useMemo(() => agruparPorDia(lista), [lista]);
+  function aoClicarEvento(id: string) {
+    const casoId = casoPorEvento.get(id);
+    if (casoId) navigate({ to: "/casos/$id", params: { id: casoId } });
+  }
 
   if (carregando) {
     return (
@@ -142,74 +113,12 @@ export function AgendaPericiasParceiro() {
           Perícias
         </h1>
         <p className="text-sm text-muted-foreground">
-          Perícias agendadas dos seus clientes.
+          Calendário das perícias agendadas dos seus clientes. Clique numa perícia
+          para abrir o caso.
         </p>
       </div>
 
-      <Tabs value={aba} onValueChange={(v) => setAba(v as "proximas" | "passadas")}>
-        <TabsList>
-          <TabsTrigger value="proximas">
-            Próximas ({proximas.length})
-          </TabsTrigger>
-          <TabsTrigger value="passadas">
-            Passadas ({passadas.length})
-          </TabsTrigger>
-        </TabsList>
-      </Tabs>
-
-      {grupos.length === 0 && (
-        <Card>
-          <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            {aba === "proximas"
-              ? "Nenhuma perícia agendada no momento."
-              : "Nenhuma perícia passada."}
-          </CardContent>
-        </Card>
-      )}
-
-      {grupos.map((g) => (
-        <div key={g.diaKey} className="space-y-2">
-          <h2 className="text-sm font-medium capitalize text-muted-foreground">
-            {g.diaLabel}
-          </h2>
-          {g.itens.map((p) => (
-            <Card key={`${p.fonte}:${p.id}`}>
-              <CardContent className="flex flex-wrap items-center gap-x-4 gap-y-2 py-4">
-                <div className="w-14 shrink-0 text-sm font-semibold tabular-nums">
-                  {formatarHora(p.start_at)}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium">{p.titulo}</p>
-                  <p className="truncate text-sm text-muted-foreground">
-                    {p.cliente_nome ?? "(cliente não identificado)"}
-                    {p.local ? (
-                      <span className="ml-2 inline-flex items-center gap-1">
-                        <MapPin className="inline h-3 w-3" />
-                        {p.local}
-                      </span>
-                    ) : null}
-                  </p>
-                </div>
-                <Badge
-                  variant="outline"
-                  className={cn("font-normal", badgePericia(p.natureza).className)}
-                >
-                  {badgePericia(p.natureza).label}
-                </Badge>
-                {p.caso_id && (
-                  <Link
-                    to="/casos/$id"
-                    params={{ id: p.caso_id }}
-                    className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
-                  >
-                    Abrir caso <ExternalLink className="h-3.5 w-3.5" />
-                  </Link>
-                )}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ))}
+      <AgendaMes eventos={eventos} onEventoClick={aoClicarEvento} />
     </div>
   );
 }
