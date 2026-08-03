@@ -1,0 +1,123 @@
+// globalSetup do Playwright: gera as sessões dos dois papéis SEM passar pela
+// UI de login, e grava como storageState (a sessão do supabase-js vive em
+// localStorage: sb-<ref>-auth-token — ver src/lib/supabase.ts).
+//
+// - INTERNO: usuário dedicado e2e+interno@… (criado aqui se não existir, via
+//   admin API, pré-confirmado) + signInWithPassword.
+// - PARCEIRO: Isabella (magic link) — admin.generateLink devolve o token SEM
+//   enviar e-mail; verifyOtp troca por sessão. Padrão recomendado pelo Supabase.
+
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { createClient, type Session } from "@supabase/supabase-js";
+import type { FullConfig } from "@playwright/test";
+import { ENV, PROJECT_REF } from "./env";
+import { adminClient } from "./supabase-admin";
+
+const AUTH_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), ".auth");
+
+function anonClient() {
+  return createClient(ENV.supabaseUrl, ENV.anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
+function gravarStorageState(arquivo: string, baseURL: string, session: Session) {
+  const state = {
+    cookies: [],
+    origins: [
+      {
+        origin: new URL(baseURL).origin,
+        localStorage: [
+          {
+            name: `sb-${PROJECT_REF}-auth-token`,
+            value: JSON.stringify(session),
+          },
+        ],
+      },
+    ],
+  };
+  fs.mkdirSync(AUTH_DIR, { recursive: true });
+  fs.writeFileSync(path.join(AUTH_DIR, arquivo), JSON.stringify(state, null, 2));
+}
+
+async function sessaoInterno(): Promise<Session> {
+  const anon = anonClient();
+  const tenta = await anon.auth.signInWithPassword({
+    email: ENV.internoEmail,
+    password: ENV.internoPassword,
+  });
+  if (tenta.data.session) return tenta.data.session;
+
+  // Primeiro uso: cria o usuário de teste pré-confirmado + perfil interno.
+  const admin = adminClient();
+  const { data: novo, error: criaErr } = await admin.auth.admin.createUser({
+    email: ENV.internoEmail,
+    password: ENV.internoPassword,
+    email_confirm: true,
+  });
+  if (criaErr && !/already/i.test(criaErr.message)) {
+    throw new Error(`criar usuário e2e interno: ${criaErr.message}`);
+  }
+  let userId = novo?.user?.id;
+  if (!userId) {
+    // Usuário existe mas a senha estava errada — não sobrescrevemos senha de
+    // conta pré-existente automaticamente por segurança.
+    throw new Error(
+      `Usuário ${ENV.internoEmail} já existe mas E2E_INTERNO_PASSWORD não confere.`,
+    );
+  }
+  const { error: perfilErr } = await admin.from("usuarios").upsert({
+    id: userId,
+    nome: "[E2E] Interno",
+    email: ENV.internoEmail,
+    tipo: "interno",
+    ativo: true,
+  });
+  if (perfilErr) throw new Error(`perfil e2e interno: ${perfilErr.message}`);
+
+  const login = await anon.auth.signInWithPassword({
+    email: ENV.internoEmail,
+    password: ENV.internoPassword,
+  });
+  if (!login.data.session) {
+    throw new Error(`login interno falhou: ${login.error?.message}`);
+  }
+  return login.data.session;
+}
+
+async function sessaoParceiro(): Promise<Session> {
+  const admin = adminClient();
+  const { data, error } = await admin.auth.admin.generateLink({
+    type: "magiclink",
+    email: ENV.parceiroEmail,
+  });
+  if (error) throw new Error(`generateLink parceiro: ${error.message}`);
+  const tokenHash = data.properties?.hashed_token;
+  if (!tokenHash) throw new Error("generateLink não devolveu hashed_token");
+
+  const anon = anonClient();
+  const { data: verif, error: otpErr } = await anon.auth.verifyOtp({
+    token_hash: tokenHash,
+    type: "email",
+  });
+  if (otpErr || !verif.session) {
+    throw new Error(`verifyOtp parceiro: ${otpErr?.message}`);
+  }
+  return verif.session;
+}
+
+export default async function globalSetup(config: FullConfig) {
+  const baseURL =
+    (config.projects[0]?.use?.baseURL as string | undefined) ||
+    process.env.PLAYWRIGHT_BASE_URL ||
+    "http://localhost:8085";
+
+  const [interno, parceiro] = await Promise.all([sessaoInterno(), sessaoParceiro()]);
+  gravarStorageState("interno.json", baseURL, interno);
+  gravarStorageState("parceiro.json", baseURL, parceiro);
+}
+
+export const STORAGE_INTERNO = path.join(AUTH_DIR, "interno.json");
+export const STORAGE_PARCEIRO = path.join(AUTH_DIR, "parceiro.json");

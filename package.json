@@ -9,7 +9,10 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "e2e": "playwright test",
+    "e2e:ui": "playwright test --ui",
+    "e2e:staging": "PLAYWRIGHT_BASE_URL=https://staging-mara-sandra-connect.nairaromerovian.workers.dev playwright test"
   },
   "dependencies": {
     "@cloudflare/vite-plugin": "^1.25.5",
@@ -73,6 +76,7 @@
   "devDependencies": {
     "@eslint/js": "^9.32.0",
     "@lovable.dev/vite-tanstack-config": "^1.7.0",
+    "@playwright/test": "^1.62.1",
     "@types/node": "^22.16.5",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",

@@ -18,7 +18,14 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const PROJECT_REF = process.env.SUPABASE_PROJECT_REF || "llugytkdsfsrciavhrfw";
+// --staging roda no projeto de STAGING (alhqbpbekmxpoibrrnbi). Sem a flag,
+// PRODUÇÃO. Toda migration deve rodar primeiro com --staging, validar, e só
+// então em produção (ver planning/AMBIENTES.md).
+const STAGING_REF = "alhqbpbekmxpoibrrnbi";
+const ehStaging = process.argv.includes("--staging");
+const PROJECT_REF =
+  process.env.SUPABASE_PROJECT_REF || (ehStaging ? STAGING_REF : "llugytkdsfsrciavhrfw");
+if (ehStaging) console.error(`[msc-sql] alvo: STAGING (${PROJECT_REF})`);
 
 function readEnvLocal(key) {
   try {

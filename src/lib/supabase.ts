@@ -1,9 +1,17 @@
 import { createClient } from "@supabase/supabase-js";
 
-// Cliente Supabase do escritório Mara Sandra Advocacia
-// Projeto externo: llugytkdsfsrciavhrfw
-const SUPABASE_URL = "https://llugytkdsfsrciavhrfw.supabase.co";
-const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_R2hBmLNlLdBN-EEAUSjpPw_P6Lb72N1";
+// Cliente Supabase do escritório Mara Sandra Advocacia.
+//
+// URL/chave vêm do ambiente de BUILD (Vite inline): produção usa o projeto
+// llugytkdsfsrciavhrfw; staging/previews/local podem apontar pro projeto de
+// staging via VITE_SUPABASE_URL + VITE_SUPABASE_PUBLISHABLE_KEY (vars de
+// build no Cloudflare Workers, .env.local no dev). Sem as vars, o fallback
+// é PRODUÇÃO — build antigo continua funcionando igual.
+export const SUPABASE_URL =
+  import.meta.env.VITE_SUPABASE_URL || "https://llugytkdsfsrciavhrfw.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY =
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  "sb_publishable_R2hBmLNlLdBN-EEAUSjpPw_P6Lb72N1";
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
