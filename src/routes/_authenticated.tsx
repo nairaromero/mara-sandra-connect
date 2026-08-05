@@ -24,7 +24,7 @@ export const Route = createFileRoute("/_authenticated")({
 });
 
 function AuthenticatedLayout() {
-  const { session, usuario, loading, signOut } = useAuth();
+  const { session, usuario, loading, precisaSenha, signOut } = useAuth();
   const navigate = useNavigate();
   const currentPath = useRouterState({ select: (r) => r.location.pathname });
 
@@ -34,19 +34,28 @@ function AuthenticatedLayout() {
     }
   }, [loading, session, navigate]);
 
+  // Primeiro acesso: quem chegou por convite/magic link e ainda nao tem senha
+  // cria a senha antes de qualquer outra coisa — inclusive antes do onboarding
+  // do parceiro. /definir-senha fica FORA deste layout, entao nao ha loop.
+  useEffect(() => {
+    if (loading || !session || precisaSenha !== true) return;
+    navigate({ to: "/definir-senha" });
+  }, [loading, session, precisaSenha, navigate]);
+
   // Redireciona parceiro pra /boas-vindas quando ainda nao fez onboarding OU
   // quando a versao dos termos mudou (precisa re-assinar). Internos foram
   // auto-marcados como onboarded no backfill da migration. So redireciona
   // quando o usuario ja foi carregado (evita flash) e nao se ja esta la (loop).
+  // precisaSenha===false garante a ordem senha -> boas-vindas.
   useEffect(() => {
-    if (loading || !usuario) return;
+    if (loading || !usuario || precisaSenha !== false) return;
     const precisaOnboarding =
       usuario.tipo === "parceiro" &&
       (!usuario.onboarded_em || usuario.termos_versao !== TERMOS_VERSAO);
     if (precisaOnboarding && currentPath !== "/boas-vindas") {
       navigate({ to: "/boas-vindas" });
     }
-  }, [loading, usuario, currentPath, navigate]);
+  }, [loading, usuario, precisaSenha, currentPath, navigate]);
 
   if (loading || !session) {
     return (
