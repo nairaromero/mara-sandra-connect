@@ -46,6 +46,12 @@ errado — a Mara nunca esteve lá). Foi adicionada a conta do escritório:
 |---|---|
 | `nairaromerovian@gmail.com` | já estava |
 | `marasandravian.advocacia@gmail.com` | adicionado em 2026-08-05 |
+| `marasandra.adv@gmail.com` | adicionado em 2026-08-05 |
+
+As duas contas do escritório estão autorizadas porque na hora não estava claro
+qual delas é a que o time realmente usa no Drive. **Confirmar qual é** e, se a
+outra não for usada, remover da lista (o Google conta test user pelo ciclo de
+vida inteiro do app, então é bom não deixar lixo acumulando).
 
 Se precisar mexer de novo:
 
