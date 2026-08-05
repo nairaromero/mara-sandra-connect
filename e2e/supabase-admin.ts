@@ -4,7 +4,7 @@
 // cleanup remove tudo que estiver pendurado nesses clientes, em ordem de FK.
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { ENV } from "./env";
+import { ENV, PROJECT_REF } from "./env";
 
 export function adminClient(): SupabaseClient {
   return createClient(ENV.supabaseUrl, ENV.serviceRoleKey, {
@@ -124,4 +124,45 @@ export async function cleanupE2E(admin: SupabaseClient): Promise<void> {
     await admin.from("casos").delete().in("id", casoIds);
   }
   await admin.from("clientes").delete().in("id", clienteIds);
+}
+
+// ---------------------------------------------------------------------------
+// SQL cru via Management API.
+//
+// Existe por um motivo especifico: reproduzir o estado de um usuario RECEM
+// CONVIDADO, cujo auth.users.encrypted_password e NULO. A admin API nao permite
+// isso — `createUser` sem password ainda grava um hash de string vazia. Zerar
+// pela Management API evita ter que criar no banco um RPC "apaga senha", que
+// seria uma arma carregada em producao so pra servir os testes.
+//
+// Precisa de SUPABASE_ACCESS_TOKEN no .env.local (mesmo token do msc-sql.mjs).
+// ---------------------------------------------------------------------------
+export async function sqlAdmin(sql: string): Promise<unknown> {
+  if (!ENV.accessToken) {
+    throw new Error(
+      "SUPABASE_ACCESS_TOKEN ausente no .env.local — necessário para este teste.",
+    );
+  }
+  const resp = await fetch(
+    `https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${ENV.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ query: sql }),
+    },
+  );
+  if (!resp.ok) {
+    throw new Error(`Management API ${resp.status}: ${await resp.text()}`);
+  }
+  return resp.json();
+}
+
+/** Deixa o usuario no estado "convidado, ainda sem senha". */
+export async function zerarSenha(userId: string): Promise<void> {
+  await sqlAdmin(
+    `update auth.users set encrypted_password = null where id = '${userId}'`,
+  );
 }

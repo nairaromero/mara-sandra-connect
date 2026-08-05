@@ -42,16 +42,31 @@ test("template indeferido cria 2 tarefas, ambas com responsável", async ({ page
   await expect(page.getByText(/Baixar PA/).first()).toBeVisible();
 
   await page.getByRole("button", { name: "Salvar" }).click();
-  await expect(
-    page.getByText("2 tarefas criadas (1 adicional do template)."),
-  ).toBeVisible();
 
   // Verificação forte no banco: 2 tarefas, nenhuma sem responsável.
+  //
+  // Espera o efeito no banco em vez do toast: o toast some sozinho em poucos
+  // segundos e a lista re-renderiza pesado depois do save, o que deixava a
+  // asserção de UI numa corrida. Também não serve olhar os títulos na tela — o
+  // painel mostra um preview dos itens do template ANTES de salvar, então esse
+  // texto já está visível mesmo se o save falhar.
+  await expect
+    .poll(
+      async () => {
+        const { data } = await admin
+          .from("tarefas")
+          .select("titulo, responsavel_id")
+          .eq("caso_id", casoId);
+        return data?.length ?? 0;
+      },
+      { timeout: 15_000, message: "esperando as 2 tarefas do template no banco" },
+    )
+    .toBe(2);
+
   const { data: tarefas } = await admin
     .from("tarefas")
     .select("titulo, responsavel_id")
     .eq("caso_id", casoId);
-  expect(tarefas).toHaveLength(2);
   for (const t of tarefas!) {
     expect(t.responsavel_id, `tarefa sem responsável: ${t.titulo}`).toBeTruthy();
   }
