@@ -32,20 +32,48 @@ O único ponto fraco é o rastro no Drive. Mas o rastro que importa juridicament
 
 ## Passo a passo (fazer antes da reunião)
 
-### 1. Google Cloud Console — autorizar a conta do escritório
+### 1. Google Cloud Console — autorizar a conta do escritório ✅ FEITO (2026-08-05)
 
 O app está com a tela de consentimento OAuth em modo **Testing**, o que
-significa que **só contas na lista de "Test users" conseguem autorizar**. Hoje
-estão lá só a Mara e a Naira. Sem esse passo, a conta do escritório recebe
-"Access blocked: app não verificado".
+significa que **só contas na lista de "Test users" conseguem autorizar**. Quem
+não estiver na lista recebe "Access blocked: app não verificado".
 
-1. https://console.cloud.google.com → selecionar o projeto do Drive Picker
-   (o do client ID `978674501365-...`).
-2. Menu **APIs & Services › OAuth consent screen › Audience**.
-3. Em **Test users**, clicar **+ Add users**.
-4. Adicionar o e-mail da conta compartilhada do escritório. Salvar.
+Estado conferido em 2026-08-05: havia **apenas** `nairaromerovian@gmail.com`
+(o comentário antigo em `src/lib/google-drive.ts` dizendo "Mara + Naira" estava
+errado — a Mara nunca esteve lá). Foi adicionada a conta do escritório:
+
+| Test user | |
+|---|---|
+| `nairaromerovian@gmail.com` | já estava |
+| `marasandravian.advocacia@gmail.com` | adicionado em 2026-08-05 |
+
+Se precisar mexer de novo:
+
+1. https://console.cloud.google.com → projeto **MARA SANDRA CONNECT**
+   (`mara-sandra-connect-499609`).
+2. **Google Auth Platform › Público-alvo › Usuários de teste › + Add users**.
+3. Digitar o e-mail, **Enter** pra virar chip, e aí **Salvar** (são dois
+   cliques em Salvar — o primeiro só confirma o chip).
 
 Limite de 100 test users, então sobra espaço de sobra.
+
+### 1b. Origens JavaScript autorizadas (atenção)
+
+No cliente OAuth **"Drive Picker (frontend)"** as origens autorizadas hoje são:
+
+| Origem | Serve pra |
+|---|---|
+| `https://marasandraconnect.com` | produção ✅ |
+| `https://www.marasandraconnect.com` | produção ✅ |
+| `http://localhost:5173` | porta errada — o dev deste projeto roda em **8080** |
+
+Ou seja: **em produção o Drive funciona**; no **dev local e nos previews do
+Cloudflare, não** (o Google recusa a origem). Se quiser Drive fora de produção,
+adicionar `http://localhost:8080` e a URL estável de staging.
+
+O Google **não aceita curinga** em origem JavaScript, então URLs de preview de
+PR (`https://<versao>-mara-sandra-connect...workers.dev`) nunca vão funcionar
+com Drive — só a URL fixa de staging, se for cadastrada.
 
 ### 2. Mover/criar as pastas dos casos na conta do escritório
 
