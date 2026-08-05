@@ -21,7 +21,10 @@ declare global {
 // A protecao real vem das restricoes configuradas no Google Cloud Console:
 //   - Origens JavaScript autorizadas no OAuth Client (3 dominios)
 //   - HTTP referrer restrictions + API restrictions na API Key
-//   - Test users na tela de consentimento OAuth (Mara + Naira)
+//   - Test users na tela de consentimento OAuth (conferido 2026-08-05:
+//     nairaromerovian@gmail.com + marasandravian.advocacia@gmail.com --
+//     esta ultima e a conta compartilhada do escritorio, que a equipe toda
+//     usa no popup do Google. Ver planning/DRIVE_ACESSO_EQUIPE.md)
 //
 // IMPORTANTE: Hardcoded SEM fallback pra env var, porque Vite/Cloudflare
 // estavam injetando valor truncado de VITE_GOOGLE_CLIENT_ID e o tree-shaking
@@ -37,8 +40,8 @@ const EFFECTIVE_API_KEY = "AIzaSyDJmRookKnEBkg_aLxirFY4lJH13vgCfkQ";
 // arquivos que o app não criou.
 //
 // OK pro nosso caso de uso porque:
-//  - Drive ops são gated pra usuários `tipo='interno'` (Naira, Mara,
-//    Mariane) — equipe do próprio escritório.
+//  - Drive ops são gated pra usuários `tipo='interno'` — equipe do próprio
+//    escritório.
 //  - Parceiros nunca tocam em Drive (UI condicional + RLS).
 //  - App está em modo "test users" no OAuth consent — sem revisão
 //    Google formal necessária pros internos.

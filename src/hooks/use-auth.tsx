@@ -7,8 +7,16 @@ interface AuthContextValue {
   user: User | null;
   usuario: UsuarioRow | null;
   loading: boolean;
+  /**
+   * true  = conta ainda sem senha (entrou por convite/magic link) e precisa
+   *         passar por /definir-senha antes de usar o sistema;
+   * false = ja tem senha;
+   * null  = ainda nao consultado (nao decidir redirect nesse estado).
+   */
+  precisaSenha: boolean | null;
   signOut: () => Promise<void>;
   refreshUsuario: () => Promise<void>;
+  refreshPrecisaSenha: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -17,22 +25,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [usuario, setUsuario] = useState<UsuarioRow | null>(null);
   const [loading, setLoading] = useState(true);
+  const [precisaSenha, setPrecisaSenha] = useState<boolean | null>(null);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, sess) => {
       setSession(sess);
       if (sess?.user) {
         // defer DB call para evitar deadlock
-        setTimeout(() => loadUsuario(sess.user.id), 0);
+        setTimeout(() => {
+          loadUsuario(sess.user.id);
+          loadPrecisaSenha();
+        }, 0);
       } else {
         setUsuario(null);
+        setPrecisaSenha(null);
       }
     });
 
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       if (data.session?.user) {
-        loadUsuario(data.session.user.id).finally(() => setLoading(false));
+        Promise.all([
+          loadUsuario(data.session.user.id),
+          loadPrecisaSenha(),
+        ]).finally(() => setLoading(false));
       } else {
         setLoading(false);
       }
@@ -40,6 +56,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // Le auth.users.encrypted_password via RPC SECURITY DEFINER — o client nao
+  // enxerga o schema auth. Se o RPC nao existir (ambiente sem a migration),
+  // assume false: melhor deixar entrar do que travar todo mundo na tela de
+  // senha por causa de migration atrasada.
+  async function loadPrecisaSenha() {
+    const { data, error } = await supabase.rpc("precisa_definir_senha");
+    if (error) {
+      console.warn("precisa_definir_senha falhou, assumindo false:", error);
+      setPrecisaSenha(false);
+      return;
+    }
+    setPrecisaSenha(data === true);
+  }
 
   async function loadUsuario(userId: string) {
     // Tenta primeiro o select completo (com colunas de onboarding).
@@ -93,6 +123,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut();
     setUsuario(null);
     setSession(null);
+    setPrecisaSenha(null);
   }
 
   // Permite a tela de /boas-vindas atualizar o usuario apos marcar
@@ -110,8 +141,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user: session?.user ?? null,
         usuario,
         loading,
+        precisaSenha,
         signOut,
         refreshUsuario,
+        refreshPrecisaSenha: loadPrecisaSenha,
       }}
     >
       {children}

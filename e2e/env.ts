@@ -50,6 +50,9 @@ export const ENV = {
   internoPassword: ehStaging ? pega("STAGING_SYNTH_PASSWORD") : pega("E2E_INTERNO_PASSWORD"),
   // Parceira de teste (login por magic link; e-mail preservado no espelho).
   parceiroEmail: process.env.E2E_PARCEIRO_EMAIL ?? "nairaromerovian+isabella@gmail.com",
+  // Token da Management API (mesmo do scripts/msc-sql.mjs). Opcional: só o spec
+  // de primeiro acesso usa, pra zerar a senha de um usuário e simular convite.
+  accessToken: pega("SUPABASE_ACCESS_TOKEN", false),
 };
 
 // Ref do projeto extraído da URL — usado no nome da chave do localStorage
