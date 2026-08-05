@@ -22,9 +22,10 @@ declare global {
 //   - Origens JavaScript autorizadas no OAuth Client (3 dominios)
 //   - HTTP referrer restrictions + API restrictions na API Key
 //   - Test users na tela de consentimento OAuth (conferido 2026-08-05:
-//     nairaromerovian@gmail.com + marasandravian.advocacia@gmail.com --
-//     esta ultima e a conta compartilhada do escritorio, que a equipe toda
-//     usa no popup do Google. Ver planning/DRIVE_ACESSO_EQUIPE.md)
+//     nairaromerovian@gmail.com, marasandravian.advocacia@gmail.com e
+//     marasandra.adv@gmail.com. As duas ultimas sao contas do escritorio --
+//     falta confirmar qual delas o time usa de fato no Drive; a nao usada
+//     deve sair da lista. Ver planning/DRIVE_ACESSO_EQUIPE.md)
 //
 // IMPORTANTE: Hardcoded SEM fallback pra env var, porque Vite/Cloudflare
 // estavam injetando valor truncado de VITE_GOOGLE_CLIENT_ID e o tree-shaking
