@@ -15,8 +15,14 @@
 //
 // Escreve em `notificacoes` via service role (bypassa RLS).
 //
-// Body: { usuario_id?: string }  (usado como criado_por dos andamentos novos)
-// Response: resumo agregado.
+// Body: { usuario_id?: string, offset?: number, limit?: number }
+//   usuario_id: usado como criado_por dos andamentos novos.
+//   offset/limit: processa so uma FATIA dos clientes locais. Existe porque o
+//     sync inteiro (1 chamada ao TI por cliente, ~360 clientes) estoura o
+//     limite de 150s da edge function e morre no meio — o que fazia o botao
+//     "Sincronizar tudo" nunca concluir. Chamando em lotes de ~60 cada rodada
+//     cabe no limite; o cliente repete ate .
+// Response: resumo agregado + { offset, limit, total_clientes, fim }.
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
@@ -157,9 +163,17 @@ serve(async (req) => {
   }
 
   let usuarioId: string | null = null;
+  let offset = 0;
+  let limit: number | null = null;
   try {
     const body = await req.json().catch(() => ({}));
     if (body && body.usuario_id) usuarioId = String(body.usuario_id);
+    if (body && Number.isFinite(Number(body.offset))) {
+      offset = Math.max(0, Number(body.offset));
+    }
+    if (body && Number.isFinite(Number(body.limit)) && Number(body.limit) > 0) {
+      limit = Number(body.limit);
+    }
   } catch {
     // body opcional
   }
@@ -237,7 +251,17 @@ serve(async (req) => {
   }
 
   // ---- Sync por cliente local que existe no TI ----
-  for (const cl of clientesLocais || []) {
+  // Fatia processada nesta chamada. A ordenacao por id mantem o corte estavel
+  // entre rodadas (sem isso, offset/limit poderiam pular ou repetir clientes).
+  const todosClientes = [...(clientesLocais || [])].sort((a, b) =>
+    String(a.id).localeCompare(String(b.id)),
+  );
+  const fatia = limit === null
+    ? todosClientes.slice(offset)
+    : todosClientes.slice(offset, offset + limit);
+  const fim = offset + fatia.length >= todosClientes.length;
+
+  for (const cl of fatia) {
     const cpfNorm = normalizeCPF(String(cl.cpf || ""));
     const customer = tiPorCpf.get(cpfNorm);
     if (!customer) continue;
@@ -415,7 +439,9 @@ serve(async (req) => {
     if (cpfsLocais.has(cpfNorm)) continue;
     clientesTiNovos++;
   }
-  if (clientesTiNovos > 0) {
+  // So na ultima fatia: senao cada lote apagaria e recriaria a notificacao
+  // agregada, gerando churn no sino sem necessidade.
+  if (fim && clientesTiNovos > 0) {
     // Substitui o agregado anterior nao lido pela contagem atual.
     await supabase
       .from("notificacoes")
@@ -441,6 +467,13 @@ serve(async (req) => {
     andamentos_novos: andamentosNovos,
     tags_alteradas: tagsAlteradas,
     clientes_ti_novos: clientesTiNovos,
+    // Progresso da fatia — o chamador repete com o proximo offset ate fim=true.
+    offset,
+    limit,
+    processados: fatia.length,
+    total_clientes: todosClientes.length,
+    proximo_offset: fim ? null : offset + fatia.length,
+    fim,
     erros,
   });
 });
