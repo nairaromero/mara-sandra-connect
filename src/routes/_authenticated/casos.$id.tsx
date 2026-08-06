@@ -4590,6 +4590,33 @@ function TabDocumentos(props: TabDocumentosProps) {
     onChange();
   }
 
+  // Excluir de vez. Diferente de "Dispensar" (mantem o registro com status
+  // dispensado, visivel no historico): aqui o pedido some. Serve pra pedido
+  // criado por engano, que nao deveria constar em lugar nenhum.
+  async function excluirSolicitacao(s: SolicitacaoDocumento) {
+    const ok = window.confirm(
+      `Excluir definitivamente a solicitacao "${s.tipo}"?\n\n` +
+        "Some do historico e nao da pra desfazer. Se a ideia e so encerrar o " +
+        "pedido, use Dispensar — ele fica registrado.",
+    );
+    if (!ok) return;
+    try {
+      const del = await supabase
+        .from("solicitacoes_documento")
+        .delete()
+        .eq("id", s.id);
+      if (del.error) throw del.error;
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("msc:solicitacoes-mudou"));
+      }
+      toast.success("Solicitacao excluida.");
+      onChange();
+    } catch (err) {
+      const e = err as { message?: string };
+      toast.error(e.message || "Nao foi possivel excluir.");
+    }
+  }
+
   async function atualizarStatusSolic(
     s: SolicitacaoDocumento,
     novoStatus: string,
@@ -5324,7 +5351,29 @@ function TabDocumentos(props: TabDocumentosProps) {
                         >
                           Dispensar
                         </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-muted-foreground hover:text-destructive"
+                          onClick={() => excluirSolicitacao(s)}
+                          title="Excluir de vez (Dispensar mantém no histórico)"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
                       </div>
+                    )}
+                    {/* Já cumprida/dispensada: continua dando pra excluir, senão
+                        pedido criado por engano fica preso no histórico. */}
+                    {isInterno && !isPendente && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-muted-foreground hover:text-destructive"
+                        onClick={() => excluirSolicitacao(s)}
+                        title="Excluir do histórico"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
                     )}
                     {!isInterno && isPendente && (
                       <Button
