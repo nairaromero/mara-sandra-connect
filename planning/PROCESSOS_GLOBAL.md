@@ -13,7 +13,7 @@ em `net._http_response`):
 |-------|----------------------|------------------------------------------------|
 | ~madrugada | djen-sync (n8n, EXISTENTE) | publicações DJEN por OAB              |
 | 06:00/06:06/06:12 | msc-datajud-sync-1/2/3 | movimentações DataJud, 3 passadas de 60 processos, dias=90 |
-| 06:30 | msc-ia-triagem       | resumo IA + tarefas (ciência D+1 / fatal−1), janela 10 dias |
+| ~~06:30~~ | ~~msc-ia-triagem~~ | **DESLIGADO em 2026-08-06** — judicial fora do sistema por ora (ver migration_cron_processos.sql) |
 | 06:45 | msc-digest-diario    | e-mail resumo — POR ORA só pra Naira (campo `para`; remover pra ir a todos os internos) |
 
 Backfill DataJud (90 dias, 161 judiciais): iniciado em 2026-07-28/29 — 40
