@@ -6,7 +6,6 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
-  Check,
   ChevronDown,
   ChevronRight,
   LayoutGrid,
@@ -272,8 +271,8 @@ function TarefasPage() {
               Tarefas
             </h1>
             <p className="text-sm text-muted-foreground">
-              Tarefas do escritório agrupadas por prazo. Clique numa tarefa pra editar; o
-              círculo marca como feita.
+              Tarefas do escritório agrupadas por prazo. Clique numa tarefa pra editar; o status se muda lá dentro ou
+              arrastando no Kanban.
             </p>
           </div>
           <Button onClick={() => setSheetModo({ kind: "criar" })}>
@@ -491,18 +490,13 @@ function TarefasPage() {
                               }}
                               className="flex items-center gap-2 pl-3 pr-2 sm:pr-3 py-1.5 hover:bg-muted/40 cursor-pointer min-w-0"
                             >
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  mudarStatus(t.id, "feito");
-                                }}
-                                title="Marcar como feito"
-                                aria-label="Marcar como feito"
-                                className="group/check shrink-0 h-[18px] w-[18px] rounded-full border-2 border-muted-foreground/30 hover:border-emerald-500 hover:bg-emerald-500/10 grid place-items-center transition-colors"
-                              >
-                                <Check className="h-3 w-3 opacity-0 group-hover/check:opacity-100 text-emerald-600" />
-                              </button>
+                              {/* A bolinha de "marcar como feito" saiu daqui
+                                  (pedido da Naira, 2026-08-06): ela fica
+                                  colada no texto da tarefa, e um clique um
+                                  pouco à esquerda concluía a tarefa sem
+                                  querer — sem confirmação e sem desfazer.
+                                  Concluir agora é pelo campo Status ao abrir
+                                  a tarefa, ou arrastando no Kanban. */}
                               <Badge
                                 variant="outline"
                                 className={cn(
