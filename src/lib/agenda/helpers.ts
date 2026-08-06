@@ -19,6 +19,23 @@ export function sextaAnterior(d: Date): Date {
 }
 
 /**
+ * Empurra uma data que caiu em sábado ou domingo para a segunda seguinte,
+ * mantendo o horário.
+ *
+ * Existe porque tarefa relativa à agenda escorregava pro fim de semana: a
+ * perícia numa sexta gerava "Confirmar comparecimento" (perícia + 1 dia) num
+ * sábado, dia em que ninguém do escritório trabalha — a tarefa já nascia
+ * fadada a virar atraso na segunda.
+ */
+export function proximoDiaUtil(d: Date): Date {
+  const r = new Date(d);
+  const dow = r.getDay(); // 0=dom, 6=sáb
+  if (dow === 6) r.setDate(r.getDate() + 2);
+  else if (dow === 0) r.setDate(r.getDate() + 1);
+  return r;
+}
+
+/**
  * Calcula due_at de uma tarefa-extra em template misto, dado o
  * start do agenda_evento e a configuração do item.
  */
@@ -29,8 +46,9 @@ export function calcularDueAtRelativo(
 ): string | null {
   if (ancora === "agenda") {
     if (!agendaStartAt) return null;
-    return new Date(
-      agendaStartAt.getTime() + (offsetDias ?? 0) * 86400_000,
+    // Nunca vencer no fim de semana — ver proximoDiaUtil.
+    return proximoDiaUtil(
+      new Date(agendaStartAt.getTime() + (offsetDias ?? 0) * 86400_000),
     ).toISOString();
   }
   if (ancora === "sexta_antes_agenda") {
