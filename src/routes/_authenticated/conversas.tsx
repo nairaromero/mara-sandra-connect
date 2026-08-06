@@ -11,6 +11,7 @@ import {
   ArrowLeft,
   Send,
   ExternalLink,
+  Plus,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -23,6 +24,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export const Route = createFileRoute("/_authenticated/conversas")({
   component: ConversasPage,
@@ -120,6 +129,18 @@ const FASE_LABEL: Record<string, string> = {
 function ConversasPage() {
   const { usuario } = useAuth();
   const usuarioId = usuario ? usuario.id : null;
+
+  // "Nova conversa": conversa nao e uma entidade no banco — ela nasce do
+  // PRIMEIRO comentario num caso. Entao iniciar uma conversa = escolher o caso
+  // e mandar a primeira mensagem; o agrupamento por parceiro vem de graca.
+  const [novaAberta, setNovaAberta] = useState(false);
+  const [casosOpcoes, setCasosOpcoes] = useState<
+    Array<{ id: string; cliente: string; parceiro: string | null }>
+  >([]);
+  const [buscaCaso, setBuscaCaso] = useState("");
+  const [casoNovo, setCasoNovo] = useState<string | null>(null);
+  const [textoNovo, setTextoNovo] = useState("");
+  const [enviandoNova, setEnviandoNova] = useState(false);
   const isParceiro = usuario?.tipo === "parceiro";
   const search = Route.useSearch();
 
@@ -274,6 +295,73 @@ function ConversasPage() {
     }
   }
 
+  // Carrega os casos so quando o dialogo abre (evita puxar 500 linhas a toa).
+  // RLS ja limita: parceiro so enxerga os casos dele.
+  useEffect(() => {
+    if (!novaAberta || casosOpcoes.length > 0) return;
+    (async () => {
+      const { data, error } = await supabase
+        .from("casos")
+        .select("id, parceiro_id, clientes(nome)")
+        .order("created_at", { ascending: false })
+        .limit(500);
+      if (error) return;
+      setCasosOpcoes(
+        (data || []).map((c: Record<string, unknown>) => ({
+          id: String(c.id),
+          cliente:
+            ((c.clientes as { nome?: string } | null)?.nome as string) ||
+            "(sem nome)",
+          parceiro: c.parceiro_id
+            ? nomePorUsuario.get(String(c.parceiro_id)) || "Parceiro"
+            : null,
+        })),
+      );
+    })();
+  }, [novaAberta, casosOpcoes.length, nomePorUsuario]);
+
+  async function iniciarConversa() {
+    if (!casoNovo || !usuarioId) return;
+    const texto = textoNovo.trim();
+    if (!texto) return;
+    setEnviandoNova(true);
+    try {
+      const { data, error } = await supabase
+        .from("comentarios")
+        .insert({ caso_id: casoNovo, autor_id: usuarioId, texto, rascunho: false })
+        .select("id")
+        .single();
+      if (error) throw error;
+      setNovaAberta(false);
+      setTextoNovo("");
+      setBuscaCaso("");
+      const casoAberto = casoNovo;
+      setCasoNovo(null);
+      await carregar();
+      setSelecionado(casoAberto);
+      await marcarLida(casoAberto);
+      if (data?.id) {
+        supabase.functions
+          .invoke("notify-novo-comentario", { body: { comentario_id: data.id } })
+          .catch(() => {});
+      }
+      if (usuario?.tipo === "parceiro" && data?.id) {
+        notificarEquipe({
+          tipo: "comentario",
+          titulo: `Comentário de ${usuario.nome || "parceiro"}`,
+          descricao: texto.slice(0, 140),
+          caso_id: casoAberto,
+          foco_id: data.id,
+        });
+      }
+    } catch (err) {
+      const errObj = err as { message?: string };
+      setErro(errObj.message || "Falha ao iniciar conversa.");
+    } finally {
+      setEnviandoNova(false);
+    }
+  }
+
   function toggleGrupo(chave: string) {
     setColapsados((prev) => {
       const n = new Set(prev);
@@ -394,6 +482,7 @@ function ConversasPage() {
       }
     >
       <div className="space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="font-serif text-3xl font-semibold tracking-tight flex items-center gap-2">
             <MessagesSquare className="h-6 w-6" />
@@ -407,6 +496,11 @@ function ConversasPage() {
           <p className="text-sm text-muted-foreground">
             Comunicação com os parceiros, agrupada por parceiro.
           </p>
+        </div>
+        <Button size="sm" onClick={() => setNovaAberta(true)}>
+          <Plus className="h-4 w-4 mr-1" />
+          Nova conversa
+        </Button>
         </div>
 
         {erro && (
@@ -442,7 +536,7 @@ function ConversasPage() {
                   <MessagesSquare className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                   <p className="text-sm text-muted-foreground">
                     {grupos.length === 0
-                      ? "Nenhuma conversa ainda. Quando um parceiro comentar num caso, aparece aqui."
+                      ? "Nenhuma conversa ainda. Comece uma em \u2018Nova conversa\u2019, ou espere um parceiro comentar num caso."
                       : "Nada encontrado com a busca."}
                   </p>
                 </CardContent>
@@ -543,6 +637,100 @@ function ConversasPage() {
           </div>
         </div>
       </div>
+
+      <Dialog open={novaAberta} onOpenChange={setNovaAberta}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Nova conversa</DialogTitle>
+            <DialogDescription>
+              Escolha o caso e escreva a primeira mensagem. Ela aparece na
+              conversa do parceiro e vai por e-mail pra ele.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Caso</Label>
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  className="pl-8"
+                  placeholder="Buscar por cliente ou parceiro..."
+                  value={buscaCaso}
+                  onChange={(e) => setBuscaCaso(e.target.value)}
+                />
+              </div>
+              <div className="max-h-52 overflow-y-auto rounded-md border divide-y">
+                {casosOpcoes
+                  .filter((c) => {
+                    const q = buscaCaso.trim().toLowerCase();
+                    if (!q) return true;
+                    return (
+                      c.cliente.toLowerCase().includes(q) ||
+                      (c.parceiro || "").toLowerCase().includes(q)
+                    );
+                  })
+                  .slice(0, 60)
+                  .map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setCasoNovo(c.id)}
+                      className={
+                        "w-full text-left px-3 py-2 text-sm hover:bg-muted/60 " +
+                        (casoNovo === c.id ? "bg-muted" : "")
+                      }
+                    >
+                      <span className="font-medium">{c.cliente}</span>
+                      <span className="text-muted-foreground">
+                        {c.parceiro ? ` \u00b7 ${c.parceiro}` : " \u00b7 sem parceiro"}
+                      </span>
+                    </button>
+                  ))}
+                {casosOpcoes.length === 0 && (
+                  <p className="px-3 py-6 text-center text-sm text-muted-foreground">
+                    Carregando casos...
+                  </p>
+                )}
+              </div>
+              {casoNovo &&
+                !casosOpcoes.find((c) => c.id === casoNovo)?.parceiro && (
+                  <p className="text-xs text-muted-foreground">
+                    Esse caso nao tem parceiro vinculado — a mensagem fica
+                    registrada, mas nao ha ninguem de fora pra receber.
+                  </p>
+                )}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Mensagem</Label>
+              <Textarea
+                rows={4}
+                placeholder="Escreva a primeira mensagem..."
+                value={textoNovo}
+                onChange={(e) => setTextoNovo(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setNovaAberta(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={iniciarConversa}
+              disabled={!casoNovo || !textoNovo.trim() || enviandoNova}
+            >
+              {enviandoNova ? (
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4 mr-1" />
+              )}
+              Enviar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </ClientOnly>
   );
 }

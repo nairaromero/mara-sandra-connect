@@ -8,6 +8,7 @@ import {
   Stethoscope,
   ExternalLink,
   Inbox,
+  Trash2,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -86,6 +87,7 @@ function AEnviarPage() {
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [rascunhos, setRascunhos] = useState<Array<RascunhoRow>>([]);
+  const [descartandoId, setDescartandoId] = useState<string | null>(null);
   // Texto editado por linha (id -> texto). Ausente = usa o texto original.
   const [editados, setEditados] = useState<Record<string, string>>({});
   const [enviandoId, setEnviandoId] = useState<string | null>(null);
@@ -130,6 +132,34 @@ function AEnviarPage() {
       }
     };
   }, [carregar]);
+
+  // Descartar = apagar o rascunho. Nada e enviado ao parceiro e nada fica na
+  // conversa — o rascunho so existe nesta fila ate alguem decidir por ele.
+  async function descartar(row: RascunhoRow) {
+    const nome = row.casos?.clientes?.nome;
+    const ok = window.confirm(
+      `Descartar este rascunho${nome ? " de " + nome : ""}?
+
+` +
+        "Ele some da fila e nao e enviado ao parceiro. Nao da pra desfazer.",
+    );
+    if (!ok) return;
+    setDescartandoId(row.id);
+    try {
+      const del = await supabase.from("comentarios").delete().eq("id", row.id);
+      if (del.error) throw del.error;
+      setRascunhos((atual) => atual.filter((r) => r.id !== row.id));
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("msc:rascunhos-mudou"));
+      }
+      toast.success("Rascunho descartado.");
+    } catch (err) {
+      const e = err as { message?: string };
+      toast.error(e.message || "Nao foi possivel descartar.");
+    } finally {
+      setDescartandoId(null);
+    }
+  }
 
   async function enviar(row: RascunhoRow) {
     const texto = (editados[row.id] ?? row.texto).trim();
@@ -303,10 +333,25 @@ function AEnviarPage() {
                         ) : (
                           <span />
                         )}
+                        <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => descartar(row)}
+                          disabled={enviando || descartandoId === row.id}
+                          className="text-muted-foreground hover:text-destructive"
+                        >
+                          {descartandoId === row.id ? (
+                            <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="mr-1 h-4 w-4" />
+                          )}
+                          Descartar
+                        </Button>
                         <Button
                           size="sm"
                           onClick={() => enviar(row)}
-                          disabled={enviando}
+                          disabled={enviando || descartandoId === row.id}
                         >
                           {enviando ? (
                             <Loader2 className="mr-1 h-4 w-4 animate-spin" />
@@ -315,6 +360,7 @@ function AEnviarPage() {
                           )}
                           {semParceiro ? "Publicar comentário" : "Enviar ao parceiro"}
                         </Button>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>

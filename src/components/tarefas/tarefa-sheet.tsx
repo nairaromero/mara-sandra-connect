@@ -3,8 +3,9 @@
 // quando há caso selecionado.
 
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { Loader2, Trash2 } from "lucide-react";
+import { Loader2, Trash2, ExternalLink } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -98,6 +99,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   const [prioridade, setPrioridade] = useState<number>(3);
   const [status, setStatus] = useState<TarefaStatus>("a_fazer");
   const [casoId, setCasoId] = useState<string | null>(null);
+  const [trocandoCaso, setTrocandoCaso] = useState(false);
   // Único valor para processo: "" = nenhum, "admin:<id>" ou "judicial:<id>".
   const [processoToken, setProcessoToken] = useState<string>("");
   const [responsavelId, setResponsavelId] = useState<string | null>(null);
@@ -260,6 +262,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       setPrioridade(3);
       setStatus("a_fazer");
       setCasoId(modo.casoIdInicial ?? null);
+      setTrocandoCaso(false);
       setProcessoToken("");
       setResponsavelId(null);
       setDueDate("");
@@ -284,6 +287,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       setPrioridade(t.prioridade);
       setStatus(t.status);
       setCasoId(t.caso_id);
+      setTrocandoCaso(false);
       setProcessoToken(
         t.processo_admin_id
           ? `admin:${t.processo_admin_id}`
@@ -665,23 +669,72 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
 
           <div className="space-y-1.5">
             <Label>Caso</Label>
-            <Select
-              value={casoId ?? "sem"}
-              onValueChange={(v) => {
-                setCasoId(v === "sem" ? null : v);
-                setProcessoToken("");
-              }}
-            >
-              <SelectTrigger><SelectValue placeholder="Sem caso" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="sem">Sem caso</SelectItem>
-                {casos.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.cliente_nome ?? "(sem nome)"}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {/* Editando uma tarefa que ja tem caso, o normal e querer ABRIR o
+                cliente — nao trocar de caso. Um Select solto aqui reatribuia a
+                tarefa a outro cliente com um clique torto, sem confirmacao.
+                Entao: nome vira link pro caso e a troca fica atras de um botao. */}
+            {editando && casoId && !trocandoCaso ? (
+              <div className="flex items-center justify-between gap-2 rounded-md border px-3 py-2">
+                <Link
+                  to="/casos/$id"
+                  params={{ id: casoId }}
+                  onClick={() => fechar()}
+                  className="inline-flex items-center gap-1.5 text-sm font-medium hover:text-[var(--gold)] hover:underline"
+                  title="Abrir o caso deste cliente"
+                >
+                  <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                  {casos.find((c) => c.id === casoId)?.cliente_nome ?? "Abrir caso"}
+                </Link>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="text-xs text-muted-foreground"
+                  onClick={() => setTrocandoCaso(true)}
+                >
+                  Trocar caso
+                </Button>
+              </div>
+            ) : (
+              <>
+                <Select
+                  value={casoId ?? "sem"}
+                  onValueChange={(v) => {
+                    setCasoId(v === "sem" ? null : v);
+                    setProcessoToken("");
+                  }}
+                >
+                  <SelectTrigger><SelectValue placeholder="Sem caso" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sem">Sem caso</SelectItem>
+                    {casos.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.cliente_nome ?? "(sem nome)"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {editando && trocandoCaso && (
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs text-muted-foreground">
+                      Trocar o caso reatribui esta tarefa a outro cliente.
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="text-xs"
+                      onClick={() => {
+                        setTrocandoCaso(false);
+                        setCasoId(modo.kind === "editar" ? modo.tarefa.caso_id : null);
+                      }}
+                    >
+                      Cancelar troca
+                    </Button>
+                  </div>
+                )}
+              </>
+            )}
           </div>
 
           {casoId && processosDoCaso.length > 0 && (

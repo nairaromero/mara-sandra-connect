@@ -11,6 +11,7 @@ import {
   AlertCircle,
   ChevronDown,
   ChevronRight,
+  Trash2,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -300,6 +301,33 @@ function DocumentosPendentesPage() {
     return labelSanit + "." + ext.toLowerCase();
   }
 
+  // Excluir de vez a solicitacao. Diferente de "Dispensar", que mantem o
+  // registro com status dispensado (fica no historico): aqui o pedido some.
+  // Serve pra pedido criado por engano, que nao deveria ter existido.
+  async function excluirSolicitacao(s: SolicitacaoComCaso) {
+    const nome = s.casos?.clientes?.nome;
+    const ok = window.confirm(
+      `Excluir definitivamente esta solicitacao${nome ? " de " + nome : ""}?\n\n` +
+        `"${s.tipo}"\n\n` +
+        "Some do historico e nao da pra desfazer. Se a ideia e so encerrar o " +
+        "pedido, use Dispensar — ele fica registrado.",
+    );
+    if (!ok) return;
+    try {
+      const del = await supabase
+        .from("solicitacoes_documento")
+        .delete()
+        .eq("id", s.id);
+      if (del.error) throw del.error;
+      setSolicitacoes((atual) => atual.filter((x) => x.id !== s.id));
+      window.dispatchEvent(new Event("msc:solicitacoes-mudou"));
+      toast.success("Solicitacao excluida.");
+    } catch (err) {
+      const e = err as { message?: string };
+      toast.error(e.message || "Nao foi possivel excluir.");
+    }
+  }
+
   async function confirmarAcaoModal() {
     if (!acaoAlvo) return;
     // Se for atendido com anexo, valida arquivo
@@ -553,6 +581,7 @@ function DocumentosPendentesPage() {
                 isInterno={isInterno}
                 onAtendido={(s) => abrirAcaoModal(s, "atendido")}
                 onDispensar={(s) => abrirAcaoModal(s, "dispensado")}
+                onExcluir={excluirSolicitacao}
               />
             ))}
           </div>
@@ -719,10 +748,11 @@ interface GrupoCasoProps {
   isInterno: boolean;
   onAtendido: (s: SolicitacaoComCaso) => void;
   onDispensar: (s: SolicitacaoComCaso) => void;
+  onExcluir: (s: SolicitacaoComCaso) => void;
 }
 
 function GrupoCaso(props: GrupoCasoProps) {
-  const { grupo, isInterno, onAtendido, onDispensar } = props;
+  const { grupo, isInterno, onAtendido, onDispensar, onExcluir } = props;
   const { caso, solicitacoes } = grupo;
   const nomeCliente = caso.clientes ? caso.clientes.nome : "(cliente sem nome)";
   const [cumpridosAberto, setCumpridosAberto] = useState(false);
@@ -761,6 +791,7 @@ function GrupoCaso(props: GrupoCasoProps) {
                 isInterno={isInterno}
                 onAtendido={onAtendido}
                 onDispensar={onDispensar}
+                onExcluir={onExcluir}
               />
             ))}
           </ul>
@@ -801,6 +832,7 @@ function GrupoCaso(props: GrupoCasoProps) {
                     isInterno={isInterno}
                     onAtendido={onAtendido}
                     onDispensar={onDispensar}
+                    onExcluir={onExcluir}
                   />
                 ))}
               </ul>
@@ -821,10 +853,11 @@ interface SolicitacaoItemProps {
   isInterno: boolean;
   onAtendido: (s: SolicitacaoComCaso) => void;
   onDispensar: (s: SolicitacaoComCaso) => void;
+  onExcluir: (s: SolicitacaoComCaso) => void;
 }
 
 function SolicitacaoItem(props: SolicitacaoItemProps) {
-  const { s, isInterno, onAtendido, onDispensar } = props;
+  const { s, isInterno, onAtendido, onDispensar, onExcluir } = props;
   const isPendente = s.status === "pendente";
   const isAtendido = s.status === "atendido";
   const isDispensado = s.status === "dispensado";
@@ -915,7 +948,29 @@ function SolicitacaoItem(props: SolicitacaoItemProps) {
             >
               Dispensar
             </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-muted-foreground hover:text-destructive"
+              onClick={() => onExcluir(s)}
+              title="Excluir de vez (Dispensar mantem no historico)"
+            >
+              <Trash2 className="h-3 w-3" />
+            </Button>
           </div>
+        )}
+        {/* Ja cumprida/dispensada: continua dando pra excluir de vez, senao
+            pedido criado por engano fica preso no historico pra sempre. */}
+        {isInterno && !isPendente && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-muted-foreground hover:text-destructive"
+            onClick={() => onExcluir(s)}
+            title="Excluir do histórico"
+          >
+            <Trash2 className="h-3 w-3" />
+          </Button>
         )}
         {!isInterno && isPendente && (
           <div className="flex gap-1">
