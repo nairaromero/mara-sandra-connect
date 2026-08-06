@@ -53,6 +53,17 @@ select cron.schedule(
 );
 
 -- Triagem IA: usuario_id da Naira (dona da integração de IA configurada).
+--
+-- DESATIVADO em 2026-08-06 a pedido da Naira: o escritório vai se estabelecer
+-- primeiro no administrativo e só depois puxar o judicial. Esta triagem lê
+-- apenas andamentos de origem 'datajud' e 'djen' — as duas fontes judiciais —
+-- então desligá-la não afeta nada do administrativo.
+--
+-- O que continua rodando: sync do DataJud e as publicações (elas geram
+-- andamentos, não tarefas, então não poluem a lista).
+--
+-- Para reativar: descomente o bloco abaixo e rode esta migration de novo.
+/*
 select cron.schedule(
   'msc-ia-triagem',
   '30 9 * * *',
@@ -63,6 +74,7 @@ select cron.schedule(
        timeout_milliseconds := 145000
      ) $$
 );
+*/
 
 select cron.schedule(
   'msc-digest-diario',
