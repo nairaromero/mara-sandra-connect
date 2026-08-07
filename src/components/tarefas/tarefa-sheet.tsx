@@ -390,6 +390,10 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
         // (compartilhado entre main + extras).
         const ctx = casoId ? await obterContextoCaso(casoId, processoToken) : null;
         const ph = {
+          // {motivo} = o que a pessoa escreveu em Observações no momento do
+          // agendamento. É o que o parceiro lê no andamento do guichê — sem
+          // isso ele receberia "Motivo: {motivo}" literal.
+          motivo: descricao.trim() || "não informado",
           nome_cliente: ctx?.cliente_nome ?? "",
           protocolo: ctx?.protocolo ?? "",
           cpf: ctx?.cliente_cpf ?? "",

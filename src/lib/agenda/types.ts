@@ -1,6 +1,11 @@
 // Tipos da agenda (mirror do schema em migration_agenda_eventos.sql).
 
-export type AgendaTipo = "pericia" | "audiencia" | "reuniao" | "interno";
+export type AgendaTipo =
+  | "pericia"
+  | "audiencia"
+  | "reuniao"
+  | "interno"
+  | "guiche";
 
 export interface AgendaEventoRow {
   id: string;
@@ -34,6 +39,7 @@ export interface AgendaEventoComJoins extends AgendaEventoRow {
 
 export const TIPO_LABEL: Record<AgendaTipo, string> = {
   pericia: "Perícia",
+  guiche: "Guichê OAB",
   audiencia: "Audiência",
   reuniao: "Reunião",
   interno: "Interno",
@@ -43,6 +49,9 @@ export const TIPO_LABEL: Record<AgendaTipo, string> = {
 // utilities Tailwind que adaptam a dark mode.
 export const TIPO_CLASS: Record<AgendaTipo, string> = {
   pericia: "border-emerald-500/50 bg-emerald-50 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200",
+  // Guichê em rosa: não colide com perícia (verde), audiência (azul),
+  // reunião (âmbar) nem perícia judicial (violeta).
+  guiche: "border-pink-500/50 bg-pink-50 text-pink-900 dark:bg-pink-950 dark:text-pink-200",
   audiencia: "border-blue-500/50 bg-blue-50 text-blue-900 dark:bg-blue-950 dark:text-blue-200",
   reuniao: "border-amber-500/50 bg-amber-50 text-amber-900 dark:bg-amber-950 dark:text-amber-200",
   interno: "border-border bg-muted text-muted-foreground",
