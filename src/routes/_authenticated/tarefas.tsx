@@ -13,6 +13,7 @@ import {
   Loader2,
   Plus,
   Search,
+  Ticket,
   X,
 } from "lucide-react";
 
@@ -87,6 +88,21 @@ const BUCKETS: Array<{ key: Bucket; label: string; dot: string }> = [
   { key: "depois", label: "Depois", dot: "bg-muted-foreground/40" },
   { key: "sem_prazo", label: "Sem prazo", dot: "bg-muted-foreground/25" },
 ];
+
+// Guichê da OAB: a tarefa nasce com due_at NA DATA do guichê. Na véspera e no
+// dia, ela sai dos blocos de prazo e vira uma faixa própria no topo da lista —
+// é atendimento com hora marcada, perder é perder a vaga. Nos outros dias
+// comporta-se como tarefa normal.
+function ehGuiche(t: TarefaComJoins): boolean {
+  return (t.metadata as { guiche?: boolean } | null)?.guiche === true;
+}
+function guicheEmDestaque(t: TarefaComJoins): "hoje" | "amanha" | null {
+  if (!ehGuiche(t) || !t.due_at) return null;
+  const d = diasCorridosAte(t.due_at);
+  if (d === 0) return "hoje";
+  if (d === 1) return "amanha";
+  return null;
+}
 
 function bucketDaTarefa(t: TarefaComJoins): Bucket {
   if (!t.due_at) return "sem_prazo";
@@ -182,10 +198,25 @@ function TarefasPage() {
     };
     for (const t of filtradas) {
       if (t.status !== "a_fazer" && t.status !== "fazendo") continue;
+      // Guichê de hoje/amanhã sai daqui: vai pra faixa própria no topo, e
+      // aparecer nos dois lugares só duplicaria.
+      if (guicheEmDestaque(t)) continue;
       g[bucketDaTarefa(t)].push(t);
     }
     return g;
   }, [filtradas]);
+
+  const guichesDestaque = useMemo(
+    () =>
+      filtradas
+        .filter(
+          (t) =>
+            (t.status === "a_fazer" || t.status === "fazendo") &&
+            guicheEmDestaque(t),
+        )
+        .sort((a, b) => (a.due_at ?? "").localeCompare(b.due_at ?? "")),
+    [filtradas],
+  );
 
   function alternarSecao(b: Bucket) {
     setSecoesFechadas((prev) => {
@@ -435,6 +466,45 @@ function TarefasPage() {
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         ) : aba === "ativos" && vista === "lista" ? (
+          <div className="space-y-3">
+          {/* Faixa do guichê: só na véspera e no dia. No dia, destaque forte —
+              é atendimento com hora marcada. */}
+          {guichesDestaque.length > 0 && (
+            <div className="rounded-md border-2 border-pink-500/60 bg-pink-50/60 dark:bg-pink-950/30 overflow-hidden">
+              <div className="flex items-center gap-2 px-3 py-2 border-b border-pink-500/30">
+                <Ticket className="h-4 w-4 text-pink-600 dark:text-pink-300" />
+                <span className="text-sm font-semibold text-pink-900 dark:text-pink-200">
+                  Guichê OAB
+                </span>
+                <Badge
+                  variant="outline"
+                  className="font-normal border-pink-500/50 text-pink-900 dark:text-pink-200"
+                >
+                  {guichesDestaque.some((t) => guicheEmDestaque(t) === "hoje")
+                    ? "hoje"
+                    : "amanhã"}
+                </Badge>
+              </div>
+              <div className="divide-y divide-pink-500/20">
+                {guichesDestaque.map((t) => (
+                  <div
+                    key={t.id}
+                    className={
+                      guicheEmDestaque(t) === "hoje" ? "bg-pink-100/60 dark:bg-pink-900/30" : ""
+                    }
+                  >
+                    <TarefaCard
+                      tarefa={t}
+                      onOpenSheet={abrirEditor}
+                      onChangeStatus={mudarStatus}
+                      onDelete={excluir}
+                      onChanged={carregar}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="rounded-md border bg-card">
             {BUCKETS.every((b) => grupos[b.key].length === 0) ? (
               <p className="text-sm text-muted-foreground py-10 text-center">
@@ -559,6 +629,7 @@ function TarefasPage() {
                 );
               })
             )}
+          </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
