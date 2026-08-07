@@ -57,6 +57,7 @@ import {
   substituirPlaceholders,
 } from "@/lib/tarefas/helpers";
 import { EtapasAcompanhamento } from "@/components/tarefas/etapas-acompanhamento";
+import { AcompanhamentoPericia } from "@/components/tarefas/acompanhamento-pericia";
 import { EtapaCumprimentoExigencia } from "@/components/tarefas/etapa-cumprimento-exigencia";
 import { EtapaProtocoloRealizado } from "@/components/tarefas/etapa-protocolo-realizado";
 import { useDestaque } from "@/lib/destaque/destaque-context";
@@ -655,6 +656,12 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           {editando && tarefa &&
             (tarefa.metadata as { acompanhamento_processual?: boolean })?.acompanhamento_processual && (
               <EtapasAcompanhamento tarefa={tarefa} onUpdated={onSaved} />
+          )}
+
+          {editando && tarefa &&
+            (tarefa.metadata as { acompanhamento_pericia?: boolean })
+              ?.acompanhamento_pericia === true && (
+              <AcompanhamentoPericia tarefa={tarefa} onUpdated={onSaved} />
             )}
 
           {editando && tarefa &&
