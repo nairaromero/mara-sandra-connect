@@ -3042,10 +3042,19 @@ function TabAndamentos(props: TabAndamentosProps) {
 
   return (
     <div className="space-y-4">
-      {/* Bloco "Perícia": mostra, no topo dos andamentos, se o caso tem perícia
-          agendada (equipe e parceiro), colorido pela natureza (judicial=violeta,
-          INSS/adm=verde). Some quando não há perícia. */}
-      <BlocoPericiaCaso casoId={casoId} />
+      {/* Bloco "Perícia": mostra, no topo dos andamentos, se o caso tem
+          perícia agendada, colorido pela natureza (judicial=violeta,
+          INSS/adm=verde). Some quando não há perícia.
+
+          SÓ PARA O PARCEIRO. Pro interno era duplicata: a aba Atividades já
+          traz a perícia na seção "Agenda" do CasoTarefasTab, que fica na
+          coluna da esquerda — e em tela estreita as colunas empilham, então
+          a mesma perícia aparecia duas vezes seguidas. Além de repetir, o
+          bloco daqui é só leitura: quem tentava excluir a perícia por ele não
+          conseguia, porque o que abre o editor (com o botão Excluir) é o card
+          da seção Agenda. O parceiro não vê o CasoTarefasTab, então pra ele
+          este bloco continua sendo a única forma de ver a perícia. */}
+      {!isInterno && <BlocoPericiaCaso casoId={casoId} />}
       {/* Barra global de transferência (aparece quando há andamentos vinculados
           selecionados em qualquer accordion). Permite mover entre processos do
           mesmo tipo OU entre admin↔judicial. */}
