@@ -96,12 +96,28 @@ const BUCKETS: Array<{ key: Bucket; label: string; dot: string }> = [
 function ehGuiche(t: TarefaComJoins): boolean {
   return (t.metadata as { guiche?: boolean } | null)?.guiche === true;
 }
-function guicheEmDestaque(t: TarefaComJoins): "hoje" | "amanha" | null {
+/**
+ * Véspera ÚTIL do guichê: um dia antes, pulando fim de semana pra trás.
+ * Guichê na segunda avisa na sexta — ninguém trabalha domingo, e um alerta
+ * que só aparece no dia em que a pessoa não abre o sistema não alerta nada.
+ */
+function vesperaUtil(d: Date): Date {
+  const r = new Date(d);
+  r.setDate(r.getDate() - 1);
+  while (r.getDay() === 0 || r.getDay() === 6) r.setDate(r.getDate() - 1);
+  return r;
+}
+
+function guicheEmDestaque(t: TarefaComJoins): "hoje" | "vespera" | null {
   if (!ehGuiche(t) || !t.due_at) return null;
-  const d = diasCorridosAte(t.due_at);
-  if (d === 0) return "hoje";
-  if (d === 1) return "amanha";
-  return null;
+  if (diasCorridosAte(t.due_at) === 0) return "hoje";
+  const v = vesperaUtil(new Date(t.due_at));
+  const hoje = new Date();
+  const mesmoDia =
+    v.getFullYear() === hoje.getFullYear() &&
+    v.getMonth() === hoje.getMonth() &&
+    v.getDate() === hoje.getDate();
+  return mesmoDia ? "vespera" : null;
 }
 
 function bucketDaTarefa(t: TarefaComJoins): Bucket {
@@ -482,7 +498,7 @@ function TarefasPage() {
                 >
                   {guichesDestaque.some((t) => guicheEmDestaque(t) === "hoje")
                     ? "hoje"
-                    : "amanhã"}
+                    : "véspera"}
                 </Badge>
               </div>
               <div className="divide-y divide-pink-500/20">
