@@ -162,6 +162,11 @@ function DocumentosPendentesPage() {
   // Filtros
   const [filtroStatus, setFiltroStatus] = useState<string>("pendente");
   const [filtroOrigem, setFiltroOrigem] = useState<string>("todas");
+  // Padrão "só as minhas" pro interno: cada um vê o que pediu, sem a fila
+  // inteira do escritório. Não é confidencialidade (interno já abre
+  // qualquer caso) — é reduzir ruído. O botão "Ver todas" existe pra quando
+  // alguém falta e outra pessoa precisa cobrir.
+  const [soMinhas, setSoMinhas] = useState(true);
   const [busca, setBusca] = useState("");
 
   // Modal de acao (atendido/dispensado)
@@ -214,6 +219,9 @@ function DocumentosPendentesPage() {
       if (filtroStatus !== "todos" && s.status !== filtroStatus) return false;
       // Origem
       if (filtroOrigem !== "todas" && s.origem !== filtroOrigem) return false;
+      // "Só as minhas": pedidos que EU abri. Parceiro não filtra — o que ele
+      // enxerga já é só dos casos dele (RLS).
+      if (isInterno && soMinhas && s.solicitado_por !== usuario?.id) return false;
       // Busca por cliente ou tipo doc
       if (buscaLower) {
         const nomeCliente =
@@ -232,7 +240,7 @@ function DocumentosPendentesPage() {
       }
       return true;
     });
-  }, [solicitacoes, filtroStatus, filtroOrigem, busca]);
+  }, [solicitacoes, filtroStatus, filtroOrigem, busca, soMinhas, isInterno, usuario?.id]);
 
   // Agrupar por caso
   const gruposPorCaso = useMemo(() => {
@@ -252,11 +260,21 @@ function DocumentosPendentesPage() {
     return Array.from(mapa.values());
   }, [solicitacoesFiltradas]);
 
-  const totalPendentes = solicitacoes.filter((s) => s.status === "pendente").length;
-  const totalInterna = solicitacoes.filter(
+  // Os contadores do topo seguem o mesmo recorte de dono da lista (mas não os
+  // filtros de status/origem, senão "Pendentes" deixaria de significar algo).
+  // Sem isso o cartão diz 4 e a lista mostra 3 — parece bug.
+  const solicitacoesDoRecorte = useMemo(
+    () =>
+      isInterno && soMinhas
+        ? solicitacoes.filter((s) => s.solicitado_por === usuario?.id)
+        : solicitacoes,
+    [solicitacoes, isInterno, soMinhas, usuario?.id],
+  );
+  const totalPendentes = solicitacoesDoRecorte.filter((s) => s.status === "pendente").length;
+  const totalInterna = solicitacoesDoRecorte.filter(
     (s) => s.status === "pendente" && s.origem === "interna",
   ).length;
-  const totalExterna = solicitacoes.filter(
+  const totalExterna = solicitacoesDoRecorte.filter(
     (s) => s.status === "pendente" && s.origem === "externa",
   ).length;
 
@@ -549,6 +567,22 @@ function DocumentosPendentesPage() {
                 </SelectContent>
               </Select>
             </div>
+            {isInterno && (
+              <div className="flex items-end">
+                <Button
+                  variant={soMinhas ? "default" : "outline"}
+                  onClick={() => setSoMinhas((v) => !v)}
+                  className="w-full"
+                  title={
+                    soMinhas
+                      ? "Mostrando só as solicitações que você abriu"
+                      : "Mostrando as solicitações de todo o escritório"
+                  }
+                >
+                  {soMinhas ? "Só as minhas" : "Todas do escritório"}
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
 

@@ -91,6 +91,11 @@ function AEnviarPage() {
   // Texto editado por linha (id -> texto). Ausente = usa o texto original.
   const [editados, setEditados] = useState<Record<string, string>>({});
   const [enviandoId, setEnviandoId] = useState<string | null>(null);
+  // Dono do rascunho = responsável da tarefa "Avisar cliente da perícia"
+  // daquele caso. O rascunho em si nasce por trigger, sem autor, então não
+  // tem dono próprio — a tarefa é que diz de quem é o trabalho de comunicar.
+  const [respPorCaso, setRespPorCaso] = useState<Record<string, string | null>>({});
+  const [soMeus, setSoMeus] = useState(true);
   const jaCarregou = useRef(false);
 
   const carregar = useCallback(async () => {
@@ -105,7 +110,26 @@ function AEnviarPage() {
         .eq("rascunho", true)
         .order("created_at", { ascending: false });
       if (resp.error) throw resp.error;
-      setRascunhos((resp.data || []) as unknown as Array<RascunhoRow>);
+      const linhas = (resp.data || []) as unknown as Array<RascunhoRow>;
+      setRascunhos(linhas);
+
+      // Responsável por caso, pra saber de quem é cada rascunho.
+      const casoIds = [...new Set(linhas.map((r) => r.caso_id).filter(Boolean))];
+      if (casoIds.length > 0) {
+        const { data: tars } = await supabase
+          .from("tarefas")
+          .select("caso_id, responsavel_id, created_at")
+          .in("caso_id", casoIds)
+          .ilike("titulo", "Avisar cliente da perícia%")
+          .order("created_at", { ascending: false });
+        const mapa: Record<string, string | null> = {};
+        for (const t of (tars || []) as Array<{ caso_id: string; responsavel_id: string | null }>) {
+          if (!(t.caso_id in mapa)) mapa[t.caso_id] = t.responsavel_id;
+        }
+        setRespPorCaso(mapa);
+      } else {
+        setRespPorCaso({});
+      }
     } catch (err) {
       const e = err as { message?: string };
       setErro(e.message || "Erro ao carregar rascunhos");
@@ -118,6 +142,14 @@ function AEnviarPage() {
   useEffect(() => {
     carregar();
   }, [carregar]);
+
+  // Sem tarefa "Avisar cliente" no caso, o rascunho fica visível pra todo
+  // mundo: melhor aparecer pra mais gente do que sumir e ninguém enviar.
+  const visiveis = rascunhos.filter((r) => {
+    if (!soMeus || !isInterno) return true;
+    const resp = respPorCaso[r.caso_id];
+    return resp == null || resp === usuarioId;
+  });
 
   // Reserva: recarrega periodicamente e quando outra tela mexe em rascunho.
   useEffect(() => {
@@ -230,13 +262,14 @@ function AEnviarPage() {
       }
     >
       <div className="space-y-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 font-serif text-3xl font-semibold tracking-tight">
             <Send className="h-6 w-6" />
             A enviar
-            {rascunhos.length > 0 && (
+            {visiveis.length > 0 && (
               <Badge className="bg-destructive text-destructive-foreground hover:bg-destructive">
-                {rascunhos.length}
+                {visiveis.length}
               </Badge>
             )}
           </h1>
@@ -245,6 +278,21 @@ function AEnviarPage() {
             texto e clique em <strong>Enviar ao parceiro</strong> — só aí o
             e-mail é disparado e fica registrado na conversa.
           </p>
+        </div>
+        {isInterno && (
+          <Button
+            variant={soMeus ? "default" : "outline"}
+            size="sm"
+            onClick={() => setSoMeus((v) => !v)}
+            title={
+              soMeus
+                ? "Mostrando só os avisos sob sua responsabilidade"
+                : "Mostrando a fila inteira do escritório"
+            }
+          >
+            {soMeus ? "Só os meus" : "Todos do escritório"}
+          </Button>
+        )}
         </div>
 
         {erro && (
@@ -256,18 +304,20 @@ function AEnviarPage() {
           </Card>
         )}
 
-        {!erro && rascunhos.length === 0 ? (
+        {!erro && visiveis.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center">
               <Inbox className="mx-auto mb-2 h-10 w-10 text-muted-foreground" />
               <p className="text-sm text-muted-foreground">
-                Nenhum rascunho aguardando envio.
+                {soMeus && isInterno && rascunhos.length > 0
+                  ? `Nenhum aviso sob sua responsabilidade. Há ${rascunhos.length} na fila do escritório.`
+                  : "Nenhum rascunho aguardando envio."}
               </p>
             </CardContent>
           </Card>
         ) : (
           <ul className="space-y-4">
-            {rascunhos.map((row) => {
+            {visiveis.map((row) => {
               const nome = row.casos?.clientes?.nome || "(cliente sem nome)";
               const ehPericia = !!(row.andamento_id || row.evento_id);
               const semParceiro = !row.casos?.parceiro_id;

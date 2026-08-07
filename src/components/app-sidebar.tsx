@@ -123,10 +123,14 @@ export function AppSidebar() {
   useEffect(() => {
     let vivo = true;
     async function calc() {
-      const { count } = await supabase
+      // Conta o MESMO que a tela mostra por padrão ("só as minhas"), senão o
+      // badge diz 5 e a lista mostra 1 — parece bug.
+      let q = supabase
         .from("solicitacoes_documento")
         .select("id", { count: "exact", head: true })
         .eq("status", "pendente");
+      if (isInterno && usuario?.id) q = q.eq("solicitado_por", usuario.id);
+      const { count } = await q;
       if (vivo) setDocBadge(count || 0);
     }
     calc();
@@ -141,7 +145,9 @@ export function AppSidebar() {
         window.removeEventListener("msc:solicitacoes-mudou", calc);
       }
     };
-  }, []);
+    // Depende do usuário: no 1º render ele ainda é null e o filtro "só as
+    // minhas" não teria por quem filtrar.
+  }, [isInterno, usuario?.id]);
 
   // Badge de conversas não lidas (comentários novos por caso desde a última
   // leitura). Mesmo padrão do docBadge: poll + evento msc:conversas-mudou
@@ -207,11 +213,33 @@ export function AppSidebar() {
     }
     let vivo = true;
     async function calc() {
-      const { count } = await supabase
+      // Mesmo critério da tela /a-enviar: dono = responsável da tarefa
+      // "Avisar cliente da perícia" do caso; sem essa tarefa, conta pra todos.
+      const { data: rasc } = await supabase
         .from("comentarios")
-        .select("id", { count: "exact", head: true })
+        .select("id, caso_id")
         .eq("rascunho", true);
-      if (vivo) setRascunhoBadge(count || 0);
+      const linhas = (rasc || []) as Array<{ id: string; caso_id: string }>;
+      if (linhas.length === 0) {
+        if (vivo) setRascunhoBadge(0);
+        return;
+      }
+      const casoIds = [...new Set(linhas.map((r) => r.caso_id).filter(Boolean))];
+      const { data: tars } = await supabase
+        .from("tarefas")
+        .select("caso_id, responsavel_id, created_at")
+        .in("caso_id", casoIds)
+        .ilike("titulo", "Avisar cliente da perícia%")
+        .order("created_at", { ascending: false });
+      const respPorCaso: Record<string, string | null> = {};
+      for (const t of (tars || []) as Array<{ caso_id: string; responsavel_id: string | null }>) {
+        if (!(t.caso_id in respPorCaso)) respPorCaso[t.caso_id] = t.responsavel_id;
+      }
+      const meus = linhas.filter((r) => {
+        const resp = respPorCaso[r.caso_id];
+        return resp == null || resp === usuario?.id;
+      });
+      if (vivo) setRascunhoBadge(meus.length);
     }
     calc();
     const t = setInterval(calc, 60000);
@@ -234,7 +262,7 @@ export function AppSidebar() {
         window.removeEventListener("msc:rascunhos-mudou", calc);
       }
     };
-  }, [isInterno]);
+  }, [isInterno, usuario?.id]);
 
   return (
     <Sidebar collapsible="icon">
