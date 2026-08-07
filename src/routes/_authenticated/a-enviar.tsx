@@ -12,6 +12,14 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
+import { listarInternosAtivos } from "@/lib/tarefas/queries";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { supabase } from "@/lib/supabase";
 import { ClientOnly } from "@/components/client-only";
 import { Badge } from "@/components/ui/badge";
@@ -95,7 +103,8 @@ function AEnviarPage() {
   // daquele caso. O rascunho em si nasce por trigger, sem autor, então não
   // tem dono próprio — a tarefa é que diz de quem é o trabalho de comunicar.
   const [respPorCaso, setRespPorCaso] = useState<Record<string, string | null>>({});
-  const [soMeus, setSoMeus] = useState(true);
+  const [filtroPessoa, setFiltroPessoa] = useState<string>("__eu__");
+  const [internos, setInternos] = useState<Array<{ id: string; nome: string | null }>>([]);
   const jaCarregou = useRef(false);
 
   const carregar = useCallback(async () => {
@@ -143,12 +152,18 @@ function AEnviarPage() {
     carregar();
   }, [carregar]);
 
-  // Sem tarefa "Avisar cliente" no caso, o rascunho fica visível pra todo
-  // mundo: melhor aparecer pra mais gente do que sumir e ninguém enviar.
+  useEffect(() => {
+    if (!isInterno) return;
+    listarInternosAtivos().then(setInternos).catch(() => {});
+  }, [isInterno]);
+
+  // Sem tarefa "Avisar cliente" no caso, o rascunho fica visível em QUALQUER
+  // recorte: melhor aparecer pra mais gente do que sumir e ninguém enviar.
+  const pessoaAlvo = filtroPessoa === "__eu__" ? usuarioId : filtroPessoa;
   const visiveis = rascunhos.filter((r) => {
-    if (!soMeus || !isInterno) return true;
+    if (!isInterno || filtroPessoa === "__todos__") return true;
     const resp = respPorCaso[r.caso_id];
-    return resp == null || resp === usuarioId;
+    return resp == null || resp === pessoaAlvo;
   });
 
   // Reserva: recarrega periodicamente e quando outra tela mexe em rascunho.
@@ -280,18 +295,26 @@ function AEnviarPage() {
           </p>
         </div>
         {isInterno && (
-          <Button
-            variant={soMeus ? "default" : "outline"}
-            size="sm"
-            onClick={() => setSoMeus((v) => !v)}
-            title={
-              soMeus
-                ? "Mostrando só os avisos sob sua responsabilidade"
-                : "Mostrando a fila inteira do escritório"
-            }
-          >
-            {soMeus ? "Só os meus" : "Todos do escritório"}
-          </Button>
+          <div className="w-full sm:w-56">
+            <Select value={filtroPessoa} onValueChange={setFiltroPessoa}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__eu__">Meus avisos</SelectItem>
+                <SelectItem value="__todos__">Todos do escritório</SelectItem>
+                {internos
+                  // Fora os usuários de teste ([E2E], [TESTE]) — existem em
+                  // produção e não são gente do escritório.
+                  .filter((u) => u.id !== usuarioId && !(u.nome ?? "").startsWith("["))
+                  .map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.nome ?? "(sem nome)"}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
         )}
         </div>
 
@@ -309,8 +332,8 @@ function AEnviarPage() {
             <CardContent className="py-12 text-center">
               <Inbox className="mx-auto mb-2 h-10 w-10 text-muted-foreground" />
               <p className="text-sm text-muted-foreground">
-                {soMeus && isInterno && rascunhos.length > 0
-                  ? `Nenhum aviso sob sua responsabilidade. Há ${rascunhos.length} na fila do escritório.`
+                {isInterno && filtroPessoa !== "__todos__" && rascunhos.length > 0
+                  ? `Nenhum aviso nesse recorte. Há ${rascunhos.length} na fila do escritório.`
                   : "Nenhum rascunho aguardando envio."}
               </p>
             </CardContent>
