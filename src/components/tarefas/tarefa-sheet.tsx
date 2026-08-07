@@ -569,6 +569,12 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
                 template_item_index: i,
                 aplicado_manualmente: true,
                 ancora_prazo: ancora,
+                // Data da perícia gravada NA TAREFA, não só no evento da
+                // agenda. O escalonamento (ouvidoria 30d / peticionar 60d /
+                // ajuizar 90d) conta daqui — se dependesse do evento, bastava
+                // alguém apagar a perícia depois pra tarefa virar órfã e
+                // nunca escalonar. Aconteceu em produção antes desta linha.
+                ...(agendaStart ? { pericia_em: agendaStart.toISOString() } : {}),
                 ...(item.meta ?? {}),
               },
             });
