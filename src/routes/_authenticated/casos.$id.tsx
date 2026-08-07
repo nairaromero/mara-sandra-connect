@@ -42,6 +42,11 @@ import { DESTAQUE_CLASSE, useFocoItem } from "@/hooks/use-foco-item";
 import { notificarEquipe } from "@/lib/notificar";
 import { iaAnalise } from "@/lib/ia/client";
 import { supabase } from "@/lib/supabase";
+import {
+  TIPOS_DOCUMENTO_LABEL,
+  TIPOS_DOCUMENTO_OPTIONS,
+  nomeArquivoPorTipo,
+} from "@/lib/documentos/tipos";
 import { parseCnj } from "@/lib/processos/cnj";
 import {
   DESTAQUE_CLASSE_GLOBAL,
@@ -422,33 +427,6 @@ function rotuloTituloAndamento(titulo: string | null): string {
   );
 }
 
-const TIPOS_DOCUMENTO_LABEL: Record<string, string> = {
-  cnis: "CNIS",
-  rg_cpf: "RG / CPF",
-  comprovante_residencia: "Comprovante de residência",
-  ctps: "CTPS",
-  holerite: "Holerite / contracheque",
-  ppp: "PPP",
-  laudo_medico: "Laudo médico",
-  ltcat: "LTCAT",
-  atestado_medico: "Atestado médico",
-  cat: "CAT",
-  carne_gps: "Carnê de contribuição (GPS)",
-  ctc: "CTC",
-  carta_concessao_inss: "Carta de concessão/indeferimento INSS",
-  hiscre: "HISCRE",
-  certidao_casamento: "Certidão de casamento",
-  certidao_obito: "Certidão de óbito",
-  certidao_nascimento: "Certidão de nascimento",
-  declaracao_uniao_estavel: "Declaração de união estável",
-  declaracao_atividade_rural: "Declaração de atividade rural",
-  procuracao: "Procuração",
-  substabelecimento: "Substabelecimento",
-  contrato_honorarios: "Contrato de honorários",
-  declaracao_hipossuficiencia: "Declaração de hipossuficiência",
-  declaracao_ausencia_duplicidade: "Declaração de ausência de duplicidade de ação",
-  outro: "Outro",
-};
 
 // Ordem de exibicao dos documentos na aba Documentos do caso.
 // Cada tipo recebe um indice de grupo (1-9). A lista de documentos eh
@@ -4004,10 +3982,7 @@ function TabDocumentos(props: TabDocumentosProps) {
       setSincronizando(false);
     }
   }
-  const tiposDocImportOptions = Object.keys(TIPOS_DOCUMENTO_LABEL).map((k) => ({
-    value: k,
-    label: TIPOS_DOCUMENTO_LABEL[k],
-  }));
+  const tiposDocImportOptions = TIPOS_DOCUMENTO_OPTIONS;
 
   async function importarDriveParaCaso(arquivos: Array<DriveImportedFile>): Promise<void> {
     if (!usuarioId) {
@@ -5689,11 +5664,8 @@ function UploadDoc(props: {
   const [visivelParceiro, setVisivelParceiro] = useState(true);
   const [enviando, setEnviando] = useState(false);
 
-  // Lista de tipos para o Combobox (deriva da tabela TIPOS_DOCUMENTO_LABEL)
-  const tiposOptions = Object.keys(TIPOS_DOCUMENTO_LABEL).map((k) => ({
-    value: k,
-    label: TIPOS_DOCUMENTO_LABEL[k],
-  }));
+  // Lista de tipos pro Combobox — já vem em ordem alfabética.
+  const tiposOptions = TIPOS_DOCUMENTO_OPTIONS;
 
   function adicionarArquivos(files: FileList | null) {
     if (!files) return;
@@ -5773,7 +5745,13 @@ function UploadDoc(props: {
               caso_id: casoId,
               tipo: it.tipo,
               tipo_personalizado: it.tipo === "outro" ? it.tipoPersonalizado.trim() : null,
-              nome_arquivo: it.arquivo.name,
+              // Nome pelo tipo escolhido, não o que veio do celular/scanner
+              // ("IMG_20260807.jpg" não diz nada pra quem abre a pasta depois).
+              nome_arquivo: nomeArquivoPorTipo(
+                it.tipo,
+                it.tipoPersonalizado,
+                it.arquivo.name,
+              ),
               storage_path: storagePath,
               tamanho_bytes: it.arquivo.size,
               uploaded_by: usuarioId,
@@ -5975,10 +5953,7 @@ function SolicitarDocBotao(props: {
   const [origem, setOrigem] = useState("externa");
   const [enviando, setEnviando] = useState(false);
 
-  const tiposOptions = Object.keys(TIPOS_DOCUMENTO_LABEL).map((k) => ({
-    value: k,
-    label: TIPOS_DOCUMENTO_LABEL[k],
-  }));
+  const tiposOptions = TIPOS_DOCUMENTO_OPTIONS;
 
   const valido = !!tipo && (tipo !== "outro" || tipoPersonalizado.trim().length > 0);
 

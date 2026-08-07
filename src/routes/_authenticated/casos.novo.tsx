@@ -9,6 +9,7 @@ import { ArrowLeft, Loader2, Eye, EyeOff, Plus, X, FileText, FileDown, Search } 
 import { useAuth } from "@/hooks/use-auth";
 import { useTiposBeneficio } from "@/hooks/use-tipos-beneficio";
 import { supabase } from "@/lib/supabase";
+import { TIPOS_DOCUMENTO_OPTIONS } from "@/lib/documentos/tipos";
 import { MAX_FILE_SIZE_MB, validateFileSizes } from "@/lib/upload-limits";
 import { ClientOnly } from "@/components/client-only";
 import { Button } from "@/components/ui/button";
@@ -45,39 +46,6 @@ export const Route = createFileRoute("/_authenticated/casos/novo")({
   component: NovoCasoPage,
 });
 
-const TIPOS_DOCUMENTO = [
-  { value: "cnis", label: "CNIS" },
-  { value: "rg_cpf", label: "RG / CPF" },
-  { value: "comprovante_residencia", label: "Comprovante de residência" },
-  { value: "ctps", label: "CTPS" },
-  { value: "holerite", label: "Holerite / contracheque" },
-  { value: "ppp", label: "PPP" },
-  { value: "laudo_medico", label: "Laudo médico" },
-  { value: "ltcat", label: "LTCAT" },
-  { value: "atestado_medico", label: "Atestado médico" },
-  { value: "cat", label: "CAT (Comunicação de Acidente de Trabalho)" },
-  { value: "carne_gps", label: "Carnê de contribuição (GPS)" },
-  { value: "ctc", label: "CTC" },
-  { value: "carta_concessao_inss", label: "Carta de concessão / indeferimento INSS" },
-  { value: "hiscre", label: "HISCRE (Histórico de Créditos)" },
-  { value: "certidao_casamento", label: "Certidão de casamento" },
-  { value: "certidao_obito", label: "Certidão de óbito" },
-  { value: "certidao_nascimento", label: "Certidão de nascimento" },
-  { value: "declaracao_uniao_estavel", label: "Declaração de união estável" },
-  { value: "declaracao_atividade_rural", label: "Declaração de atividade rural" },
-  { value: "procuracao", label: "Procuração" },
-  { value: "substabelecimento", label: "Substabelecimento" },
-  { value: "contrato_honorarios", label: "Contrato de honorários" },
-  {
-    value: "declaracao_hipossuficiencia",
-    label: "Declaração de hipossuficiência",
-  },
-  {
-    value: "declaracao_ausencia_duplicidade",
-    label: "Declaração de ausência de duplicidade de ação",
-  },
-  { value: "outro", label: "Outro" },
-];
 
 type TipoDocumento = string;
 
@@ -1046,7 +1014,7 @@ function NovoCasoPage() {
                         <div>
                           <Label className="text-xs">Tipo</Label>
                           <DocTypeCombobox
-                            options={TIPOS_DOCUMENTO}
+                            options={TIPOS_DOCUMENTO_OPTIONS}
                             value={d.tipo}
                             onChange={(v) => updateDocTipo(d.id, v)}
                             placeholder="Selecione ou busque o tipo..."
@@ -1111,7 +1079,7 @@ function NovoCasoPage() {
             arquivosSelecionados={drivePicked?.files ?? null}
             accessToken={drivePicked?.accessToken ?? ""}
             onFechar={() => setDrivePicked(null)}
-            tiposDocumento={TIPOS_DOCUMENTO}
+            tiposDocumento={TIPOS_DOCUMENTO_OPTIONS}
             onConfirmar={addDocsFromDrive}
           />
         )}
