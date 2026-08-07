@@ -79,6 +79,7 @@ interface SolicitacaoComCaso {
   comentario: string | null;
   documento_id: string | null;
   solicitado_por: string | null;
+  solicitante?: { id: string; nome: string | null } | null;
   data_solicitacao: string;
   data_atendimento: string | null;
   casos: CasoLite | null;
@@ -191,7 +192,7 @@ function DocumentosPendentesPage() {
       const resp = await supabase
         .from("solicitacoes_documento")
         .select(
-          "id, caso_id, tipo, descricao, status, origem, comentario, documento_id, solicitado_por, data_solicitacao, data_atendimento, casos(id, tipo_beneficio, fase, status, parceiro_id, clientes(id, nome))",
+          "id, caso_id, tipo, descricao, status, origem, comentario, documento_id, solicitado_por, data_solicitacao, data_atendimento, solicitante:usuarios!solicitacoes_documento_solicitado_por_fkey(id, nome), casos(id, tipo_beneficio, fase, status, parceiro_id, clientes(id, nome))",
         )
         .order("data_solicitacao", { ascending: false });
       if (resp.error) throw resp.error;
@@ -260,23 +261,6 @@ function DocumentosPendentesPage() {
     return Array.from(mapa.values());
   }, [solicitacoesFiltradas]);
 
-  // Os contadores do topo seguem o mesmo recorte de dono da lista (mas não os
-  // filtros de status/origem, senão "Pendentes" deixaria de significar algo).
-  // Sem isso o cartão diz 4 e a lista mostra 3 — parece bug.
-  const solicitacoesDoRecorte = useMemo(
-    () =>
-      isInterno && soMinhas
-        ? solicitacoes.filter((s) => s.solicitado_por === usuario?.id)
-        : solicitacoes,
-    [solicitacoes, isInterno, soMinhas, usuario?.id],
-  );
-  const totalPendentes = solicitacoesDoRecorte.filter((s) => s.status === "pendente").length;
-  const totalInterna = solicitacoesDoRecorte.filter(
-    (s) => s.status === "pendente" && s.origem === "interna",
-  ).length;
-  const totalExterna = solicitacoesDoRecorte.filter(
-    (s) => s.status === "pendente" && s.origem === "externa",
-  ).length;
 
   function abrirAcaoModal(s: SolicitacaoComCaso, novoStatus: string) {
     setAcaoAlvo({ solic: s, novoStatus: novoStatus });
@@ -497,32 +481,6 @@ function DocumentosPendentesPage() {
               ? "Visão consolidada de todas as solicitações do escritório."
               : "Documentos que você precisa providenciar para os casos."}
           </p>
-        </div>
-
-        {/* Metricas */}
-        <div className="grid gap-3 grid-cols-2 sm:grid-cols-3">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Pendentes</CardDescription>
-              <CardTitle className="text-3xl">{totalPendentes}</CardTitle>
-            </CardHeader>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Interna (escritório)</CardDescription>
-              <CardTitle className="text-3xl">
-                {totalInterna}
-              </CardTitle>
-            </CardHeader>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Externa (parceiro/cliente)</CardDescription>
-              <CardTitle className="text-3xl">
-                {totalExterna}
-              </CardTitle>
-            </CardHeader>
-          </Card>
         </div>
 
         {/* Filtros */}
@@ -945,6 +903,10 @@ function SolicitacaoItem(props: SolicitacaoItemProps) {
             </p>
           )}
           <p className="text-xs text-muted-foreground mt-1">
+            {/* Quem abriu o pedido. Fica sempre visível: no modo "todas do
+                escritório" é a informação que faltava pra saber de quem é
+                cada um; no modo filtrado, confirma que o recorte está certo. */}
+            {s.solicitante?.nome ? `Pedido por ${s.solicitante.nome} · ` : ""}
             Solicitado em {formatDate(s.data_solicitacao)}
             {s.data_atendimento
               ? " - Atendido em " + formatDate(s.data_atendimento)
