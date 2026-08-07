@@ -15,6 +15,10 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
+import {
+  TIPOS_DOCUMENTO_LABEL,
+  nomeArquivoPorTipo,
+} from "@/lib/documentos/tipos";
 import { listarInternosAtivos } from "@/lib/tarefas/queries";
 import { supabase } from "@/lib/supabase";
 import { notificarEquipe } from "@/lib/notificar";
@@ -90,30 +94,6 @@ interface SolicitacaoComCaso {
 // Constantes
 // ===========================================================================
 
-const TIPOS_DOCUMENTO_LABEL: Record<string, string> = {
-  cnis: "CNIS",
-  rg_cpf: "RG / CPF",
-  comprovante_residencia: "Comprovante de residência",
-  ctps: "CTPS",
-  holerite: "Holerite / contracheque",
-  ppp: "PPP",
-  laudo_medico: "Laudo médico",
-  ltcat: "LTCAT",
-  atestado_medico: "Atestado médico",
-  cat: "CAT",
-  carne_gps: "Carnê de contribuição (GPS)",
-  ctc: "CTC",
-  carta_concessao_inss: "Carta de concessão/indeferimento INSS",
-  hiscre: "HISCRE",
-  certidao_casamento: "Certidão de casamento",
-  certidao_obito: "Certidão de óbito",
-  certidao_nascimento: "Certidão de nascimento",
-  declaracao_uniao_estavel: "Declaração de união estável",
-  declaracao_atividade_rural: "Declaração de atividade rural",
-  procuracao: "Procuração",
-  contrato_honorarios: "Contrato de honorários",
-  outro: "Outro",
-};
 
 const ORIGEM_SOLICITACAO_LABEL: Record<string, string> = {
   interna: "Interna (escritório)",
@@ -301,16 +281,7 @@ function DocumentosPendentesPage() {
 
   // Renomeia arquivo para o nome do tipo solicitado (ex.: CNIS.pdf)
   function nomearArquivo(tipoSolic: string, arquivoOriginal: File): string {
-    const ext = arquivoOriginal.name.includes(".")
-      ? arquivoOriginal.name.split(".").pop() || "pdf"
-      : "pdf";
-    const label = TIPOS_DOCUMENTO_LABEL[tipoSolic] || tipoSolic;
-    // Sanitiza label: troca caracteres problematicos por _
-    const labelSanit = label
-      .replace(/[\/\\?*:|"<>]/g, "_")
-      .replace(/\s+/g, "_")
-      .trim();
-    return labelSanit + "." + ext.toLowerCase();
+    return nomeArquivoPorTipo(tipoSolic, null, arquivoOriginal.name);
   }
 
   // Excluir de vez a solicitacao. Diferente de "Dispensar", que mantem o
