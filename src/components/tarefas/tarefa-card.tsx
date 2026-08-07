@@ -20,6 +20,7 @@ import {
 import { cn } from "@/lib/utils";
 import { EtapasAcompanhamento } from "@/components/tarefas/etapas-acompanhamento";
 import { AcompanhamentoPericia } from "@/components/tarefas/acompanhamento-pericia";
+import { ComparecimentoPericia } from "@/components/tarefas/comparecimento-pericia";
 import { EtapaCumprimentoExigencia } from "@/components/tarefas/etapa-cumprimento-exigencia";
 import { EtapaProtocoloRealizado } from "@/components/tarefas/etapa-protocolo-realizado";
 import {
@@ -75,6 +76,8 @@ export function TarefaCard({
     true;
   const ehAcompPericia =
     (tarefa.metadata as { acompanhamento_pericia?: boolean })?.acompanhamento_pericia === true;
+  const ehComparecimento =
+    (tarefa.metadata as { confirmar_comparecimento?: boolean })?.confirmar_comparecimento === true;
   const ehCumprimentoExigencia =
     (tarefa.metadata as { cumprimento_exigencia?: boolean })?.cumprimento_exigencia === true;
   const ehProtocoloRealizado =
@@ -274,6 +277,15 @@ export function TarefaCard({
 
         {ehAcompPericia && (
           <AcompanhamentoPericia
+            tarefa={tarefa}
+            onUpdated={onChanged ?? (() => {})}
+            compacto
+            stopPropagation
+          />
+        )}
+
+        {ehComparecimento && (
+          <ComparecimentoPericia
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}
             compacto
