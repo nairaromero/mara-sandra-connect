@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { EtapasAcompanhamento } from "@/components/tarefas/etapas-acompanhamento";
+import { AcompanhamentoPericia } from "@/components/tarefas/acompanhamento-pericia";
 import { EtapaCumprimentoExigencia } from "@/components/tarefas/etapa-cumprimento-exigencia";
 import { EtapaProtocoloRealizado } from "@/components/tarefas/etapa-protocolo-realizado";
 import {
@@ -72,6 +73,8 @@ export function TarefaCard({
   const ehAcompProcessual =
     (tarefa.metadata as { acompanhamento_processual?: boolean })?.acompanhamento_processual ===
     true;
+  const ehAcompPericia =
+    (tarefa.metadata as { acompanhamento_pericia?: boolean })?.acompanhamento_pericia === true;
   const ehCumprimentoExigencia =
     (tarefa.metadata as { cumprimento_exigencia?: boolean })?.cumprimento_exigencia === true;
   const ehProtocoloRealizado =
@@ -262,6 +265,15 @@ export function TarefaCard({
 
         {ehAcompProcessual && (
           <EtapasAcompanhamento
+            tarefa={tarefa}
+            onUpdated={onChanged ?? (() => {})}
+            compacto
+            stopPropagation
+          />
+        )}
+
+        {ehAcompPericia && (
+          <AcompanhamentoPericia
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}
             compacto

@@ -318,6 +318,10 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
                 template_aplicado: tpl.nome,
                 aplicado_via: "agenda_sheet",
                 ancora_prazo: ancora,
+                // Data do evento que ancorou a tarefa. O acompanhamento de
+                // pericia conta os 30/60/90 dias do escalonamento a partir
+                // daqui — sem isso o job diario nao teria referencia.
+                ...(agendaStart ? { pericia_em: agendaStart.toISOString() } : {}),
                 ...(item.meta ?? {}),
               },
             });
