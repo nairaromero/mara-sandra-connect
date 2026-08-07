@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
+import { listarInternosAtivos } from "@/lib/tarefas/queries";
 import { supabase } from "@/lib/supabase";
 import { notificarEquipe } from "@/lib/notificar";
 import { MAX_FILE_SIZE_MB, validateFileSize } from "@/lib/upload-limits";
@@ -163,11 +164,18 @@ function DocumentosPendentesPage() {
   // Filtros
   const [filtroStatus, setFiltroStatus] = useState<string>("pendente");
   const [filtroOrigem, setFiltroOrigem] = useState<string>("todas");
-  // Padrão "só as minhas" pro interno: cada um vê o que pediu, sem a fila
-  // inteira do escritório. Não é confidencialidade (interno já abre
-  // qualquer caso) — é reduzir ruído. O botão "Ver todas" existe pra quando
-  // alguém falta e outra pessoa precisa cobrir.
-  const [soMinhas, setSoMinhas] = useState(true);
+  // Filtro por pessoa. Abre em mim mesma (cada um vê o que pediu, sem a fila
+  // inteira do escritório), mas dá pra escolher qualquer colega ou "Todos" —
+  // serve tanto pra reduzir ruído quanto pra acompanhar o time.
+  // Não é confidencialidade: interno já abre qualquer caso.
+  const [filtroPessoa, setFiltroPessoa] = useState<string>("__eu__");
+  const [internos, setInternos] = useState<Array<{ id: string; nome: string | null }>>([]);
+  useEffect(() => {
+    if (!isInterno) return;
+    listarInternosAtivos().then(setInternos).catch(() => {});
+  }, [isInterno]);
+  // "__eu__" só vira o id de verdade depois que o usuário carrega.
+  const pessoaAlvo = filtroPessoa === "__eu__" ? usuario?.id ?? null : filtroPessoa;
   const [busca, setBusca] = useState("");
 
   // Modal de acao (atendido/dispensado)
@@ -220,9 +228,11 @@ function DocumentosPendentesPage() {
       if (filtroStatus !== "todos" && s.status !== filtroStatus) return false;
       // Origem
       if (filtroOrigem !== "todas" && s.origem !== filtroOrigem) return false;
-      // "Só as minhas": pedidos que EU abri. Parceiro não filtra — o que ele
-      // enxerga já é só dos casos dele (RLS).
-      if (isInterno && soMinhas && s.solicitado_por !== usuario?.id) return false;
+      // Por pessoa. Parceiro não filtra — o que ele enxerga já é só dos
+      // casos dele (RLS).
+      if (isInterno && filtroPessoa !== "__todos__" && s.solicitado_por !== pessoaAlvo) {
+        return false;
+      }
       // Busca por cliente ou tipo doc
       if (buscaLower) {
         const nomeCliente =
@@ -241,7 +251,7 @@ function DocumentosPendentesPage() {
       }
       return true;
     });
-  }, [solicitacoes, filtroStatus, filtroOrigem, busca, soMinhas, isInterno, usuario?.id]);
+  }, [solicitacoes, filtroStatus, filtroOrigem, busca, filtroPessoa, pessoaAlvo, isInterno]);
 
   // Agrupar por caso
   const gruposPorCaso = useMemo(() => {
@@ -526,19 +536,26 @@ function DocumentosPendentesPage() {
               </Select>
             </div>
             {isInterno && (
-              <div className="flex items-end">
-                <Button
-                  variant={soMinhas ? "default" : "outline"}
-                  onClick={() => setSoMinhas((v) => !v)}
-                  className="w-full"
-                  title={
-                    soMinhas
-                      ? "Mostrando só as solicitações que você abriu"
-                      : "Mostrando as solicitações de todo o escritório"
-                  }
-                >
-                  {soMinhas ? "Só as minhas" : "Todas do escritório"}
-                </Button>
+              <div>
+                <Label className="text-xs">Solicitado por</Label>
+                <Select value={filtroPessoa} onValueChange={setFiltroPessoa}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__eu__">Eu</SelectItem>
+                    <SelectItem value="__todos__">Todos do escritório</SelectItem>
+                    {internos
+                      // Fora os usuários de teste ([E2E], [TESTE]) — existem
+                      // em produção e não são gente do escritório.
+                      .filter((u) => u.id !== usuario?.id && !(u.nome ?? "").startsWith("["))
+                      .map((u) => (
+                        <SelectItem key={u.id} value={u.id}>
+                          {u.nome ?? "(sem nome)"}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
               </div>
             )}
           </CardContent>
