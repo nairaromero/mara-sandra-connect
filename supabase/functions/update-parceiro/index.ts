@@ -132,7 +132,7 @@ serve(async (req) => {
   // Busca estado atual pra comparar
   const { data: atual, error: atualErr } = await supabaseAdmin
     .from("usuarios")
-    .select("id, nome, email, oab, telefone, tipo")
+    .select("id, nome, email, oab, telefone, tipo, eh_parceiro")
     .eq("id", usuarioId)
     .maybeSingle();
   if (atualErr || !atual) {
@@ -145,8 +145,11 @@ serve(async (req) => {
     oab: string | null;
     telefone: string | null;
     tipo: string;
+    eh_parceiro: boolean | null;
   };
-  if (a.tipo !== "parceiro") {
+  // Papel comercial, nao modo de acesso: alguem da equipe pode tambem ser
+  // parceiro (tipo='interno' + eh_parceiro=true) e precisa ser editavel aqui.
+  if (a.tipo !== "parceiro" && a.eh_parceiro !== true) {
     return jsonResponse(
       { error: "este endpoint so edita parceiros" },
       400,
@@ -179,6 +182,33 @@ serve(async (req) => {
     if (!novoEmail) {
       return jsonResponse({ error: "novo email vazio" }, 400);
     }
+
+    // O Supabase Auth nao permite o mesmo email em duas contas. Sem esta
+    // checagem o updateUserById abaixo falha com um 500 generico e quem ta na
+    // tela nao descobre que o email ja e de outra pessoa. Aqui a gente sabe de
+    // quem e, entao diz.
+    const { data: dono } = await supabaseAdmin
+      .from("usuarios")
+      .select("id, nome, tipo")
+      .eq("email", novoEmail)
+      .neq("id", usuarioId)
+      .maybeSingle();
+    if (dono) {
+      const d = dono as { id: string; nome: string | null; tipo: string };
+      return jsonResponse(
+        {
+          error: `Esse e-mail ja e da conta de ${d.nome ?? "outro usuario"}` +
+            ` (${d.tipo === "interno" ? "equipe" : "parceiro"}).`,
+          detail:
+            "O Supabase Auth nao permite o mesmo e-mail em duas contas. Use " +
+            "outro endereco, ou marque essa pessoa como parceira na conta que " +
+            "ela ja tem.",
+          conflito_usuario_id: d.id,
+        },
+        409,
+      );
+    }
+
     const updResp = await supabaseAdmin.auth.admin.updateUserById(usuarioId, {
       email: novoEmail,
       email_confirm: true, // pula confirmacao do email antigo
