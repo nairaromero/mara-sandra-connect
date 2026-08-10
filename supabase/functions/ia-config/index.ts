@@ -18,6 +18,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { encryptSecret, decryptSecret, hintFor } from "../_shared/crypto.ts";
 import { chatWith, PROVIDERS } from "../_shared/ia-providers.ts";
+import { carregarIntegracao } from "../_shared/ia-integracao.ts";
 import { generateToken, sha256Hex } from "../_shared/tokens.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
@@ -58,15 +59,36 @@ serve(async (req) => {
     if (action === "status") {
       const { data } = await admin
         .from("ia_integracoes")
-        .select("provider,modelo,ativo,api_key_hint,atualizado_em")
+        .select("provider,modelo,ativo,api_key_hint,atualizado_em,compartilhada")
         .eq("usuario_id", uid)
         .maybeSingle();
+
+      // `disponivel` != `configurado`: quem nao tem chave propria pode estar
+      // usando a compartilhada do escritorio. E o que decide se a UI mostra o
+      // launcher da IA — sem isso, quem usa a compartilhada nao veria a IA.
+      const efetiva = await carregarIntegracao(admin, uid);
+      const disponivel = efetiva.ok;
+
+      // Existe alguma chave compartilhada no escritorio? A UI usa pra explicar
+      // ao usuario de onde a IA dele vem (ou por que ele nao tem).
+      const { data: comp } = await admin
+        .from("ia_integracoes")
+        .select("usuario_id")
+        .eq("compartilhada", true)
+        .eq("ativo", true)
+        .maybeSingle();
+
       return jsonResponse({
         configurado: !!data,
         provider: data?.provider ?? null,
         modelo: data?.modelo ?? null,
         ativo: data?.ativo ?? false,
         hint: data?.api_key_hint ?? null,
+        compartilhada: data?.compartilhada ?? false,
+        disponivel,
+        // true quando a IA dele vem da chave de outra pessoa
+        usando_compartilhada: disponivel && !data,
+        existe_compartilhada: !!comp,
         providers_suportados: Object.fromEntries(
           Object.entries(PROVIDERS).map(([k, v]) => [k, { label: v.label, models: v.models }]),
         ),
@@ -127,6 +149,48 @@ serve(async (req) => {
         .eq("usuario_id", uid);
       if (error) return jsonResponse({ error: error.message }, 400);
       return jsonResponse({ ok: true, ativo });
+    }
+
+    // ---- Compartilhar a propria chave com a equipe interna ----
+    // Só interno pode compartilhar, e o índice único garante uma de cada vez —
+    // por isso desmarcamos a anterior antes de marcar a nova, em vez de deixar
+    // o insert falhar com erro de banco na cara do usuário.
+    if (action === "compartilhar") {
+      const compartilhada = body.compartilhada === true;
+
+      const { data: perfil } = await admin
+        .from("usuarios")
+        .select("tipo")
+        .eq("id", uid)
+        .maybeSingle();
+      if (perfil?.tipo !== "interno") {
+        return jsonResponse({ error: "apenas interno pode compartilhar a chave" }, 403);
+      }
+
+      const { data: propria } = await admin
+        .from("ia_integracoes")
+        .select("usuario_id")
+        .eq("usuario_id", uid)
+        .maybeSingle();
+      if (!propria) {
+        return jsonResponse({ error: "configure sua chave antes de compartilhar" }, 412);
+      }
+
+      if (compartilhada) {
+        const { error: errLimpa } = await admin
+          .from("ia_integracoes")
+          .update({ compartilhada: false })
+          .eq("compartilhada", true)
+          .neq("usuario_id", uid);
+        if (errLimpa) return jsonResponse({ error: errLimpa.message }, 400);
+      }
+
+      const { error } = await admin
+        .from("ia_integracoes")
+        .update({ compartilhada })
+        .eq("usuario_id", uid);
+      if (error) return jsonResponse({ error: error.message }, 400);
+      return jsonResponse({ ok: true, compartilhada });
     }
 
     // ---- Tokens da Superficie B (Claude/ChatGPT) ----

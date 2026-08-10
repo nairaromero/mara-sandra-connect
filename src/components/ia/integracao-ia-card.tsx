@@ -27,6 +27,9 @@ export function IntegracaoIaCard() {
   const [configurado, setConfigurado] = useState(false);
   const [ativo, setAtivo] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
+  const [compartilhada, setCompartilhada] = useState(false);
+  const [usandoCompartilhada, setUsandoCompartilhada] = useState(false);
+  const [compartilhando, setCompartilhando] = useState(false);
 
   const [provider, setProvider] = useState("anthropic");
   const [modelo, setModelo] = useState("");
@@ -45,6 +48,8 @@ export function IntegracaoIaCard() {
       setConfigurado(data.configurado);
       setAtivo(data.ativo);
       setHint(data.hint);
+      setCompartilhada(data.compartilhada ?? false);
+      setUsandoCompartilhada(data.usando_compartilhada ?? false);
       if (data.provider) setProvider(data.provider);
       if (data.modelo) setModelo(data.modelo);
     }
@@ -108,6 +113,25 @@ export function IntegracaoIaCard() {
       toast.success(novo ? "Assistente ativado" : "Assistente desativado");
     } else {
       toast.error(error?.message || "Falha ao alterar");
+    }
+  }
+
+  async function alternarCompartilhada(novo: boolean) {
+    setCompartilhando(true);
+    const { data, error } = await iaConfig.compartilhar(novo);
+    setCompartilhando(false);
+    if (data?.ok) {
+      setCompartilhada(data.compartilhada);
+      toast.success(
+        novo
+          ? "Chave compartilhada com a equipe interna"
+          : "Chave não é mais compartilhada",
+        novo
+          ? { description: "Internos sem chave própria passam a usar esta conta." }
+          : undefined,
+      );
+    } else {
+      toast.error(error?.message || "Falha ao alterar o compartilhamento");
     }
   }
 
@@ -201,6 +225,13 @@ export function IntegracaoIaCard() {
               </Button>
             </div>
 
+            {usandoCompartilhada && (
+              <p className="rounded-md border border-[var(--gold)]/40 bg-gold-soft/20 px-3 py-2 text-xs">
+                Você está usando a chave de IA compartilhada do escritório. Cadastre a sua
+                acima para usar a sua própria conta.
+              </p>
+            )}
+
             {configurado && (
               <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
                 <div>
@@ -214,6 +245,25 @@ export function IntegracaoIaCard() {
                   disabled={alternando}
                   onCheckedChange={alternarAtivo}
                   aria-label="Ativar assistente"
+                />
+              </div>
+            )}
+
+            {configurado && (
+              <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                <div className="pr-3">
+                  <p className="text-sm font-medium">Compartilhar com a equipe interna</p>
+                  <p className="text-xs text-muted-foreground">
+                    Internos sem chave própria passam a usar esta — e todo o consumo é
+                    cobrado nesta conta. Quem cadastrar a própria volta a usar a dele.
+                    Só uma chave pode ser a compartilhada.
+                  </p>
+                </div>
+                <Switch
+                  checked={compartilhada}
+                  disabled={compartilhando || !ativo}
+                  onCheckedChange={alternarCompartilhada}
+                  aria-label="Compartilhar chave com a equipe interna"
                 />
               </div>
             )}
