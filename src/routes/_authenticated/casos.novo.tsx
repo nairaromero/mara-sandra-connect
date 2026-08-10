@@ -26,6 +26,11 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { DocTypeCombobox } from "@/components/doc-type-combobox";
+import {
+  PreencherComDocumentos,
+  type ArquivoLido,
+  type CamposLidos,
+} from "@/components/preencher-com-documentos";
 import { NovoParceiroDialog } from "@/components/novo-parceiro-dialog";
 import { notificarEquipe } from "@/lib/notificar";
 import { DrivePickerDialog, type DriveImportedFile } from "@/components/drive-picker-dialog";
@@ -298,6 +303,52 @@ function NovoCasoPage() {
       setParceiros(parceirosData);
     })();
   }, [isInterno]);
+
+  // Aplica os campos lidos do documento e joga os arquivos na lista de
+  // documentos do caso, já com o tipo certo — assim o RG e o comprovante ficam
+  // arquivados no caso sem a pessoa anexar duas vezes.
+  //
+  // Só preenche campo VAZIO: se a pessoa já digitou algo, o que ela digitou
+  // vale mais que a leitura da IA e não pode ser sobrescrito.
+  function preencherComDocumentos(campos: CamposLidos, arquivos: Array<ArquivoLido>) {
+    const atual = form.getValues();
+
+    if (campos.nome && !atual.nome.trim()) {
+      form.setValue("nome", campos.nome, { shouldValidate: true, shouldDirty: true });
+    }
+    if (campos.cpf && !atual.cpf.trim()) {
+      form.setValue("cpf", maskCPF(campos.cpf), { shouldValidate: true, shouldDirty: true });
+    }
+    if (campos.data_nascimento && !atual.data_nascimento.trim()) {
+      form.setValue("data_nascimento", campos.data_nascimento, {
+        shouldValidate: true,
+        shouldDirty: true,
+      });
+    }
+    if (campos.endereco && !(atual.endereco ?? "").trim()) {
+      // A coluna aceita 200 caracteres; corta aqui pra o insert não estourar.
+      form.setValue("endereco", campos.endereco.slice(0, 200), {
+        shouldValidate: true,
+        shouldDirty: true,
+      });
+    }
+
+    setDocs((prev) => {
+      // Não duplica se a pessoa ler duas vezes: compara nome + tamanho, que é o
+      // que dá pra comparar sem ler o conteúdo de novo.
+      const jaTem = (f: File) =>
+        prev.some((d) => d.file && d.file.name === f.name && d.file.size === f.size);
+      const novos = arquivos
+        .filter((a) => !jaTem(a.file))
+        .map((a) => ({
+          id: crypto.randomUUID(),
+          file: a.file,
+          tipo: a.tipo as TipoDocumento,
+          tipoPersonalizado: "",
+        }));
+      return novos.length > 0 ? [...prev, ...novos] : prev;
+    });
+  }
 
   function addDocsFromFiles(files: FileList | null) {
     if (!files) return;
@@ -641,6 +692,10 @@ function NovoCasoPage() {
       >
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            {/* Leitura de documento: so interno. Documento de identidade nao
+                passa por parceiro. */}
+            {isInterno && <PreencherComDocumentos onPreenchido={preencherComDocumentos} />}
+
             {/* Secao 1: Dados do cliente */}
             <Card>
               <CardHeader>
