@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase, type UsuarioRow } from "@/lib/supabase";
+import { garantirInicioSessao, limparMarcadores } from "@/lib/auth/session-policy";
 
 interface AuthContextValue {
   session: Session | null;
@@ -31,12 +32,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, sess) => {
       setSession(sess);
       if (sess?.user) {
+        // Relógio da sessão nasce aqui (e não no layout autenticado) pra também
+        // valer em /definir-senha e demais telas fora dele. É idempotente: só
+        // grava se ainda não houver marca, senão cada refresh de token zeraria
+        // o teto de 12h e a sessão voltaria a ser eterna.
+        garantirInicioSessao();
         // defer DB call para evitar deadlock
         setTimeout(() => {
           loadUsuario(sess.user.id);
           loadPrecisaSenha();
         }, 0);
       } else {
+        // Sessão caiu (logout, token revogado): zera os relógios pra que o
+        // próximo login não herde o teto de 12h da sessão anterior.
+        limparMarcadores();
         setUsuario(null);
         setPrecisaSenha(null);
       }
@@ -45,6 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       if (data.session?.user) {
+        garantirInicioSessao();
         Promise.all([
           loadUsuario(data.session.user.id),
           loadPrecisaSenha(),
@@ -120,6 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signOut() {
+    limparMarcadores();
     await supabase.auth.signOut();
     setUsuario(null);
     setSession(null);
