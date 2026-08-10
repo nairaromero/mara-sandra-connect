@@ -13,6 +13,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { NotificacoesBell } from "@/components/notificacoes-bell";
 import { MovimentacoesParceiroBell } from "@/components/movimentacoes-parceiro-bell";
 import { IaLauncher } from "@/components/ia/ia-launcher";
+import { SessionTimeoutGuard } from "@/components/session-timeout-guard";
 import { useAuth } from "@/hooks/use-auth";
 import { TERMOS_VERSAO } from "@/lib/legal/termos";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -75,6 +76,7 @@ function AuthenticatedLayout() {
 
   return (
     <DestaqueProvider>
+      <SessionTimeoutGuard />
       <SidebarProvider>
         <div className="flex min-h-screen w-full bg-muted/20">
         <AppSidebar />

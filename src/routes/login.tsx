@@ -3,6 +3,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
+import { consumirMotivoLogout } from "@/lib/auth/session-policy";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,6 +28,21 @@ function LoginPage() {
       navigate({ to: "/casos" });
     }
   }, [authLoading, session, navigate]);
+
+  // Explica por que a pessoa caiu aqui quando o logout foi automático — sem
+  // isso a tela de login do nada parece bug. O motivo é consumido na leitura.
+  useEffect(() => {
+    const motivo = consumirMotivoLogout();
+    if (motivo === "ociosidade") {
+      toast.info("Sessão encerrada por inatividade", {
+        description: "Ficou 1 hora sem uso. Entre novamente para continuar.",
+      });
+    } else if (motivo === "tempo_maximo") {
+      toast.info("Sessão expirada", {
+        description: "Por segurança, o acesso é renovado a cada 12 horas.",
+      });
+    }
+  }, []);
 
   async function handlePasswordLogin(e: FormEvent) {
     e.preventDefault();
