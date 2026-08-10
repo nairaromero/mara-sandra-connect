@@ -6,6 +6,7 @@ import {
   Send,
   AlertCircle,
   Stethoscope,
+  BellRing,
   ExternalLink,
   Inbox,
   Trash2,
@@ -55,6 +56,7 @@ interface RascunhoRow {
   created_at: string;
   andamento_id: string | null;
   evento_id: string | null;
+  tipo_aviso: string | null;
   casos: CasoLite | null;
 }
 
@@ -114,7 +116,7 @@ function AEnviarPage() {
       const resp = await supabase
         .from("comentarios")
         .select(
-          "id, caso_id, texto, created_at, andamento_id, evento_id, casos(id, tipo_beneficio, fase, parceiro_id, clientes(id, nome))",
+          "id, caso_id, texto, created_at, andamento_id, evento_id, tipo_aviso, casos(id, tipo_beneficio, fase, parceiro_id, clientes(id, nome))",
         )
         .eq("rascunho", true)
         .order("created_at", { ascending: false });
@@ -342,7 +344,11 @@ function AEnviarPage() {
           <ul className="space-y-4">
             {visiveis.map((row) => {
               const nome = row.casos?.clientes?.nome || "(cliente sem nome)";
-              const ehPericia = !!(row.andamento_id || row.evento_id);
+              // tipo_aviso entra na conta porque a triagem da IA cria rascunho
+              // de perícia sem andamento nem evento vinculado — só pelas duas
+              // FKs, esses ficavam sem badge nenhum na fila.
+              const ehPericia = !!(row.andamento_id || row.evento_id || row.tipo_aviso);
+              const ehLembrete = row.tipo_aviso === "pericia_lembrete";
               const semParceiro = !row.casos?.parceiro_id;
               const enviando = enviandoId === row.id;
               return (
@@ -357,12 +363,23 @@ function AEnviarPage() {
                               {FASE_LABEL[row.casos.fase] || row.casos.fase}
                             </Badge>
                           )}
-                          {ehPericia && (
-                            <Badge className="border-emerald-500/50 bg-emerald-50 text-emerald-900 hover:bg-emerald-50 dark:bg-emerald-950 dark:text-emerald-200">
-                              <Stethoscope className="mr-1 h-3 w-3" />
-                              Perícia
-                            </Badge>
-                          )}
+                          {/* Aviso e lembrete chegam na mesma fila com texto
+                              parecido. Sem distinguir aqui, a equipe manda o
+                              segundo achando que é repetição do primeiro (ou
+                              vice-versa) — cor e rótulo separam os dois de
+                              longe, antes de ler o texto. */}
+                          {ehPericia &&
+                            (ehLembrete ? (
+                              <Badge className="border-amber-500/50 bg-amber-50 text-amber-900 hover:bg-amber-50 dark:bg-amber-950 dark:text-amber-200">
+                                <BellRing className="mr-1 h-3 w-3" />
+                                Perícia · lembrete
+                              </Badge>
+                            ) : (
+                              <Badge className="border-emerald-500/50 bg-emerald-50 text-emerald-900 hover:bg-emerald-50 dark:bg-emerald-950 dark:text-emerald-200">
+                                <Stethoscope className="mr-1 h-3 w-3" />
+                                Perícia · 1º aviso
+                              </Badge>
+                            ))}
                         </div>
                         <span className="text-xs text-muted-foreground">
                           {formatRelativo(row.created_at)}
