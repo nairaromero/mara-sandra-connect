@@ -19,11 +19,23 @@ export const IA_PROVIDERS: Record<string, IaProviderInfo> = {
 };
 
 export type IaConfigStatus = {
+  /** Tem chave PRÓPRIA cadastrada. */
   configurado: boolean;
   provider: string | null;
   modelo: string | null;
   ativo: boolean;
   hint: string | null;
+  /** Esta chave é a compartilhada com a equipe interna. */
+  compartilhada: boolean;
+  /**
+   * Tem IA utilizável — própria OU compartilhada do escritório. É isto que
+   * decide se a UI mostra a IA, não `configurado`.
+   */
+  disponivel: boolean;
+  /** A IA deste usuário vem da chave de outra pessoa. */
+  usando_compartilhada: boolean;
+  /** Existe alguma chave compartilhada ativa no escritório. */
+  existe_compartilhada: boolean;
   providers_suportados: Record<string, IaProviderInfo>;
 };
 
@@ -94,6 +106,11 @@ export const iaConfig = {
   testar: (p: IaTestarInput) => callFn<{ ok: boolean }>("ia-config", { action: "testar", ...p }),
   ativar: (ativo: boolean) =>
     callFn<{ ok: boolean; ativo: boolean }>("ia-config", { action: "ativar", ativo }),
+  compartilhar: (compartilhada: boolean) =>
+    callFn<{ ok: boolean; compartilhada: boolean }>("ia-config", {
+      action: "compartilhar",
+      compartilhada,
+    }),
 };
 
 export type IaContexto = { caso_id?: string };

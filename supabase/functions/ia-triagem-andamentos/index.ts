@@ -28,6 +28,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
 import { chatWith, type ToolDef } from "../_shared/ia-providers.ts";
 import { decryptSecret } from "../_shared/crypto.ts";
+import { carregarIntegracao } from "../_shared/ia-integracao.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -174,20 +175,15 @@ serve(async (req) => {
   }
 
   // --- Integração de IA do usuário (mesma do assistente) --------------------
-  const { data: integ } = await admin
-    .from("ia_integracoes")
-    .select("provider,modelo,api_key_cipher,api_key_iv,ativo")
-    .eq("usuario_id", usuarioId)
-    .maybeSingle();
-  if (!integ) {
+  // Chave própria; sem ela, cai na compartilhada do escritório (se houver).
+  const resIntegracao = await carregarIntegracao(admin, usuarioId);
+  if (!resIntegracao.ok) {
     return jsonResponse(
-      { error: "assistente de IA nao configurado", code: "nao_configurado" },
-      412,
+      { error: resIntegracao.error, code: resIntegracao.code },
+      resIntegracao.status,
     );
   }
-  if (!integ.ativo) {
-    return jsonResponse({ error: "assistente desativado", code: "desativado" }, 412);
-  }
+  const integ = resIntegracao.integ;
 
   // --- Andamentos pendentes de triagem --------------------------------------
   let pendQ = admin
