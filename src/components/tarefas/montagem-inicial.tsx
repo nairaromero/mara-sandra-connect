@@ -34,7 +34,15 @@ type Etapa = "montagem" | "revisao" | "protocolo";
 // Prazo de cada etapa em dias CORRIDOS, e de quem ela é.
 const PROXIMA: Record<
   Etapa,
-  { etapa: Etapa; dias: number; email: string; titulo: string; descricao: string } | null
+  {
+    etapa: Etapa;
+    dias: number;
+    email: string;
+    titulo: string;
+    descricao: string;
+    /** Andamento INTERNO que registra a passagem de bastão. */
+    andamento: string;
+  } | null
 > = {
   montagem: {
     etapa: "revisao",
@@ -45,6 +53,7 @@ const PROXIMA: Record<
       'Revisar a petição inicial montada. Ao aprovar, use o botão "Enviar para ' +
       'protocolo" — a tarefa de protocolo volta para a Bia automaticamente.\n\n' +
       "Prazo fatal: 10 dias corridos.",
+    andamento: "Caso enviado à revisão da inicial",
   },
   revisao: {
     etapa: "protocolo",
@@ -55,6 +64,7 @@ const PROXIMA: Record<
       'Protocolar a inicial no judicial. Ao protocolar, use o botão "Protocolo ' +
       "realizado\" — o parceiro é avisado automaticamente.\n\n" +
       "Prazo fatal: 5 dias corridos.",
+    andamento: "Caso enviado ao protocolo",
   },
   protocolo: null,
 };
@@ -153,6 +163,32 @@ export function MontagemInicial({
           .single();
         if (errNova) throw errNova;
         marcarDestaque(nova.id as string);
+
+        // Registra a passagem de bastão. INTERNO: é passo interno do
+        // escritório, e cada andamento visível dispara e-mail ao parceiro —
+        // quatro e-mails por caso seria ruído para quem está do lado de fora.
+        if (tarefa.caso_id) {
+          const { error: errAnd } = await supabase.from("andamentos").insert({
+            caso_id: tarefa.caso_id,
+            processo_admin_id: tarefa.processo_admin_id,
+            processo_judicial_id: tarefa.processo_judicial_id,
+            origem: "interno",
+            titulo: proxima.andamento,
+            descricao:
+              ROTULO[etapa].titulo + " concluída. Segue para " +
+              (proxima.etapa === "revisao" ? "revisão da Mara" : "protocolo") +
+              ", com prazo de " + proxima.dias + " dias.",
+            data_evento: agora,
+            visivel_parceiro: false,
+            metadata: { montagem_inicial: true, etapa_concluida: etapa },
+          });
+          // Andamento é registro, não pode derrubar o avanço da corrente.
+          if (errAnd) {
+            toast.warning("Etapa avançou, mas o registro no histórico falhou", {
+              description: errAnd.message,
+            });
+          }
+        }
       }
 
       // Última etapa: cadastra o processo (se veio número) e avisa o parceiro.
