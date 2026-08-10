@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { Loader2, Trash2, ExternalLink } from "lucide-react";
+import { Loader2, Trash2, ExternalLink, AlarmClock } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,13 +52,25 @@ import { criarEvento } from "@/lib/agenda/queries";
 import type { AgendaTipo } from "@/lib/agenda/types";
 import { calcularDueAtRelativo } from "@/lib/agenda/helpers";
 import {
+  formatarDueAtCurto,
   inputDateTimeValueFromIso,
   isoFromInputDateTime,
   substituirPlaceholders,
 } from "@/lib/tarefas/helpers";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { EtapasAcompanhamento } from "@/components/tarefas/etapas-acompanhamento";
 import { AcompanhamentoPericia } from "@/components/tarefas/acompanhamento-pericia";
 import { AcompanhamentoImplementacao } from "@/components/tarefas/acompanhamento-implementacao";
+import { MontagemInicial } from "@/components/tarefas/montagem-inicial";
 import { ComparecimentoPericia } from "@/components/tarefas/comparecimento-pericia";
 import { EtapaCumprimentoExigencia } from "@/components/tarefas/etapa-cumprimento-exigencia";
 import { EtapaProtocoloRealizado } from "@/components/tarefas/etapa-protocolo-realizado";
@@ -132,6 +144,9 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   const [processosDoCaso, setProcessosDoCaso] = useState<ProcessoDoCasoOpcao[]>([]);
 
   const [salvando, setSalvando] = useState(false);
+  // Diálogo de adiamento de prazo fatal: exige justificativa antes de salvar.
+  const [confirmandoAdiamento, setConfirmandoAdiamento] = useState(false);
+  const [justificativa, setJustificativa] = useState("");
   const [excluindo, setExcluindo] = useState(false);
 
   // Template atual selecionado tem item destino=agenda? Se sim, o save
@@ -329,14 +344,34 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
     return { processo_admin_id: null, processo_judicial_id: null };
   }
 
-  async function salvar() {
+  /**
+   * Adiar tarefa de prazo fatal exige justificativa. Ao detectar que a nova
+   * data é POSTERIOR à atual numa tarefa marcada `prazo_fatal`, o salvamento
+   * para e o diálogo assume — a justificativa vira andamento interno, para
+   * ficar registrado por que o prazo não foi cumprido.
+   *
+   * Só adiamento dispara: antecipar prazo fatal é sempre livre.
+   */
+  function adiandoPrazoFatal(novoDueAt: string | null): boolean {
+    if (!editando || !tarefa) return false;
+    const fatal = (tarefa.metadata as { prazo_fatal?: boolean } | null)?.prazo_fatal === true;
+    if (!fatal || !tarefa.due_at || !novoDueAt) return false;
+    return new Date(novoDueAt).getTime() > new Date(tarefa.due_at).getTime();
+  }
+
+  async function salvar(justificativa?: string) {
     if (!titulo.trim()) {
       toast.error("Título é obrigatório.");
       return;
     }
+    const dueCalculado = isoFromInputDateTime(dueDate);
+    if (justificativa === undefined && adiandoPrazoFatal(dueCalculado)) {
+      setConfirmandoAdiamento(true);
+      return;
+    }
     setSalvando(true);
     try {
-      const due_at = isoFromInputDateTime(dueDate);
+      const due_at = dueCalculado;
       const proc = parseProcesso();
       if (editando && tarefa) {
         await atualizarTarefa({
@@ -363,7 +398,39 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
               : {}),
           },
         });
-        toast.success("Tarefa atualizada.");
+        // Registra o adiamento do prazo fatal como andamento INTERNO: fica
+        // gravado por que não foi cumprido, sem expor isso ao parceiro.
+        if (justificativa && tarefa.caso_id) {
+          const de = tarefa.due_at ? formatarDueAtCurto(tarefa.due_at) : "sem prazo";
+          const para = due_at ? formatarDueAtCurto(due_at) : "sem prazo";
+          const { error: errAnd } = await supabase.from("andamentos").insert({
+            caso_id: tarefa.caso_id,
+            processo_admin_id: proc.processo_admin_id,
+            processo_judicial_id: proc.processo_judicial_id,
+            origem: "interno",
+            titulo: "Prazo fatal adiado — " + titulo.trim(),
+            descricao:
+              "Prazo adiado de " + de + " para " + para + "." +
+              "\n\nJustificativa: " + justificativa.trim(),
+            data_evento: new Date().toISOString(),
+            criado_por: usuario?.id ?? null,
+            visivel_parceiro: false,
+            metadata: {
+              adiamento_prazo_fatal: true,
+              tarefa_id: tarefa.id,
+              due_anterior: tarefa.due_at,
+              due_novo: due_at,
+            },
+          });
+          if (errAnd) {
+            // O prazo já foi adiado; falhar aqui não deve desfazer isso, mas a
+            // pessoa precisa saber que o registro não ficou.
+            toast.warning("Prazo adiado, mas o registro da justificativa falhou", {
+              description: errAnd.message,
+            });
+          }
+        }
+        toast.success(justificativa ? "Prazo adiado e justificativa registrada." : "Tarefa atualizada.");
       } else {
         // Modo criar.
         // Template define dois cenários:
@@ -674,6 +741,11 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
             (tarefa.metadata as { acompanhamento_pericia?: boolean })
               ?.acompanhamento_pericia === true && (
               <AcompanhamentoPericia tarefa={tarefa} onUpdated={onSaved} />
+            )}
+
+          {editando && tarefa &&
+            (tarefa.metadata as { montagem_inicial?: boolean })?.montagem_inicial === true && (
+              <MontagemInicial tarefa={tarefa} onUpdated={onSaved} />
             )}
 
           {editando && tarefa &&
@@ -1073,11 +1145,81 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           <Button variant="outline" onClick={fechar} disabled={salvando}>
             Cancelar
           </Button>
-          <Button onClick={salvar} disabled={salvando}>
+          {/* Sem argumento de propósito: passar o evento do clique aqui faria
+              `justificativa` chegar preenchida e pular o diálogo do prazo fatal. */}
+          <Button onClick={() => void salvar()} disabled={salvando}>
             {salvando ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
           </Button>
         </SheetFooter>
       </SheetContent>
+
+      {/* Adiar prazo fatal: exige justificativa, que vira andamento interno.
+          Não bloqueia — a pessoa pode ter um motivo legítimo —, mas obriga a
+          dizer qual, e deixa isso gravado no caso. */}
+      <AlertDialog open={confirmandoAdiamento} onOpenChange={setConfirmandoAdiamento}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlarmClock className="h-5 w-5 text-destructive" />
+              Isso é um prazo fatal
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  Você está adiando de{" "}
+                  <strong className="text-foreground">
+                    {tarefa?.due_at ? formatarDueAtCurto(tarefa.due_at) : "sem prazo"}
+                  </strong>{" "}
+                  para{" "}
+                  <strong className="text-foreground">
+                    {formatarDueAtCurto(isoFromInputDateTime(dueDate))}
+                  </strong>
+                  . Prazo fatal não deveria ser adiado.
+                </p>
+                <p>
+                  Se for realmente necessário, escreva o motivo. Ele fica registrado
+                  como andamento interno no caso — <strong>o parceiro não vê</strong>.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs">Justificativa</Label>
+            <Textarea
+              rows={3}
+              autoFocus
+              value={justificativa}
+              onChange={(e) => setJustificativa(e.target.value)}
+              placeholder="Por que o prazo não pôde ser cumprido?"
+            />
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                setJustificativa("");
+                // Devolve o campo à data original: cancelar tem que desfazer o
+                // adiamento, senão a pessoa salva depois sem passar por aqui.
+                setDueDate(inputDateTimeValueFromIso(tarefa?.due_at ?? null));
+              }}
+            >
+              Manter o prazo
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={justificativa.trim().length < 10}
+              onClick={() => {
+                const j = justificativa.trim();
+                setConfirmandoAdiamento(false);
+                setJustificativa("");
+                void salvar(j);
+              }}
+            >
+              Adiar mesmo assim
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Sheet>
   );
 }
