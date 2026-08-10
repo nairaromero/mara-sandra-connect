@@ -344,7 +344,10 @@ function AEnviarPage() {
           <ul className="space-y-4">
             {visiveis.map((row) => {
               const nome = row.casos?.clientes?.nome || "(cliente sem nome)";
-              const ehPericia = !!(row.andamento_id || row.evento_id);
+              // tipo_aviso entra na conta porque a triagem da IA cria rascunho
+              // de perícia sem andamento nem evento vinculado — só pelas duas
+              // FKs, esses ficavam sem badge nenhum na fila.
+              const ehPericia = !!(row.andamento_id || row.evento_id || row.tipo_aviso);
               const ehLembrete = row.tipo_aviso === "pericia_lembrete";
               const semParceiro = !row.casos?.parceiro_id;
               const enviando = enviandoId === row.id;
