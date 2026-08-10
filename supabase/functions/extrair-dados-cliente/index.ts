@@ -34,19 +34,37 @@ const MAX_BYTES_ARQUIVO = 8 * 1024 * 1024;
 const MAX_BYTES_TOTAL = 16 * 1024 * 1024;
 
 const SYSTEM =
-  "Voce extrai dados cadastrais de documentos brasileiros (RG, CNH, CPF, " +
-  "comprovante de residencia) para um escritorio de advocacia previdenciaria.\n\n" +
+  "Voce extrai dados cadastrais de documentos brasileiros para um escritorio de " +
+  "advocacia previdenciaria.\n\n" +
+  "ONDE PROCURAR CADA DADO, POR TIPO DE DOCUMENTO:\n" +
+  "- CNH (Carteira Nacional de Habilitacao): o CPF vem impresso na frente, em " +
+  "campo proprio rotulado CPF. Tambem traz nome, data de nascimento e filiacao. " +
+  "O 'Nº REGISTRO' e o numero da habilitacao — NAO e o CPF.\n" +
+  "- RG / Carteira de Identidade: modelos recentes trazem o CPF junto do RG; nos " +
+  "antigos ele pode estar no verso, no rodape ou ausente. Procure em todo o " +
+  "documento antes de concluir que nao ha. O 'Registro Geral' NAO e o CPF.\n" +
+  "- CIN (Carteira de Identidade Nacional): o numero do documento E o CPF.\n" +
+  "- Certidao de nascimento: NAO tem CPF. Extraia nome do registrado e data de " +
+  "nascimento; ignore os nomes dos pais e avos, o nome e o do registrado.\n" +
+  "- Comprovante de residencia: use para o endereco. O nome no comprovante pode " +
+  "ser de terceiro (titular da conta) — nao use esse nome se houver documento de " +
+  "identidade junto.\n\n" +
   "REGRAS ABSOLUTAS:\n" +
-  "1. Extraia SOMENTE o que estiver legivel no documento. Nunca deduza, " +
-  "complete ou invente um dado. Campo ilegivel ou ausente = null.\n" +
-  "2. Nao corrija nomes que parecam grafados de forma incomum — transcreva " +
+  "1. Extraia SOMENTE o que estiver legivel. Nunca deduza nem invente um dado. " +
+  "Campo ilegivel ou ausente = null.\n" +
+  "2. EXCECAO IMPORTANTE PARA O CPF: se parte dos digitos estiver ilegivel, NAO " +
+  "devolva null. Devolva os digitos que voce consegue ler, NA ORDEM, sem inventar " +
+  "os demais. E muito comum os dois digitos apos o hifen sairem ilegiveis em " +
+  "documento gasto ou escaneado: nesse caso devolva os 9 primeiros. O sistema " +
+  "sabe completar os dois ultimos e avisa a equipe para conferir.\n" +
+  "3. Nao corrija nomes que parecam grafados de forma incomum — transcreva " +
   "exatamente como esta no documento.\n" +
-  "3. Responda APENAS com o objeto JSON, sem texto antes ou depois, sem cercas " +
+  "4. Responda APENAS com o objeto JSON, sem texto antes ou depois, sem cercas " +
   "de markdown.\n\n" +
   "Formato exato da resposta:\n" +
   "{\n" +
   '  "nome": string|null,            // nome civil completo, como no documento\n' +
-  '  "cpf": string|null,             // somente digitos, 11 caracteres\n' +
+  '  "cpf": string|null,             // so digitos; 11 se legivel inteiro, ou os 9 primeiros se o final estiver ilegivel\n' +
   '  "data_nascimento": string|null, // AAAA-MM-DD\n' +
   '  "endereco": string|null,        // logradouro, numero, complemento, bairro, cidade/UF, CEP\n' +
   '  "observacoes": string|null      // o que voce nao conseguiu ler, ou duvida relevante\n' +
@@ -181,11 +199,12 @@ serve(async (req) => {
     );
   }
 
-  const { campos, avisos } = montarCampos(obj);
+  const { campos, avisos, calculados } = montarCampos(obj);
 
   return jsonResponse({
     campos,
     avisos,
+    calculados,
     usage: res.usage,
     modelo: integ.modelo,
     provider: integ.provider,

@@ -24,6 +24,29 @@ export function cpfValido(cpf: string): boolean {
 }
 
 /**
+ * Calcula os dois digitos verificadores a partir dos 9 primeiros digitos.
+ *
+ * Nao e adivinhacao: os dois ultimos digitos do CPF sao funcao determinada dos
+ * nove primeiros — e a mesma conta que cpfValido() faz ao contrario. Serve pro
+ * caso comum em documento gasto/escaneado, em que os digitos depois do hifen
+ * (menores) saem ilegiveis mas o corpo do numero le bem.
+ *
+ * Cuidado que isso exige: se um dos NOVE for lido errado, o CPF resultante fica
+ * valido no checksum e errado na Receita — por isso quem chama tem que avisar
+ * que os dois ultimos foram calculados, nao lidos.
+ */
+export function digitosVerificadores(base9: string): string | null {
+  if (!/^\d{9}$/.test(base9)) return null;
+  const d: number[] = base9.split("").map(Number);
+  for (const pos of [10, 11]) {
+    let soma = 0;
+    for (let i = 0; i < d.length; i++) soma += d[i] * (pos - i);
+    d.push(((soma * 10) % 11) % 10);
+  }
+  return String(d[9]) + String(d[10]);
+}
+
+/**
  * Aceita AAAA-MM-DD ou DD/MM/AAAA e devolve sempre AAAA-MM-DD.
  * Rejeita data que nao existe no calendario (31/02) e ano fora de faixa
  * plausivel pra uma pessoa viva — melhor campo vazio que data inventada.
@@ -89,6 +112,11 @@ export interface CamposCliente {
 export interface ResultadoCampos {
   campos: CamposCliente;
   avisos: string[];
+  /**
+   * Campos que NAO foram lidos inteiros do documento — o sistema completou.
+   * A tela destaca esses pra conferencia; hoje so 'cpf' entra aqui.
+   */
+  calculados: string[];
 }
 
 /**
@@ -97,15 +125,36 @@ export interface ResultadoCampos {
  */
 export function montarCampos(obj: Record<string, unknown>): ResultadoCampos {
   const avisos: string[] = [];
+  const calculados: string[] = [];
 
   let cpf: string | null = null;
   const cpfBruto = texto(obj.cpf);
   if (cpfBruto) {
     const digitos = cpfBruto.replace(/\D/g, "");
-    if (cpfValido(digitos)) {
-      cpf = digitos;
+    if (digitos.length === 11) {
+      if (cpfValido(digitos)) {
+        cpf = digitos;
+      } else {
+        avisos.push("O CPF lido no documento não passou na validação — preencha à mão.");
+      }
+    } else if (digitos.length === 9) {
+      // Documento gasto/escaneado costuma perder os dois dígitos depois do
+      // hífen, que são menores. Eles são função dos nove primeiros, então dá
+      // pra fechar a conta — mas quem confere precisa saber disso.
+      const dv = digitosVerificadores(digitos);
+      if (dv) {
+        cpf = digitos + dv;
+        calculados.push("cpf");
+        avisos.push(
+          "Só os 9 primeiros dígitos do CPF estavam legíveis; os 2 últimos foram " +
+            "calculados a partir deles. Confira o número inteiro no documento.",
+        );
+      }
     } else {
-      avisos.push("O CPF lido no documento não passou na validação — preencha à mão.");
+      avisos.push(
+        `Foram lidos ${digitos.length} dígitos de CPF — não dá para formar um número ` +
+          "válido. Preencha à mão.",
+      );
     }
   }
 
@@ -128,5 +177,5 @@ export function montarCampos(obj: Record<string, unknown>): ResultadoCampos {
     avisos.push("Não foi possível ler nenhum campo. A foto pode estar cortada ou fora de foco.");
   }
 
-  return { campos, avisos };
+  return { campos, avisos, calculados };
 }
