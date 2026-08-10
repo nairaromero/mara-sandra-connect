@@ -14,6 +14,7 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { decryptSecret } from "../_shared/crypto.ts";
+import { carregarIntegracao } from "../_shared/ia-integracao.ts";
 import { chatWith, type Attachment } from "../_shared/ia-providers.ts";
 import { maskCpf } from "../_shared/ia-redact.ts";
 import { encode as toBase64 } from "https://deno.land/std@0.177.0/encoding/base64.ts";
@@ -137,13 +138,15 @@ serve(async (req) => {
     return jsonResponse({ error: "apenas interno pode gerar analise" }, 403);
   }
 
-  const { data: integ } = await admin
-    .from("ia_integracoes")
-    .select("provider,modelo,api_key_cipher,api_key_iv,ativo")
-    .eq("usuario_id", uid)
-    .maybeSingle();
-  if (!integ) return jsonResponse({ error: "assistente nao configurado", code: "nao_configurado" }, 412);
-  if (!integ.ativo) return jsonResponse({ error: "assistente desativado", code: "desativado" }, 412);
+  // Chave própria; sem ela, cai na compartilhada do escritório (se houver).
+  const resIntegracao = await carregarIntegracao(admin, uid);
+  if (!resIntegracao.ok) {
+    return jsonResponse(
+      { error: resIntegracao.error, code: resIntegracao.code },
+      resIntegracao.status,
+    );
+  }
+  const integ = resIntegracao.integ;
 
   let body: Record<string, unknown>;
   try {
