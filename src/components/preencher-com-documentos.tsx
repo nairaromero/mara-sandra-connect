@@ -10,7 +10,7 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { FileScan, Loader2, ScanLine, X } from "lucide-react";
+import { AlertTriangle, FileScan, Loader2, ScanLine, X } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
@@ -57,6 +57,10 @@ export function PreencherComDocumentos({ onPreenchido }: Props) {
   const [comprovante, setComprovante] = useState<File | null>(null);
   const [lendo, setLendo] = useState(false);
   const [avisos, setAvisos] = useState<Array<string>>([]);
+  // Campos que o sistema completou em vez de ler inteiros (hoje só o CPF, quando
+  // os dígitos verificadores saem ilegíveis). Merecem destaque próprio: são os
+  // que mais precisam de conferência.
+  const [calculados, setCalculados] = useState<Array<string>>([]);
 
   const temArquivo = !!identidade || !!comprovante;
 
@@ -64,6 +68,7 @@ export function PreencherComDocumentos({ onPreenchido }: Props) {
     if (!temArquivo || lendo) return;
     setLendo(true);
     setAvisos([]);
+    setCalculados([]);
     try {
       const selecionados: Array<ArquivoLido> = [];
       if (identidade) selecionados.push({ file: identidade, tipo: "rg_cpf" });
@@ -102,7 +107,9 @@ export function PreencherComDocumentos({ onPreenchido }: Props) {
         return;
       }
 
-      const resp = data as { campos?: CamposLidos; avisos?: Array<string> } | null;
+      const resp = data as
+        | { campos?: CamposLidos; avisos?: Array<string>; calculados?: Array<string> }
+        | null;
       const campos = resp?.campos;
       if (!campos) {
         toast.error("A leitura não devolveu campos.");
@@ -110,6 +117,7 @@ export function PreencherComDocumentos({ onPreenchido }: Props) {
       }
 
       setAvisos(resp?.avisos ?? []);
+      setCalculados(resp?.calculados ?? []);
       onPreenchido(campos, selecionados);
 
       const lidos = [
@@ -150,7 +158,7 @@ export function PreencherComDocumentos({ onPreenchido }: Props) {
       <CardContent className="space-y-3">
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <Label className="text-xs">Identidade (RG, CNH ou CPF)</Label>
+            <Label className="text-xs">Identidade (RG, CNH, CPF ou certidão)</Label>
             <ArquivoCampo arquivo={identidade} onArquivo={setIdentidade} disabled={lendo} />
           </div>
           <div className="space-y-1.5">
@@ -167,6 +175,18 @@ export function PreencherComDocumentos({ onPreenchido }: Props) {
           )}
           {lendo ? "Lendo documento..." : "Ler e preencher"}
         </Button>
+
+        {calculados.includes("cpf") && (
+          <p className="flex items-start gap-1.5 rounded-md border border-red-500/50 bg-red-50 p-2.5 text-xs font-medium text-red-900 dark:bg-red-950 dark:text-red-200">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>
+              Os 2 últimos dígitos do CPF não estavam legíveis e foram calculados a
+              partir dos 9 primeiros. Confira o número inteiro no documento antes de
+              salvar — se um dos 9 tiver sido lido errado, o CPF fica errado sem
+              parecer errado.
+            </span>
+          </p>
+        )}
 
         {avisos.length > 0 && (
           <ul className="space-y-1 rounded-md border border-amber-500/40 bg-amber-50 p-2.5 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200">
