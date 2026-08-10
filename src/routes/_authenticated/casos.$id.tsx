@@ -3148,10 +3148,17 @@ function TabAndamentos(props: TabAndamentosProps) {
               <Button
                 size="sm"
                 onClick={() => abrirNovoTipo("admin")}
-                disabled={processosAdmin.length === 0}
+                // Sem `disabled` de propósito. Antes o botão travava quando o
+                // caso não tinha processo administrativo — e como o card
+                // "Andamentos Gerais" não tem botão próprio e o judicial só
+                // aparece havendo processo judicial, um caso sem processo
+                // nenhum ficava SEM caminho algum para criar andamento, mesmo
+                // já tendo andamentos "Sem processo". O diálogo sempre soube
+                // gravar sem vínculo (opção "Nenhum"), e o botão judicial
+                // nunca teve essa trava.
                 title={
                   processosAdmin.length === 0
-                    ? "Cadastre um processo administrativo na aba Processos primeiro"
+                    ? "Novo andamento (ficará sem processo até você vincular)"
                     : "Novo andamento administrativo"
                 }
               >
@@ -3456,6 +3463,17 @@ function TabAndamentos(props: TabAndamentosProps) {
                   onChange={(e) => setDescricao(e.target.value)}
                 />
               </div>
+              {/* Sem processo do tipo, o seletor some (não há o que escolher) —
+                  então explicamos onde o andamento vai parar, senão parece que
+                  faltou preencher um campo. */}
+              {tipoDialogoNovo !== null && processosDoTipoDialog.length === 0 && (
+                <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                  Este caso ainda não tem processo {isAdminDialog ? "administrativo" : "judicial"}{" "}
+                  cadastrado. O andamento será criado <strong>sem vínculo</strong> e aparece em
+                  “Sem processo”. Depois de cadastrar o processo, dá para transferir por ali
+                  mesmo.
+                </p>
+              )}
               {mostrarSelectProcessoDialog && (
                 <div>
                   <Label className="text-xs">Processo</Label>
