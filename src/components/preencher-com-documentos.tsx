@@ -20,6 +20,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 
 const MAX_MB = 8;
 const ACEITA = "application/pdf,image/jpeg,image/png,image/webp";
+// A edge function aceita 4 arquivos por chamada; um slot fica pro comprovante.
+const MAX_IDENTIDADES = 3;
 
 export interface CamposLidos {
   nome: string | null;
@@ -53,7 +55,10 @@ function paraBase64(file: File): Promise<string> {
 }
 
 export function PreencherComDocumentos({ onPreenchido }: Props) {
-  const [identidade, setIdentidade] = useState<File | null>(null);
+  // Vários documentos de identidade de propósito: é comum um estar ilegível
+  // justo no campo que falta (RG gasto sem CPF legível + CPF avulso, RG frente
+  // e verso). Mandando juntos, o que um perde o outro completa.
+  const [identidades, setIdentidades] = useState<Array<File>>([]);
   const [comprovante, setComprovante] = useState<File | null>(null);
   const [lendo, setLendo] = useState(false);
   const [avisos, setAvisos] = useState<Array<string>>([]);
@@ -62,7 +67,7 @@ export function PreencherComDocumentos({ onPreenchido }: Props) {
   // que mais precisam de conferência.
   const [calculados, setCalculados] = useState<Array<string>>([]);
 
-  const temArquivo = !!identidade || !!comprovante;
+  const temArquivo = identidades.length > 0 || !!comprovante;
 
   async function ler() {
     if (!temArquivo || lendo) return;
@@ -70,8 +75,10 @@ export function PreencherComDocumentos({ onPreenchido }: Props) {
     setAvisos([]);
     setCalculados([]);
     try {
-      const selecionados: Array<ArquivoLido> = [];
-      if (identidade) selecionados.push({ file: identidade, tipo: "rg_cpf" });
+      const selecionados: Array<ArquivoLido> = identidades.map((file) => ({
+        file,
+        tipo: "rg_cpf" as const,
+      }));
       if (comprovante) selecionados.push({ file: comprovante, tipo: "comprovante_residencia" });
 
       for (const a of selecionados) {
@@ -150,16 +157,25 @@ export function PreencherComDocumentos({ onPreenchido }: Props) {
           Preencher com os documentos
         </CardTitle>
         <CardDescription>
-          Anexe o RG/CNH e o comprovante de endereço: o sistema lê e preenche nome, CPF,
-          nascimento e endereço. <strong>Confira sempre</strong> antes de salvar — os
-          arquivos ficam arquivados no caso.
+          Anexe os documentos: o sistema lê e preenche nome, CPF, nascimento e endereço.
+          Pode mandar <strong>mais de um documento de identidade</strong> — frente e verso,
+          ou RG e CPF avulso —, que o que faltar em um é completado pelo outro.{" "}
+          <strong>Confira sempre</strong> antes de salvar; os arquivos ficam arquivados
+          no caso.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <Label className="text-xs">Identidade (RG, CNH, CPF ou certidão)</Label>
-            <ArquivoCampo arquivo={identidade} onArquivo={setIdentidade} disabled={lendo} />
+            <Label className="text-xs">
+              Identidade — RG, CNH, CPF ou certidão (pode anexar vários)
+            </Label>
+            <ListaArquivos
+              arquivos={identidades}
+              onArquivos={setIdentidades}
+              max={MAX_IDENTIDADES}
+              disabled={lendo}
+            />
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs">Comprovante de endereço</Label>
@@ -197,6 +213,77 @@ export function PreencherComDocumentos({ onPreenchido }: Props) {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Vários arquivos num campo só. Cada arquivo escolhido vira uma linha; o input
+ * some quando o limite é atingido, pra não oferecer o que não vai caber.
+ */
+function ListaArquivos({
+  arquivos,
+  onArquivos,
+  max,
+  disabled,
+}: {
+  arquivos: Array<File>;
+  onArquivos: (f: Array<File>) => void;
+  max: number;
+  disabled: boolean;
+}) {
+  // Reseta o input após cada escolha: sem isso, escolher o MESMO arquivo de novo
+  // (depois de remover) não dispara onChange e a pessoa acha que travou.
+  const [chaveInput, setChaveInput] = useState(0);
+
+  function adicionar(lista: FileList | null) {
+    if (!lista || lista.length === 0) return;
+    const novos = Array.from(lista);
+    const jaTem = (f: File) =>
+      arquivos.some((a) => a.name === f.name && a.size === f.size);
+    const aceitos = novos.filter((f) => !jaTem(f));
+    const espaco = max - arquivos.length;
+    if (aceitos.length > espaco) {
+      toast.warning(`Cabem no máximo ${max} documentos de identidade.`);
+    }
+    onArquivos([...arquivos, ...aceitos.slice(0, espaco)]);
+    setChaveInput((k) => k + 1);
+  }
+
+  return (
+    <div className="space-y-1.5">
+      {arquivos.map((a, i) => (
+        <div
+          key={`${a.name}-${a.size}-${i}`}
+          className="flex items-center gap-2 rounded-md border bg-background px-2.5 py-1.5 text-sm"
+        >
+          <span className="min-w-0 flex-1 truncate">{a.name}</span>
+          <span className="shrink-0 text-xs text-muted-foreground">
+            {(a.size / 1024).toFixed(0)} KB
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 shrink-0"
+            disabled={disabled}
+            onClick={() => onArquivos(arquivos.filter((_, j) => j !== i))}
+            aria-label={`Remover ${a.name}`}
+          >
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      ))}
+      {arquivos.length < max && (
+        <Input
+          key={chaveInput}
+          type="file"
+          accept={ACEITA}
+          multiple
+          disabled={disabled}
+          onChange={(e) => adicionar(e.target.files)}
+        />
+      )}
+    </div>
   );
 }
 

@@ -49,6 +49,17 @@ const SYSTEM =
   "- Comprovante de residencia: use para o endereco. O nome no comprovante pode " +
   "ser de terceiro (titular da conta) — nao use esse nome se houver documento de " +
   "identidade junto.\n\n" +
+  "VARIOS DOCUMENTOS NA MESMA MENSAGEM:\n" +
+  "Podem vir varios documentos de identidade — frente e verso do mesmo RG, ou RG " +
+  "mais CPF avulso, ou RG mais CNH. Todos sao da MESMA pessoa. Combine-os: para " +
+  "cada campo, use o documento em que ele estiver mais legivel. Se um traz o CPF " +
+  "completo e outro so parte, use o completo.\n" +
+  "SE OS DOCUMENTOS PARECEREM DE PESSOAS DIFERENTES (nomes ou datas de nascimento " +
+  "incompativeis entre si), NAO misture os dados: extraia do documento de " +
+  "identidade mais completo e diga isso em observacoes. Nome diferente no " +
+  "comprovante de residencia e normal (a conta pode estar em nome de outra " +
+  "pessoa) e NAO caracteriza conflito — nesse caso use o comprovante so pro " +
+  "endereco.\n\n" +
   "REGRAS ABSOLUTAS:\n" +
   "1. Extraia SOMENTE o que estiver legivel. Nunca deduza nem invente um dado. " +
   "Campo ilegivel ou ausente = null.\n" +
