@@ -177,7 +177,7 @@ export function ImportarClientesExcelDialog(
     const resp = await supabase
       .from("usuarios")
       .select("id, nome")
-      .eq("tipo", "parceiro")
+      .eq("eh_parceiro", true)
       .in("nome", Array.from(set));
     if (resp.error) {
       console.warn("falha ao buscar parceiros:", resp.error);
