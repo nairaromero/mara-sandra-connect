@@ -42,6 +42,11 @@ import { DESTAQUE_CLASSE, useFocoItem } from "@/hooks/use-foco-item";
 import { notificarEquipe } from "@/lib/notificar";
 import { iaAnalise } from "@/lib/ia/client";
 import { supabase } from "@/lib/supabase";
+import { SeletorDestinatario } from "@/components/seletor-destinatario";
+import {
+  sugerirDestinatario,
+  DESTINATARIO_TODOS,
+} from "@/lib/conversas/destinatario";
 import {
   TIPOS_DOCUMENTO_LABEL,
   TIPOS_DOCUMENTO_OPTIONS,
@@ -6528,6 +6533,18 @@ function TabComentarios(props: TabComentariosProps) {
 
   // Estado: textos por thread (chave = parent_id ou "novo")
   const [novoTexto, setNovoTexto] = useState("");
+  // Destinatario da conversa NOVA. So vale pra raiz da thread; resposta herda.
+  const [destinatario, setDestinatario] = useState<string>(DESTINATARIO_TODOS);
+  // Sugere a ultima pessoa da equipe que falou neste caso — quase sempre a
+  // certa, porque a conversa ja esta correndo com ela. `sugerido` garante que a
+  // sugestao entre UMA vez: depois disso quem manda e a escolha da pessoa, e o
+  // polling de 30s nao pode desfaze-la.
+  const sugerido = useRef(false);
+  useEffect(() => {
+    if (sugerido.current || comentarios.length === 0) return;
+    sugerido.current = true;
+    setDestinatario(sugerirDestinatario(comentarios));
+  }, [comentarios]);
   const [respostaTexto, setRespostaTexto] = useState<Record<string, string>>({});
   const [respondendoEm, setRespondendoEm] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
@@ -6572,6 +6589,10 @@ function TabComentarios(props: TabComentariosProps) {
           parent_id: parentId,
           autor_id: usuarioId,
           texto: texto.trim(),
+          // So na raiz: a conversa tem um destinatario, a resposta herda dele.
+          // DESTINATARIO_TODOS vira NULL, que e como o banco representa "Todos".
+          destinatario_id:
+            parentId === null && destinatario !== DESTINATARIO_TODOS ? destinatario : null,
         })
         .select("id")
         .single();
@@ -6667,7 +6688,8 @@ function TabComentarios(props: TabComentariosProps) {
       </div>
 
       {/* Composer */}
-      <div className="border-t p-3">
+      <div className="border-t p-3 space-y-2">
+        <SeletorDestinatario value={destinatario} onChange={setDestinatario} />
         <div className="flex items-end gap-2">
           <Textarea
             rows={2}
