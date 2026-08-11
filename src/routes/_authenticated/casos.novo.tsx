@@ -4,7 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2, Eye, EyeOff, Plus, X, FileText, FileDown } from "lucide-react";
+import { ArrowLeft, Loader2, Eye, EyeOff, Plus, X, FileText, FileDown, Search } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useTiposBeneficio } from "@/hooks/use-tipos-beneficio";
@@ -156,6 +156,11 @@ function NovoCasoPage() {
   const [parceiros, setParceiros] = useState<Array<ParceiroOption>>([]);
   const [submitting, setSubmitting] = useState(false);
   const [showPwd, setShowPwd] = useState(false);
+  const [buscandoTI, setBuscandoTI] = useState(false);
+  // Marca que o cliente foi localizado no TI via "Buscar no TI". Quando true,
+  // ao salvar o caso disparamos o sync automatico (importa andamentos +
+  // vincula processos) — sem precisar sincronizar manualmente depois.
+  const [achadoNoTI, setAchadoNoTI] = useState(false);
   const [docs, setDocs] = useState<Array<DocUpload>>([]);
   // Dialog do Google Drive Picker. O parente chama abrirDrivePicker direto
   // antes de abrir o dialog, e so abre o dialog quando o Picker retorna com
@@ -198,6 +203,89 @@ function NovoCasoPage() {
   });
 
   const clienteInternoWatch = form.watch("cliente_interno");
+
+  // Normaliza data vinda do TI para YYYY-MM-DD (formato do input date).
+  function coerceData(d: string | null | undefined): string {
+    if (!d) return "";
+    const s = String(d).trim();
+    const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+    const br = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+    if (br) return `${br[3]}-${br[2]}-${br[1]}`;
+    return "";
+  }
+
+  // Busca o cliente no Tramitacao Inteligente pelo CPF e pre-preenche o form.
+  // Usa check-ti-cliente que, quando o cliente ainda nao existe localmente,
+  // retorna customer_ti sem gravar nada.
+  async function buscarNoTI() {
+    const cpfDigits = (form.getValues("cpf") || "").replace(/\D/g, "");
+    if (cpfDigits.length !== 11) {
+      toast.error("Digite um CPF válido (11 dígitos) antes de buscar no TI");
+      return;
+    }
+    setBuscandoTI(true);
+    try {
+      const resp = await supabase.functions.invoke("check-ti-cliente", {
+        body: { cpf: cpfDigits },
+      });
+      if (resp.error) throw resp.error;
+      const r = resp.data as {
+        achou_no_ti?: boolean;
+        customer_ti?: {
+          name?: string | null;
+          email?: string | null;
+          phone_mobile?: string | null;
+          birthdate?: string | null;
+        };
+        motivo?: string;
+      };
+      if (!r.achou_no_ti) {
+        toast.message("Cliente não encontrado no Tramitação Inteligente.");
+        return;
+      }
+      const c = r.customer_ti;
+      if (!c) {
+        toast.message(r.motivo || "Cliente encontrado no TI, mas já existe no sistema.");
+        return;
+      }
+      // Cliente existe no TI -> habilita import automatico ao salvar o caso.
+      setAchadoNoTI(true);
+      let campos = 0;
+      if (c.name) {
+        form.setValue("nome", c.name, { shouldValidate: true });
+        campos++;
+      }
+      const nasc = coerceData(c.birthdate);
+      if (nasc) {
+        form.setValue("data_nascimento", nasc, { shouldValidate: true });
+        campos++;
+      }
+      if (c.phone_mobile) {
+        form.setValue("telefone", maskTelefone(c.phone_mobile), {
+          shouldValidate: true,
+        });
+        campos++;
+      }
+      if (c.email) {
+        form.setValue("email", c.email, { shouldValidate: true });
+        campos++;
+      }
+      toast.success(
+        "Dados do TI preenchidos (" +
+          campos +
+          " campo" +
+          (campos === 1 ? "" : "s") +
+          "). Ao salvar, os processos e andamentos serão importados automaticamente.",
+      );
+    } catch (err) {
+      console.error(err);
+      const e = err as { message?: string };
+      toast.error(e.message || "Erro ao buscar no TI");
+    } finally {
+      setBuscandoTI(false);
+    }
+  }
 
   useEffect(() => {
     if (!isInterno) return;
@@ -515,6 +603,49 @@ function NovoCasoPage() {
         });
       }
 
+      // 4) Import automatico do Tramitacao Inteligente.
+      // Se o cliente foi localizado no TI (via "Buscar no TI"), ja puxa
+      // processos e andamentos junto com a criacao do caso — assim a usuaria
+      // nao precisa rodar o sync manualmente depois.
+      if (achadoNoTI) {
+        const toastSync = toast.loading(
+          "Importando processos e andamentos do Tramitação Inteligente...",
+        );
+        try {
+          const syncResp = await supabase.functions.invoke("sync-ti-cliente", {
+            body: { cpf: cpfDigits, caso_id: casoId, usuario_id: usuario.id },
+          });
+          if (syncResp.error) throw syncResp.error;
+          const s = (syncResp.data || {}) as {
+            achou_no_ti?: boolean;
+            notas_importadas?: number;
+            notas_ja_existentes?: number;
+          };
+          const n = s.notas_importadas ?? 0;
+          if (s.achou_no_ti) {
+            toast.success(
+              n > 0
+                ? `Importação concluída: ${n} andamento${n === 1 ? "" : "s"} do TI.`
+                : "Cliente sincronizado com o TI (nenhum andamento novo).",
+              { id: toastSync },
+            );
+          } else {
+            toast.message("Cliente não encontrado no TI na importação.", {
+              id: toastSync,
+            });
+          }
+        } catch (errSync) {
+          console.error("Falha na importação automática do TI:", errSync);
+          const e = errSync as { message?: string };
+          toast.warning(
+            "Caso criado, mas a importação automática do TI falhou" +
+              (e.message ? ": " + e.message : "") +
+              ". Você pode sincronizar manualmente no caso.",
+            { id: toastSync },
+          );
+        }
+      }
+
       toast.success("Caso cadastrado com sucesso!");
       navigate({ to: "/casos/$id", params: { id: casoId } });
     } catch (err) {
@@ -599,6 +730,27 @@ function NovoCasoPage() {
                             value={field.value}
                             onChange={(e) => field.onChange(maskCPF(e.target.value))}
                           />
+                          {/* "Buscar no TI" so para a equipe interna - o
+                              Tramitacao Inteligente e ferramenta interna; o
+                              parceiro nao tem acesso a essa busca. */}
+                          {isInterno && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="shrink-0"
+                              onClick={buscarNoTI}
+                              disabled={buscandoTI}
+                              title="Buscar dados do cliente no Tramitação Inteligente pelo CPF"
+                            >
+                              {buscandoTI ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Search className="h-4 w-4" />
+                              )}
+                              <span className="ml-1 hidden sm:inline">Buscar no TI</span>
+                            </Button>
+                          )}
                         </div>
                       </FormControl>
                       <FormMessage />
