@@ -1,21 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import {
-  Bell,
-  ClipboardList,
-  Tag,
-  Trash2,
-  UserPlus,
-} from "lucide-react";
+import { Bell, ClipboardList, Tag, Trash2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface Notificacao {
@@ -27,6 +17,7 @@ interface Notificacao {
   cliente_id: string | null;
   metadata: { foco_id?: string } | null;
   lida: boolean;
+  destinatario_id: string | null;
   created_at: string;
 }
 
@@ -67,7 +58,6 @@ function iconeTipo(tipo: string) {
   return <ClipboardList className="h-4 w-4" />;
 }
 
-
 export function NotificacoesBell() {
   const { usuario } = useAuth();
   const [open, setOpen] = useState(false);
@@ -75,20 +65,34 @@ export function NotificacoesBell() {
   const [naoLidas, setNaoLidas] = useState(0);
 
   const carregar = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("notificacoes")
-      .select(
-        "id, tipo, titulo, descricao, caso_id, cliente_id, metadata, lida, created_at",
-      )
-      .order("lida", { ascending: true })
-      .order("created_at", { ascending: false })
-      .limit(50);
-    if (!error) {
-      const lista = (data || []) as Array<Notificacao>;
-      setItens(lista);
-      setNaoLidas(lista.filter((n) => !n.lida).length);
-    }
-  }, []);
+    if (!usuario?.id) return;
+    // O sino agora e de cada um: mostra o que foi endereçado a mim mais o que
+    // foi pro escritorio todo (destinatario_id null), tirando o que eu ja
+    // dispensei. Dispensar deixou de apagar a linha — ver
+    // migration_notificacao_por_pessoa.
+    const [notifResp, dispResp] = await Promise.all([
+      supabase
+        .from("notificacoes")
+        .select(
+          "id, tipo, titulo, descricao, caso_id, cliente_id, metadata, lida, destinatario_id, created_at",
+        )
+        .or(`destinatario_id.is.null,destinatario_id.eq.${usuario.id}`)
+        .order("created_at", { ascending: false })
+        .limit(50),
+      supabase.from("notificacao_dispensada").select("notificacao_id"),
+    ]);
+    if (notifResp.error) return;
+    const dispensadas = new Set(
+      ((dispResp.data || []) as Array<{ notificacao_id: string }>).map((d) => d.notificacao_id),
+    );
+    const lista = ((notifResp.data || []) as Array<Notificacao>).filter(
+      (n) => !dispensadas.has(n.id),
+    );
+    setItens(lista);
+    // Sem dispensa = nao lida. A coluna `lida` continua no banco por causa do
+    // sync-ti-todos, mas nao e mais o que o sino usa.
+    setNaoLidas(lista.length);
+  }, [usuario?.id]);
 
   useEffect(() => {
     carregar();
@@ -98,10 +102,8 @@ export function NotificacoesBell() {
     // (que respeita RLS). Poll de 60s fica como fallback se o socket cair.
     const canal = supabase
       .channel("notificacoes-bell")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "notificacoes" },
-        () => carregar(),
+      .on("postgres_changes", { event: "*", schema: "public", table: "notificacoes" }, () =>
+        carregar(),
       )
       .subscribe();
     const t = setInterval(carregar, 60000);
@@ -111,10 +113,18 @@ export function NotificacoesBell() {
     };
   }, [carregar]);
 
-  // Clicar dispensa (exclui) a notificacao do sino.
+  // Clicar dispensa do MEU sino. Antes isto fazia `delete` na notificacao, o
+  // que a apagava pra todo mundo — uma pessoa clicava e sumia da equipe
+  // inteira, sem volta. Agora grava a dispensa em nome de quem clicou.
   async function dispensar(id: string) {
+    if (!usuario?.id) return;
     setItens((prev) => prev.filter((n) => n.id !== id)); // some na hora
-    await supabase.from("notificacoes").delete().eq("id", id);
+    await supabase
+      .from("notificacao_dispensada")
+      .upsert(
+        { usuario_id: usuario.id, notificacao_id: id },
+        { onConflict: "usuario_id,notificacao_id" },
+      );
     carregar();
   }
 
@@ -137,12 +147,7 @@ export function NotificacoesBell() {
       }}
     >
       <PopoverTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="relative"
-          aria-label="Notificações"
-        >
+        <Button variant="ghost" size="icon" className="relative" aria-label="Notificações">
           <Bell className="h-5 w-5" />
           {naoLidas > 0 && (
             <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-medium text-destructive-foreground">
@@ -169,105 +174,90 @@ export function NotificacoesBell() {
           </div>
         </div>
         <ScrollArea className="max-h-96">
-          {itens.length === 0
-            ? (
-              <p className="p-6 text-center text-sm text-muted-foreground">
-                Nenhuma notificação.
-              </p>
-            )
-            : (
-              <ul className="divide-y">
-                {itens.map((n) => {
-                  const corpo = (
-                    <div className="flex items-start gap-2">
-                      <span
-                        className={"mt-0.5 shrink-0 " +
-                          (n.lida ? "text-muted-foreground" : "text-primary")}
-                      >
-                        {iconeTipo(n.tipo)}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p
-                          className={"text-sm " +
-                            (n.lida ? "text-muted-foreground" : "font-medium")}
-                        >
-                          {n.titulo}
-                        </p>
-                        {n.descricao && (
-                          <p className="text-xs text-muted-foreground line-clamp-2">
-                            {n.descricao}
-                          </p>
-                        )}
-                        <p className="text-[11px] text-muted-foreground mt-0.5">
-                          {tempoRelativo(n.created_at)}
-                        </p>
-                      </div>
-                      {!n.lida && (
-                        <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-destructive" />
-                      )}
-                    </div>
-                  );
-                  return (
-                    <li
-                      key={n.id}
-                      className="p-3 hover:bg-muted/50 transition-colors"
+          {itens.length === 0 ? (
+            <p className="p-6 text-center text-sm text-muted-foreground">Nenhuma notificação.</p>
+          ) : (
+            <ul className="divide-y">
+              {itens.map((n) => {
+                const corpo = (
+                  <div className="flex items-start gap-2">
+                    <span
+                      className={
+                        "mt-0.5 shrink-0 " + (n.lida ? "text-muted-foreground" : "text-primary")
+                      }
                     >
-                      {n.tipo === "comentario" && n.caso_id
-                        ? (
-                          <Link
-                            to="/conversas"
-                            search={{ caso: n.caso_id }}
-                            onClick={() => {
-                              dispensar(n.id);
-                              setOpen(false);
-                            }}
-                            className="block"
-                          >
-                            {corpo}
-                          </Link>
-                        )
-                        : n.caso_id
-                        ? (
-                          <Link
-                            to="/casos/$id"
-                            params={{ id: n.caso_id }}
-                            search={destinoSearch(n)}
-                            onClick={() => {
-                              dispensar(n.id);
-                              setOpen(false);
-                            }}
-                            className="block"
-                          >
-                            {corpo}
-                          </Link>
-                        )
-                        : n.tipo === "cliente_ti"
-                        ? (
-                          <Link
-                            to="/clientes"
-                            onClick={() => {
-                              dispensar(n.id);
-                              setOpen(false);
-                            }}
-                            className="block"
-                          >
-                            {corpo}
-                          </Link>
-                        )
-                        : (
-                          <button
-                            type="button"
-                            onClick={() => dispensar(n.id)}
-                            className="block w-full text-left"
-                          >
-                            {corpo}
-                          </button>
-                        )}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
+                      {iconeTipo(n.tipo)}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p
+                        className={"text-sm " + (n.lida ? "text-muted-foreground" : "font-medium")}
+                      >
+                        {n.titulo}
+                      </p>
+                      {n.descricao && (
+                        <p className="text-xs text-muted-foreground line-clamp-2">{n.descricao}</p>
+                      )}
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        {tempoRelativo(n.created_at)}
+                      </p>
+                    </div>
+                    {!n.lida && (
+                      <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-destructive" />
+                    )}
+                  </div>
+                );
+                return (
+                  <li key={n.id} className="p-3 hover:bg-muted/50 transition-colors">
+                    {n.tipo === "comentario" && n.caso_id ? (
+                      <Link
+                        to="/conversas"
+                        search={{ caso: n.caso_id }}
+                        onClick={() => {
+                          dispensar(n.id);
+                          setOpen(false);
+                        }}
+                        className="block"
+                      >
+                        {corpo}
+                      </Link>
+                    ) : n.caso_id ? (
+                      <Link
+                        to="/casos/$id"
+                        params={{ id: n.caso_id }}
+                        search={destinoSearch(n)}
+                        onClick={() => {
+                          dispensar(n.id);
+                          setOpen(false);
+                        }}
+                        className="block"
+                      >
+                        {corpo}
+                      </Link>
+                    ) : n.tipo === "cliente_ti" ? (
+                      <Link
+                        to="/clientes"
+                        onClick={() => {
+                          dispensar(n.id);
+                          setOpen(false);
+                        }}
+                        className="block"
+                      >
+                        {corpo}
+                      </Link>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => dispensar(n.id)}
+                        className="block w-full text-left"
+                      >
+                        {corpo}
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </ScrollArea>
       </PopoverContent>
     </Popover>
