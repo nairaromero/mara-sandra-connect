@@ -25,12 +25,10 @@ import { cn } from "@/lib/utils";
 import { AgendaSheet } from "@/components/agenda/agenda-sheet";
 import { AgendaMes } from "@/components/agenda/agenda-mes";
 import { listarAgenda } from "@/lib/agenda/queries";
-import {
-  type AgendaEventoComJoins,
-  tipoBadge,
-} from "@/lib/agenda/types";
+import { type AgendaEventoComJoins, tipoBadge } from "@/lib/agenda/types";
 import { TarefaSheet, type TarefaSheetModo } from "@/components/tarefas/tarefa-sheet";
 import { listarTarefas } from "@/lib/tarefas/queries";
+import { ehDoGrupo, type GrupoAgenda } from "@/lib/agenda/types";
 import type { TarefaComJoins } from "@/lib/tarefas/types";
 import { AgendaPericiasParceiro } from "@/components/agenda/agenda-pericias-parceiro";
 import { useAuth } from "@/hooks/use-auth";
@@ -60,6 +58,10 @@ function tarefaComoEvento(t: TarefaComJoins): AgendaEventoComJoins {
     local: null,
     participantes: null,
     metadata: { origem_tarefa: true },
+    // Tarefa nao tem conclusao propria: some da agenda quando concluida,
+    // pela query. Os campos existem so pra casar com o tipo do evento.
+    concluido_em: null,
+    concluido_por: null,
     gcal_event_id: null,
     gcal_calendar_id: null,
     gcal_synced_at: null,
@@ -106,9 +108,7 @@ function AgendaRoute() {
   return <AgendaPage />;
 }
 
-type Modo =
-  | { kind: "criar" }
-  | { kind: "editar"; evento: AgendaEventoComJoins };
+type Modo = { kind: "criar" } | { kind: "editar"; evento: AgendaEventoComJoins };
 
 function formatarDataLonga(iso: string): string {
   return new Date(iso).toLocaleDateString("pt-BR", {
@@ -148,6 +148,10 @@ function AgendaPage() {
   const [carregando, setCarregando] = useState(true);
   const [eventos, setEventos] = useState<AgendaEventoComJoins[]>([]);
   const [tarefasPericia, setTarefasPericia] = useState<TarefaComJoins[]>([]);
+  // Filtro por grupo (tudo/pericias/atendimentos) e "esconder concluidos".
+  // Sao so de VISTA: nao mexem no que vem do banco, so no que aparece.
+  const [grupo, setGrupo] = useState<GrupoAgenda>("todos");
+  const [esconderConcluidos, setEsconderConcluidos] = useState(false);
   const [sheetModo, setSheetModo] = useState<Modo | null>(null);
   const [tarefaSheetModo, setTarefaSheetModo] = useState<TarefaSheetModo | null>(null);
   const [vista, setVista] = useState<"mes" | "lista">("mes");
@@ -170,7 +174,9 @@ function AgendaPage() {
     }
   }, []);
 
-  useEffect(() => { carregar(); }, [carregar]);
+  useEffect(() => {
+    carregar();
+  }, [carregar]);
 
   // Mescla eventos "de verdade" com as tarefas de perícia.
   const mesclados = useMemo(() => {
@@ -180,16 +186,28 @@ function AgendaPage() {
     );
   }, [eventos, tarefasPericia]);
 
+  // Vista: aplica grupo + esconder concluidos por cima da lista mesclada.
+  // Tarefa de pericia nao tem `concluido_em` (some sozinha ao ser concluida,
+  // pela propria query), entao ela nunca cai no filtro de concluidos.
+  const itensVisiveis = useMemo(() => {
+    return mesclados.filter((e) => {
+      if (!ehDoGrupo(e.tipo, grupo)) return false;
+      if (esconderConcluidos && e.concluido_em) return false;
+      return true;
+    });
+  }, [mesclados, grupo, esconderConcluidos]);
+
   const agora = Date.now();
   const proximas = useMemo(
-    () => mesclados.filter((e) => new Date(e.end_at).getTime() >= agora),
-    [mesclados, agora],
+    () => itensVisiveis.filter((e) => new Date(e.end_at).getTime() >= agora),
+    [itensVisiveis, agora],
   );
   const passadas = useMemo(
-    () => mesclados
-      .filter((e) => new Date(e.end_at).getTime() < agora)
-      .sort((a, b) => new Date(b.start_at).getTime() - new Date(a.start_at).getTime()),
-    [mesclados, agora],
+    () =>
+      itensVisiveis
+        .filter((e) => new Date(e.end_at).getTime() < agora)
+        .sort((a, b) => new Date(b.start_at).getTime() - new Date(a.start_at).getTime()),
+    [itensVisiveis, agora],
   );
   const lista = aba === "proximas" ? proximas : passadas;
   const dias = useMemo(() => agruparPorDia(lista), [lista]);
@@ -214,13 +232,45 @@ function AgendaPage() {
               Agenda
             </h1>
             <p className="text-sm text-muted-foreground">
-              Perícias e demais eventos do escritório. Toda perícia agendada entra aqui
-              automaticamente — tarefas sobre perícia (acompanhar, contatar) ficam em Tarefas.
+              Todos os compromissos do escritório: perícias, audiências, guichê e atendimentos. Toda
+              perícia agendada entra aqui automaticamente — tarefas sobre perícia (acompanhar,
+              contatar) ficam em Tarefas.
             </p>
           </div>
           <Button onClick={() => setSheetModo({ kind: "criar" })}>
             <Plus className="h-4 w-4" />
-            Nova perícia
+            Novo evento
+          </Button>
+        </div>
+
+        {/* Filtro por grupo + esconder concluídos.
+            Dois grupos em vez de um botão por tipo: "Atendimentos" junta
+            guichê, atendimento e reunião, que é como a equipe pensa. */}
+        <div className="flex flex-wrap items-center gap-2">
+          {(
+            [
+              ["todos", "Tudo"],
+              ["pericias", "Perícias"],
+              ["atendimentos", "Atendimentos"],
+            ] as Array<[GrupoAgenda, string]>
+          ).map(([g, label]) => (
+            <Button
+              key={g}
+              size="sm"
+              variant={grupo === g ? "default" : "outline"}
+              onClick={() => setGrupo(g)}
+            >
+              {label}
+            </Button>
+          ))}
+          <Button
+            size="sm"
+            variant={esconderConcluidos ? "default" : "outline"}
+            onClick={() => setEsconderConcluidos((v) => !v)}
+            className="ml-auto"
+            title="Some com o que já foi realizado"
+          >
+            {esconderConcluidos ? "Mostrando só pendentes" : "Esconder concluídos"}
           </Button>
         </div>
 
@@ -238,11 +288,15 @@ function AgendaPage() {
             <TabsList>
               <TabsTrigger value="proximas">
                 Próximas
-                <Badge variant="outline" className="ml-2 font-normal">{proximas.length}</Badge>
+                <Badge variant="outline" className="ml-2 font-normal">
+                  {proximas.length}
+                </Badge>
               </TabsTrigger>
               <TabsTrigger value="passadas">
                 Passadas
-                <Badge variant="outline" className="ml-2 font-normal">{passadas.length}</Badge>
+                <Badge variant="outline" className="ml-2 font-normal">
+                  {passadas.length}
+                </Badge>
               </TabsTrigger>
             </TabsList>
           </Tabs>
@@ -253,7 +307,7 @@ function AgendaPage() {
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         ) : vista === "mes" ? (
-          <AgendaMes eventos={mesclados} onEventoClick={abrirEditor} />
+          <AgendaMes eventos={itensVisiveis} onEventoClick={abrirEditor} />
         ) : dias.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center text-sm text-muted-foreground">
@@ -280,7 +334,10 @@ function AgendaPage() {
                       <div className="p-3 space-y-2">
                         <div className="flex items-center justify-between gap-2 flex-wrap">
                           <div className="flex items-center gap-2 min-w-0">
-                            <Badge variant="outline" className={cn("font-normal", tipoBadge(e).className)}>
+                            <Badge
+                              variant="outline"
+                              className={cn("font-normal", tipoBadge(e).className)}
+                            >
                               {tipoBadge(e).label}
                             </Badge>
                             {ehEventoDeTarefa(e) && (
@@ -343,11 +400,7 @@ function AgendaPage() {
           </div>
         )}
 
-        <AgendaSheet
-          modo={sheetModo}
-          onClose={() => setSheetModo(null)}
-          onSaved={carregar}
-        />
+        <AgendaSheet modo={sheetModo} onClose={() => setSheetModo(null)} onSaved={carregar} />
 
         {/* Sheet de tarefa: abre quando o item da agenda veio de uma tarefa
           de perícia (editar prazo/responsável/status reflete aqui). */}

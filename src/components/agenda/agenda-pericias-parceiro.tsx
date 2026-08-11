@@ -46,6 +46,8 @@ function paraEvento(p: PericiaParceiro): AgendaEventoComJoins {
     local: p.local,
     participantes: null,
     metadata: {},
+    concluido_em: null,
+    concluido_por: null,
     gcal_event_id: null,
     gcal_calendar_id: null,
     gcal_synced_at: null,
@@ -53,9 +55,7 @@ function paraEvento(p: PericiaParceiro): AgendaEventoComJoins {
     created_at: p.start_at,
     updated_at: p.start_at,
     responsavel: null,
-    caso: p.caso_id
-      ? { id: p.caso_id, cliente: { id: "", nome: p.cliente_nome } }
-      : null,
+    caso: p.caso_id ? { id: p.caso_id, cliente: { id: "", nome: p.cliente_nome } } : null,
   };
 }
 
@@ -113,8 +113,8 @@ export function AgendaPericiasParceiro() {
           Perícias
         </h1>
         <p className="text-sm text-muted-foreground">
-          Calendário das perícias agendadas dos seus clientes. Clique numa perícia
-          para abrir o caso.
+          Calendário das perícias agendadas dos seus clientes. Clique numa perícia para abrir o
+          caso.
         </p>
       </div>
 
