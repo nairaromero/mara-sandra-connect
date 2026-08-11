@@ -6617,6 +6617,11 @@ function TabComentarios(props: TabComentariosProps) {
           descricao: texto.trim().slice(0, 140),
           caso_id: casoId,
           foco_id: novoId,
+          // Mesmo destinatario do comentario: o sino tem que contar a mesma
+          // historia que o e-mail. Resposta herda da raiz, entao so a raiz
+          // carrega destinatario.
+          destinatario_id:
+            parentId === null && destinatario !== DESTINATARIO_TODOS ? destinatario : null,
         });
       }
 

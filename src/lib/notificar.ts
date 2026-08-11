@@ -12,6 +12,12 @@ export async function notificarEquipe(n: {
   caso_id: string;
   cliente_id?: string | null;
   foco_id?: string | null;
+  /**
+   * Pra quem acende o sino. Omitido/null = todos os internos, que e como
+   * sempre foi. Comentario de parceiro passa o destinatario da conversa, pra o
+   * sino contar a mesma historia que o e-mail.
+   */
+  destinatario_id?: string | null;
 }): Promise<void> {
   try {
     const { error } = await supabase.from("notificacoes").insert({
@@ -21,6 +27,7 @@ export async function notificarEquipe(n: {
       caso_id: n.caso_id,
       cliente_id: n.cliente_id ?? null,
       metadata: n.foco_id ? { foco_id: n.foco_id } : null,
+      destinatario_id: n.destinatario_id ?? null,
     });
     if (error) console.warn("notificarEquipe:", error.message);
   } catch (e) {
