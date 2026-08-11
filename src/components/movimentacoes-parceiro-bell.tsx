@@ -230,12 +230,9 @@ export function MovimentacoesParceiroBell() {
     }
     canal.subscribe();
     const t = setInterval(carregar, 60000);
-    const onSyncDone = () => carregar();
-    window.addEventListener("msc:sync-done", onSyncDone);
     return () => {
       supabase.removeChannel(canal);
       clearInterval(t);
-      window.removeEventListener("msc:sync-done", onSyncDone);
     };
   }, [carregar]);
 

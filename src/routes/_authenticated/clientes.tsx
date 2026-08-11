@@ -50,7 +50,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { ImportarTiDialog } from "@/components/importar-ti-dialog";
 import { ImportarClientesExcelDialog } from "@/components/importar-clientes-excel-dialog";
 import { exportarClientesExcel } from "@/lib/clientes-excel";
 import { ordenarEtiquetas } from "@/lib/etiquetas";
@@ -472,7 +471,6 @@ function ClientesPage() {
               <Upload className="h-4 w-4 mr-1" />
               Importar Excel
             </Button>
-            <ImportarTiDialog onImported={loadData} />
           </div>
         )}
       </div>
