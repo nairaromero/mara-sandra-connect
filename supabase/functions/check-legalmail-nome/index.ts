@@ -91,76 +91,83 @@ serve(async (req) => {
     return jsonResponse({ error: "nome obrigatorio (min 4 chars)" }, 400);
   }
 
-  // Pagina TODOS os processos e calcula similaridade.
-  // 30 req/min rate limit — paginas de 50 = ate 25 paginas em 1min.
+  // Busca no servidor pelo polo ativo, em UMA requisicao.
+  //
+  // Antes isto paginava /lawsuit/all inteiro (17 requests) e comparava nomes
+  // localmente. So que o /all devolve registro MAGRO: `poloativo_nome` vem
+  // vazio em TODOS. Resultado: similaridade 0 pra tudo, "nenhum processo
+  // encontrado" sempre, sem erro nenhum. Ficou assim de maio ate agosto/2026 —
+  // ninguem percebeu porque a resposta era 200 com lista vazia.
+  //
+  // O /lawsuit/search devolve `polo_ativo` preenchido E aceita filtrar por ele
+  // no servidor. E cobrado, mas 1 request no lugar de 17, e GET identico nao
+  // recobra dentro de 5 min.
   const similares: Array<{ score: number; proc: Processo }> = [];
-  let offset = 0;
-  const limit = 50;
+  let paginas = 0;
 
-  while (true) {
-    let resp: Response;
-    try {
-      resp = await fetch(
-        `${BASE}/api/v1/lawsuit/all?api_key=${TOKEN}&offset=${offset}&limit=${limit}`,
-        { headers: { Accept: "application/json" } },
-      );
-    } catch (err) {
-      return jsonResponse(
-        { error: "erro de rede", detail: String(err) },
-        502,
-      );
-    }
+  let resp: Response;
+  try {
+    resp = await fetch(
+      `${BASE}/api/v1/lawsuit/search?api_key=${TOKEN}` +
+        `&polo_ativo=${encodeURIComponent(nome)}&limit=50&offset=0`,
+      { headers: { Accept: "application/json" } },
+    );
+  } catch (err) {
+    return jsonResponse({ error: "erro de rede", detail: String(err) }, 502);
+  }
+  if (resp.status === 429) {
+    return jsonResponse({ error: "rate limit do Legalmail" }, 429);
+  }
+  if (resp.status === 402) {
+    return jsonResponse({ error: "saldo de creditos insuficiente no Legalmail" }, 402);
+  }
+  if (!resp.ok) {
+    return jsonResponse(
+      {
+        error: "legalmail_api_error",
+        status: resp.status,
+        detail: (await resp.text()).slice(0, 200),
+      },
+      502,
+    );
+  }
 
-    if (resp.status === 429) {
-      return jsonResponse(
-        { error: "rate limit do Legalmail", offset_alcancado: offset },
-        429,
-      );
-    }
-    if (!resp.ok) {
-      return jsonResponse(
-        { error: "legalmail_api_error", status: resp.status, detail: (await resp.text()).slice(0, 200) },
-        502,
-      );
-    }
+  let data: unknown;
+  try {
+    data = await resp.json();
+  } catch {
+    return jsonResponse({ error: "resposta nao-json do legalmail" }, 502);
+  }
+  const envelope = (data ?? {}) as {
+    lawsuits?: Array<Record<string, unknown>>;
+    message?: string;
+  };
+  if (!Array.isArray(envelope.lawsuits)) {
+    return jsonResponse(
+      {
+        error: "legalmail_resposta_inesperada",
+        detail: envelope.message || JSON.stringify(data).slice(0, 200),
+      },
+      502,
+    );
+  }
+  paginas = 1;
 
-    let data: unknown;
-    try {
-      data = await resp.json();
-    } catch {
-      return jsonResponse({ error: "resposta nao-json do legalmail" }, 502);
-    }
-
-    // O Legalmail responde HTTP 200 MESMO em erro (ex.: token invalido),
-    // com um objeto { status:'error', message:... }. Sem isso, o erro era
-    // engolido e a busca retornava 0 silenciosamente.
-    if (data && !Array.isArray(data)) {
-      const o = data as { status?: string; message?: string };
-      return jsonResponse(
-        {
-          error: "legalmail_resposta_erro",
-          detail: o.message || JSON.stringify(data).slice(0, 200),
-          offset,
-        },
-        502,
-      );
-    }
-
-    const lista = data as Array<Processo>;
-    if (lista.length === 0) break;
-
-    for (const p of lista) {
-      const score = similarity(nome, p.poloativo_nome || "");
-      if (score >= 0.5) {
-        similares.push({ score, proc: p });
-      }
-    }
-
-    if (lista.length < limit) break;
-    offset += limit;
-    if (offset > 5000) break;
-    // Respeita rate limit: 2.1s entre paginas
-    await new Promise((r) => setTimeout(r, 2100));
+  // O filtro do Legalmail e "contem", entao ainda pontuamos localmente pra
+  // ordenar e cortar quem so casou por acaso (um sobrenome comum, por exemplo).
+  for (const raw of envelope.lawsuits) {
+    const x = raw as Record<string, unknown>;
+    const proc: Processo = {
+      idprocessos: String(x.idprocessos ?? ""),
+      numero_processo: String(x.numero_processo ?? ""),
+      poloativo_nome: String(x.polo_ativo ?? ""),
+      tribunal: (x.tribunal as string) ?? null,
+      juizo: (x.orgao_julgador as string) ?? null,
+      processo_tema: (x.assunto as string) ?? null,
+      inbox_atual: null,
+    };
+    const score = similarity(nome, proc.poloativo_nome);
+    if (score >= 0.5) similares.push({ score, proc });
   }
 
   // Ordena por score desc
@@ -177,6 +184,6 @@ serve(async (req) => {
       processo_tema: s.proc.processo_tema,
       inbox_atual: s.proc.inbox_atual,
     })),
-    total_paginas_consultadas: Math.ceil(offset / limit),
+    total_requisicoes: paginas,
   });
 });
