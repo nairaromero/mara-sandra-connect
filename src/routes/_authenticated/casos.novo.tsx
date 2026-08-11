@@ -4,9 +4,16 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2, Eye, EyeOff, Plus, X, FileText, FileDown, Search } from "lucide-react";
+import { ArrowLeft, Loader2, Eye, EyeOff, Plus, X, FileText, FileDown } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
+import {
+  BuscarNoTiDialog,
+  BuscarNoLegalmailDialog,
+  type ClienteTi,
+  type GrupoLegalmail,
+} from "@/components/buscar-cliente-externo-dialog";
+import { mensagemDeErroEdge } from "@/lib/edge-function-error";
 import { useTiposBeneficio } from "@/hooks/use-tipos-beneficio";
 import { supabase } from "@/lib/supabase";
 import { TIPOS_DOCUMENTO_OPTIONS } from "@/lib/documentos/tipos";
@@ -50,7 +57,6 @@ import {
 export const Route = createFileRoute("/_authenticated/casos/novo")({
   component: NovoCasoPage,
 });
-
 
 type TipoDocumento = string;
 
@@ -156,11 +162,14 @@ function NovoCasoPage() {
   const [parceiros, setParceiros] = useState<Array<ParceiroOption>>([]);
   const [submitting, setSubmitting] = useState(false);
   const [showPwd, setShowPwd] = useState(false);
-  const [buscandoTI, setBuscandoTI] = useState(false);
-  // Marca que o cliente foi localizado no TI via "Buscar no TI". Quando true,
+  // Marca que o cliente veio do TI (escolhido pelo nome na busca). Quando true,
   // ao salvar o caso disparamos o sync automatico (importa andamentos +
   // vincula processos) — sem precisar sincronizar manualmente depois.
   const [achadoNoTI, setAchadoNoTI] = useState(false);
+  // Idem pro Legalmail: guarda os processos da pessoa escolhida, pra importar
+  // junto com a criacao do caso. O Legalmail nao devolve CPF, entao daqui so
+  // vem o nome — o resto do cadastro fica pra equipe completar.
+  const [processosLegalmail, setProcessosLegalmail] = useState<Array<number>>([]);
   const [docs, setDocs] = useState<Array<DocUpload>>([]);
   // Dialog do Google Drive Picker. O parente chama abrirDrivePicker direto
   // antes de abrir o dialog, e so abre o dialog quando o Picker retorna com
@@ -218,73 +227,54 @@ function NovoCasoPage() {
   // Busca o cliente no Tramitacao Inteligente pelo CPF e pre-preenche o form.
   // Usa check-ti-cliente que, quando o cliente ainda nao existe localmente,
   // retorna customer_ti sem gravar nada.
-  async function buscarNoTI() {
-    const cpfDigits = (form.getValues("cpf") || "").replace(/\D/g, "");
-    if (cpfDigits.length !== 11) {
-      toast.error("Digite um CPF válido (11 dígitos) antes de buscar no TI");
-      return;
+  // Cliente escolhido pelo nome na busca do TI: preenche o formulario inteiro.
+  // O TI devolve CPF, entao aqui da pra completar quase tudo — e por isso ele e
+  // a melhor fonte pra cadastro.
+  function preencherComTi(c: ClienteTi) {
+    setAchadoNoTI(true);
+    let campos = 0;
+    if (c.nome) {
+      form.setValue("nome", c.nome, { shouldValidate: true, shouldDirty: true });
+      campos++;
     }
-    setBuscandoTI(true);
-    try {
-      const resp = await supabase.functions.invoke("check-ti-cliente", {
-        body: { cpf: cpfDigits },
+    if (c.cpf) {
+      form.setValue("cpf", maskCPF(c.cpf), { shouldValidate: true, shouldDirty: true });
+      campos++;
+    }
+    const nasc = coerceData(c.data_nascimento);
+    if (nasc) {
+      form.setValue("data_nascimento", nasc, { shouldValidate: true, shouldDirty: true });
+      campos++;
+    }
+    if (c.telefone) {
+      form.setValue("telefone", maskTelefone(c.telefone), {
+        shouldValidate: true,
+        shouldDirty: true,
       });
-      if (resp.error) throw resp.error;
-      const r = resp.data as {
-        achou_no_ti?: boolean;
-        customer_ti?: {
-          name?: string | null;
-          email?: string | null;
-          phone_mobile?: string | null;
-          birthdate?: string | null;
-        };
-        motivo?: string;
-      };
-      if (!r.achou_no_ti) {
-        toast.message("Cliente não encontrado no Tramitação Inteligente.");
-        return;
-      }
-      const c = r.customer_ti;
-      if (!c) {
-        toast.message(r.motivo || "Cliente encontrado no TI, mas já existe no sistema.");
-        return;
-      }
-      // Cliente existe no TI -> habilita import automatico ao salvar o caso.
-      setAchadoNoTI(true);
-      let campos = 0;
-      if (c.name) {
-        form.setValue("nome", c.name, { shouldValidate: true });
-        campos++;
-      }
-      const nasc = coerceData(c.birthdate);
-      if (nasc) {
-        form.setValue("data_nascimento", nasc, { shouldValidate: true });
-        campos++;
-      }
-      if (c.phone_mobile) {
-        form.setValue("telefone", maskTelefone(c.phone_mobile), {
-          shouldValidate: true,
-        });
-        campos++;
-      }
-      if (c.email) {
-        form.setValue("email", c.email, { shouldValidate: true });
-        campos++;
-      }
-      toast.success(
-        "Dados do TI preenchidos (" +
-          campos +
-          " campo" +
-          (campos === 1 ? "" : "s") +
-          "). Ao salvar, os processos e andamentos serão importados automaticamente.",
-      );
-    } catch (err) {
-      console.error(err);
-      const e = err as { message?: string };
-      toast.error(e.message || "Erro ao buscar no TI");
-    } finally {
-      setBuscandoTI(false);
+      campos++;
     }
+    if (c.email) {
+      form.setValue("email", c.email, { shouldValidate: true, shouldDirty: true });
+      campos++;
+    }
+    toast.success(
+      `${c.nome}: ${campos} campo${campos === 1 ? "" : "s"} preenchido${
+        campos === 1 ? "" : "s"
+      }. Ao salvar, os andamentos do TI vem junto.`,
+    );
+  }
+
+  // Cliente escolhido no Legalmail: so o nome vem, porque a API nao expoe o CPF
+  // do polo ativo. Os processos ficam guardados pra entrar depois que o caso
+  // existir (sync-legalmail-caso precisa de caso_id).
+  function preencherComLegalmail(g: GrupoLegalmail) {
+    form.setValue("nome", g.nome, { shouldValidate: true, shouldDirty: true });
+    const ids = g.processos.map((p) => Number(p.legalmail_id)).filter((n) => Number.isFinite(n));
+    setProcessosLegalmail(ids);
+    toast.success(
+      `${g.nome}: nome preenchido. ${ids.length} processo(s) do Legalmail entram ao salvar.` +
+        (g.match !== "cliente_novo" ? " Atencao: ja existe cliente com esse nome." : ""),
+    );
   }
 
   useEffect(() => {
@@ -607,6 +597,44 @@ function NovoCasoPage() {
       // Se o cliente foi localizado no TI (via "Buscar no TI"), ja puxa
       // processos e andamentos junto com a criacao do caso — assim a usuaria
       // nao precisa rodar o sync manualmente depois.
+      // 4.b) Import do Legalmail, quando o cliente veio de la. Reaproveita a
+      // sync-legalmail-caso, que ja cria o processo judicial e importa as
+      // movimentacoes — a mesma usada na tela do caso.
+      if (processosLegalmail.length > 0) {
+        const toastLM = toast.loading("Importando processos do Legalmail...");
+        try {
+          const lmResp = await supabase.functions.invoke("sync-legalmail-caso", {
+            body: {
+              caso_id: casoId,
+              usuario_id: usuario.id,
+              idprocessos: processosLegalmail,
+            },
+          });
+          if (lmResp.error) throw lmResp.error;
+          const s = (lmResp.data || {}) as {
+            processos_criados?: number;
+            movimentacoes_importadas?: number;
+            erros?: Array<{ motivo: string }>;
+          };
+          toast.success(
+            `Legalmail: ${s.processos_criados ?? 0} processo(s) e ` +
+              `${s.movimentacoes_importadas ?? 0} movimentação(ões).`,
+            { id: toastLM },
+          );
+          if (s.erros?.length) {
+            toast.warning(`${s.erros.length} processo(s) não vieram: ${s.erros[0].motivo}`);
+          }
+        } catch (errLM) {
+          console.error("Falha na importação do Legalmail:", errLM);
+          toast.warning(
+            "Caso criado, mas a importação do Legalmail falhou: " +
+              (await mensagemDeErroEdge(errLM, "erro desconhecido")) +
+              ". Dá pra sincronizar depois pela tela do caso.",
+            { id: toastLM },
+          );
+        }
+      }
+
       if (achadoNoTI) {
         const toastSync = toast.loading(
           "Importando processos e andamentos do Tramitação Inteligente...",
@@ -701,6 +729,18 @@ function NovoCasoPage() {
               <CardHeader>
                 <CardTitle className="text-base">Dados do cliente</CardTitle>
                 <CardDescription>Informações pessoais do segurado.</CardDescription>
+                {/* Buscar por NOME nas fontes externas e preencher o formulario.
+                    So interno: TI e Legalmail sao ferramentas do escritorio, o
+                    parceiro nao tem acesso. */}
+                {isInterno && (
+                  <div className="flex flex-wrap items-center gap-2 pt-2">
+                    <span className="text-xs text-muted-foreground">
+                      Já é cliente do TI ou tem processo no Legalmail? Busque pelo nome:
+                    </span>
+                    <BuscarNoTiDialog onEscolher={preencherComTi} />
+                    <BuscarNoLegalmailDialog onEscolher={preencherComLegalmail} />
+                  </div>
+                )}
               </CardHeader>
               <CardContent className="grid gap-4 sm:grid-cols-2">
                 <FormField
@@ -723,35 +763,12 @@ function NovoCasoPage() {
                     <FormItem>
                       <FormLabel>CPF *</FormLabel>
                       <FormControl>
-                        <div className="flex items-center gap-2">
-                          <Input
-                            placeholder="000.000.000-00"
-                            inputMode="numeric"
-                            value={field.value}
-                            onChange={(e) => field.onChange(maskCPF(e.target.value))}
-                          />
-                          {/* "Buscar no TI" so para a equipe interna - o
-                              Tramitacao Inteligente e ferramenta interna; o
-                              parceiro nao tem acesso a essa busca. */}
-                          {isInterno && (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="shrink-0"
-                              onClick={buscarNoTI}
-                              disabled={buscandoTI}
-                              title="Buscar dados do cliente no Tramitação Inteligente pelo CPF"
-                            >
-                              {buscandoTI ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <Search className="h-4 w-4" />
-                              )}
-                              <span className="ml-1 hidden sm:inline">Buscar no TI</span>
-                            </Button>
-                          )}
-                        </div>
+                        <Input
+                          placeholder="000.000.000-00"
+                          inputMode="numeric"
+                          value={field.value}
+                          onChange={(e) => field.onChange(maskCPF(e.target.value))}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
