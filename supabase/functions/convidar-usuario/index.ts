@@ -147,6 +147,10 @@ serve(async (req) => {
       oab: oab || null,
       telefone: telefone || null,
       tipo,
+      // Papel comercial. Quem entra como parceiro e parceiro; quem entra como
+      // interno pode virar parceiro depois (flag editavel em /parceiros), mas
+      // nao nasce assim.
+      eh_parceiro: tipo === "parceiro",
       ativo: true,
       // interno ja entra "onboarded" (boas-vindas e fluxo do parceiro).
       onboarded_em: tipo === "interno" ? new Date().toISOString() : null,

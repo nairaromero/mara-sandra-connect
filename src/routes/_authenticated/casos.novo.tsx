@@ -293,7 +293,7 @@ function NovoCasoPage() {
       const { data, error } = await supabase
         .from("usuarios")
         .select("id, nome, email")
-        .eq("tipo", "parceiro")
+        .eq("eh_parceiro", true)
         .order("nome", { ascending: true });
       if (error) {
         console.error(error);

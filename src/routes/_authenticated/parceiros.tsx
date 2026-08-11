@@ -62,6 +62,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { mensagemDeErroEdge } from "@/lib/edge-function-error";
 
 export const Route = createFileRoute("/_authenticated/parceiros")({
   component: ParceirosPage,
@@ -77,6 +78,15 @@ interface ParceiroRow {
   ativo: boolean;
   created_at: string | null;
   onboarded_em: string | null;
+  // Modo de acesso. Quase sempre 'parceiro', mas alguem da equipe pode tambem
+  // ser parceiro comercial (eh_parceiro=true com tipo='interno') — essa pessoa
+  // aparece aqui pro repasse, mas nao se gerencia como parceiro (sem convite,
+  // sem exclusao: a conta dela e da equipe).
+  tipo: string;
+}
+
+function ehDaEquipe(p: ParceiroRow): boolean {
+  return p.tipo === "interno";
 }
 
 interface AceiteRow {
@@ -307,8 +317,7 @@ function ParceirosPage() {
       await loadParceiros();
     } catch (err) {
       console.error(err);
-      const errObj = err as { message?: string };
-      toast.error(errObj.message || "Erro ao atualizar parceiro");
+      toast.error(await mensagemDeErroEdge(err, "Erro ao atualizar parceiro"));
     } finally {
       setEditSalvando(false);
     }
@@ -336,8 +345,7 @@ function ParceirosPage() {
       await loadParceiros();
     } catch (err) {
       console.error(err);
-      const errObj = err as { message?: string };
-      toast.error(errObj.message || "Erro ao excluir parceiro");
+      toast.error(await mensagemDeErroEdge(err, "Erro ao excluir parceiro"));
     } finally {
       setExcluindo(false);
     }
@@ -370,9 +378,9 @@ function ParceirosPage() {
     const { data, error } = await supabase
       .from("usuarios")
       .select(
-        "id, nome, email, oab, telefone, percentual_parceiro, ativo, created_at, onboarded_em",
+        "id, nome, email, oab, telefone, percentual_parceiro, ativo, created_at, onboarded_em, tipo",
       )
-      .eq("tipo", "parceiro")
+      .eq("eh_parceiro", true)
       .order("created_at", { ascending: false });
     if (error) {
       console.error(error);
@@ -744,15 +752,21 @@ function ParceirosPage() {
                               {p.email ?? "—"}
                             </div>
                           </div>
-                          {p.ativo ? (
-                            <Badge variant="secondary" className="shrink-0">
-                              Ativo
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline" className="shrink-0">
-                              Inativo
-                            </Badge>
-                          )}
+                          <div className="flex shrink-0 items-center gap-1">
+                            {ehDaEquipe(p) && (
+                              <Badge
+                                variant="outline"
+                                className="border-[var(--gold)] text-[var(--gold)]"
+                              >
+                                Equipe
+                              </Badge>
+                            )}
+                            {p.ativo ? (
+                              <Badge variant="secondary">Ativo</Badge>
+                            ) : (
+                              <Badge variant="outline">Inativo</Badge>
+                            )}
+                          </div>
                         </div>
                         <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-0.5">
                           <span>OAB: {p.oab ?? "—"}</span>
@@ -790,15 +804,17 @@ function ParceirosPage() {
                           >
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setExcluirAlvo(p)}
-                            aria-label="Excluir parceiro"
-                            className="text-muted-foreground hover:text-destructive"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
+                          {!ehDaEquipe(p) && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setExcluirAlvo(p)}
+                              aria-label="Excluir parceiro"
+                              className="text-muted-foreground hover:text-destructive"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -832,11 +848,22 @@ function ParceirosPage() {
                             </TableCell>
                             <TableCell>{p.telefone ?? "—"}</TableCell>
                             <TableCell>
-                              {p.ativo ? (
-                                <Badge variant="secondary">Ativo</Badge>
-                              ) : (
-                                <Badge variant="outline">Inativo</Badge>
-                              )}
+                              <div className="flex items-center gap-1">
+                                {ehDaEquipe(p) && (
+                                  <Badge
+                                    variant="outline"
+                                    className="border-[var(--gold)] text-[var(--gold)]"
+                                    title="Também é da equipe interna — a conta dela se gerencia em Equipe"
+                                  >
+                                    Equipe
+                                  </Badge>
+                                )}
+                                {p.ativo ? (
+                                  <Badge variant="secondary">Ativo</Badge>
+                                ) : (
+                                  <Badge variant="outline">Inativo</Badge>
+                                )}
+                              </div>
                             </TableCell>
                             <TableCell className="text-right">
                               <div className="flex justify-end gap-0.5">
@@ -873,15 +900,17 @@ function ParceirosPage() {
                                 >
                                   <Pencil className="h-3.5 w-3.5" />
                                 </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => setExcluirAlvo(p)}
-                                  aria-label="Excluir parceiro"
-                                  className="text-muted-foreground hover:text-destructive"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </Button>
+                                {!ehDaEquipe(p) && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => setExcluirAlvo(p)}
+                                    aria-label="Excluir parceiro"
+                                    className="text-muted-foreground hover:text-destructive"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                )}
                               </div>
                             </TableCell>
                           </TableRow>

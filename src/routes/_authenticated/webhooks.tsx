@@ -187,7 +187,7 @@ function WebhooksPage() {
       supabase
         .from("usuarios")
         .select("id, nome, email")
-        .eq("tipo", "parceiro")
+        .eq("eh_parceiro", true)
         .eq("ativo", true)
         .order("nome", { ascending: true }),
     ]);

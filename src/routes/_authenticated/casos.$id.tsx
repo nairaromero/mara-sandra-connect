@@ -693,7 +693,7 @@ function CasoDetalhePage() {
       const parceirosResp = await supabase
         .from("usuarios")
         .select("id, nome, email")
-        .eq("tipo", "parceiro")
+        .eq("eh_parceiro", true)
         .order("nome", { ascending: true });
       if (parceirosResp.error) {
         console.error("erro listar parceiros", parceirosResp.error);
