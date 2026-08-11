@@ -149,28 +149,40 @@ export async function exportarClientesExcel(clienteIds: Set<string>): Promise<vo
     processos_judiciais: Array<{ numero_processo: string | null }>;
   }>;
 
-  // Ultimo andamento por caso (1 query)
+  // Ultimo andamento por caso. Busca PAGINADA: o PostgREST corta a resposta em
+  // max_rows (1000) e a base ja tem milhares de andamentos — sem paginar, os
+  // casos que caissem depois do corte saiam sem "ultimo andamento" na planilha.
   const casoIds = casos.map((c) => c.id);
   const ultimoAndPorCaso = new Map<
     string,
     { data_evento: string; titulo: string | null; descricao: string | null }
   >();
   if (casoIds.length > 0) {
-    const andResp = await supabase
-      .from("andamentos")
-      .select("caso_id, data_evento, titulo, descricao")
-      .in("caso_id", casoIds)
-      .order("data_evento", { ascending: false });
-    if (andResp.error) throw andResp.error;
-    for (const a of (andResp.data || []) as Array<{
-      caso_id: string;
-      data_evento: string;
-      titulo: string | null;
-      descricao: string | null;
-    }>) {
-      if (!ultimoAndPorCaso.has(a.caso_id)) {
-        ultimoAndPorCaso.set(a.caso_id, a);
+    const PAGINA = 1000;
+    for (let inicio = 0; ; inicio += PAGINA) {
+      const andResp = await supabase
+        .from("andamentos")
+        .select("caso_id, data_evento, titulo, descricao")
+        .in("caso_id", casoIds)
+        // Ordem estavel (data_evento sozinho tem empates) pra paginar sem
+        // repetir nem pular linhas entre as paginas.
+        .order("data_evento", { ascending: false })
+        .order("id", { ascending: true })
+        .range(inicio, inicio + PAGINA - 1);
+      if (andResp.error) throw andResp.error;
+      const pagina = (andResp.data || []) as Array<{
+        caso_id: string;
+        data_evento: string;
+        titulo: string | null;
+        descricao: string | null;
+      }>;
+      for (const a of pagina) {
+        // Vem ordenado por data desc: o primeiro de cada caso e o mais recente.
+        if (!ultimoAndPorCaso.has(a.caso_id)) {
+          ultimoAndPorCaso.set(a.caso_id, a);
+        }
       }
+      if (pagina.length < PAGINA) break;
     }
   }
 

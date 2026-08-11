@@ -106,6 +106,38 @@ function onlyDigits(s: string): string {
   return (s || "").replace(/\D/g, "");
 }
 
+// Linha crua de clientes_etiquetas (o join vem objeto ou array conforme o caso).
+type VinculoEtiquetaRow = {
+  cliente_id: string;
+  etiqueta: Etiqueta | Array<Etiqueta> | null;
+};
+
+// Traz TODOS os vinculos cliente<->etiqueta, driblando o teto do PostgREST
+// (max_rows = 1000). Sem isso a query volta truncada e os clientes das linhas
+// seguintes aparecem sem nenhuma etiqueta na lista. Pagina por range com
+// ordem estavel; para quando a pagina vier incompleta.
+const PAGINA_VINCULOS = 1000;
+
+async function carregarTodosVinculos(): Promise<{
+  data: Array<VinculoEtiquetaRow>;
+  error: { message: string } | null;
+}> {
+  const todos: Array<VinculoEtiquetaRow> = [];
+  for (let inicio = 0; ; inicio += PAGINA_VINCULOS) {
+    const { data, error } = await supabase
+      .from("clientes_etiquetas")
+      .select("cliente_id, etiqueta:etiquetas(id, nome, cor)")
+      .order("cliente_id", { ascending: true })
+      .order("etiqueta_id", { ascending: true })
+      .range(inicio, inicio + PAGINA_VINCULOS - 1);
+    if (error) return { data: todos, error };
+    const pagina = (data ?? []) as Array<VinculoEtiquetaRow>;
+    todos.push(...pagina);
+    if (pagina.length < PAGINA_VINCULOS) break;
+  }
+  return { data: todos, error: null };
+}
+
 function formatCPF(cpf: string | null): string {
   const d = onlyDigits(cpf ?? "");
   if (d.length !== 11) return cpf ?? "-";
@@ -202,9 +234,10 @@ function ClientesPage() {
               "processos_judiciais(numero_processo)",
           )
           .order("created_at", { ascending: false }),
-        supabase
-          .from("clientes_etiquetas")
-          .select("cliente_id, etiqueta:etiquetas(id, nome, cor)"),
+        // Vinculos cliente<->etiqueta: PostgREST corta em max_rows (1000) e ja
+        // passamos disso, o que fazia clientes "sumirem" as tags na lista.
+        // Busca paginada ate acabar (ordem estavel pra nao repetir/pular).
+        carregarTodosVinculos(),
       ]);
       if (resp.error) {
         console.error("Erro ao carregar casos:", resp.error);
@@ -216,12 +249,8 @@ function ClientesPage() {
       // Mapa cliente_id -> etiquetas. Parceiro nao ve tags internas "NOME/UF"
       // (mesma regra do componente EtiquetasCliente).
       if (!etResp.error) {
-        type LinkRow = {
-          cliente_id: string;
-          etiqueta: Etiqueta | Array<Etiqueta> | null;
-        };
         const mapa = new Map<string, Array<Etiqueta>>();
-        for (const row of (etResp.data ?? []) as Array<LinkRow>) {
+        for (const row of etResp.data ?? []) {
           const et = Array.isArray(row.etiqueta) ? row.etiqueta[0] : row.etiqueta;
           if (!et) continue;
           if (!isInterno && /^[A-Za-z_]+\/[A-Z]{2}$/.test(et.nome.trim())) continue;
