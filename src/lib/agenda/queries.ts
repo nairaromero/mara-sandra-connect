@@ -7,11 +7,17 @@ import type {
   AgendaTipo,
 } from "./types";
 
+// ATENCAO: esta e uma lista de colunas do PostgREST, nao SQL — nada de
+// comentario aqui dentro. E coluna nova na tabela precisa ser adicionada aqui,
+// senao a tela nunca ve o valor. Foi o que aconteceu com concluido_em: o
+// update gravava certo, a lista voltava sem o campo, e "Concluir" parecia nao
+// fazer nada.
 const SELECT_COM_JOINS = `
   id, caso_id, processo_admin_id, processo_judicial_id, responsavel_id,
   tipo, titulo, descricao, start_at, end_at, local, participantes, metadata,
   gcal_event_id, gcal_calendar_id, gcal_synced_at,
   created_by, created_at, updated_at,
+  concluido_em, concluido_por,
   responsavel:usuarios!agenda_eventos_responsavel_id_fkey(id, nome),
   caso:casos(id, cliente:clientes(id, nome))
 `;
