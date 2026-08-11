@@ -3,8 +3,6 @@ import { Link } from "@tanstack/react-router";
 import {
   Bell,
   ClipboardList,
-  Loader2,
-  RefreshCw,
   Tag,
   Trash2,
   UserPlus,
@@ -69,16 +67,12 @@ function iconeTipo(tipo: string) {
   return <ClipboardList className="h-4 w-4" />;
 }
 
-// Botao "Sincronizar tudo" no sino: desligado a pedido da Naira (2026-08-06).
-// Deixado como flag em vez de deletar o codigo, pra reativar ser trivial.
-const SYNC_TI_NA_UI = false;
 
 export function NotificacoesBell() {
   const { usuario } = useAuth();
   const [open, setOpen] = useState(false);
   const [itens, setItens] = useState<Array<Notificacao>>([]);
   const [naoLidas, setNaoLidas] = useState(0);
-  const [sincronizando, setSincronizando] = useState(false);
 
   const carregar = useCallback(async () => {
     const { data, error } = await supabase
@@ -111,17 +105,13 @@ export function NotificacoesBell() {
       )
       .subscribe();
     const t = setInterval(carregar, 60000);
-    const onSyncDone = () => carregar();
-    window.addEventListener("msc:sync-done", onSyncDone);
     return () => {
       supabase.removeChannel(canal);
       clearInterval(t);
-      window.removeEventListener("msc:sync-done", onSyncDone);
     };
   }, [carregar]);
 
-  // Clicar dispensa (exclui) a notificacao do sino. Se nao clicar, ela
-  // permanece ate a proxima sincronizacao.
+  // Clicar dispensa (exclui) a notificacao do sino.
   async function dispensar(id: string) {
     setItens((prev) => prev.filter((n) => n.id !== id)); // some na hora
     await supabase.from("notificacoes").delete().eq("id", id);
@@ -136,39 +126,6 @@ export function NotificacoesBell() {
       await supabase.from("notificacoes").delete().in("id", ids);
     }
     carregar();
-  }
-
-  async function sincronizarTudo() {
-    setSincronizando(true);
-    try {
-      const resp = await supabase.functions.invoke("sync-ti-todos", {
-        body: { usuario_id: usuario?.id ?? null },
-      });
-      if (resp.error) throw resp.error;
-      const r = (resp.data || {}) as {
-        andamentos_novos?: number;
-        clientes_ti_novos?: number;
-        tags_alteradas?: number;
-        clientes_sincronizados?: number;
-      };
-      toast.success(
-        `Sync concluído: ${r.andamentos_novos || 0} andamento(s) novo(s), ` +
-          `${r.clientes_ti_novos || 0} cliente(s) novo(s) no TI, ` +
-          `${r.tags_alteradas || 0} tag(s) alterada(s).`,
-      );
-      await carregar();
-      // Avisa telas abertas (ex.: detalhe do caso) para recarregarem os dados
-      // sem o usuario precisar dar refresh manual.
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("msc:sync-done"));
-      }
-    } catch (err) {
-      console.error(err);
-      const e = err as { message?: string };
-      toast.error(e.message || "Erro ao sincronizar");
-    } finally {
-      setSincronizando(false);
-    }
   }
 
   return (
@@ -198,31 +155,6 @@ export function NotificacoesBell() {
         <div className="flex items-center justify-between gap-2 border-b p-3">
           <span className="text-sm font-semibold">Notificações</span>
           <div className="flex items-center gap-1">
-            {/* Botao de sync com o TI desligado a pedido da Naira (2026-08-06).
-                O sync em si continua existindo e funcionando — muda so o
-                acesso pela UI. Pra rodar:
-                  scripts/sync-ti-atividades.mjs        (tarefas/pericias/prazos)
-                  edge function sync-ti-todos           (clientes/tags/notas,
-                                                         em lotes offset/limit)
-                Motivo de tirar da UI: uma rodada completa leva minutos e passa
-                do limite de 150s da edge function; clicar aqui dava a impressao
-                de ter sincronizado quando na verdade morria no meio.
-                Pra reativar, e so remover este bloco de comentario. */}
-            {SYNC_TI_NA_UI && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 px-2 text-xs"
-                onClick={sincronizarTudo}
-                disabled={sincronizando}
-                title="Sincronizar todos os clientes com o Tramitação Inteligente"
-              >
-                {sincronizando
-                  ? <Loader2 className="h-3 w-3 animate-spin" />
-                  : <RefreshCw className="h-3 w-3" />}
-                <span className="ml-1">Sincronizar tudo</span>
-              </Button>
-            )}
             {naoLidas > 0 && (
               <Button
                 size="icon"

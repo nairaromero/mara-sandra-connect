@@ -829,16 +829,6 @@ function CasoDetalhePage() {
     carregar();
   }, [carregar]);
 
-  // Recarrega quando um sync (ex.: "Sincronizar tudo" do sino) termina, pra
-  // refletir novos andamentos/vinculos sem o usuario dar refresh manual.
-  useEffect(() => {
-    function onSyncDone() {
-      carregar();
-    }
-    window.addEventListener("msc:sync-done", onSyncDone);
-    return () => window.removeEventListener("msc:sync-done", onSyncDone);
-  }, [carregar]);
-
   if (loading) {
     return (
       <div className="flex h-96 items-center justify-center">
@@ -1279,69 +1269,7 @@ interface CasoHeaderProps {
 
 function CasoHeader(props: CasoHeaderProps) {
   const { caso, cliente, isInterno, usuarioId, processosJudiciais, onChange } = props;
-  const [syncing, setSyncing] = useState(false);
   const [syncingLM, setSyncingLM] = useState(false);
-
-  async function syncTI() {
-    setSyncing(true);
-    try {
-      const resp = await supabase.functions.invoke("sync-ti-cliente", {
-        body: { cpf: cliente.cpf, caso_id: caso.id, usuario_id: usuarioId },
-      });
-      if (resp.error) throw resp.error;
-      const r = resp.data as {
-        achou_no_ti?: boolean;
-        atualizado?: boolean;
-        tags_aplicadas?: number;
-        notas_importadas?: number;
-        notas_ja_existentes?: number;
-        motivo?: string;
-      };
-      if (!r.achou_no_ti) {
-        toast.error("Cliente não encontrado no Tramitação Inteligente");
-      } else if (r.atualizado) {
-        const tags = r.tags_aplicadas || 0;
-        const notasNovas = r.notas_importadas || 0;
-        const notasJa = r.notas_ja_existentes || 0;
-        let msg =
-          "Sincronizado com TI. " +
-          tags +
-          " tag" +
-          (tags === 1 ? "" : "s") +
-          " aplicada" +
-          (tags === 1 ? "" : "s") +
-          ".";
-        if (notasNovas > 0) {
-          msg +=
-            " " +
-            notasNovas +
-            " nota" +
-            (notasNovas === 1 ? "" : "s") +
-            " do TI importada" +
-            (notasNovas === 1 ? "" : "s") +
-            " como andamento" +
-            (notasNovas === 1 ? "" : "s") +
-            ".";
-        }
-        if (notasJa > 0) {
-          msg += " " + notasJa + " já existia" + (notasJa === 1 ? "" : "m") + " (dedup).";
-        }
-        toast.success(msg);
-        onChange();
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new CustomEvent("msc:sync-done"));
-        }
-      } else {
-        toast.error(r.motivo || "Não foi possível sincronizar");
-      }
-    } catch (err) {
-      console.error(err);
-      const errObj = err as { message?: string };
-      toast.error(errObj.message || "Erro ao sincronizar com TI");
-    } finally {
-      setSyncing(false);
-    }
-  }
 
   async function syncLegalmail() {
     // So processos judiciais que ja foram importados do Legalmail
@@ -1443,9 +1371,9 @@ function CasoHeader(props: CasoHeaderProps) {
                   size="icon"
                   className="h-8 w-8 shrink-0"
                   aria-label="Ações do caso"
-                  disabled={syncing || syncingLM}
+                  disabled={syncingLM}
                 >
-                  {syncing || syncingLM ? (
+                  {syncingLM ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     <MoreVertical className="h-4 w-4" />
@@ -1453,14 +1381,6 @@ function CasoHeader(props: CasoHeaderProps) {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  onClick={syncTI}
-                  disabled={syncing}
-                  title="Sincronizar tags e dados com Tramitação Inteligente"
-                >
-                  {syncing && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
-                  Sync TI
-                </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={syncLegalmail}
                   disabled={syncingLM}
@@ -2860,8 +2780,7 @@ function TabAndamentos(props: TabAndamentosProps) {
       if (!resp.data || resp.data.length === 0) {
         toast.error(
           "Exclusão não foi aplicada. Possível bloqueio de permissão " +
-            "(andamento sem dono ou RLS). Tente fazer Sync TI novamente " +
-            "para corrigir o vínculo de criador.",
+            "(andamento sem dono ou RLS).",
         );
         return;
       }
