@@ -548,11 +548,42 @@ function maskCPFParceiro(cpf: string): string {
   return "***." + c.slice(3, 6) + "." + c.slice(6, 9) + "-**";
 }
 
+// Colunas `date` chegam como "YYYY-MM-DD". new Date() leria isso como meia-noite
+// UTC e, no fuso do Brasil (-3), a data exibida cairia um dia pra trás. Por isso
+// o caso date-only é formatado na mão, sem passar por Date.
+const SO_DATA_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
 function formatDate(iso: string | null): string {
   if (!iso) return "-";
+  const so = SO_DATA_RE.exec(iso);
+  if (so) return `${so[3]}/${so[2]}/${so[1]}`;
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "-";
   return d.toLocaleDateString("pt-BR");
+}
+
+// Idade em anos completos. Aceita "YYYY-MM-DD" (date) ou timestamp.
+function calcularIdade(iso: string | null): number | null {
+  if (!iso) return null;
+  const so = SO_DATA_RE.exec(iso);
+  let ano: number, mes: number, dia: number;
+  if (so) {
+    ano = Number(so[1]);
+    mes = Number(so[2]);
+    dia = Number(so[3]);
+  } else {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return null;
+    ano = d.getFullYear();
+    mes = d.getMonth() + 1;
+    dia = d.getDate();
+  }
+  const hoje = new Date();
+  let idade = hoje.getFullYear() - ano;
+  // Ainda não fez aniversário este ano → desconta 1.
+  const mesAtual = hoje.getMonth() + 1;
+  if (mesAtual < mes || (mesAtual === mes && hoje.getDate() < dia)) idade--;
+  return idade >= 0 && idade < 130 ? idade : null;
 }
 
 function formatDateTime(iso: string | null): string {
@@ -1052,6 +1083,190 @@ function CasoDetalhePage() {
 // Cabecalho do caso
 // ===========================================================================
 
+// Faixa de identidade no cabeçalho do caso (abaixo das etiquetas): nascimento
+// + idade, CPF e senha MEU INSS — os dados que a equipe mais copia no dia a dia,
+// pra não precisar entrar na aba Visão geral.
+//
+// Regras de acesso são as MESMAS da Visão geral:
+//   interno  → CPF formatado + copiar; senha revelada pelo olhinho + copiar.
+//   parceiro → CPF mascarado, olhinho revela, SEM copiar (select-none);
+//              senha idem (olhinho revela, sem copiar).
+// A senha vem por RPC (get_senha_meu_inss) que decripta e registra auditoria;
+// o valor fica em cache na visita pra não gerar um log a cada toggle.
+function IdentidadeClienteLinha(props: { cliente: Cliente; isInterno: boolean }) {
+  const { cliente, isInterno } = props;
+  const [carregandoSenha, setCarregandoSenha] = useState(false);
+  const [senhaValor, setSenhaValor] = useState<string | null>(null);
+  const [senhaCarregada, setSenhaCarregada] = useState(false);
+  const [senhaVisivel, setSenhaVisivel] = useState(false);
+  const [cpfVisivelParc, setCpfVisivelParc] = useState(false);
+
+  const idade = calcularIdade(cliente.data_nascimento);
+
+  async function carregarSenha(): Promise<{ ok: boolean; valor: string | null }> {
+    if (senhaCarregada) return { ok: true, valor: senhaValor };
+    setCarregandoSenha(true);
+    try {
+      const resp = await supabase.rpc("get_senha_meu_inss", {
+        p_cliente_id: cliente.id,
+      });
+      if (resp.error) throw resp.error;
+      const data = (resp.data as string | null) ?? null;
+      setSenhaValor(data);
+      setSenhaCarregada(true);
+      return { ok: true, valor: data };
+    } catch (err) {
+      console.error(err);
+      const errObj = err as { message?: string };
+      toast.error(errObj.message || "Erro ao decifrar senha");
+      return { ok: false, valor: null };
+    } finally {
+      setCarregandoSenha(false);
+    }
+  }
+
+  async function toggleVerSenha() {
+    if (senhaVisivel) {
+      setSenhaVisivel(false);
+      return;
+    }
+    const r = await carregarSenha();
+    if (r.ok) setSenhaVisivel(true);
+  }
+
+  async function copiarSenha() {
+    const r = await carregarSenha();
+    if (!r.ok) return;
+    if (r.valor === null) {
+      toast.error("Este cliente não tem senha do MEU INSS cadastrada");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(r.valor);
+      toast.success("Senha copiada");
+    } catch (err) {
+      console.error(err);
+      toast.error("Não foi possível copiar (clipboard bloqueado)");
+    }
+  }
+
+  async function copiarCpf() {
+    try {
+      await navigator.clipboard.writeText(cliente.cpf.replace(/\D/g, ""));
+      toast.success("CPF copiado");
+    } catch (err) {
+      console.error(err);
+      toast.error("Não foi possível copiar (clipboard bloqueado)");
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+      {/* Nascimento + idade */}
+      <span className="flex items-center gap-1">
+        <span className="text-xs text-muted-foreground">Nascimento:</span>
+        <span>{formatDate(cliente.data_nascimento)}</span>
+        {idade !== null && (
+          <span className="text-muted-foreground">({idade} anos)</span>
+        )}
+      </span>
+
+      {/* CPF */}
+      <span className="flex items-center gap-1">
+        <span className="text-xs text-muted-foreground">CPF:</span>
+        {isInterno ? (
+          <>
+            <span>{maskCPF(cliente.cpf)}</span>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 w-6 p-0"
+              onClick={copiarCpf}
+              title="Copiar CPF"
+            >
+              <Copy className="h-3.5 w-3.5" />
+            </Button>
+          </>
+        ) : (
+          <>
+            <span
+              className="select-none"
+              onCopy={(e) => e.preventDefault()}
+              onContextMenu={(e) => e.preventDefault()}
+            >
+              {cpfVisivelParc ? maskCPF(cliente.cpf) : maskCPFParceiro(cliente.cpf)}
+            </span>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 w-6 p-0"
+              onClick={() => setCpfVisivelParc((v) => !v)}
+              title={cpfVisivelParc ? "Ocultar CPF" : "Ver CPF completo"}
+            >
+              {cpfVisivelParc ? (
+                <EyeOff className="h-3.5 w-3.5" />
+              ) : (
+                <Eye className="h-3.5 w-3.5" />
+              )}
+            </Button>
+          </>
+        )}
+      </span>
+
+      {/* Senha MEU INSS — escondida por padrão */}
+      <span className="flex items-center gap-1">
+        <span className="text-xs text-muted-foreground flex items-center gap-1">
+          <KeyRound className="h-3.5 w-3.5" />
+          Senha MEU INSS:
+        </span>
+        {senhaVisivel ? (
+          senhaValor !== null ? (
+            <span
+              className={"font-mono" + (isInterno ? "" : " select-none")}
+              onCopy={isInterno ? undefined : (e) => e.preventDefault()}
+              onContextMenu={isInterno ? undefined : (e) => e.preventDefault()}
+            >
+              {senhaValor}
+            </span>
+          ) : (
+            <span className="text-xs text-muted-foreground italic">não cadastrada</span>
+          )
+        ) : (
+          <span className="font-mono tracking-widest text-muted-foreground">••••••</span>
+        )}
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 w-6 p-0"
+          onClick={toggleVerSenha}
+          disabled={carregandoSenha}
+          title={senhaVisivel ? "Ocultar senha" : "Ver senha"}
+        >
+          {carregandoSenha ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : senhaVisivel ? (
+            <EyeOff className="h-3.5 w-3.5" />
+          ) : (
+            <Eye className="h-3.5 w-3.5" />
+          )}
+        </Button>
+        {isInterno && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 w-6 p-0"
+            onClick={copiarSenha}
+            disabled={carregandoSenha}
+            title="Copiar senha"
+          >
+            <Copy className="h-3.5 w-3.5" />
+          </Button>
+        )}
+      </span>
+    </div>
+  );
+}
+
 interface CasoHeaderProps {
   caso: Caso;
   cliente: Cliente;
@@ -1260,6 +1475,8 @@ function CasoHeader(props: CasoHeaderProps) {
         </div>
         {/* Linha 2: etiquetas do cliente (editáveis pelo interno via popover). */}
         <EtiquetasCliente clienteId={cliente.id} isInterno={isInterno} />
+        {/* Linha 3: nascimento/idade, CPF e senha MEU INSS à mão (copiáveis). */}
+        <IdentidadeClienteLinha cliente={cliente} isInterno={isInterno} />
       </CardHeader>
     </Card>
   );
