@@ -64,17 +64,34 @@ export function AgendaMes({ eventos, onEventoClick, onDiaClick }: Props) {
       {/* Header de navegação */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" onClick={() => setRefDate((d) => addMonths(d, -1))} aria-label="Mês anterior">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setRefDate((d) => addMonths(d, -1))}
+            aria-label="Mês anterior"
+          >
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <h2 className="text-base font-medium capitalize min-w-[10rem] text-center">
             {format(refDate, "MMMM 'de' yyyy", { locale: ptBR })}
           </h2>
-          <Button variant="ghost" size="icon" onClick={() => setRefDate((d) => addMonths(d, 1))} aria-label="Próximo mês">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setRefDate((d) => addMonths(d, 1))}
+            aria-label="Próximo mês"
+          >
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
-        <Button variant="outline" size="sm" onClick={() => { setRefDate(new Date()); setDiaSelecionado(null); }}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setRefDate(new Date());
+            setDiaSelecionado(null);
+          }}
+        >
           Hoje
         </Button>
       </div>
@@ -82,7 +99,9 @@ export function AgendaMes({ eventos, onEventoClick, onDiaClick }: Props) {
       {/* Cabeçalho dos dias da semana */}
       <div className="grid grid-cols-7 gap-1 text-xs text-muted-foreground">
         {WEEK_LABELS.map((d) => (
-          <div key={d} className="px-2 py-1 capitalize font-medium">{d}</div>
+          <div key={d} className="px-2 py-1 capitalize font-medium">
+            {d}
+          </div>
         ))}
       </div>
 
@@ -135,15 +154,16 @@ export function AgendaMes({ eventos, onEventoClick, onDiaClick }: Props) {
                     className={cn(
                       "rounded px-1 py-0.5 text-[10px] truncate border cursor-pointer hover:opacity-80",
                       tipoBadge(e).className,
+                      // Concluido continua no dia em que aconteceu, so apagado
+                      // e riscado — o mes passado tem que continuar legivel.
+                      e.concluido_em && "opacity-50 line-through",
                     )}
                     title={`${format(new Date(e.start_at), "HH:mm")} ${e.titulo}`}
                   >
                     {/* 00:00 = prazo so com data (tarefas de pericia mescladas)
                       — mostrar a hora seria ruido. */}
                     {format(new Date(e.start_at), "HH:mm") !== "00:00" && (
-                      <span className="tabular-nums">
-                        {format(new Date(e.start_at), "HH:mm")}{" "}
-                      </span>
+                      <span className="tabular-nums">{format(new Date(e.start_at), "HH:mm")} </span>
                     )}
                     {e.titulo}
                   </span>
@@ -165,11 +185,7 @@ export function AgendaMes({ eventos, onEventoClick, onDiaClick }: Props) {
           <h3 className="text-sm font-medium mb-2 capitalize">
             {(() => {
               const partes = diaSelecionado.split("-");
-              const d = new Date(
-                Number(partes[0]),
-                Number(partes[1]) - 1,
-                Number(partes[2]),
-              );
+              const d = new Date(Number(partes[0]), Number(partes[1]) - 1, Number(partes[2]));
               return format(d, "EEEE, d 'de' MMMM 'de' yyyy", { locale: ptBR });
             })()}
           </h3>
@@ -185,7 +201,10 @@ export function AgendaMes({ eventos, onEventoClick, onDiaClick }: Props) {
                   className="w-full text-left rounded-md border bg-background p-2 hover:bg-muted/30"
                 >
                   <div className="flex items-center gap-2 flex-wrap">
-                    <Badge variant="outline" className={cn("font-normal text-xs", tipoBadge(e).className)}>
+                    <Badge
+                      variant="outline"
+                      className={cn("font-normal text-xs", tipoBadge(e).className)}
+                    >
                       {tipoBadge(e).label}
                     </Badge>
                     <span className="text-xs text-muted-foreground tabular-nums">

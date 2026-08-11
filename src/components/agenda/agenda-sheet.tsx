@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Trash2 } from "lucide-react";
+import { Loader2, Trash2, Check } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,17 +24,11 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import {
-  atualizarEvento,
-  criarEvento,
-  excluirEvento,
-} from "@/lib/agenda/queries";
-import {
-  type AgendaEventoComJoins,
-  type AgendaTipo,
-  TIPO_LABEL,
-} from "@/lib/agenda/types";
+import { atualizarEvento, criarEvento, excluirEvento } from "@/lib/agenda/queries";
+import { type AgendaEventoComJoins, type AgendaTipo, TIPO_LABEL } from "@/lib/agenda/types";
 import { calcularDueAtRelativo } from "@/lib/agenda/helpers";
+import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/hooks/use-auth";
 import {
   criarTarefa,
   listarCasosResumo,
@@ -55,7 +49,12 @@ import { useDestaque } from "@/lib/destaque/destaque-context";
 const TIPOS: AgendaTipo[] = ["pericia", "audiencia", "reuniao", "interno"];
 
 type Modo =
-  | { kind: "criar"; tipoInicial?: AgendaTipo; casoIdInicial?: string | null; processoTokenInicial?: string }
+  | {
+      kind: "criar";
+      tipoInicial?: AgendaTipo;
+      casoIdInicial?: string | null;
+      processoTokenInicial?: string;
+    }
   | { kind: "editar"; evento: AgendaEventoComJoins };
 
 interface Props {
@@ -95,7 +94,9 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
   const [responsavelId, setResponsavelId] = useState<string | null>(null);
 
   const [casos, setCasos] = useState<Array<{ id: string; cliente_nome: string | null }>>([]);
-  const [internos, setInternos] = useState<Array<{ id: string; nome: string | null; email: string | null }>>([]);
+  const [internos, setInternos] = useState<
+    Array<{ id: string; nome: string | null; email: string | null }>
+  >([]);
   const [processosDoCaso, setProcessosDoCaso] = useState<ProcessoDoCasoOpcao[]>([]);
   // Templates de agenda (com pelo menos 1 item destino=agenda).
   const [templates, setTemplates] = useState<TarefaTemplateRow[]>([]);
@@ -103,11 +104,17 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
 
   const [salvando, setSalvando] = useState(false);
   const [excluindo, setExcluindo] = useState(false);
+  const [concluindo, setConcluindo] = useState(false);
+  const { usuario } = useAuth();
 
   useEffect(() => {
     if (!aberto) return;
-    listarCasosResumo().then(setCasos).catch(() => {});
-    listarInternosAtivos().then(setInternos).catch(() => {});
+    listarCasosResumo()
+      .then(setCasos)
+      .catch(() => {});
+    listarInternosAtivos()
+      .then(setInternos)
+      .catch(() => {});
     // AgendaSheet só mostra templates que criam evento de agenda
     // (ex: pericia_parceiro). Tarefa-only fica no TarefaSheet.
     listarTemplates()
@@ -120,7 +127,9 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
       setProcessosDoCaso([]);
       return;
     }
-    listarProcessosDoCaso(casoId).then(setProcessosDoCaso).catch(() => {});
+    listarProcessosDoCaso(casoId)
+      .then(setProcessosDoCaso)
+      .catch(() => {});
   }, [casoId]);
 
   // Sincroniza form com modo na abertura.
@@ -199,7 +208,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
     return () => {
       cancelado = true;
     };
-  }, [templateSelecionado, casoId, processoToken, templates, editando]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [templateSelecionado, casoId, processoToken, templates, editando]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fechar = useCallback(() => {
     if (salvando || excluindo) return;
@@ -297,7 +306,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
             const respFinal =
               responsavelId ||
               (item.executor_email
-                ? emailParaId.get(item.executor_email.toLowerCase()) ?? null
+                ? (emailParaId.get(item.executor_email.toLowerCase()) ?? null)
                 : null);
             const ancora = item.due_relative_to ?? "hoje";
             const dueAt =
@@ -346,6 +355,33 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
     }
   }
 
+  // Concluir NAO apaga e NAO esconde: grava a data, e o calendario mostra
+  // riscado. Consertar o "guiche que ja foi mas nao saiu da agenda" era isso —
+  // evento nao tinha como ser dado por realizado.
+  async function alternarConclusao() {
+    if (!editando || !evento) return;
+    const marcando = !evento.concluido_em;
+    setConcluindo(true);
+    try {
+      const { error } = await supabase
+        .from("agenda_eventos")
+        .update({
+          concluido_em: marcando ? new Date().toISOString() : null,
+          concluido_por: marcando ? (usuario?.id ?? null) : null,
+        })
+        .eq("id", evento.id);
+      if (error) throw error;
+      toast.success(marcando ? "Evento concluído." : "Evento reaberto.");
+      onSaved();
+      onClose();
+    } catch (e) {
+      console.error(e);
+      toast.error("Falha ao atualizar o evento.");
+    } finally {
+      setConcluindo(false);
+    }
+  }
+
   async function excluir() {
     if (!editando || !evento) return;
     if (!window.confirm("Excluir este evento?")) return;
@@ -386,7 +422,9 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
                 setProcessoToken("");
               }}
             >
-              <SelectTrigger><SelectValue placeholder="Sem caso" /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue placeholder="Sem caso" />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="sem">Sem caso</SelectItem>
                 {casos.map((c) => (
@@ -405,7 +443,9 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
                 value={processoToken || "sem"}
                 onValueChange={(v) => setProcessoToken(v === "sem" ? "" : v)}
               >
-                <SelectTrigger><SelectValue placeholder="Nenhum" /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue placeholder="Nenhum" />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="sem">Sem processo específico</SelectItem>
                   {processosDoCaso.map((p) => (
@@ -422,7 +462,9 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
             <div className="space-y-1.5 rounded-md border border-dashed p-3 bg-muted/30">
               <Label>Template (atalho)</Label>
               <Select value={templateSelecionado} onValueChange={setTemplateSelecionado}>
-                <SelectTrigger><SelectValue placeholder="Escolha um template" /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue placeholder="Escolha um template" />
+                </SelectTrigger>
                 <SelectContent>
                   {templates.map((t) => {
                     const tarefasExtras = t.itens.filter((i) => i.destino === "tarefa").length;
@@ -440,11 +482,15 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
               <p className="text-xs text-muted-foreground">
                 {templateSelecionado ? (
                   <>
-                    Os campos abaixo foram preenchidos pelo template — ajuste data/hora/local e salve.
-                    Ao salvar, as tarefas extras serão criadas com prazos relativos a essa data.
+                    Os campos abaixo foram preenchidos pelo template — ajuste data/hora/local e
+                    salve. Ao salvar, as tarefas extras serão criadas com prazos relativos a essa
+                    data.
                   </>
                 ) : (
-                  <>Selecionar um template preenche os campos abaixo e cria tarefas auxiliares quando salvar.</>
+                  <>
+                    Selecionar um template preenche os campos abaixo e cria tarefas auxiliares
+                    quando salvar.
+                  </>
                 )}
               </p>
             </div>
@@ -453,10 +499,14 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
           <div className="space-y-1.5">
             <Label>Tipo</Label>
             <Select value={tipo} onValueChange={(v) => setTipo(v as AgendaTipo)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 {TIPOS.map((t) => (
-                  <SelectItem key={t} value={t}>{TIPO_LABEL[t]}</SelectItem>
+                  <SelectItem key={t} value={t}>
+                    {TIPO_LABEL[t]}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -469,9 +519,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
               value={titulo}
               onChange={(e) => setTitulo(e.target.value)}
               placeholder={
-                tipo === "pericia"
-                  ? "Ex: Perícia médica - Maicon Vandson"
-                  : "Ex: Audiência inicial"
+                tipo === "pericia" ? "Ex: Perícia médica - Maicon Vandson" : "Ex: Audiência inicial"
               }
             />
           </div>
@@ -513,7 +561,9 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
               value={responsavelId ?? "sem"}
               onValueChange={(v) => setResponsavelId(v === "sem" ? null : v)}
             >
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="sem">Sem responsável</SelectItem>
                 {internos.map((u) => (
@@ -545,8 +595,26 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
               disabled={excluindo || salvando}
               className="mr-auto text-destructive hover:text-destructive"
             >
-              {excluindo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              {excluindo ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
               Excluir
+            </Button>
+          )}
+          {editando && (
+            <Button
+              variant="outline"
+              onClick={alternarConclusao}
+              disabled={concluindo || salvando || excluindo}
+            >
+              {concluindo ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Check className="h-4 w-4" />
+              )}
+              {evento?.concluido_em ? "Reabrir" : "Concluir"}
             </Button>
           )}
           <Button variant="outline" onClick={fechar} disabled={salvando}>

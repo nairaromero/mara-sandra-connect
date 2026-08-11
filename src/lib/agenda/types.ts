@@ -1,11 +1,6 @@
 // Tipos da agenda (mirror do schema em migration_agenda_eventos.sql).
 
-export type AgendaTipo =
-  | "pericia"
-  | "audiencia"
-  | "reuniao"
-  | "interno"
-  | "guiche";
+export type AgendaTipo = "pericia" | "audiencia" | "reuniao" | "interno" | "guiche" | "atendimento";
 
 export interface AgendaEventoRow {
   id: string;
@@ -27,6 +22,9 @@ export interface AgendaEventoRow {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  /** Quando foi dado como realizado. null = pendente. */
+  concluido_em: string | null;
+  concluido_por: string | null;
 }
 
 export interface AgendaEventoComJoins extends AgendaEventoRow {
@@ -43,17 +41,37 @@ export const TIPO_LABEL: Record<AgendaTipo, string> = {
   audiencia: "Audiência",
   reuniao: "Reunião",
   interno: "Interno",
+  atendimento: "Atendimento",
 };
+
+// Grupos do filtro da agenda. "Atendimento" junta tudo que e gente sentada na
+// sua frente — guiche, atendimento e reuniao —, que e como a equipe pensa na
+// pratica. Interno fica de fora dos dois: nao e nem pericia nem atendimento.
+export const GRUPOS_AGENDA = {
+  pericias: ["pericia", "audiencia"] as Array<AgendaTipo>,
+  atendimentos: ["guiche", "atendimento", "reuniao"] as Array<AgendaTipo>,
+};
+
+export type GrupoAgenda = keyof typeof GRUPOS_AGENDA | "todos";
+
+export function ehDoGrupo(tipo: string, grupo: GrupoAgenda): boolean {
+  if (grupo === "todos") return true;
+  return (GRUPOS_AGENDA[grupo] as Array<string>).includes(tipo);
+}
 
 // Cores por tipo (para badges/blocos no calendário). 2 ramps no app — usa
 // utilities Tailwind que adaptam a dark mode.
 export const TIPO_CLASS: Record<AgendaTipo, string> = {
-  pericia: "border-emerald-500/50 bg-emerald-50 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200",
+  pericia:
+    "border-emerald-500/50 bg-emerald-50 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200",
   // Guichê em rosa: não colide com perícia (verde), audiência (azul),
   // reunião (âmbar) nem perícia judicial (violeta).
   guiche: "border-pink-500/50 bg-pink-50 text-pink-900 dark:bg-pink-950 dark:text-pink-200",
   audiencia: "border-blue-500/50 bg-blue-50 text-blue-900 dark:bg-blue-950 dark:text-blue-200",
   reuniao: "border-amber-500/50 bg-amber-50 text-amber-900 dark:bg-amber-950 dark:text-amber-200",
+  // Atendimento em ciano: proximo do azul da audiencia sem se confundir com
+  // ele, e longe do verde da pericia.
+  atendimento: "border-cyan-500/50 bg-cyan-50 text-cyan-900 dark:bg-cyan-950 dark:text-cyan-200",
   interno: "border-border bg-muted text-muted-foreground",
 };
 
@@ -87,9 +105,7 @@ export function tipoBadge(e: {
   titulo: string;
 }): { label: string; className: string } {
   const nat = naturezaPericia(e);
-  if (nat === "judicial")
-    return { label: "Perícia Judicial", className: PERICIA_JUDICIAL_CLASS };
-  if (nat === "admin")
-    return { label: "Perícia INSS", className: TIPO_CLASS.pericia };
+  if (nat === "judicial") return { label: "Perícia Judicial", className: PERICIA_JUDICIAL_CLASS };
+  if (nat === "admin") return { label: "Perícia INSS", className: TIPO_CLASS.pericia };
   return { label: TIPO_LABEL[e.tipo], className: TIPO_CLASS[e.tipo] };
 }
