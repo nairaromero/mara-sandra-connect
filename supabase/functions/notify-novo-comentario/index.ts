@@ -200,7 +200,7 @@ serve(async (req) => {
   const { data: comentario, error } = await supabase
     .from("comentarios")
     .select(
-      "id, texto, parent_id, caso_id, casos:caso_id(id, parceiro_id, clientes:cliente_id(nome), usuarios_parceiro:parceiro_id(id, nome, email)), autor:autor_id(id, nome, email, tipo)",
+      "id, texto, parent_id, caso_id, destinatario_id, casos:caso_id(id, parceiro_id, clientes:cliente_id(nome), usuarios_parceiro:parceiro_id(id, nome, email)), autor:autor_id(id, nome, email, tipo)",
     )
     .eq("id", comentarioId)
     .maybeSingle();
@@ -274,12 +274,35 @@ serve(async (req) => {
       email: c.casos.usuarios_parceiro.email,
     });
   } else if (autorTipo === "parceiro") {
-    // Manda pra todos internos ativos
-    const { data: internos, error: intErr } = await supabase
+    // Roteamento por destinatario da CONVERSA.
+    //
+    // Antes isto mandava pra todos os internos ativos, sempre. Com 5 pessoas na
+    // equipe, todo mundo recebia tudo e ninguem era dono de nada — era o que
+    // deixava a /conversas sem pe nem cabeca.
+    //
+    // O destinatario vive na RAIZ da thread; resposta herda. Por isso, quando o
+    // comentario e resposta, subimos pro parent pra descobrir pra quem e.
+    let destinoId: string | null = (c as { destinatario_id?: string | null })
+      .destinatario_id ?? null;
+    if (!destinoId && c.parent_id) {
+      const { data: raiz } = await supabase
+        .from("comentarios")
+        .select("destinatario_id")
+        .eq("id", c.parent_id)
+        .maybeSingle();
+      destinoId = (raiz as { destinatario_id?: string | null } | null)
+        ?.destinatario_id ?? null;
+    }
+
+    // destinoId definido -> so aquela pessoa. NULL -> "Todos", que e o
+    // comportamento historico e continua valendo.
+    let query = supabase
       .from("usuarios")
       .select("nome, email")
       .eq("tipo", "interno")
       .eq("ativo", true);
+    if (destinoId) query = query.eq("id", destinoId);
+    const { data: internos, error: intErr } = await query;
     if (intErr) {
       return jsonResponse(
         { error: "erro ao listar internos", detail: intErr.message },

@@ -25,6 +25,13 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -65,6 +72,9 @@ interface ComentarioComCaso {
   autor_id: string | null;
   texto: string;
   created_at: string;
+  parent_id: string | null;
+  /** Dono da conversa. null = Todos da equipe. Vive na raiz da thread. */
+  destinatario_id: string | null;
   casos: CasoLite | null;
 }
 
@@ -142,6 +152,30 @@ function ConversasPage() {
   const [textoNovo, setTextoNovo] = useState("");
   const [enviandoNova, setEnviandoNova] = useState(false);
   const isParceiro = usuario?.tipo === "parceiro";
+  // Filtro "de quem e a conversa" — mesmo padrao de /documentos:
+  // __eu__ (default) | id de alguem | __todos__.
+  const [filtroPessoa, setFiltroPessoa] = useState<string>("__eu__");
+  const [internosLista, setInternosLista] = useState<Array<{ id: string; nome: string | null }>>(
+    [],
+  );
+  useEffect(() => {
+    if (usuario?.tipo !== "interno") return;
+    let vivo = true;
+    (async () => {
+      const r = await supabase
+        .from("usuarios")
+        .select("id, nome")
+        .eq("tipo", "interno")
+        .eq("ativo", true)
+        .order("nome");
+      if (vivo && !r.error) {
+        setInternosLista((r.data as Array<{ id: string; nome: string | null }>) ?? []);
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [usuario?.tipo]);
   const search = Route.useSearch();
 
   const [loading, setLoading] = useState(true);
@@ -166,7 +200,7 @@ function ConversasPage() {
         supabase
           .from("comentarios")
           .select(
-            "id, caso_id, autor_id, texto, created_at, casos!inner(id, tipo_beneficio, fase, status, parceiro_id, clientes(id, nome))",
+            "id, caso_id, autor_id, texto, created_at, parent_id, destinatario_id, casos!inner(id, tipo_beneficio, fase, status, parceiro_id, clientes(id, nome))",
           )
           .eq("rascunho", false)
           .order("created_at", { ascending: false }),
@@ -208,10 +242,8 @@ function ConversasPage() {
   useEffect(() => {
     const canal = supabase
       .channel("conversas-comentarios")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "comentarios" },
-        () => carregar(),
+      .on("postgres_changes", { event: "*", schema: "public", table: "comentarios" }, () =>
+        carregar(),
       )
       .subscribe();
     return () => {
@@ -224,10 +256,12 @@ function ConversasPage() {
     async (casoId: string) => {
       if (!usuarioId) return;
       try {
-        await supabase.from("conversa_leitura").upsert(
-          { usuario_id: usuarioId, caso_id: casoId, last_read_at: new Date().toISOString() },
-          { onConflict: "usuario_id,caso_id" },
-        );
+        await supabase
+          .from("conversa_leitura")
+          .upsert(
+            { usuario_id: usuarioId, caso_id: casoId, last_read_at: new Date().toISOString() },
+            { onConflict: "usuario_id,caso_id" },
+          );
         setLeituraPorCaso((prev) => {
           const n = new Map(prev);
           n.set(casoId, new Date().toISOString());
@@ -309,12 +343,8 @@ function ConversasPage() {
       setCasosOpcoes(
         (data || []).map((c: Record<string, unknown>) => ({
           id: String(c.id),
-          cliente:
-            ((c.clientes as { nome?: string } | null)?.nome as string) ||
-            "(sem nome)",
-          parceiro: c.parceiro_id
-            ? nomePorUsuario.get(String(c.parceiro_id)) || "Parceiro"
-            : null,
+          cliente: ((c.clientes as { nome?: string } | null)?.nome as string) || "(sem nome)",
+          parceiro: c.parceiro_id ? nomePorUsuario.get(String(c.parceiro_id)) || "Parceiro" : null,
         })),
       );
     })();
@@ -373,9 +403,27 @@ function ConversasPage() {
 
   // ---- Agrupamento: comentários -> threads (caso) -> grupos (parceiro) ----
   const grupos = useMemo<Array<Grupo>>(() => {
+    // Destinatario vive na RAIZ da thread; resposta herda. Como a caixa agrupa
+    // por caso, o dono da conversa daquele caso e o destinatario da raiz mais
+    // recente — e o que a pessoa acabou de responder.
+    const donoPorCaso = new Map<string, string | null>();
+    for (const c of comentarios) {
+      if (c.parent_id !== null) continue;
+      if (!donoPorCaso.has(c.caso_id)) donoPorCaso.set(c.caso_id, c.destinatario_id);
+    }
+
+    const alvo = filtroPessoa === "__eu__" ? usuarioId : filtroPessoa;
+
     const threadsPorCaso = new Map<string, Thread>();
     for (const c of comentarios) {
       if (!c.casos) continue;
+      // O filtro e so pra equipe: o parceiro ja ve apenas os casos dele (RLS).
+      if (!isParceiro && filtroPessoa !== "__todos__") {
+        const dono = donoPorCaso.get(c.caso_id) ?? null;
+        // dono null = "Todos da equipe", entao aparece pra qualquer um — senao
+        // recado geral sumiria da tela de todo mundo.
+        if (dono !== null && dono !== alvo) continue;
+      }
       const lida = leituraPorCaso.get(c.caso_id);
       const naoLida =
         (!lida || new Date(c.created_at) > new Date(lida)) &&
@@ -399,9 +447,7 @@ function ConversasPage() {
     for (const t of threadsPorCaso.values()) {
       const pid = t.caso.parceiro_id;
       const chave = pid || "__interno__";
-      const nome = pid
-        ? nomePorUsuario.get(pid) || "Parceiro"
-        : "Interno / sem parceiro";
+      const nome = pid ? nomePorUsuario.get(pid) || "Parceiro" : "Interno / sem parceiro";
       let g = porParceiro.get(chave);
       if (!g) {
         g = { parceiroId: pid, parceiroNome: nome, threads: [], naoLidas: 0 };
@@ -414,9 +460,7 @@ function ConversasPage() {
     const lista = Array.from(porParceiro.values());
     for (const g of lista) {
       g.threads.sort(
-        (a, b) =>
-          new Date(b.ultimo.created_at).getTime() -
-          new Date(a.ultimo.created_at).getTime(),
+        (a, b) => new Date(b.ultimo.created_at).getTime() - new Date(a.ultimo.created_at).getTime(),
       );
     }
     lista.sort((a, b) => {
@@ -424,7 +468,7 @@ function ConversasPage() {
       return a.parceiroNome.localeCompare(b.parceiroNome, "pt-BR");
     });
     return lista;
-  }, [comentarios, leituraPorCaso, nomePorUsuario, usuarioId]);
+  }, [comentarios, leituraPorCaso, nomePorUsuario, usuarioId, filtroPessoa, isParceiro]);
 
   const gruposFiltrados = useMemo(() => {
     const q = busca.trim().toLowerCase();
@@ -458,9 +502,7 @@ function ConversasPage() {
     const msgs = comentarios
       .filter((c) => c.caso_id === selecionado)
       .slice()
-      .sort(
-        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-      );
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
     const caso = msgs[0]?.casos || null;
     return { caso, msgs };
   }, [selecionado, comentarios]);
@@ -483,24 +525,24 @@ function ConversasPage() {
     >
       <div className="space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="font-serif text-3xl font-semibold tracking-tight flex items-center gap-2">
-            <MessagesSquare className="h-6 w-6" />
-            Conversas
-            {totalNaoLidas > 0 && (
-              <Badge className="bg-destructive hover:bg-destructive text-destructive-foreground">
-                {totalNaoLidas} não lida{totalNaoLidas > 1 ? "s" : ""}
-              </Badge>
-            )}
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Comunicação com os parceiros, agrupada por parceiro.
-          </p>
-        </div>
-        <Button size="sm" onClick={() => setNovaAberta(true)}>
-          <Plus className="h-4 w-4 mr-1" />
-          Nova conversa
-        </Button>
+          <div>
+            <h1 className="font-serif text-3xl font-semibold tracking-tight flex items-center gap-2">
+              <MessagesSquare className="h-6 w-6" />
+              Conversas
+              {totalNaoLidas > 0 && (
+                <Badge className="bg-destructive hover:bg-destructive text-destructive-foreground">
+                  {totalNaoLidas} não lida{totalNaoLidas > 1 ? "s" : ""}
+                </Badge>
+              )}
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Comunicação com os parceiros, agrupada por parceiro.
+            </p>
+          </div>
+          <Button size="sm" onClick={() => setNovaAberta(true)}>
+            <Plus className="h-4 w-4 mr-1" />
+            Nova conversa
+          </Button>
         </div>
 
         {erro && (
@@ -529,6 +571,28 @@ function ConversasPage() {
                 onChange={(e) => setBusca(e.target.value)}
               />
             </div>
+
+            {/* Quem e o dono da conversa. Mesmo padrao de /documentos.
+                So pra equipe: o parceiro ja ve so os casos dele, pela RLS. */}
+            {!isParceiro && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground shrink-0">Para:</span>
+                <Select value={filtroPessoa} onValueChange={setFiltroPessoa}>
+                  <SelectTrigger className="h-8 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__eu__">Minhas conversas</SelectItem>
+                    <SelectItem value="__todos__">Todas da equipe</SelectItem>
+                    {internosLista.map((u) => (
+                      <SelectItem key={u.id} value={u.id}>
+                        {u.nome ?? "(sem nome)"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             {gruposFiltrados.length === 0 ? (
               <Card>
@@ -643,8 +707,8 @@ function ConversasPage() {
           <DialogHeader>
             <DialogTitle>Nova conversa</DialogTitle>
             <DialogDescription>
-              Escolha o caso e escreva a primeira mensagem. Ela aparece na
-              conversa do parceiro e vai por e-mail pra ele.
+              Escolha o caso e escreva a primeira mensagem. Ela aparece na conversa do parceiro e
+              vai por e-mail pra ele.
             </DialogDescription>
           </DialogHeader>
 
@@ -693,13 +757,12 @@ function ConversasPage() {
                   </p>
                 )}
               </div>
-              {casoNovo &&
-                !casosOpcoes.find((c) => c.id === casoNovo)?.parceiro && (
-                  <p className="text-xs text-muted-foreground">
-                    Esse caso nao tem parceiro vinculado — a mensagem fica
-                    registrada, mas nao ha ninguem de fora pra receber.
-                  </p>
-                )}
+              {casoNovo && !casosOpcoes.find((c) => c.id === casoNovo)?.parceiro && (
+                <p className="text-xs text-muted-foreground">
+                  Esse caso nao tem parceiro vinculado — a mensagem fica registrada, mas nao ha
+                  ninguem de fora pra receber.
+                </p>
+              )}
             </div>
 
             <div className="space-y-1.5">
@@ -754,8 +817,7 @@ function ThreadItem({ thread, ativo, onAbrir }: ThreadItemProps) {
         type="button"
         onClick={() => onAbrir(caso.id)}
         className={
-          "block w-full text-left transition-colors " +
-          (ativo ? "bg-muted" : "hover:bg-muted/40")
+          "block w-full text-left transition-colors " + (ativo ? "bg-muted" : "hover:bg-muted/40")
         }
       >
         <div className="flex items-start gap-3 p-3">
@@ -838,12 +900,7 @@ function ConversaPanel(props: ConversaPanelProps) {
   return (
     <Card className="w-full flex flex-col" style={{ maxHeight: "calc(100vh - 12rem)" }}>
       <div className="flex items-center gap-2 p-3 border-b">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 md:hidden"
-          onClick={onVoltar}
-        >
+        <Button variant="ghost" size="icon" className="h-8 w-8 md:hidden" onClick={onVoltar}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="min-w-0 flex-1">
@@ -868,18 +925,14 @@ function ConversaPanel(props: ConversaPanelProps) {
       <div className="flex-1 overflow-y-auto p-3 space-y-2 min-h-[240px]">
         {msgs.map((m) => {
           const meu = m.autor_id === usuarioId;
-          const autorNome = m.autor_id
-            ? nomePorUsuario.get(m.autor_id) || "Usuário"
-            : "—";
+          const autorNome = m.autor_id ? nomePorUsuario.get(m.autor_id) || "Usuário" : "—";
           const ehParceiro = m.autor_id ? parceiroIds.has(m.autor_id) : false;
           return (
             <div key={m.id} className={"flex " + (meu ? "justify-end" : "justify-start")}>
               <div
                 className={
                   "max-w-[80%] rounded-lg px-3 py-2 " +
-                  (meu
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-foreground")
+                  (meu ? "bg-primary text-primary-foreground" : "bg-muted text-foreground")
                 }
               >
                 {!meu && (
@@ -921,11 +974,7 @@ function ConversaPanel(props: ConversaPanelProps) {
             className="resize-none"
           />
           <Button onClick={onEnviar} disabled={enviando || !resposta.trim()}>
-            {enviando ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Send className="h-4 w-4" />
-            )}
+            {enviando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           </Button>
         </div>
         <p className="text-[10px] text-muted-foreground mt-1">
