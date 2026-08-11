@@ -17,6 +17,7 @@ import { toast } from "sonner";
 
 import { useAuth } from "@/hooks/use-auth";
 import { ImportarLegalmailDialog } from "@/components/importar-legalmail-dialog";
+import { ImportarTiDialog } from "@/components/importar-ti-dialog";
 import { supabase } from "@/lib/supabase";
 import { ClientOnly } from "@/components/client-only";
 import { Input } from "@/components/ui/input";
@@ -472,6 +473,7 @@ function ClientesPage() {
               <Upload className="h-4 w-4 mr-1" />
               Importar Excel
             </Button>
+            <ImportarTiDialog onImported={loadData} />
             <ImportarLegalmailDialog onImported={loadData} />
           </div>
         )}
