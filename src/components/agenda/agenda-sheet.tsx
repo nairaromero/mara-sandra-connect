@@ -174,6 +174,28 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
     }
   }, [modo]);
 
+  // Escolher o TIPO ja aplica o template daquele tipo, quando existe.
+  //
+  // Antes a pessoa tinha que lembrar de abrir o seletor de template. Criar uma
+  // pericia pela agenda gerava so o evento; criar pela tarefa gerava evento +
+  // 3 tarefas de acompanhamento. Mesma pericia, resultados diferentes conforme
+  // a porta de entrada.
+  //
+  // O casamento e pelos DADOS, nao por lista fixa: cada template declara o tipo
+  // no item destino='agenda'. Se amanha nascer um template de atendimento, ele
+  // passa a ser aplicado sozinho sem tocar neste arquivo. Hoje so pericia e
+  // guiche tem template — audiencia e atendimento seguem manuais, como pedido.
+  useEffect(() => {
+    if (editando) return;
+    const doTipo = templates.filter((t) =>
+      t.itens.some((i) => i.destino === "agenda" && i.tipo === tipo),
+    );
+    // 2+ templates pro mesmo tipo = ambiguo; deixa a pessoa escolher.
+    if (doTipo.length !== 1) return;
+    if (templateSelecionado === doTipo[0].nome) return;
+    setTemplateSelecionado(doTipo[0].nome);
+  }, [tipo, templates, editando]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Selecionar template (modo criar): popula tipo/titulo/descricao do item
   // destino=agenda; usa duracao_min do template pra calcular end_at.
   // Os campos start_at/local/responsavel ficam pra Naira preencher.
@@ -302,6 +324,30 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
           }
           const agendaStart = new Date(startIso);
           for (const item of tpl.itens) {
+            // destino=andamento: o tarefa-sheet ja fazia isto; a agenda nao,
+            // entao criar guiche pela agenda nao registrava nada no caso nem
+            // acendia o sino do parceiro. Mesmo template tem que dar no mesmo
+            // resultado, venha de onde vier.
+            if (item.destino === "andamento") {
+              const { error: errAnd } = await supabase.from("andamentos").insert({
+                caso_id: casoId,
+                processo_admin_id: proc.processo_admin_id,
+                processo_judicial_id: proc.processo_judicial_id,
+                origem: "interno",
+                titulo: substituirPlaceholders(item.titulo, ph),
+                descricao: substituirPlaceholders(item.descricao ?? "", ph) || null,
+                data_evento: new Date().toISOString(),
+                criado_por: usuario?.id ?? null,
+                visivel_parceiro: item.visivel_parceiro ?? true,
+                metadata: {
+                  template_aplicado: tpl.nome,
+                  aplicado_via: "agenda_sheet",
+                  ...(item.meta ?? {}),
+                },
+              });
+              if (errAnd) console.warn("andamento do template falhou:", errAnd);
+              continue;
+            }
             if (item.destino !== "tarefa") continue;
             const respFinal =
               responsavelId ||
@@ -403,7 +449,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
     <Sheet open={aberto} onOpenChange={(o) => !o && fechar()}>
       <SheetContent className="w-full sm:max-w-md overflow-y-auto">
         <SheetHeader>
-          <SheetTitle>{editando ? "Editar evento" : "Nova perícia"}</SheetTitle>
+          <SheetTitle>{editando ? "Editar agendamento" : "Agendamentos"}</SheetTitle>
           {editando && evento && (
             <SheetDescription>
               Criado em {new Date(evento.created_at).toLocaleString("pt-BR")}
