@@ -21,7 +21,7 @@ import { ptBR } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { type AgendaEventoComJoins, tipoBadge } from "@/lib/agenda/types";
+import { type AgendaEventoComJoins, LEGENDA_AGENDA, tipoBadge } from "@/lib/agenda/types";
 import { chavesDiasBR, comoLocalBR } from "@/lib/fuso";
 
 interface Props {
@@ -92,16 +92,30 @@ export function AgendaMes({ eventos, onEventoClick, onDiaClick }: Props) {
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            setRefDate(comoLocalBR(new Date()));
-            setDiaSelecionado(null);
-          }}
-        >
-          Hoje
-        </Button>
+        {/* Legenda das cores, logo acima do "Hoje". */}
+        <div className="flex flex-col items-end gap-1.5">
+          <div className="flex flex-wrap items-center justify-end gap-x-2.5 gap-y-1">
+            {LEGENDA_AGENDA.map((l) => (
+              <span
+                key={l.label}
+                className="flex items-center gap-1 text-[10px] leading-none text-muted-foreground"
+              >
+                <span className={cn("h-2.5 w-2.5 shrink-0 rounded-sm border", l.className)} />
+                {l.label}
+              </span>
+            ))}
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setRefDate(comoLocalBR(new Date()));
+              setDiaSelecionado(null);
+            }}
+          >
+            Hoje
+          </Button>
+        </div>
       </div>
 
       {/* Cabeçalho dos dias da semana */}

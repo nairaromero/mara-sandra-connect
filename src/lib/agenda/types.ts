@@ -81,6 +81,17 @@ export const TIPO_CLASS: Record<AgendaTipo, string> = {
 export const PERICIA_JUDICIAL_CLASS =
   "border-violet-500/50 bg-violet-50 text-violet-900 dark:bg-violet-950 dark:text-violet-200";
 
+// Legenda do calendário. Sai das MESMAS constantes que pintam os badges, pra
+// não descrever uma cor que mudou de lugar. A ordem segue a frequência no
+// escritório: perícia é o grosso da agenda.
+export const LEGENDA_AGENDA: Array<{ label: string; className: string }> = [
+  { label: "Perícia INSS", className: TIPO_CLASS.pericia },
+  { label: "Perícia judicial", className: PERICIA_JUDICIAL_CLASS },
+  { label: "Audiência", className: TIPO_CLASS.audiencia },
+  { label: "Reunião", className: TIPO_CLASS.reuniao },
+  { label: "Interno", className: TIPO_CLASS.interno },
+];
+
 export type PericiaNatureza = "admin" | "judicial" | null;
 
 export function naturezaPericia(e: {
