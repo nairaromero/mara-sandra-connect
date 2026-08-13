@@ -94,13 +94,13 @@ export function AgendaMes({ eventos, onEventoClick, onDiaClick }: Props) {
         </div>
         {/* Legenda das cores, logo acima do "Hoje". */}
         <div className="flex flex-col items-end gap-1.5">
-          <div className="flex flex-wrap items-center justify-end gap-x-2.5 gap-y-1">
+          <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1.5">
             {LEGENDA_AGENDA.map((l) => (
               <span
                 key={l.label}
-                className="flex items-center gap-1 text-[10px] leading-none text-muted-foreground"
+                className="flex items-center gap-1.5 text-xs leading-none text-foreground/80"
               >
-                <span className={cn("h-2.5 w-2.5 shrink-0 rounded-sm border", l.className)} />
+                <span className={cn("h-3.5 w-3.5 shrink-0 rounded-sm border", l.className)} />
                 {l.label}
               </span>
             ))}
