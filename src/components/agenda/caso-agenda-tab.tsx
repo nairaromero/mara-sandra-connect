@@ -21,6 +21,7 @@ import {
   TIPO_CLASS,
   TIPO_LABEL,
 } from "@/lib/agenda/types";
+import { formatarBR } from "@/lib/fuso";
 
 interface Props {
   casoId: string;
@@ -30,13 +31,10 @@ type Modo =
   | { kind: "criar"; casoIdInicial: string }
   | { kind: "editar"; evento: AgendaEventoComJoins };
 
-function fmtDataHora(start: string, end: string): string {
-  const s = new Date(start);
-  const e = new Date(end);
-  const data = s.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit" });
-  const hStart = s.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-  const hEnd = e.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-  return `${data} · ${hStart}–${hEnd}`;
+// Só a data, no fuso de Brasília. O horário saiu da agenda por decisão de
+// produto — quem precisa dele abre o evento.
+function fmtData(start: string): string {
+  return formatarBR(start, { day: "2-digit", month: "2-digit", year: "2-digit" });
 }
 
 export function CasoAgendaTab({ casoId }: Props) {
@@ -160,7 +158,7 @@ function CardEvento({
           <Badge variant="outline" className={cn("font-normal", TIPO_CLASS[e.tipo])}>
             {TIPO_LABEL[e.tipo]}
           </Badge>
-          <span className="text-xs text-muted-foreground">{fmtDataHora(e.start_at, e.end_at)}</span>
+          <span className="text-xs text-muted-foreground">{fmtData(e.start_at)}</span>
           {e.gcal_event_id && (
             <Badge variant="outline" className="font-normal text-xs">
               <CalendarDays className="h-3 w-3" />

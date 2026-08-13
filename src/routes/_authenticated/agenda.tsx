@@ -32,6 +32,7 @@ import { ehDoGrupo, type GrupoAgenda } from "@/lib/agenda/types";
 import type { TarefaComJoins } from "@/lib/tarefas/types";
 import { AgendaPericiasParceiro } from "@/components/agenda/agenda-pericias-parceiro";
 import { useAuth } from "@/hooks/use-auth";
+import { chaveDiaBR, fimDoDiaBR, formatarBR } from "@/lib/fuso";
 
 // A agenda mescla DUAS fontes: agenda_eventos + tarefas tipo='pericia' ativas
 // (migradas do TI, criadas pelo processador do INSS ou na tela de Tarefas).
@@ -40,10 +41,9 @@ import { useAuth } from "@/hooks/use-auth";
 const PREFIXO_TAREFA = "tarefa:";
 
 function tarefaComoEvento(t: TarefaComJoins): AgendaEventoComJoins {
-  // end_at = fim do dia do prazo: perícia de hoje fica em "Próximas" o dia
-  // inteiro (o filtro de passadas usa end_at < agora).
-  const fimDoDia = new Date(t.due_at!);
-  fimDoDia.setHours(23, 59, 59, 999);
+  // end_at = fim do dia (de Brasília) do prazo: perícia de hoje fica em
+  // "Próximas" o dia inteiro (o filtro de passadas usa end_at < agora).
+  const fimDoDia = fimDoDiaBR(t.due_at!);
   return {
     id: PREFIXO_TAREFA + t.id,
     caso_id: t.caso_id,
@@ -111,17 +111,10 @@ function AgendaRoute() {
 type Modo = { kind: "criar" } | { kind: "editar"; evento: AgendaEventoComJoins };
 
 function formatarDataLonga(iso: string): string {
-  return new Date(iso).toLocaleDateString("pt-BR", {
+  return formatarBR(iso, {
     weekday: "long",
     day: "2-digit",
     month: "long",
-  });
-}
-
-function formatarHora(iso: string): string {
-  return new Date(iso).toLocaleTimeString("pt-BR", {
-    hour: "2-digit",
-    minute: "2-digit",
   });
 }
 
@@ -132,8 +125,7 @@ function agruparPorDia(eventos: AgendaEventoComJoins[]): Array<{
 }> {
   const map = new Map<string, AgendaEventoComJoins[]>();
   for (const e of eventos) {
-    const d = new Date(e.start_at);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const key = chaveDiaBR(e.start_at);
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(e);
   }
@@ -345,13 +337,6 @@ function AgendaPage() {
                                 via tarefa
                               </Badge>
                             )}
-                            <span className="text-xs text-muted-foreground">
-                              {ehEventoDeTarefa(e)
-                                ? formatarHora(e.start_at) === "00:00"
-                                  ? "sem horário definido"
-                                  : formatarHora(e.start_at)
-                                : `${formatarHora(e.start_at)} — ${formatarHora(e.end_at)}`}
-                            </span>
                           </div>
                           {e.gcal_event_id && (
                             <Badge variant="outline" className="font-normal text-xs">
@@ -360,12 +345,12 @@ function AgendaPage() {
                             </Badge>
                           )}
                         </div>
-                        <div className="font-medium text-sm break-words">{e.titulo}</div>
-                        {e.descricao && (
-                          <p className="text-xs text-muted-foreground line-clamp-2 whitespace-pre-wrap">
-                            {e.descricao}
-                          </p>
-                        )}
+                        {/* Sem horário por decisão de produto: o card mostra
+                          só o tipo (perícia INSS/judicial) e o nome do
+                          cliente. A hora fica no evento. */}
+                        <div className="font-medium text-sm break-words">
+                          {e.caso?.cliente?.nome ?? e.titulo}
+                        </div>
                         <div className="flex items-center justify-between text-xs text-muted-foreground gap-2 flex-wrap">
                           <div className="flex items-center gap-1 min-w-0">
                             <UserIcon className="h-3 w-3 shrink-0" />
@@ -386,7 +371,7 @@ function AgendaPage() {
                               className="hover:underline truncate max-w-[60%] inline-flex items-center gap-1"
                               onClick={(ev) => ev.stopPropagation()}
                             >
-                              {e.caso?.cliente?.nome ?? "Ver caso"}
+                              Ver caso
                               <ExternalLink className="h-3 w-3" />
                             </Link>
                           )}

@@ -27,6 +27,13 @@ import {
 import { atualizarEvento, criarEvento, excluirEvento } from "@/lib/agenda/queries";
 import { type AgendaEventoComJoins, type AgendaTipo, TIPO_LABEL } from "@/lib/agenda/types";
 import { calcularDueAtRelativo } from "@/lib/agenda/helpers";
+import {
+  comoLocalBR,
+  deLocalBR,
+  formatarBR,
+  inputDateTimeBRParaIso,
+  isoParaInputDateTimeBR,
+} from "@/lib/fuso";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -63,18 +70,15 @@ interface Props {
   onSaved: () => void;
 }
 
-// Helpers de input <input type="datetime-local">
+// Helpers de input <input type="datetime-local">. O que a pessoa digita é
+// SEMPRE horário de Brasília — a perícia é no Brasil, esteja quem agenda onde
+// estiver (a Naira agenda da Espanha). Ver src/lib/fuso.ts.
 function isoToInputDatetime(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  // Formato YYYY-MM-DDTHH:mm em horário local.
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return isoParaInputDateTimeBR(iso);
 }
 
 function inputDatetimeToIso(s: string): string {
-  if (!s) return "";
-  return new Date(s).toISOString();
+  return inputDateTimeBRParaIso(s) ?? "";
 }
 
 export function AgendaSheet({ modo, onClose, onSaved }: Props) {
@@ -140,15 +144,14 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
       setTitulo("");
       setDescricao("");
       setLocal("");
-      // Default: próxima hora cheia + 1h de duração
-      const now = new Date();
+      // Default: próxima hora cheia (de Brasília) + 1h de duração
+      const now = comoLocalBR(new Date());
       now.setMinutes(0, 0, 0);
       now.setHours(now.getHours() + 1);
-      const startStr = isoToInputDatetime(now.toISOString());
       const endDate = new Date(now);
       endDate.setHours(endDate.getHours() + 1);
-      setStartInput(startStr);
-      setEndInput(isoToInputDatetime(endDate.toISOString()));
+      setStartInput(isoToInputDatetime(deLocalBR(now).toISOString()));
+      setEndInput(isoToInputDatetime(deLocalBR(endDate).toISOString()));
       setCasoId(modo.casoIdInicial ?? null);
       setProcessoToken(modo.processoTokenInicial ?? "");
       setResponsavelId(null);
@@ -221,9 +224,9 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
       setDescricao(substituirPlaceholders(agendaItem.descricao ?? "", ph));
       // Ajusta end_at = start_at + duracao_min se o usuário ainda não mexeu.
       const dur = agendaItem.duracao_min ?? 60;
-      if (startInput) {
-        const startDate = new Date(startInput);
-        const endDate = new Date(startDate.getTime() + dur * 60_000);
+      const startIsoTpl = inputDatetimeToIso(startInput);
+      if (startIsoTpl) {
+        const endDate = new Date(new Date(startIsoTpl).getTime() + dur * 60_000);
         setEndInput(isoToInputDatetime(endDate.toISOString()));
       }
     })();
@@ -452,7 +455,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
           <SheetTitle>{editando ? "Editar agendamento" : "Agendamentos"}</SheetTitle>
           {editando && evento && (
             <SheetDescription>
-              Criado em {new Date(evento.created_at).toLocaleString("pt-BR")}
+              Criado em {formatarBR(evento.created_at, { dateStyle: "short", timeStyle: "short" })}
               {evento.gcal_event_id ? " · sincronizado com Google Calendar" : " · não sincronizado"}
             </SheetDescription>
           )}
@@ -589,6 +592,10 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
                 onChange={(e) => setEndInput(e.target.value)}
               />
             </div>
+            <p className="text-xs text-muted-foreground sm:col-span-2">
+              Horário de Brasília — é o que vai no aviso ao parceiro e ao cliente, não importa de
+              onde você agenda.
+            </p>
           </div>
 
           <div className="space-y-1.5">

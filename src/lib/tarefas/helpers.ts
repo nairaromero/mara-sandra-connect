@@ -1,18 +1,22 @@
 // Helpers de apresentação de tarefas (urgência, cor, datas).
 
 import type { TarefaStatus } from "./types";
+import {
+  diasCorridosBR,
+  formatarBR,
+  isoParaInputDateBR,
+  isoParaInputDateTimeBR,
+  inputDateBRParaIso,
+  inputDateTimeBRParaIso,
+} from "@/lib/fuso";
 
 export type Urgencia = "atrasado" | "hoje" | "proximo" | "futuro" | "sem_prazo";
 
 // Dias de CALENDARIO ate o prazo (0 = hoje, 1 = amanha, negativo = atrasado).
-// Compara datas normalizadas pra meia-noite — "amanha de manha" e amanha,
-// mesmo faltando menos de 24h; "hoje as 9h" segue sendo hoje a tarde.
+// Compara dias de BRASILIA: "hoje" e o dia no Brasil, nao o do navegador —
+// as 01h de Madri ainda e ontem em SP. Ver src/lib/fuso.ts.
 export function diasCorridosAte(dueAt: string): number {
-  const hoje = new Date();
-  hoje.setHours(0, 0, 0, 0);
-  const due = new Date(dueAt);
-  due.setHours(0, 0, 0, 0);
-  return Math.round((due.getTime() - hoje.getTime()) / 86400_000);
+  return diasCorridosBR(dueAt);
 }
 
 export function urgenciaDoDueAt(dueAt: string | null, status: TarefaStatus): Urgencia {
@@ -43,8 +47,7 @@ export const URGENCIA_BADGE_CLASS: Record<Urgencia, string> = {
 
 export function formatarDueAt(dueAt: string | null): string {
   if (!dueAt) return "Sem prazo";
-  const d = new Date(dueAt);
-  return d.toLocaleDateString("pt-BR", {
+  return formatarBR(dueAt, {
     day: "2-digit",
     month: "2-digit",
     year: "2-digit",
@@ -53,8 +56,7 @@ export function formatarDueAt(dueAt: string | null): string {
 
 export function formatarDueAtLongo(dueAt: string | null): string {
   if (!dueAt) return "Sem prazo";
-  const d = new Date(dueAt);
-  const data = d.toLocaleDateString("pt-BR", {
+  const data = formatarBR(dueAt, {
     weekday: "short",
     day: "2-digit",
     month: "short",
@@ -91,10 +93,7 @@ export function iniciaisDoNome(nome: string | null): string {
 // ou "18 jun. · 32d atraso". O longo (formatarDueAtLongo) fica pros sheets.
 export function formatarDueAtCurto(dueAt: string | null): string {
   if (!dueAt) return "sem prazo";
-  const d = new Date(dueAt);
-  const data = d
-    .toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })
-    .replace(" de ", " ");
+  const data = formatarBR(dueAt, { day: "2-digit", month: "short" }).replace(" de ", " ");
   const dias = diasCorridosAte(dueAt);
   if (dias === 0) return "hoje";
   if (dias === 1) return "amanhã";
@@ -102,30 +101,24 @@ export function formatarDueAtCurto(dueAt: string | null): string {
   return data;
 }
 
+// Os inputs de data/hora sao SEMPRE horario de Brasilia, nao do navegador:
+// prazo digitado como 14:00 e 14:00 no Brasil, esteja quem digitou onde
+// estiver. Ver src/lib/fuso.ts.
 export function inputDateValueFromIso(iso: string | null): string {
-  if (!iso) return "";
-  return new Date(iso).toISOString().slice(0, 10);
+  return isoParaInputDateBR(iso);
 }
 
 export function isoFromInputDate(date: string): string | null {
-  if (!date) return null;
-  // Salva como meia-noite local (sem timezone confusion).
-  return new Date(`${date}T00:00:00`).toISOString();
+  return inputDateBRParaIso(date);
 }
 
 // Variantes com hora (datetime-local). Formato do input: YYYY-MM-DDTHH:mm.
 export function inputDateTimeValueFromIso(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return isoParaInputDateTimeBR(iso);
 }
 
 export function isoFromInputDateTime(s: string): string | null {
-  if (!s) return null;
-  // O input já vem no formato local (sem TZ). new Date(s) interpreta como
-  // horário local, e .toISOString() converte para UTC.
-  return new Date(s).toISOString();
+  return inputDateTimeBRParaIso(s);
 }
 
 export interface PlaceholderContext {

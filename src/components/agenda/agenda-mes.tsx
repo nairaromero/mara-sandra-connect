@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { type AgendaEventoComJoins, tipoBadge } from "@/lib/agenda/types";
+import { chaveDiaBR, comoLocalBR } from "@/lib/fuso";
 
 interface Props {
   eventos: AgendaEventoComJoins[];
@@ -32,7 +33,9 @@ interface Props {
 const WEEK_LABELS = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
 
 export function AgendaMes({ eventos, onEventoClick, onDiaClick }: Props) {
-  const [refDate, setRefDate] = useState<Date>(new Date());
+  // Grade e "hoje" seguem o calendário de Brasília: às 7h de Madri ainda é
+  // ontem no Brasil, e a perícia não pode pular de célula por causa disso.
+  const [refDate, setRefDate] = useState<Date>(() => comoLocalBR(new Date()));
   const [diaSelecionado, setDiaSelecionado] = useState<string | null>(null);
 
   const dias = useMemo(() => {
@@ -45,7 +48,7 @@ export function AgendaMes({ eventos, onEventoClick, onDiaClick }: Props) {
   const eventosPorDia = useMemo(() => {
     const m = new Map<string, AgendaEventoComJoins[]>();
     for (const e of eventos) {
-      const k = format(new Date(e.start_at), "yyyy-MM-dd");
+      const k = chaveDiaBR(e.start_at);
       if (!m.has(k)) m.set(k, []);
       m.get(k)!.push(e);
     }
@@ -57,7 +60,7 @@ export function AgendaMes({ eventos, onEventoClick, onDiaClick }: Props) {
     return m;
   }, [eventos]);
 
-  const hoje = new Date();
+  const hoje = comoLocalBR(new Date());
 
   return (
     <div className="space-y-3">
@@ -88,7 +91,7 @@ export function AgendaMes({ eventos, onEventoClick, onDiaClick }: Props) {
           variant="outline"
           size="sm"
           onClick={() => {
-            setRefDate(new Date());
+            setRefDate(comoLocalBR(new Date()));
             setDiaSelecionado(null);
           }}
         >
@@ -158,14 +161,12 @@ export function AgendaMes({ eventos, onEventoClick, onDiaClick }: Props) {
                       // e riscado — o mes passado tem que continuar legivel.
                       e.concluido_em && "opacity-50 line-through",
                     )}
-                    title={`${format(new Date(e.start_at), "HH:mm")} ${e.titulo}`}
+                    title={`${tipoBadge(e).label} — ${e.caso?.cliente?.nome ?? e.titulo}`}
                   >
-                    {/* 00:00 = prazo so com data (tarefas de pericia mescladas)
-                      — mostrar a hora seria ruido. */}
-                    {format(new Date(e.start_at), "HH:mm") !== "00:00" && (
-                      <span className="tabular-nums">{format(new Date(e.start_at), "HH:mm")} </span>
-                    )}
-                    {e.titulo}
+                    {/* Sem horário por decisão de produto: a célula mostra o
+                      tipo (perícia INSS/judicial) pela cor do badge e o nome
+                      do cliente. A hora exata fica no evento. */}
+                    {e.caso?.cliente?.nome ?? e.titulo}
                   </span>
                 ))}
                 {eventosDoDia.length > 3 && (
@@ -207,22 +208,18 @@ export function AgendaMes({ eventos, onEventoClick, onDiaClick }: Props) {
                     >
                       {tipoBadge(e).label}
                     </Badge>
-                    <span className="text-xs text-muted-foreground tabular-nums">
-                      {format(new Date(e.start_at), "HH:mm")}—{format(new Date(e.end_at), "HH:mm")}
-                    </span>
                   </div>
-                  <div className="text-sm font-medium mt-1 break-words">{e.titulo}</div>
-                  <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
-                    {e.local && (
+                  <div className="text-sm font-medium mt-1 break-words">
+                    {e.caso?.cliente?.nome ?? e.titulo}
+                  </div>
+                  {e.local && (
+                    <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
                       <span className="inline-flex items-center gap-1 min-w-0">
                         <MapPin className="h-3 w-3 shrink-0" />
                         <span className="truncate max-w-[200px]">{e.local}</span>
                       </span>
-                    )}
-                    {e.caso?.cliente?.nome && (
-                      <span className="truncate">{e.caso.cliente.nome}</span>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </button>
               ))}
             </div>
