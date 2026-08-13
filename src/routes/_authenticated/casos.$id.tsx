@@ -1342,7 +1342,15 @@ function CasoHeader(props: CasoHeaderProps) {
       toast.success(msg);
       if (r.erros && r.erros.length > 0) {
         console.warn("erros no sync Legalmail:", r.erros);
-        toast.warning(r.erros.length + " erro(s) durante sync. Ver console.");
+        const detalhe = r.erros
+          .slice(0, 3)
+          .map((e) => "#" + e.idprocesso + ": " + e.motivo)
+          .join(" | ");
+        const resto = r.erros.length > 3 ? " (+" + (r.erros.length - 3) + ")" : "";
+        toast.warning(r.erros.length + " erro(s) durante sync", {
+          description: detalhe + resto,
+          duration: 15000,
+        });
       }
       onChange();
     } catch (err) {
@@ -7398,7 +7406,15 @@ function TabProcessos(props: TabProcessosProps) {
       toast.success(msg);
       if (r.erros && r.erros.length > 0) {
         console.warn("erros no import legalmail:", r.erros);
-        toast.warning(r.erros.length + " erro(s) durante importação. Ver console.");
+        const detalhe = r.erros
+          .slice(0, 3)
+          .map((e) => "#" + e.idprocesso + ": " + e.motivo)
+          .join(" | ");
+        const resto = r.erros.length > 3 ? " (+" + (r.erros.length - 3) + ")" : "";
+        toast.warning(r.erros.length + " erro(s) durante importação", {
+          description: detalhe + resto,
+          duration: 15000,
+        });
       }
       setAbrirBuscaLM(false);
       setResultadosLM([]);
