@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   Loader2,
@@ -10,6 +10,7 @@ import {
   ExternalLink,
   Inbox,
   Trash2,
+  User as UserIcon,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -27,6 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
 
 export const Route = createFileRoute("/_authenticated/a-enviar")({
   component: AEnviarPage,
@@ -105,6 +107,8 @@ function AEnviarPage() {
   // daquele caso. O rascunho em si nasce por trigger, sem autor, então não
   // tem dono próprio — a tarefa é que diz de quem é o trabalho de comunicar.
   const [respPorCaso, setRespPorCaso] = useState<Record<string, string | null>>({});
+  // evento_id -> quem agendou a perícia (created_by do evento de agenda).
+  const [agendouPorEvento, setAgendouPorEvento] = useState<Record<string, string | null>>({});
   const [filtroPessoa, setFiltroPessoa] = useState<string>("__eu__");
   const [internos, setInternos] = useState<Array<{ id: string; nome: string | null }>>([]);
   const jaCarregou = useRef(false);
@@ -123,6 +127,29 @@ function AEnviarPage() {
       if (resp.error) throw resp.error;
       const linhas = (resp.data || []) as unknown as Array<RascunhoRow>;
       setRascunhos(linhas);
+
+      // Quem AGENDOU a perícia: dono natural do aviso, porque foi quem falou
+      // com o INSS e sabe o combinado. Vem do evento de agenda (created_by =
+      // quem criou; responsavel_id como reserva quando o evento nasceu de
+      // template com outra pessoa no comando).
+      const eventoIds = [...new Set(linhas.map((r) => r.evento_id).filter(Boolean))] as string[];
+      if (eventoIds.length > 0) {
+        const { data: evs } = await supabase
+          .from("agenda_eventos")
+          .select("id, created_by, responsavel_id")
+          .in("id", eventoIds);
+        const mapaEv: Record<string, string | null> = {};
+        for (const e of (evs || []) as Array<{
+          id: string;
+          created_by: string | null;
+          responsavel_id: string | null;
+        }>) {
+          mapaEv[e.id] = e.created_by ?? e.responsavel_id ?? null;
+        }
+        setAgendouPorEvento(mapaEv);
+      } else {
+        setAgendouPorEvento({});
+      }
 
       // Responsável por caso, pra saber de quem é cada rascunho.
       const casoIds = [...new Set(linhas.map((r) => r.caso_id).filter(Boolean))];
@@ -159,14 +186,61 @@ function AEnviarPage() {
     listarInternosAtivos().then(setInternos).catch(() => {});
   }, [isInterno]);
 
-  // Sem tarefa "Avisar cliente" no caso, o rascunho fica visível em QUALQUER
-  // recorte: melhor aparecer pra mais gente do que sumir e ninguém enviar.
+  // Dono do aviso = quem AGENDOU a perícia. Só quando não dá pra saber (aviso
+  // que nasceu da triagem da IA, sem evento) cai no responsável da tarefa
+  // "Avisar cliente da perícia".
+  const donoDoAviso = useCallback(
+    (r: RascunhoRow): string | null => {
+      if (r.evento_id && agendouPorEvento[r.evento_id]) return agendouPorEvento[r.evento_id];
+      return respPorCaso[r.caso_id] ?? null;
+    },
+    [agendouPorEvento, respPorCaso],
+  );
+
+  const nomeDe = useCallback(
+    (id: string | null): string => {
+      if (!id) return "Sem dono definido";
+      if (id === usuarioId) return usuario?.nome ?? "Eu";
+      return internos.find((u) => u.id === id)?.nome ?? "(sem nome)";
+    },
+    [internos, usuarioId, usuario],
+  );
+
+  // Sem dono identificado, o rascunho fica visível em QUALQUER recorte: melhor
+  // aparecer pra mais gente do que sumir e ninguém enviar.
   const pessoaAlvo = filtroPessoa === "__eu__" ? usuarioId : filtroPessoa;
   const visiveis = rascunhos.filter((r) => {
     if (!isInterno || filtroPessoa === "__todos__") return true;
-    const resp = respPorCaso[r.caso_id];
-    return resp == null || resp === pessoaAlvo;
+    const dono = donoDoAviso(r);
+    return dono == null || dono === pessoaAlvo;
   });
+
+  // Em "Todos do escritório" separa por quem agendou, pra cada uma bater o
+  // olho na própria pilha. Nos outros recortes a lista é de uma pessoa só.
+  const grupos = useMemo(() => {
+    if (filtroPessoa !== "__todos__") {
+      return [{ chave: "unico", dono: null as string | null, itens: visiveis, comCabecalho: false }];
+    }
+    const m = new Map<string, Array<RascunhoRow>>();
+    for (const r of visiveis) {
+      const k = donoDoAviso(r) ?? "__sem_dono__";
+      if (!m.has(k)) m.set(k, []);
+      m.get(k)!.push(r);
+    }
+    return Array.from(m.entries())
+      .map(([k, itens]) => ({
+        chave: k,
+        dono: k === "__sem_dono__" ? null : k,
+        itens,
+        comCabecalho: true,
+      }))
+      // Quem tem mais aviso pendente primeiro; sem dono por último.
+      .sort((a, b) => {
+        if (!a.dono) return 1;
+        if (!b.dono) return -1;
+        return b.itens.length - a.itens.length;
+      });
+  }, [filtroPessoa, visiveis, donoDoAviso]);
 
   // Reserva: recarrega periodicamente e quando outra tela mexe em rascunho.
   useEffect(() => {
@@ -296,29 +370,41 @@ function AEnviarPage() {
             e-mail é disparado e fica registrado na conversa.
           </p>
         </div>
-        {isInterno && (
-          <div className="w-full sm:w-56">
-            <Select value={filtroPessoa} onValueChange={setFiltroPessoa}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__eu__">Meus avisos</SelectItem>
-                <SelectItem value="__todos__">Todos do escritório</SelectItem>
-                {internos
-                  // Fora os usuários de teste ([E2E], [TESTE]) — existem em
-                  // produção e não são gente do escritório.
-                  .filter((u) => u.id !== usuarioId && !(u.nome ?? "").startsWith("["))
-                  .map((u) => (
-                    <SelectItem key={u.id} value={u.id}>
-                      {u.nome ?? "(sem nome)"}
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
         </div>
+
+        {/* Filtro no mesmo formato de "Documentos pendentes": card com rótulo,
+            pra ficar claro que o recorte é por quem agendou a perícia. */}
+        {isInterno && (
+          <Card>
+            <CardContent className="pt-4">
+              <div className="w-full sm:w-64">
+                <Label className="text-xs">Agendado por</Label>
+                <Select value={filtroPessoa} onValueChange={setFiltroPessoa}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__eu__">Eu</SelectItem>
+                    <SelectItem value="__todos__">Todos do escritório</SelectItem>
+                    {internos
+                      // Fora os usuários de teste ([E2E], [TESTE]) — existem em
+                      // produção e não são gente do escritório.
+                      .filter((u) => u.id !== usuarioId && !(u.nome ?? "").startsWith("["))
+                      .map((u) => (
+                        <SelectItem key={u.id} value={u.id}>
+                          {u.nome ?? "(sem nome)"}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Quem agendou a perícia é quem avisa o parceiro — foi quem falou
+                com o INSS. Avisos sem dono identificado aparecem para todos.
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
         {erro && (
           <Card>
@@ -341,8 +427,19 @@ function AEnviarPage() {
             </CardContent>
           </Card>
         ) : (
+          grupos.map((g) => (
+          <section key={g.chave} className="space-y-3">
+            {g.comCabecalho && (
+              <div className="flex items-center gap-2 border-b pb-1">
+                <UserIcon className="h-4 w-4 text-muted-foreground" />
+                <h2 className="text-sm font-medium">{nomeDe(g.dono)}</h2>
+                <Badge variant="outline" className="text-xs">
+                  {g.itens.length}
+                </Badge>
+              </div>
+            )}
           <ul className="space-y-4">
-            {visiveis.map((row) => {
+            {g.itens.map((row) => {
               const nome = row.casos?.clientes?.nome || "(cliente sem nome)";
               // tipo_aviso entra na conta porque a triagem da IA cria rascunho
               // de perícia sem andamento nem evento vinculado — só pelas duas
@@ -380,6 +477,15 @@ function AEnviarPage() {
                                 Perícia · 1º aviso
                               </Badge>
                             ))}
+                          {/* Quem agendou = quem avisa. Aparece sempre, não só
+                              no recorte "Todos", pra ninguém enviar em cima do
+                              trabalho da colega sem perceber. */}
+                          {isInterno && donoDoAviso(row) && (
+                            <Badge variant="outline" className="text-xs font-normal">
+                              <UserIcon className="mr-1 h-3 w-3" />
+                              {nomeDe(donoDoAviso(row))}
+                            </Badge>
+                          )}
                         </div>
                         <span className="text-xs text-muted-foreground">
                           {formatRelativo(row.created_at)}
@@ -458,6 +564,8 @@ function AEnviarPage() {
               );
             })}
           </ul>
+          </section>
+          ))
         )}
       </div>
     </ClientOnly>
