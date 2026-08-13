@@ -32,7 +32,7 @@ import { ehDoGrupo, type GrupoAgenda } from "@/lib/agenda/types";
 import type { TarefaComJoins } from "@/lib/tarefas/types";
 import { AgendaPericiasParceiro } from "@/components/agenda/agenda-pericias-parceiro";
 import { useAuth } from "@/hooks/use-auth";
-import { chaveDiaBR, fimDoDiaBR, formatarBR } from "@/lib/fuso";
+import { chaveDiaBR, chavesDiasBR, fimDoDiaBR, formatarBR, instanteBR } from "@/lib/fuso";
 
 // A agenda mescla DUAS fontes: agenda_eventos + tarefas tipo='pericia' ativas
 // (migradas do TI, criadas pelo processador do INSS ou na tela de Tarefas).
@@ -123,17 +123,25 @@ function agruparPorDia(eventos: AgendaEventoComJoins[]): Array<{
   diaLabel: string;
   eventos: AgendaEventoComJoins[];
 }> {
+  // Evento de vários dias (ausência) entra em todos os dias que ocupa, igual
+  // ao calendário — senão some da lista a partir do segundo dia.
   const map = new Map<string, AgendaEventoComJoins[]>();
   for (const e of eventos) {
-    const key = chaveDiaBR(e.start_at);
-    if (!map.has(key)) map.set(key, []);
-    map.get(key)!.push(e);
+    for (const key of chavesDiasBR(e.start_at, e.end_at)) {
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(e);
+    }
   }
-  return Array.from(map.entries()).map(([key, evs]) => ({
-    diaKey: key,
-    diaLabel: formatarDataLonga(evs[0].start_at),
-    eventos: evs,
-  }));
+  return Array.from(map.entries()).map(([key, evs]) => {
+    // Rótulo vem da CHAVE, não do primeiro evento: num dia de continuação o
+    // start_at é de dias antes e mostraria a data errada no cabeçalho.
+    const [a, m, d] = key.split("-").map(Number);
+    return {
+      diaKey: key,
+      diaLabel: formatarDataLonga(instanteBR(a, m, d, 12).toISOString()),
+      eventos: evs,
+    };
+  });
 }
 
 function AgendaPage() {

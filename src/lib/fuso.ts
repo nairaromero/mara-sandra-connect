@@ -106,6 +106,51 @@ export function hojeChaveBR(): string {
   return chaveDiaBR(new Date());
 }
 
+// Teto de segurança: uma data absurda no banco não pode travar a renderização.
+const MAX_DIAS_EVENTO = 400;
+
+/**
+ * Todas as chaves de dia (Brasília) que um evento OCUPA, do início ao fim.
+ *
+ * O calendário indexava o evento só pelo dia de `start_at`, então uma ausência
+ * de 14 a 17 aparecia apenas no dia 14. Evento de um dia só devolve uma chave,
+ * então o caso comum não muda.
+ *
+ * Terminar exatamente à meia-noite NÃO pinta o dia seguinte (00:00 do dia 18
+ * pertence ao dia 17) — convenção de calendário.
+ */
+export function chavesDiasBR(inicio: string | Date, fim?: string | Date | null): Array<string> {
+  const kInicio = chaveDiaBR(inicio);
+  if (!fim) return [kInicio];
+
+  const dFim = typeof fim === "string" ? new Date(fim) : fim;
+  if (isNaN(dFim.getTime())) return [kInicio];
+
+  const emDias = (chave: string) => {
+    const [a, m, d] = chave.split("-").map(Number);
+    return Date.UTC(a, m - 1, d);
+  };
+  const deDias = (ms: number) => {
+    const d = new Date(ms);
+    return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+  };
+
+  const pFim = partesBR(dFim);
+  let kFim = `${pFim.ano}-${pad(pFim.mes)}-${pad(pFim.dia)}`;
+  // Fim em 00:00 fecha no dia anterior.
+  if (kFim > kInicio && pFim.hora === 0 && pFim.min === 0 && pFim.seg === 0) {
+    kFim = deDias(emDias(kFim) - 86_400_000);
+  }
+  if (kFim <= kInicio) return [kInicio];
+
+  const out: Array<string> = [];
+  const ultimo = emDias(kFim);
+  for (let t = emDias(kInicio); t <= ultimo && out.length < MAX_DIAS_EVENTO; t += 86_400_000) {
+    out.push(deDias(t));
+  }
+  return out;
+}
+
 /**
  * Date "espelho" cujos getters LOCAIS devolvem a hora de parede de Brasília.
  * Existe só pra alimentar date-fns (format/isSameDay/eachDayOfInterval) e

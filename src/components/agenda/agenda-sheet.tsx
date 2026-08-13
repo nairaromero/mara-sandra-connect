@@ -1,7 +1,7 @@
 // Sheet (slide-in) para criar/editar evento de agenda. Por enquanto a UI
 // foca em PERÍCIAS, mas o componente já suporta os outros tipos.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Loader2, Trash2, Check } from "lucide-react";
 
@@ -111,6 +111,15 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
   const [concluindo, setConcluindo] = useState(false);
   const { usuario } = useAuth();
 
+  // Com caso, oferece os templates de cliente; sem caso, só os que não
+  // dependem de um (ausência). Assim a ausência é alcançável mesmo com
+  // "Sem caso" — antes o seletor inteiro sumia.
+  const templatesVisiveis = useMemo(() => {
+    const temSemCaso = (t: TarefaTemplateRow) =>
+      t.itens.some((i) => i.destino === "agenda" && i.sem_caso);
+    return templates.filter((t) => (casoId ? !temSemCaso(t) : temSemCaso(t)));
+  }, [templates, casoId]);
+
   useEffect(() => {
     if (!aberto) return;
     listarCasosResumo()
@@ -190,8 +199,12 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
   // guiche tem template — audiencia e atendimento seguem manuais, como pedido.
   useEffect(() => {
     if (editando) return;
+    // Só casa por tipo quando há caso. Templates sem caso (ausência) são
+    // escolhidos na mão — senão marcar "Interno" viraria "Ausência" em
+    // qualquer evento interno.
+    if (!casoId) return;
     const doTipo = templates.filter((t) =>
-      t.itens.some((i) => i.destino === "agenda" && i.tipo === tipo),
+      t.itens.some((i) => i.destino === "agenda" && i.tipo === tipo && !i.sem_caso),
     );
     // 2+ templates pro mesmo tipo = ambiguo; deixa a pessoa escolher.
     if (doTipo.length !== 1) return;
@@ -204,24 +217,34 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
   // Os campos start_at/local/responsavel ficam pra Naira preencher.
   useEffect(() => {
     if (editando) return;
-    if (!templateSelecionado || !casoId) return;
+    if (!templateSelecionado) return;
     const tpl = templates.find((t) => t.nome === templateSelecionado);
     if (!tpl) return;
     const agendaItem = tpl.itens.find((i) => i.destino === "agenda");
     if (!agendaItem) return;
+    // Template sem caso (ausência) aplica direto; os demais precisam do caso
+    // pra resolver {nome_cliente} e companhia.
+    if (!casoId && !agendaItem.sem_caso) return;
     let cancelado = false;
     (async () => {
-      const ctx = await obterContextoCaso(casoId, processoToken);
+      const ctx = casoId
+        ? await obterContextoCaso(casoId, processoToken)
+        : { cliente_nome: "", protocolo: "", cliente_cpf: "", servico: "" };
       if (cancelado) return;
       const ph = {
         nome_cliente: ctx.cliente_nome,
         protocolo: ctx.protocolo,
         cpf: ctx.cliente_cpf,
         servico: ctx.servico,
+        // Ausência é da PESSOA, não de um cliente: o título sai com o nome de
+        // quem está criando.
+        nome_usuario: usuario?.nome ?? "",
       };
       setTipo((agendaItem.tipo as AgendaTipo) || "pericia");
       setTitulo(substituirPlaceholders(agendaItem.titulo, ph));
       setDescricao(substituirPlaceholders(agendaItem.descricao ?? "", ph));
+      // Ausência é de quem está criando: já sai com a pessoa como responsável.
+      if (agendaItem.sem_caso && usuario?.id) setResponsavelId(usuario.id);
       // Ajusta end_at = start_at + duracao_min se o usuário ainda não mexeu.
       const dur = agendaItem.duracao_min ?? 60;
       const startIsoTpl = inputDatetimeToIso(startInput);
@@ -507,7 +530,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
             </div>
           )}
 
-          {!editando && casoId && templates.length > 0 && (
+          {!editando && templatesVisiveis.length > 0 && (
             <div className="space-y-1.5 rounded-md border border-dashed p-3 bg-muted/30">
               <Label>Template (atalho)</Label>
               <Select value={templateSelecionado} onValueChange={setTemplateSelecionado}>
@@ -515,13 +538,15 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
                   <SelectValue placeholder="Escolha um template" />
                 </SelectTrigger>
                 <SelectContent>
-                  {templates.map((t) => {
+                  {templatesVisiveis.map((t) => {
                     const tarefasExtras = t.itens.filter((i) => i.destino === "tarefa").length;
                     return (
                       <SelectItem key={t.id} value={t.nome}>
                         {t.rotulo ?? t.nome}{" "}
                         <span className="text-muted-foreground">
-                          (evento + {tarefasExtras} tarefa{tarefasExtras === 1 ? "" : "s"})
+                          {tarefasExtras === 0
+                            ? "(só evento)"
+                            : `(evento + ${tarefasExtras} tarefa${tarefasExtras === 1 ? "" : "s"})`}
                         </span>
                       </SelectItem>
                     );

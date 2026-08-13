@@ -129,6 +129,8 @@ export interface PlaceholderContext {
   nb?: string;
   despacho?: string;
   status_assunto?: string;
+  // Nome de quem está aplicando o template (ausência da equipe, por ex.).
+  nome_usuario?: string;
 }
 
 /**
@@ -148,6 +150,7 @@ export function substituirPlaceholders(
     nb: ctx.nb ?? "",
     despacho: ctx.despacho ?? "",
     status_assunto: ctx.status_assunto ?? "",
+    nome_usuario: ctx.nome_usuario ?? "",
   };
   let out = texto.replace(/\{(\w+)\}/g, (_, key: string) => mapa[key] ?? "");
 

@@ -22,7 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { type AgendaEventoComJoins, tipoBadge } from "@/lib/agenda/types";
-import { chaveDiaBR, comoLocalBR } from "@/lib/fuso";
+import { chavesDiasBR, comoLocalBR } from "@/lib/fuso";
 
 interface Props {
   eventos: AgendaEventoComJoins[];
@@ -45,12 +45,17 @@ export function AgendaMes({ eventos, onEventoClick, onDiaClick }: Props) {
   }, [refDate]);
 
   // Agrupa eventos por dia (chave YYYY-MM-DD) pra lookup O(1).
+  //
+  // Evento de vários dias (ausência, viagem) entra em TODAS as células que
+  // ocupa, não só na do início — senão uma ausência de 14 a 17 só aparecia
+  // no dia 14 e o resto da equipe via a pessoa como disponível.
   const eventosPorDia = useMemo(() => {
     const m = new Map<string, AgendaEventoComJoins[]>();
     for (const e of eventos) {
-      const k = chaveDiaBR(e.start_at);
-      if (!m.has(k)) m.set(k, []);
-      m.get(k)!.push(e);
+      for (const k of chavesDiasBR(e.start_at, e.end_at)) {
+        if (!m.has(k)) m.set(k, []);
+        m.get(k)!.push(e);
+      }
     }
     // Ordena cada dia por hora de início.
     for (const [k, arr] of m) {
