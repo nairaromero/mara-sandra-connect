@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { toast } from "sonner";
 import {
   ArrowLeft,
+  AtSign,
   Loader2,
   FileText,
   FileDown,
@@ -268,6 +269,13 @@ interface ComentarioRow {
     id: string;
     nome: string | null;
     email: string | null;
+    tipo: string;
+  } | null;
+  // Direcionamento da conversa: quem foi marcado no "Para:". null = todos.
+  destinatario_id?: string | null;
+  destinatario?: {
+    id: string;
+    nome: string | null;
     tipo: string;
   } | null;
 }
@@ -782,7 +790,7 @@ function CasoDetalhePage() {
       const comentariosResp = await supabase
         .from("comentarios")
         .select(
-          "id, caso_id, parent_id, autor_id, texto, created_at, autor:autor_id(id, nome, email, tipo)",
+          "id, caso_id, parent_id, autor_id, texto, created_at, destinatario_id, autor:autor_id(id, nome, email, tipo), destinatario:destinatario_id(id, nome, tipo)",
         )
         .eq("caso_id", casoId)
         .order("created_at", { ascending: true });
@@ -1040,6 +1048,7 @@ function CasoDetalhePage() {
               setComentarios={setComentarios}
               usuarioId={usuario ? usuario.id : null}
               temParceiro={caso.parceiro_id !== null}
+              parceiro={parceiro}
               focoId={search.foco}
             />
           </TabsContent>
@@ -6512,6 +6521,9 @@ interface TabComentariosProps {
   // Se false, caso nao tem parceiro vinculado - comentarios funcionam como
   // notas internas (so equipe ve). UI muda copy pra refletir isso.
   temParceiro: boolean;
+  // Parceiro do caso: entra como opção no "Para:" pra dar pra direcionar o
+  // comentário a ele, não só à equipe.
+  parceiro: ParceiroLite | null;
   focoId?: string;
 }
 
@@ -6532,7 +6544,7 @@ function tipoBadgeLabel(tipo: string | undefined | null): string {
 }
 
 function TabComentarios(props: TabComentariosProps) {
-  const { casoId, comentarios, setComentarios, usuarioId, temParceiro, focoId } = props;
+  const { casoId, comentarios, setComentarios, usuarioId, temParceiro, parceiro, focoId } = props;
   const { usuario } = useAuth();
   // Interno pode excluir QUALQUER comentario (moderacao) - a RLS ja permite.
   // Autor pode excluir o proprio. Parceiro so ve excluir nos seus.
@@ -6694,6 +6706,7 @@ function TabComentarios(props: TabComentariosProps) {
               onExcluir={() => excluirComentario(c.id)}
               excluindo={excluindoId === c.id}
               destacado={foco === c.id}
+              usuarioId={usuarioId}
             />
           ))
         )}
@@ -6702,7 +6715,11 @@ function TabComentarios(props: TabComentariosProps) {
 
       {/* Composer */}
       <div className="border-t p-3 space-y-2">
-        <SeletorDestinatario value={destinatario} onChange={setDestinatario} />
+        <SeletorDestinatario
+          value={destinatario}
+          onChange={setDestinatario}
+          parceiro={parceiro}
+        />
         <div className="flex items-end gap-2">
           <Textarea
             rows={2}
@@ -6741,10 +6758,19 @@ function ComentarioBolha(props: {
   onExcluir: () => void;
   excluindo: boolean;
   destacado?: boolean;
+  usuarioId?: string | null;
 }) {
-  const { comentario, meu, podeExcluir, onExcluir, excluindo, destacado } = props;
+  const { comentario, meu, podeExcluir, onExcluir, excluindo, destacado, usuarioId } = props;
   const autorNome = comentario.autor?.nome || comentario.autor?.email || "(sem nome)";
   const tipo = comentario.autor?.tipo;
+  // Direcionamento: sem isto a escolha do "Para:" ficava só no banco e quem
+  // recebia não sabia que o recado era pra ele.
+  const paraMim = !!comentario.destinatario_id && comentario.destinatario_id === usuarioId;
+  const paraQuem = paraMim
+    ? "Para você"
+    : comentario.destinatario
+      ? "Para " + (comentario.destinatario.nome ?? "(sem nome)")
+      : null;
 
   return (
     <div
@@ -6764,6 +6790,23 @@ function ComentarioBolha(props: {
             <span className={"text-[9px] px-1 rounded " + tipoBadgeClasses(tipo)}>
               {tipoBadgeLabel(tipo)}
             </span>
+          </div>
+        )}
+        {/* A quem o recado foi endereçado. "Para você" ganha destaque porque é
+            o que faz a pessoa saber que a bola está com ela. */}
+        {paraQuem && (
+          <div
+            className={
+              "mb-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium " +
+              (meu
+                ? "bg-primary-foreground/15 text-primary-foreground"
+                : paraMim
+                  ? "bg-[var(--gold-soft)]/60 border border-[var(--gold)]/40 text-foreground"
+                  : "bg-background/60 text-muted-foreground")
+            }
+          >
+            <AtSign className="h-2.5 w-2.5" />
+            {paraQuem}
           </div>
         )}
         <p className="text-sm whitespace-pre-wrap break-words">{comentario.texto}</p>
