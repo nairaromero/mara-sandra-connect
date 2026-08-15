@@ -36,11 +36,14 @@ export function SeletorDestinatario({
   value,
   onChange,
   className,
+  parceiro,
 }: {
-  /** id do interno, ou DESTINATARIO_TODOS */
+  /** id do interno OU do parceiro do caso, ou DESTINATARIO_TODOS */
   value: string;
   onChange: (v: string) => void;
   className?: string;
+  /** Parceiro do caso, quando há. Dá pra endereçar o recado direto a ele. */
+  parceiro?: { id: string; nome: string | null } | null;
 }) {
   const [internos, setInternos] = useState<Array<InternoLite>>([]);
 
@@ -76,6 +79,13 @@ export function SeletorDestinatario({
               {u.nome ?? "(sem nome)"}
             </SelectItem>
           ))}
+          {/* Parceiro do caso: separado da equipe e rotulado, pra ninguém
+              mandar pra fora achando que era recado interno. */}
+          {parceiro && (
+            <SelectItem value={parceiro.id}>
+              {(parceiro.nome ?? "(sem nome)") + " · parceiro"}
+            </SelectItem>
+          )}
         </SelectContent>
       </Select>
     </div>

@@ -1,12 +1,18 @@
 // Helpers de cálculo de datas pra agenda + templates de agenda.
+//
+// Toda aritmética roda no calendário de Brasília (comoLocalBR/deLocalBR):
+// "sexta às 09:00" tem que ser 09:00 no Brasil mesmo quando quem agenda está
+// na Europa. Ver src/lib/fuso.ts.
+
+import { comoLocalBR, deLocalBR } from "@/lib/fuso";
 
 /**
  * Calcula a sexta-feira anterior a uma data. Se a data já é sexta, retorna
- * a sexta da semana anterior (7 dias antes). Hora padronizada às 09:00 local
+ * a sexta da semana anterior (7 dias antes). Hora padronizada às 09:00 de Brasília
  * (lembrete da semana, não precisa de horário exato).
  */
 export function sextaAnterior(d: Date): Date {
-  const result = new Date(d);
+  const result = comoLocalBR(d);
   result.setHours(9, 0, 0, 0);
   const dow = result.getDay(); // 0=dom, 1=seg ... 5=sex, 6=sáb
   let diff: number;
@@ -15,7 +21,7 @@ export function sextaAnterior(d: Date): Date {
   else if (dow === 0) diff = 2;       // dom → sex (2)
   else diff = dow + 2;                // seg→3, ter→4, qua→5, qui→6
   result.setDate(result.getDate() - diff);
-  return result;
+  return deLocalBR(result);
 }
 
 /**

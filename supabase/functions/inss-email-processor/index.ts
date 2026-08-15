@@ -81,12 +81,23 @@ async function obterAccessToken(sb: SupabaseClient): Promise<{ token: string; gm
 
   // Lê o vínculo OAuth da caixa do INSS (Naira). Se Naira não conectou ainda,
   // erro claro pra UI mostrar "conecte o Gmail em Configurações".
-  const { data: vinculo, error } = await sb
+  let { data: vinculo, error } = await sb
     .from("usuario_gmail_oauth")
     .select("usuario_id, refresh_cipher, refresh_iv, email_conectado, scope")
     .eq("email_conectado", INSS_INBOX_EMAIL)
     .maybeSingle();
   if (error) throw new Error(`Falha lendo usuario_gmail_oauth: ${error.message}`);
+  // Reserva: conexão gravada sem o e-mail (o callback antigo salvava
+  // "(desconhecido)" quando o escopo não permitia descobrir o endereço). Sem
+  // isto, uma reconexão válida ficava invisível e a automação parava.
+  if (!vinculo) {
+    const { data: qualquer } = await sb
+      .from("usuario_gmail_oauth")
+      .select("usuario_id, refresh_cipher, refresh_iv, email_conectado, scope")
+      .order("connected_at", { ascending: false })
+      .limit(1);
+    vinculo = qualquer?.[0] ?? null;
+  }
   if (!vinculo) {
     throw new Error(
       `Gmail não conectado para ${INSS_INBOX_EMAIL}. Vá em Configurações → "Conectar Gmail".`
@@ -117,7 +128,12 @@ async function obterAccessToken(sb: SupabaseClient): Promise<{ token: string; gm
     .eq("usuario_id", vinculo.usuario_id)
     .then(() => {}, () => {});
 
-  return { token: j.access_token, gmailAddress: vinculo.email_conectado };
+  // "me" quando o endereço não foi gravado: a API do Gmail aceita o alias e
+  // resolve pela própria credencial, então o rótulo deixa de ser essencial.
+  const endereco = (vinculo.email_conectado ?? "").includes("@")
+    ? vinculo.email_conectado
+    : "me";
+  return { token: j.access_token, gmailAddress: endereco };
 }
 
 async function gmailListMessages(
@@ -498,6 +514,30 @@ async function acharCliente(
   return { cliente_id: null, caso_id: null, processo_admin_id: null, via: "sem_match" };
 }
 
+// O e-mail do INSS quase sempre traz o protocolo. Quando o cliente casou por
+// nome/CPF, o andamento nascia SEM processo e caía em "Andamentos Gerais",
+// solto — mesmo com o requerimento existindo no caso. Aqui resolvemos o
+// processo pelo protocolo, exigindo que ele seja do MESMO caso: protocolo de
+// outro caso é sinal de match errado, e nesse caso é melhor deixar solto do
+// que pendurar a movimentação no processo errado.
+async function acharProcessoAdminDoCaso(
+  sb: SupabaseClient,
+  protocolo: string | null | undefined,
+  casoId: string | null,
+): Promise<string | null> {
+  if (!protocolo || !casoId) return null;
+  const norm = String(protocolo).replace(/\D/g, "");
+  if (!norm) return null;
+  const { data, error } = await sb
+    .from("processos_admin")
+    .select("id")
+    .eq("numero_req_normalizado", norm)
+    .eq("caso_id", casoId)
+    .limit(1);
+  if (error || !data || data.length === 0) return null;
+  return data[0].id;
+}
+
 async function casoMaisRecente(
   sb: SupabaseClient,
   clienteId: string,
@@ -615,6 +655,7 @@ interface ProcessamentoResultado {
   campos_extraidos?: CamposEmail;
   body_preview?: string;
   classificacao: string;
+  template_aplicado?: string;
   match_via: string;
   cliente_id: string | null;
   caso_id: string | null;
@@ -642,7 +683,24 @@ async function processarMensagem(
     erros: [],
   };
 
-  // Dedup: já processado?
+  // Dedup: esta mensagem já foi processada PRA VALER?
+  //
+  // A trava olha a auditoria, não as tarefas: tarefa concluída, arquivada ou
+  // EXCLUÍDA não pode fazer o e-mail voltar a ser processado e duplicar tudo.
+  // dry_run não conta — simular não pode bloquear a execução real.
+  const { data: jaLido } = await sb
+    .from("inss_email_log")
+    .select("id")
+    .eq("gmail_message_id", msg.id)
+    .eq("dry_run", false)
+    .eq("pulado_por_dedup", false)
+    .limit(1);
+  if (jaLido && jaLido.length > 0) {
+    res.pulado_por_dedup = true;
+    return res;
+  }
+  // Reserva histórica: e-mails processados antes da auditoria existir só
+  // deixaram rastro nas tarefas.
   const { data: jaProcessado } = await sb
     .from("tarefas")
     .select("id")
@@ -658,8 +716,10 @@ async function processarMensagem(
   const classificacao = classificar(msg.subject, campos);
   res.classificacao = classificacao;
   res.subject = msg.subject;
+  // Sempre: a auditoria guarda o que foi extraído mesmo na execução real, que
+  // é como a gente descobre depois por que casou (ou não) com um cliente.
+  res.campos_extraidos = campos;
   if (dryRun) {
-    res.campos_extraidos = campos;
     res.body_preview = msg.body.slice(0, 2000);
   }
 
@@ -670,6 +730,11 @@ async function processarMensagem(
 
   // Match cliente (decisão 2: nome → CPF → protocolo).
   const match = await acharCliente(sb, campos);
+  // Casou por nome/CPF? O protocolo do e-mail ainda pode dizer em QUAL
+  // requerimento a movimentação entra.
+  if (!match.processo_admin_id) {
+    match.processo_admin_id = await acharProcessoAdminDoCaso(sb, campos.protocolo, match.caso_id);
+  }
   res.match_via = match.via;
   res.cliente_id = match.cliente_id;
   res.caso_id = match.caso_id;
@@ -678,6 +743,8 @@ async function processarMensagem(
   const templateFinal = (match.via === "sem_match" || !match.caso_id)
     ? "revisar_email_nao_casado"
     : templateNome;
+
+  res.template_aplicado = templateFinal;
 
   const template = await carregarTemplate(sb, templateFinal);
   if (!template) {
@@ -743,7 +810,7 @@ async function processarMensagem(
     // e repassar"). Pula a parte de tarefa.
     if ((item as { destino?: string }).destino === "andamento" && match.caso_id) {
       const visivel = (item as { visivel_parceiro?: boolean }).visivel_parceiro ?? true;
-      const { error: errAndamentoExtra } = await sb
+      const { data: andExtra, error: errAndamentoExtra } = await sb
         .from("andamentos")
         .insert({
           caso_id: match.caso_id,
@@ -761,9 +828,30 @@ async function processarMensagem(
             destino: "andamento",
             ...(item.meta ?? {}),
           },
-        });
+        })
+        .select("id")
+        .single();
       if (errAndamentoExtra) {
         res.erros.push(`andamento[${i}] insert: ${errAndamentoExtra.message}`);
+      } else if (andExtra && visivel) {
+        // Andamento visível ao parceiro é comunicação: tem que chegar por
+        // e-mail, senão fica esperando ele entrar no portal por acaso.
+        // Falha no envio não desfaz o andamento — só entra nos erros.
+        try {
+          const rNot = await fetch(`${SUPABASE_URL}/functions/v1/notify-novo-andamento`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${SERVICE_ROLE}`,
+            },
+            body: JSON.stringify({ andamento_id: andExtra.id }),
+          });
+          if (!rNot.ok) {
+            res.erros.push(`email parceiro[${i}]: HTTP ${rNot.status}`);
+          }
+        } catch (e) {
+          res.erros.push(`email parceiro[${i}]: ${String(e).slice(0, 120)}`);
+        }
       }
       continue;
     }
@@ -850,6 +938,68 @@ async function processarMensagem(
 }
 
 // ============================================================================
+// Auditoria
+// ============================================================================
+
+// Grava a trilha de CADA mensagem lida, inclusive no dry_run e inclusive as
+// puladas por dedup — é como a Naira consegue puxar depois "de que e-mail veio
+// esta tarefa" e "por que este casou com aquele cliente".
+//
+// Nunca derruba o processamento: falhar a auditoria não pode custar o e-mail.
+// Mantém só os 3 últimos dígitos: dá pra conferir se casou com o cliente
+// certo, sem criar mais uma cópia de CPF inteiro no banco (LGPD). O CPF
+// completo continua onde sempre esteve, no cadastro do cliente.
+function mascararCpf(cpf: string | null | undefined): string | null {
+  if (!cpf) return null;
+  const d = String(cpf).replace(/\D/g, "");
+  if (d.length !== 11) return "***";
+  return `***.***.**${d[8]}-${d.slice(9)}`;
+}
+
+async function registrarAuditoria(
+  sb: SupabaseClient,
+  msg: GmailMessage,
+  r: ProcessamentoResultado,
+  dryRun: boolean,
+): Promise<string | null> {
+  try {
+    const campos = r.campos_extraidos as { despacho?: string; cpf?: string } | undefined;
+    // Só a auditoria é mascarada; o casamento de cliente já rodou com o CPF
+    // completo antes daqui.
+    const camposAuditoria = campos
+      ? { ...campos, cpf: mascararCpf(campos.cpf) }
+      : null;
+    const { error: errLog } = await sb.from("inss_email_log").insert({
+      gmail_message_id: msg.id,
+      assunto: msg.subject,
+      remetente: msg.from,
+      recebido_em: msg.date,
+      campos_extraidos: camposAuditoria,
+      despacho: campos?.despacho ?? null,
+      classificacao: r.classificacao || null,
+      match_via: r.match_via || null,
+      cliente_id: r.cliente_id,
+      caso_id: r.caso_id,
+      template_aplicado: r.template_aplicado ?? null,
+      andamento_id: r.andamento_id,
+      tarefas_criadas: r.tarefas_criadas,
+      qtd_tarefas: r.tarefas_criadas.length,
+      pulado_por_dedup: r.pulado_por_dedup,
+      erros: r.erros.length > 0 ? r.erros : null,
+      dry_run: dryRun,
+    });
+    if (errLog) {
+      console.error("auditoria inss_email_log falhou:", errLog.message);
+      return errLog.message;
+    }
+    return null;
+  } catch (e) {
+    console.error("auditoria inss_email_log falhou:", String(e));
+    return String(e);
+  }
+}
+
+// ============================================================================
 // Handler HTTP
 // ============================================================================
 
@@ -889,7 +1039,9 @@ serve(async (req) => {
 
   try {
     const { token, gmailAddress } = await obterAccessToken(sb);
-    const query = `label:${label} newer_than:${dias}d`;
+    // in:inbox de proposito: e-mail ja arquivado e passado, e reprocessar
+    // passado criaria tarefa em cima de caso que a equipe ja resolveu.
+    const query = `label:${label} in:inbox newer_than:${dias}d`;
     // Se body.message_id(s) foi passado, processa só esses (sem precisar
     // listar). Caso contrário, lista pela label/janela.
     const ids = onlyIds ?? await gmailListMessages(token, gmailAddress, query, limite);
@@ -902,11 +1054,14 @@ serve(async (req) => {
     }
 
     const resultados: ProcessamentoResultado[] = [];
+    const auditoriaErros: string[] = [];
     for (const id of ids) {
       try {
         const msg = await gmailGetMessage(token, gmailAddress, id);
         const r = await processarMensagem(sb, msg, lookups, dryRun);
         resultados.push(r);
+        const errAud = await registrarAuditoria(sb, msg, r, dryRun);
+        if (errAud) auditoriaErros.push(errAud);
       } catch (e) {
         resultados.push({
           message_id: id,
@@ -924,6 +1079,7 @@ serve(async (req) => {
 
     return jsonResponse({
       dry_run: dryRun,
+      auditoria_erros: auditoriaErros,
       query,
       mensagens_listadas: ids.length,
       processadas: resultados.filter((r) => !r.pulado_por_dedup && r.erros.length === 0 && r.tarefas_criadas.length > 0).length,

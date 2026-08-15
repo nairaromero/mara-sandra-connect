@@ -3,6 +3,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { toast } from "sonner";
 import {
   ArrowLeft,
+  AtSign,
+  Phone,
+  User as UserIcon,
   Loader2,
   FileText,
   FileDown,
@@ -186,6 +189,9 @@ interface Andamento {
   descricao: string | null;
   data_evento: string | null;
   criado_por: string | null;
+  // Join com usuarios: quem lançou o andamento. Null nos automáticos
+  // (DataJud/DJEN) e nos importados antigos, que não têm autor humano.
+  autor?: { id: string; nome: string | null } | null;
   metadata: Record<string, unknown> | null;
   visivel_parceiro: boolean;
   processo_admin_id: string | null;
@@ -268,6 +274,13 @@ interface ComentarioRow {
     id: string;
     nome: string | null;
     email: string | null;
+    tipo: string;
+  } | null;
+  // Direcionamento da conversa: quem foi marcado no "Para:". null = todos.
+  destinatario_id?: string | null;
+  destinatario?: {
+    id: string;
+    nome: string | null;
     tipo: string;
   } | null;
 }
@@ -739,7 +752,7 @@ function CasoDetalhePage() {
 
       const andamentosResp = await supabase
         .from("andamentos")
-        .select("*")
+        .select("*, autor:criado_por(id, nome)")
         .eq("caso_id", casoId)
         .order("data_evento", { ascending: false });
       if (andamentosResp.error) throw andamentosResp.error;
@@ -782,7 +795,7 @@ function CasoDetalhePage() {
       const comentariosResp = await supabase
         .from("comentarios")
         .select(
-          "id, caso_id, parent_id, autor_id, texto, created_at, autor:autor_id(id, nome, email, tipo)",
+          "id, caso_id, parent_id, autor_id, texto, created_at, destinatario_id, autor:autor_id(id, nome, email, tipo), destinatario:destinatario_id(id, nome, tipo)",
         )
         .eq("caso_id", casoId)
         .order("created_at", { ascending: true });
@@ -1040,6 +1053,7 @@ function CasoDetalhePage() {
               setComentarios={setComentarios}
               usuarioId={usuario ? usuario.id : null}
               temParceiro={caso.parceiro_id !== null}
+              parceiro={parceiro}
               focoId={search.foco}
             />
           </TabsContent>
@@ -1155,6 +1169,19 @@ function IdentidadeClienteLinha(props: { cliente: Cliente; isInterno: boolean })
     }
   }
 
+  // Copia só os dígitos: é o formato que WhatsApp e discador aceitam colado.
+  async function copiarTelefone() {
+    const tel = (cliente.telefone ?? "").replace(/\D/g, "");
+    if (!tel) return;
+    try {
+      await navigator.clipboard.writeText(tel);
+      toast.success("Telefone copiado");
+    } catch (err) {
+      console.error(err);
+      toast.error("Não foi possível copiar (clipboard bloqueado)");
+    }
+  }
+
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
       {/* Nascimento + idade */}
@@ -1258,6 +1285,27 @@ function IdentidadeClienteLinha(props: { cliente: Cliente; isInterno: boolean })
           </Button>
         )}
       </span>
+
+      {/* Telefone — só a equipe, mesma regra da Visão geral (o parceiro não vê
+          contato do cliente). Sem número cadastrado, nem aparece. */}
+      {isInterno && cliente.telefone && (
+        <span className="flex items-center gap-1">
+          <span className="text-xs text-muted-foreground flex items-center gap-1">
+            <Phone className="h-3.5 w-3.5" />
+            Telefone:
+          </span>
+          <span>{cliente.telefone}</span>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 w-6 p-0"
+            onClick={copiarTelefone}
+            title="Copiar telefone"
+          >
+            <Copy className="h-3.5 w-3.5" />
+          </Button>
+        </span>
+      )}
     </div>
   );
 }
@@ -1342,7 +1390,15 @@ function CasoHeader(props: CasoHeaderProps) {
       toast.success(msg);
       if (r.erros && r.erros.length > 0) {
         console.warn("erros no sync Legalmail:", r.erros);
-        toast.warning(r.erros.length + " erro(s) durante sync. Ver console.");
+        const detalhe = r.erros
+          .slice(0, 3)
+          .map((e) => "#" + e.idprocesso + ": " + e.motivo)
+          .join(" | ");
+        const resto = r.erros.length > 3 ? " (+" + (r.erros.length - 3) + ")" : "";
+        toast.warning(r.erros.length + " erro(s) durante sync", {
+          description: detalhe + resto,
+          duration: 15000,
+        });
       }
       onChange();
     } catch (err) {
@@ -2942,6 +2998,15 @@ function TabAndamentos(props: TabAndamentosProps) {
             <span className="text-xs text-muted-foreground">
               {formatDateTime(a.data_evento || a.created_at)}
             </span>
+            {/* Quem lançou. Só aparece quando há autor humano — nos
+                automáticos o selo de origem (DJEN/DataJud) já diz de onde veio,
+                e escrever "desconhecido" nos importados antigos seria ruído. */}
+            {a.autor?.nome && (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <UserIcon className="h-3 w-3" />
+                {a.autor.nome}
+              </span>
+            )}
             {isInterno && temParceiro && (
               <Button
                 type="button"
@@ -6504,6 +6569,9 @@ interface TabComentariosProps {
   // Se false, caso nao tem parceiro vinculado - comentarios funcionam como
   // notas internas (so equipe ve). UI muda copy pra refletir isso.
   temParceiro: boolean;
+  // Parceiro do caso: entra como opção no "Para:" pra dar pra direcionar o
+  // comentário a ele, não só à equipe.
+  parceiro: ParceiroLite | null;
   focoId?: string;
 }
 
@@ -6524,7 +6592,7 @@ function tipoBadgeLabel(tipo: string | undefined | null): string {
 }
 
 function TabComentarios(props: TabComentariosProps) {
-  const { casoId, comentarios, setComentarios, usuarioId, temParceiro, focoId } = props;
+  const { casoId, comentarios, setComentarios, usuarioId, temParceiro, parceiro, focoId } = props;
   const { usuario } = useAuth();
   // Interno pode excluir QUALQUER comentario (moderacao) - a RLS ja permite.
   // Autor pode excluir o proprio. Parceiro so ve excluir nos seus.
@@ -6686,6 +6754,7 @@ function TabComentarios(props: TabComentariosProps) {
               onExcluir={() => excluirComentario(c.id)}
               excluindo={excluindoId === c.id}
               destacado={foco === c.id}
+              usuarioId={usuarioId}
             />
           ))
         )}
@@ -6694,7 +6763,11 @@ function TabComentarios(props: TabComentariosProps) {
 
       {/* Composer */}
       <div className="border-t p-3 space-y-2">
-        <SeletorDestinatario value={destinatario} onChange={setDestinatario} />
+        <SeletorDestinatario
+          value={destinatario}
+          onChange={setDestinatario}
+          parceiro={parceiro}
+        />
         <div className="flex items-end gap-2">
           <Textarea
             rows={2}
@@ -6733,10 +6806,19 @@ function ComentarioBolha(props: {
   onExcluir: () => void;
   excluindo: boolean;
   destacado?: boolean;
+  usuarioId?: string | null;
 }) {
-  const { comentario, meu, podeExcluir, onExcluir, excluindo, destacado } = props;
+  const { comentario, meu, podeExcluir, onExcluir, excluindo, destacado, usuarioId } = props;
   const autorNome = comentario.autor?.nome || comentario.autor?.email || "(sem nome)";
   const tipo = comentario.autor?.tipo;
+  // Direcionamento: sem isto a escolha do "Para:" ficava só no banco e quem
+  // recebia não sabia que o recado era pra ele.
+  const paraMim = !!comentario.destinatario_id && comentario.destinatario_id === usuarioId;
+  const paraQuem = paraMim
+    ? "Para você"
+    : comentario.destinatario
+      ? "Para " + (comentario.destinatario.nome ?? "(sem nome)")
+      : null;
 
   return (
     <div
@@ -6756,6 +6838,23 @@ function ComentarioBolha(props: {
             <span className={"text-[9px] px-1 rounded " + tipoBadgeClasses(tipo)}>
               {tipoBadgeLabel(tipo)}
             </span>
+          </div>
+        )}
+        {/* A quem o recado foi endereçado. "Para você" ganha destaque porque é
+            o que faz a pessoa saber que a bola está com ela. */}
+        {paraQuem && (
+          <div
+            className={
+              "mb-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium " +
+              (meu
+                ? "bg-primary-foreground/15 text-primary-foreground"
+                : paraMim
+                  ? "bg-[var(--gold-soft)]/60 border border-[var(--gold)]/40 text-foreground"
+                  : "bg-background/60 text-muted-foreground")
+            }
+          >
+            <AtSign className="h-2.5 w-2.5" />
+            {paraQuem}
           </div>
         )}
         <p className="text-sm whitespace-pre-wrap break-words">{comentario.texto}</p>
@@ -7398,7 +7497,15 @@ function TabProcessos(props: TabProcessosProps) {
       toast.success(msg);
       if (r.erros && r.erros.length > 0) {
         console.warn("erros no import legalmail:", r.erros);
-        toast.warning(r.erros.length + " erro(s) durante importação. Ver console.");
+        const detalhe = r.erros
+          .slice(0, 3)
+          .map((e) => "#" + e.idprocesso + ": " + e.motivo)
+          .join(" | ");
+        const resto = r.erros.length > 3 ? " (+" + (r.erros.length - 3) + ")" : "";
+        toast.warning(r.erros.length + " erro(s) durante importação", {
+          description: detalhe + resto,
+          duration: 15000,
+        });
       }
       setAbrirBuscaLM(false);
       setResultadosLM([]);

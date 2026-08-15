@@ -81,6 +81,10 @@ export interface TarefaTemplateItem {
   due_relative_to?: "hoje" | "data_cessacao" | "agenda" | "sexta_antes_agenda";
   // Apenas itens destino=agenda
   duracao_min?: number;
+  // Apenas itens destino=agenda: template que NÃO depende de caso (ex.:
+  // ausência da equipe). Sem isto o seletor de template só aparece com um
+  // caso escolhido, e ausência não tem cliente nenhum.
+  sem_caso?: boolean;
   // Apenas itens destino=andamento: força visibilidade pro parceiro
   // (default true quando destino=andamento).
   visivel_parceiro?: boolean;
