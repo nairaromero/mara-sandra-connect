@@ -1,6 +1,18 @@
 # Visão do Parceiro — Mapeamento tela por tela
 
-> Como a UI deve se comportar quando o usuário logado é `tipo='parceiro'` vs `tipo='interno'`. Para discussão e validação antes de implementar refinos.
+> ## 🟡 Escrito antes de metade do sistema existir
+>
+> Este documento é de quando o app tinha 9 telas — hoje tem 27, e a home do parceiro é
+> `/clientes`, não o dashboard. O **inventário de telas está velho**; os **princípios do §1
+> continuam valendo** e boa parte do checklist do §11 já foi implementada
+> (CPF mascarado, análise só pelo `resumo_parceiro`, ações técnicas escondidas).
+>
+> A garantia mais importante mudou de lugar desde então: **`visivel_parceiro` passou a valer
+> no RLS**, não só no frontend (correção de 2026-06-09). O que o parceiro não pode ver, ele
+> não alcança nem chamando a API direto.
+>
+> Ainda em aberto daqui: dashboard próprio do parceiro, aba Processos só-leitura e onboarding
+> dedicado — ver [TODO.md](TODO.md) §Produto.
 
 ---
 

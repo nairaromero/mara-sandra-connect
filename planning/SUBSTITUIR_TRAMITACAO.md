@@ -1,6 +1,20 @@
 # Substituir o Tramitação Inteligente — Mara Sandra Connect
 
-> Status: **planejamento** (mapa mental aprovado pela Naira em 2026-06-15).
+> ## 🟡 Estado em 2026-08-15 — o plano andou até o MVP 3
+>
+> | MVP | O que era | Estado |
+> |---|---|---|
+> | 1 | Pipeline INSS por e-mail | ✅ no ar desde 14/08 (`inss-email-processor` + cron 05:00) |
+> | 2 | Tarefas e kanban | ✅ entregue (671 tarefas, 21 templates) |
+> | 3 | Prazos e perícias | ✅ entregue (fila `/a-enviar`, rotinas diárias, comparecimento) |
+> | 4 | Agenda ↔ Google Calendar | ⬜ **a agenda existe, a sincronização não.** `gcal_event_id` está sempre nulo |
+> | 5 | Mobile / PWA / push | ⬜ manifest feito, push e OCR de pauta não |
+>
+> E o objetivo maior foi cumprido: **o TI foi desligado em 2026-08-11** — antes do previsto no
+> §7, que imaginava mantê-lo como feed read-only do INSS. Quem cobre movimentação judicial
+> hoje é o DataJud; o administrativo vem do e-mail do INSS.
+>
+> Status original: **planejamento** (mapa mental aprovado pela Naira em 2026-06-15).
 > Objetivo: assumir no sistema próprio tudo o que o **Tramitação Inteligente (TI)** faz hoje
 > para a operação diária — tarefas, prazos, perícias, agenda, classificação de e-mails do INSS —
 > deixando o TI no máximo como **fonte read-only** de movimentação administrativa do INSS
