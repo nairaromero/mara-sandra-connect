@@ -1,8 +1,24 @@
 # Handoff — 2026-06-16 — Pipeline Solicitação→Exigência
 
+> ## ✅ FECHADO — verificado em produção em 2026-08-15
+>
+> O bug descrito abaixo **não existe mais**. O pipeline roda end-to-end:
+>
+> - 3 solicitações com `origem='template:exigencia'` foram criadas em produção
+>   (22/07, 31/07 e 03/08) — ou seja, aplicar o template passou a funcionar;
+> - em **14/08** o parceiro cumpriu uma delas (`status='atendido'`) e o trigger
+>   `_solicitacao_atendida_cria_tarefa()` criou a tarefa
+>   **"Documento entregue — cumprir exigência no INSS"**, que foi concluída.
+>
+> Não há registro de qual commit corrigiu a causa raiz (provavelmente entrou junto
+> com o refino de templates de julho). O documento fica como **histórico do desenho
+> do pipeline**, que continua valendo — não como pendência.
+>
+> Estado atual: [ARQUITETURA.md](ARQUITETURA.md) · pendências: [TODO.md](TODO.md).
+
 Sessão grande na branch `feat/tarefas-ui-kanban`. Tudo commitado e empurrado.
 
-## TL;DR do que ficamos travadas
+## TL;DR do que ficamos travadas *(histórico — resolvido)*
 
 **Bug aberto:** aplicar o template `exigencia` manualmente pelo TarefaSheet ainda mostra **"Falha ao salvar."** no toast. Já corrigi 1 causa (constraint do banco) mas continua falhando — possivelmente por outro motivo ainda não diagnosticado.
 

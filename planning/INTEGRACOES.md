@@ -1,7 +1,21 @@
 # Plano de integração — TI + Legalmail → Mara Sandra Connect
 
-> Documento de implementação das integrações externas. Para arquitetura geral do app, ver [ARQUITETURA.md](ARQUITETURA.md).
-> Para checklist de tarefas, ver [TODO.md](TODO.md).
+> ## ⚪ Documento histórico — leia isto antes
+>
+> Estado em **2026-08-15**:
+> - **Tramitação Inteligente: desligado em 2026-08-11.** Nenhuma sincronização automática
+>   roda. Sobraram só "Buscar no TI" (caso novo) e "Importar do TI" (Clientes). A base já
+>   foi migrada — ver [MIGRACAO_TI.md](MIGRACAO_TI.md).
+> - **Legalmail: só importação manual.** Os workflows n8n do §4 **nunca foram construídos**;
+>   quem traz movimentação judicial hoje é o DataJud ([PROCESSOS_GLOBAL.md](PROCESSOS_GLOBAL.md)).
+> - **A aba `/integracoes` do §7 nunca existiu.** Os tokens seguem em secrets de edge
+>   function, não no Vault com UI. O papel `is_admin` do §7.8 também não foi criado.
+> - A tabela `sync_log` do §6 não existe.
+>
+> **O que continua valendo:** o mapeamento campo a campo (§3), os limites e o schema das duas
+> APIs (§1) e as decisões de match (§5). É por isso que o documento fica.
+>
+> Estado atual: [ARQUITETURA.md](ARQUITETURA.md) · pendências: [TODO.md](TODO.md).
 
 ---
 
