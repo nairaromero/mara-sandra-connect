@@ -4,6 +4,8 @@ import { toast } from "sonner";
 import {
   ArrowLeft,
   AtSign,
+  Phone,
+  User as UserIcon,
   Loader2,
   FileText,
   FileDown,
@@ -187,6 +189,9 @@ interface Andamento {
   descricao: string | null;
   data_evento: string | null;
   criado_por: string | null;
+  // Join com usuarios: quem lançou o andamento. Null nos automáticos
+  // (DataJud/DJEN) e nos importados antigos, que não têm autor humano.
+  autor?: { id: string; nome: string | null } | null;
   metadata: Record<string, unknown> | null;
   visivel_parceiro: boolean;
   processo_admin_id: string | null;
@@ -747,7 +752,7 @@ function CasoDetalhePage() {
 
       const andamentosResp = await supabase
         .from("andamentos")
-        .select("*")
+        .select("*, autor:criado_por(id, nome)")
         .eq("caso_id", casoId)
         .order("data_evento", { ascending: false });
       if (andamentosResp.error) throw andamentosResp.error;
@@ -1164,6 +1169,19 @@ function IdentidadeClienteLinha(props: { cliente: Cliente; isInterno: boolean })
     }
   }
 
+  // Copia só os dígitos: é o formato que WhatsApp e discador aceitam colado.
+  async function copiarTelefone() {
+    const tel = (cliente.telefone ?? "").replace(/\D/g, "");
+    if (!tel) return;
+    try {
+      await navigator.clipboard.writeText(tel);
+      toast.success("Telefone copiado");
+    } catch (err) {
+      console.error(err);
+      toast.error("Não foi possível copiar (clipboard bloqueado)");
+    }
+  }
+
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
       {/* Nascimento + idade */}
@@ -1267,6 +1285,27 @@ function IdentidadeClienteLinha(props: { cliente: Cliente; isInterno: boolean })
           </Button>
         )}
       </span>
+
+      {/* Telefone — só a equipe, mesma regra da Visão geral (o parceiro não vê
+          contato do cliente). Sem número cadastrado, nem aparece. */}
+      {isInterno && cliente.telefone && (
+        <span className="flex items-center gap-1">
+          <span className="text-xs text-muted-foreground flex items-center gap-1">
+            <Phone className="h-3.5 w-3.5" />
+            Telefone:
+          </span>
+          <span>{cliente.telefone}</span>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 w-6 p-0"
+            onClick={copiarTelefone}
+            title="Copiar telefone"
+          >
+            <Copy className="h-3.5 w-3.5" />
+          </Button>
+        </span>
+      )}
     </div>
   );
 }
@@ -2959,6 +2998,15 @@ function TabAndamentos(props: TabAndamentosProps) {
             <span className="text-xs text-muted-foreground">
               {formatDateTime(a.data_evento || a.created_at)}
             </span>
+            {/* Quem lançou. Só aparece quando há autor humano — nos
+                automáticos o selo de origem (DJEN/DataJud) já diz de onde veio,
+                e escrever "desconhecido" nos importados antigos seria ruído. */}
+            {a.autor?.nome && (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <UserIcon className="h-3 w-3" />
+                {a.autor.nome}
+              </span>
+            )}
             {isInterno && temParceiro && (
               <Button
                 type="button"
