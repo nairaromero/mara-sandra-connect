@@ -69,3 +69,33 @@ export function ordenarEtiquetas<T extends { nome: string }>(lista: Array<T>): A
     return a.nome.localeCompare(b.nome, "pt-BR");
   });
 }
+
+// Etiqueta de benefício → nome canônico usado em `casos.tipo_beneficio`.
+//
+// Um caso guarda UM benefício, mas o cliente pode ter duas etiquetas quando o
+// pedido envolve mais de um (ex.: auxílio-acidente + aposentadoria especial).
+// Sem este mapa, filtrar por "Aposentadoria especial" esconderia o caso que
+// tem isso na etiqueta mas outro nome no campo. Evita ter que inventar valor
+// combinado ("A / B") só pra o filtro achar.
+export const BENEFICIO_POR_ETIQUETA: Record<string, string> = {
+  APOSENTADORIA_RURAL: "Aposentadoria Rural",
+  AUXILIO_ACIDENTE: "Auxílio-acidente",
+  APOSENTADORIA_ESPECIAL: "Aposentadoria especial",
+  APOSENTADORIA_PCD_TEMPO_CONTRIBUICAO: "Aposentadoria da PCD (LC 142/2013)",
+  APOSENTADORIA_POR_TEMPO_CONTRIBUICAO: "Aposentadoria por tempo de contribuição",
+  APOSENTADORIA_POR_IDADE: "Aposentadoria por idade",
+  REVISAO_APOSENTADORIA: "Revisão de aposentadoria",
+  AUXILIO_DOENCA: "Auxílio por incapacidade temporária",
+};
+
+/** Benefícios que as etiquetas do cliente indicam (canônicos, sem repetir). */
+export function beneficiosDasEtiquetas(
+  etiquetas: Array<{ nome: string }>,
+): Array<string> {
+  const out = new Set<string>();
+  for (const e of etiquetas) {
+    const b = BENEFICIO_POR_ETIQUETA[(e.nome || "").toUpperCase().trim()];
+    if (b) out.add(b);
+  }
+  return Array.from(out);
+}

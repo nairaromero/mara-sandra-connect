@@ -52,7 +52,7 @@ import {
 } from "@/components/ui/popover";
 import { ImportarClientesExcelDialog } from "@/components/importar-clientes-excel-dialog";
 import { exportarClientesExcel } from "@/lib/clientes-excel";
-import { ordenarEtiquetas } from "@/lib/etiquetas";
+import { beneficiosDasEtiquetas, ordenarEtiquetas } from "@/lib/etiquetas";
 import { TarefaSheet, type TarefaSheetModo } from "@/components/tarefas/tarefa-sheet";
 
 export const Route = createFileRoute("/_authenticated/clientes")({
@@ -362,6 +362,7 @@ function ClientesPage() {
         const b = (ca.tipo_beneficio ?? "").trim();
         if (b) set.add(b);
       }
+      for (const b of beneficiosDasEtiquetas(c.etiquetas)) set.add(b);
     }
     return Array.from(set).sort((a, b) => {
       if (a === "a_definir") return -1;
@@ -393,8 +394,13 @@ function ClientesPage() {
     // Filtro por benefício. Existe sobretudo pra achar os "a definir" — caso
     // que entrou e ainda não foi classificado.
     if (beneficioFiltro) {
-      result = result.filter((c) =>
-        c.casos.some((ca) => (ca.tipo_beneficio ?? "") === beneficioFiltro),
+      // Casa pelo campo OU pela etiqueta: o caso guarda um benefício só, mas o
+      // cliente pode ter dois na etiqueta. Sem isto, filtrar pelo segundo
+      // escondia o caso — e a alternativa seria inventar valor combinado.
+      result = result.filter(
+        (c) =>
+          c.casos.some((ca) => (ca.tipo_beneficio ?? "") === beneficioFiltro) ||
+          beneficiosDasEtiquetas(c.etiquetas).includes(beneficioFiltro),
       );
     }
 
