@@ -514,6 +514,30 @@ async function acharCliente(
   return { cliente_id: null, caso_id: null, processo_admin_id: null, via: "sem_match" };
 }
 
+// O e-mail do INSS quase sempre traz o protocolo. Quando o cliente casou por
+// nome/CPF, o andamento nascia SEM processo e caía em "Andamentos Gerais",
+// solto — mesmo com o requerimento existindo no caso. Aqui resolvemos o
+// processo pelo protocolo, exigindo que ele seja do MESMO caso: protocolo de
+// outro caso é sinal de match errado, e nesse caso é melhor deixar solto do
+// que pendurar a movimentação no processo errado.
+async function acharProcessoAdminDoCaso(
+  sb: SupabaseClient,
+  protocolo: string | null | undefined,
+  casoId: string | null,
+): Promise<string | null> {
+  if (!protocolo || !casoId) return null;
+  const norm = String(protocolo).replace(/\D/g, "");
+  if (!norm) return null;
+  const { data, error } = await sb
+    .from("processos_admin")
+    .select("id")
+    .eq("numero_req_normalizado", norm)
+    .eq("caso_id", casoId)
+    .limit(1);
+  if (error || !data || data.length === 0) return null;
+  return data[0].id;
+}
+
 async function casoMaisRecente(
   sb: SupabaseClient,
   clienteId: string,
@@ -659,7 +683,24 @@ async function processarMensagem(
     erros: [],
   };
 
-  // Dedup: já processado?
+  // Dedup: esta mensagem já foi processada PRA VALER?
+  //
+  // A trava olha a auditoria, não as tarefas: tarefa concluída, arquivada ou
+  // EXCLUÍDA não pode fazer o e-mail voltar a ser processado e duplicar tudo.
+  // dry_run não conta — simular não pode bloquear a execução real.
+  const { data: jaLido } = await sb
+    .from("inss_email_log")
+    .select("id")
+    .eq("gmail_message_id", msg.id)
+    .eq("dry_run", false)
+    .eq("pulado_por_dedup", false)
+    .limit(1);
+  if (jaLido && jaLido.length > 0) {
+    res.pulado_por_dedup = true;
+    return res;
+  }
+  // Reserva histórica: e-mails processados antes da auditoria existir só
+  // deixaram rastro nas tarefas.
   const { data: jaProcessado } = await sb
     .from("tarefas")
     .select("id")
@@ -689,6 +730,11 @@ async function processarMensagem(
 
   // Match cliente (decisão 2: nome → CPF → protocolo).
   const match = await acharCliente(sb, campos);
+  // Casou por nome/CPF? O protocolo do e-mail ainda pode dizer em QUAL
+  // requerimento a movimentação entra.
+  if (!match.processo_admin_id) {
+    match.processo_admin_id = await acharProcessoAdminDoCaso(sb, campos.protocolo, match.caso_id);
+  }
   res.match_via = match.via;
   res.cliente_id = match.cliente_id;
   res.caso_id = match.caso_id;
@@ -764,7 +810,7 @@ async function processarMensagem(
     // e repassar"). Pula a parte de tarefa.
     if ((item as { destino?: string }).destino === "andamento" && match.caso_id) {
       const visivel = (item as { visivel_parceiro?: boolean }).visivel_parceiro ?? true;
-      const { error: errAndamentoExtra } = await sb
+      const { data: andExtra, error: errAndamentoExtra } = await sb
         .from("andamentos")
         .insert({
           caso_id: match.caso_id,
@@ -782,9 +828,30 @@ async function processarMensagem(
             destino: "andamento",
             ...(item.meta ?? {}),
           },
-        });
+        })
+        .select("id")
+        .single();
       if (errAndamentoExtra) {
         res.erros.push(`andamento[${i}] insert: ${errAndamentoExtra.message}`);
+      } else if (andExtra && visivel) {
+        // Andamento visível ao parceiro é comunicação: tem que chegar por
+        // e-mail, senão fica esperando ele entrar no portal por acaso.
+        // Falha no envio não desfaz o andamento — só entra nos erros.
+        try {
+          const rNot = await fetch(`${SUPABASE_URL}/functions/v1/notify-novo-andamento`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${SERVICE_ROLE}`,
+            },
+            body: JSON.stringify({ andamento_id: andExtra.id }),
+          });
+          if (!rNot.ok) {
+            res.erros.push(`email parceiro[${i}]: HTTP ${rNot.status}`);
+          }
+        } catch (e) {
+          res.erros.push(`email parceiro[${i}]: ${String(e).slice(0, 120)}`);
+        }
       }
       continue;
     }
