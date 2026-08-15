@@ -101,6 +101,11 @@ interface ClienteAgrupado {
 // Helpers
 // ===========================================================================
 
+// "a_definir" é valor de banco; na tela vira texto legível.
+function rotuloBeneficio(valor: string): string {
+  return valor === "a_definir" ? "A definir (não classificado)" : valor;
+}
+
 function onlyDigits(s: string): string {
   return (s || "").replace(/\D/g, "");
 }
@@ -364,11 +369,12 @@ function ClientesPage() {
       }
       for (const b of beneficiosDasEtiquetas(c.etiquetas)) set.add(b);
     }
-    return Array.from(set).sort((a, b) => {
-      if (a === "a_definir") return -1;
-      if (b === "a_definir") return 1;
-      return a.localeCompare(b, "pt-BR");
-    });
+    // Ordena pelo RÓTULO que aparece na tela, não pelo valor cru do banco:
+    // "a_definir" é exibido como "A definir (não classificado)" e tem que cair
+    // onde a pessoa procura por ele, em ordem alfabética como os demais.
+    return Array.from(set)
+      .map((valor) => ({ valor, rotulo: rotuloBeneficio(valor) }))
+      .sort((a, b) => a.rotulo.localeCompare(b.rotulo, "pt-BR"));
   }, [clientes]);
 
   const clientesFiltrados = useMemo(() => {
@@ -673,8 +679,8 @@ function ClientesPage() {
                   <SelectContent>
                     <SelectItem value="__todos__">Todos</SelectItem>
                     {beneficiosDisponiveis.map((b) => (
-                      <SelectItem key={b} value={b}>
-                        {b === "a_definir" ? "A definir (não classificado)" : b}
+                      <SelectItem key={b.valor} value={b.valor}>
+                        {b.rotulo}
                       </SelectItem>
                     ))}
                   </SelectContent>
