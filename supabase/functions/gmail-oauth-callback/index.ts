@@ -91,17 +91,35 @@ serve(async (req) => {
     return redirectBack("error", "sem_refresh_token");
   }
 
-  // Descobre qual e-mail conectou (chama userinfo).
+  // Descobre qual e-mail conectou.
+  //
+  // Usa o profile do PRÓPRIO Gmail, não o `userinfo` do Google: userinfo exige
+  // o escopo `userinfo.email`, que a gente não pede — o resultado era gravar
+  // "(desconhecido)" e o processador não achar mais a conexão depois.
+  // O profile do Gmail responde com o escopo `gmail.readonly`, que já temos.
   let emailConectado = "";
   try {
-    const ui = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
-      headers: { Authorization: `Bearer ${tok.access_token}` },
-    });
-    if (ui.ok) {
-      const uij = await ui.json() as { email?: string };
-      emailConectado = uij.email ?? "";
+    const pr = await fetch(
+      "https://gmail.googleapis.com/gmail/v1/users/me/profile",
+      { headers: { Authorization: `Bearer ${tok.access_token}` } },
+    );
+    if (pr.ok) {
+      const prj = await pr.json() as { emailAddress?: string };
+      emailConectado = prj.emailAddress ?? "";
     }
-  } catch (_) { /* sem email é OK; segue */ }
+  } catch (_) { /* segue; o fallback abaixo cobre */ }
+  // Reserva: userinfo, caso o escopo de e-mail tenha sido concedido.
+  if (!emailConectado) {
+    try {
+      const ui = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+        headers: { Authorization: `Bearer ${tok.access_token}` },
+      });
+      if (ui.ok) {
+        const uij = await ui.json() as { email?: string };
+        emailConectado = uij.email ?? "";
+      }
+    } catch (_) { /* sem email é OK; segue */ }
+  }
 
   // Cifra o refresh_token com a master key.
   const { cipher, iv } = await encryptSecret(tok.refresh_token);
