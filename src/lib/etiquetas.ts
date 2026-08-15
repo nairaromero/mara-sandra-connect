@@ -87,6 +87,13 @@ export const BENEFICIO_POR_ETIQUETA: Record<string, string> = {
   REVISAO_APOSENTADORIA: "Revisão de aposentadoria",
   AUXILIO_DOENCA: "Auxílio por incapacidade temporária",
   "CIVEL/CONSUMIDOR": "Cível/Consumidor",
+  CALCULO_PREVIDENCIARIO: "Cálculo previdenciário",
+  PLANEJAMENTO_PREVIDENCIARIO: "Planejamento previdenciário",
+  ADICIONAL_25_INSS: "Adicional 25% INSS",
+  ACERTOS_DE_VINCULOS_INSS: "Acertos de vínculos",
+  BENEFICIO_POR_INCAPACIDADE_TEMPORARIA: "Incapacidade temporária",
+  AUXILIO_DOENCA_POSTERIOR_APOSENTADORIA_POR_INVALIDEZ:
+    "Auxílio-doença posterior à aposentadoria por invalidez",
 };
 
 /** Benefícios que as etiquetas do cliente indicam (canônicos, sem repetir). */
