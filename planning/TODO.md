@@ -1,181 +1,215 @@
 # TODO — Mara Sandra Connect
 
-> Checklist consolidado. Para contexto, ver [ARQUITETURA.md](ARQUITETURA.md), [INTEGRACOES.md](INTEGRACOES.md), [UI_DESIGN.md](UI_DESIGN.md), [INTEGRACAO_IA.md](INTEGRACAO_IA.md), [INTEGRACAO_DJE.md](INTEGRACAO_DJE.md), [INTEGRACAO_WHATSAPP.md](INTEGRACAO_WHATSAPP.md).
-> Convenção: marque com `[x]` quando concluir. Não apague — deixa o histórico visível.
-> **Última auditoria de estado: 2026-06-09** (o app estava muito à frente desta lista; sincronizado abaixo).
+> Checklist consolidado do que está em aberto.
+> **Auditoria contra o banco de produção: 2026-08-15.** Os números aqui foram lidos do
+> banco, não estimados — se estiverem velhos, confira antes de agir.
+> Convenção: marque `[x]` ao concluir, não apague — o histórico fica no fim.
+> Contexto: [ARQUITETURA.md](ARQUITETURA.md) · índice: [00_README.md](00_README.md).
 
 ---
 
-## Em aberto — código (próximas sessões)
+## 🔴 Achados da auditoria de 2026-08-15
 
-### 🔴 LGPD / segurança (bloqueadores de lançamento com parceiro real)
+Coisas que estavam abertas **sem constar em nenhuma lista**. Ordenadas por risco.
 
-- [x] **Audit log de acesso a documentos** — tabela `acessos_documento` + RPC `log_acesso_documento` ([migration](sql-migrations/migration_acessos_documento.sql), aplicada em prod), instrumentada nos 3 pontos de signed URL em [casos.$id.tsx](../src/routes/_authenticated/casos.%24id.tsx) (visualização/download). LGPD Art. 37. _(Não confundir com `acessos_senha_inss`.)_
-  - [ ] **Falta só:** surfacing na tela [auditoria.tsx](../src/routes/_authenticated/auditoria.tsx) (a captura já grava; a tela ainda só mostra senha INSS).
-- [ ] **Direito do titular (LGPD Art. 18)** — parte é código:
-  - [ ] **Export/Portabilidade** — gerar ZIP com docs do caso (botão admin no /casos/$id).
-  - [ ] **Exclusão** — procedimento (caso ativo vs arquivado) documentado + ação admin.
-
-### Funcionalidade / UX
-
-- [ ] **Higiene de Storage** — limpar órfãos (arquivos de teste de 22 bytes etc.); validade maior do link de upload (hoje ~2h). _(Ref: [IA_HANDOFF.md](IA_HANDOFF.md) §4 E)_
-- [ ] **Dashboard refinado para parceiro** — visão diferente da do interno.
-- [ ] **Marcar mensagens como lidas** ao abrir o chat/comentários.
-- [ ] **Ajustar whitelist Legalmail** conforme uso real (adicionar/remover termos).
-
-### UI / Tema (o tema-base T1/T2 já está feito — ver Concluído)
-
-- [ ] **T3 — genéricos em `src/components/ui-app/`** — hoje há versões informais inline (`<Loader2 animate-spin>`, AlertDialog, etc.). Formalizar `<Spinner>`, `<EmptyState>`, `<StatusBadge>`, `<DataField>`, `<ConfirmDialog>`, `<MoneyTile>`, `<DialogShell>` se/quando o reuso justificar. _(O `<Markdown>` genérico já foi criado em 2026-06-09.)_
-- [ ] **T4/T5/T6 — refactor** de `casos.$id.tsx`, `index.tsx`, `documentos.tsx` etc. para os genéricos + trocar cores brutas por tokens. _(Baixa prioridade — cosmético; o tema já aplica.)_
-- [ ] **T7 — varredura mobile-first** (TabsList scroll no mobile, tabelas com overflow, dialogs `max-h-[90vh] overflow-y-auto`). _(Parcialmente já feito caso a caso.)_
-- [ ] **Dark mode toggle** — o CSS `.dark` já existe ([styles.css](../src/styles.css)); falta só o botão de alternância na UI. _(PWA manifest + theme-color já feitos.)_
-- [ ] **STYLE_GUIDE.md** documentando o design system (T10).
-
-### Integrações TI + Legalmail (longo prazo, ver [INTEGRACOES.md](INTEGRACOES.md) §6)
-
-- [ ] **Coluna `processos_judiciais.ultima_sync_movs`** + tabela **`sync_log`** (uma linha por source com `last_synced_at`).
-- [ ] **Workflows n8n (cron periódico)** — `ti-sync-clientes`, `ti-sync-notas`, `legalmail-sync-processos`, `legalmail-sync-movs`; começar restrito aos 5 clientes mais recentes, depois abrir escopo.
-- [ ] **IA pra resumir movs Legalmail (Estratégia D)** — resumo humano por sync. Adiado (custo $$).
-
-### Google Drive — sync bidirecional ✅ FECHADO 2026-06-18
-
-Estado: bidirecional end-to-end em produção. Doc completo:
-[INTEGRACAO_DRIVE_BIDIRECIONAL.md](INTEGRACAO_DRIVE_BIDIRECIONAL.md).
-
-- [x] **Cenário B** — pasta vinculada, doc só no app: botão "Subir pendentes (N)" na aba Documentos. Baixa do Storage, sobe no Drive, atualiza `gdrive_file_id`. Progresso "Subindo X/Y".
-- [x] **Cenário C** — sync incremental bidirecional: "Sync pasta" detecta novos (picker), renomeados (auto), apagados (confirm). Auto-check silencioso ao abrir caso popula badge âmbar `Sync pasta (3)` sem disparar popup.
-- [x] **Upload espelhado** (Fase 1) — upload no app sobe no Drive paralelo.
-- [x] **Rename/delete app → Drive** (Fase 3) — botão lápis renomeia, lixeira deleta. Drive recebe o mesmo.
-- [x] **Scope OAuth `drive`** — necessário pra rename/delete em docs importados (scope `drive.file` era restritivo).
-- [x] **Cache de token** — popup OAuth aparece 1x/hora, não a cada operação.
-- [ ] **Cenário A** (pendente) — caso sem pasta: "Criar pasta no Drive automaticamente ao criar caso novo + exportar tudo". Hoje vincula pasta manual.
-- [ ] **Resumable upload** (pendente) — arquivos >5MB falham hoje (multipart limit).
-- [ ] **Subpastas no Drive** (pendente, decidido como MVP fora do escopo) — criar/mover entre subpastas pelo app.
+- [ ] **WhatsApp falhando calado desde junho.** A instância do Evolution caiu
+      (`Connection Closed`) mas o trigger `tg_whatsapp_comentario_novo` continua
+      enfileirando: **13 mensagens falharam** após 5 tentativas cada, a última em 14/08.
+      Ninguém é avisado da falha.
+      → Decidir: linha dedicada (ver [whatsapp/PLANO_LINHA_DEDICADA.md](whatsapp/PLANO_LINHA_DEDICADA.md))
+      **ou** desligar o trigger. O e-mail continua saindo, então o estrago é limitado —
+      mas a fila entope em silêncio.
+- [ ] **218 das 243 publicações DJEN estão órfãs.** 90% da fila de triagem parada.
+      Uma órfã pode ser intimação com prazo em processo não cadastrado — é o cenário de
+      prazo perdido. → Rotina diária de triagem **ou** filtro que separe o que é do
+      escritório do ruído da OAB.
+- [ ] **Zero repasses lançados** para 23 parceiros e 380 casos. O modelo 30/70 não existe
+      dentro do sistema; o parceiro não vê o que tem a receber. Ver §"Produto" abaixo.
+- [ ] **317 dos 380 casos sem pasta do Drive.** Todo o sync bidirecional rende em 1 caso a
+      cada 6. → Cenário A (criar pasta automaticamente no caso novo) resolve daqui pra frente;
+      os antigos precisam de vinculação em lote.
+- [ ] **8 aceites de termos para 23 parceiros.** Dois terços operam sem o instrumento
+      contratual de dados (LGPD art. 39). O gate por versão já existe — basta forçar o
+      re-aceite subindo `TERMOS_VERSAO`.
+- [ ] **Modelos OpenAI saem do ar em outubro/2026.** A lista oferecida é
+      `gpt-4.1 · gpt-4.1-mini · gpt-4o · gpt-4o-mini`. Quem tiver `gpt-4.1` salvo vê a
+      análise parar sem aviso. → Trocar em [src/lib/ia/client.ts](../src/lib/ia/client.ts)
+      e [_shared/ia-providers.ts](../supabase/functions/_shared/ia-providers.ts).
+- [ ] **Digest diário só vai para a Naira** — o campo `para` da `digest-diario` continua
+      travado "por ora" desde julho. Mara, Mariane e Beatriz não recebem o panorama do dia.
+- [ ] **Resíduo da migração TI:** 82 casos com `tipo_beneficio='a_definir'` e 52 sem
+      parceiro (criados só para segurar os andamentos importados). Somam-se aos 77 clientes
+      sem CPF que nunca migraram. Enquanto existirem, contagem nenhuma é confiável.
+- [ ] **Espelho semanal do staging nunca foi agendado.** O arquivo está pronto em
+      `espelho-staging.workflow.yml` — falta copiar para `.github/workflows/` **pela UI do
+      GitHub** (o token local não tem escopo `workflow`). Sem isso o projeto free hiberna.
+- [ ] **9 processos judiciais nunca sincronizaram** no DataJud (`ultima_sync` nula).
+- [ ] **Triagem por IA desligada desde 06/08** (`msc-ia-triagem`) — decidir se volta.
+- [ ] **Webhooks: módulo inteiro inerte.** 0 destinos, último evento em 30/05. Ou tem uso
+      real esperando (leads → n8n) ou vira código morto mantido de graça.
+- [ ] **`casos.$id.tsx` com 8.200 linhas** — um terço de todo o código de tela. É onde toda
+      mudança cai e onde o risco de quebrar algo sem perceber é maior.
 
 ---
 
-## Decisões de produto (não implementar até decidir)
+## 🔴 LGPD e conformidade
 
-- [ ] **Tela `/repasses` global no sidebar** — **adiada por decisão de produto** (2026-06-09). A rota nem existe; há comentário em [app-sidebar.tsx](../src/components/app-sidebar.tsx) marcando como pendência de produto. Repasses já existem como aba dentro do caso e na agregação do dashboard. Construir a tela global só quando o produto decidir.
-- [x] **check-legalmail-nome no `/casos/novo`** — **decidido NÃO auto-chamar** (2026-06-09). A função varre TODA a base do Legalmail (`/lawsuit/all`, paginando 2,1s/página, até 5000) — rodar a cada criação de caso seria lento e bateria no rate limit toda hora. A duplicidade por CPF já é coberta automaticamente (`alertas_duplicidade`); a busca por nome continua **sob demanda** no botão "Buscar no Legalmail" do caso.
-- [ ] **Tela `/processos` global** no sidebar (se decidir adicionar).
-- [ ] **Onboarding de parceiro** (fluxo dedicado).
+### Depende de decisão/assinatura (não é código)
+
+- [ ] **Base legal** definida e registrada (legítimo interesse / execução de contrato /
+      consentimento).
+- [ ] **DPA com Anthropic e OpenAI** + **no-training / retenção zero** ligados na conta de
+      cada provedor. Hoje dado previdenciário (que toca saúde, art. 11) vai para os EUA sem
+      instrumento assinado.
+- [ ] **Política de privacidade pública** — texto pronto em [legal/](legal/), falta publicar
+      e linkar no rodapé e no cadastro.
+- [ ] **Revisão das minutas por especialista LGPD** (DPA do parceiro, política, adendo de IA).
+- [ ] **Política de retenção e descarte** de documentos (sugestão: trânsito em julgado + 5 anos).
+- [ ] **Plano de resposta a incidente** (art. 48 — notificar ANPD).
+- [ ] **Treinamento da equipe** (Mara Sandra, Mariane, Beatriz).
+- [ ] **2FA obrigatório** para internos.
+- [ ] **Teste de balanceamento** do espelho anonimizado documentado no registro de
+      tratamento (ver [AMBIENTES.md](AMBIENTES.md) §LGPD).
+
+> Escritório de pequeno porte é dispensado de DPO formal (Resolução CD/ANPD nº 2/2022),
+> mas deve manter canal com o titular — já configurado em [termos.ts](../src/lib/legal/termos.ts).
+
+### É código
+
+- [ ] **Direito do titular (art. 18)** — exportar dados do caso em ZIP e procedimento de
+      exclusão (caso ativo vs. arquivado).
+- [ ] **Auditoria de acesso a documento na tela.** A captura já grava em `acessos_documento`;
+      a tela [auditoria.tsx](../src/routes/_authenticated/auditoria.tsx) ainda só mostra
+      senha do INSS.
+- [ ] **Higiene de Storage** — limpar órfãos e arquivos de teste antigos.
 
 ---
 
-## Jurídico / Operacional (ação da Naira — não é código)
+## Produto — decidido adiar, vale revisitar
 
-> Registrado aqui para não se perder; eu (Claude) não consigo executar estes — dependem de assinatura, conta de terceiro, dinheiro ou decisão da controladora.
-
-### LGPD — contratual / governança
-
-- [ ] **Base legal** definida (legítimo interesse / execução de contrato / consentimento).
-- [ ] **DPA / Termos de Processamento** assinados com **Anthropic** e **OpenAI** (uso do plugin de IA). _(Ref: [INTEGRACAO_IA.md](INTEGRACAO_IA.md))_
-- [ ] **No-training / retenção-zero** habilitados na conta de cada provedor de IA.
-- [ ] **DPA / Anexo de proteção de dados** no contrato de cada **parceiro** (LGPD Art. 39; co-controle CNISIA/Mara Sandra ↔ parceiro).
-- [ ] **Política de privacidade pública** — publicar no app (link no rodapé) + na criação de conta. _(Posso gerar o rascunho do texto se quiser.)_
-- [ ] **Transparência** — aviso de que dados podem ser processados por IA.
-- [ ] **Encarregado (DPO)** nomeado (LGPD Art. 41).
-- [ ] **Treinamento LGPD da equipe** (Beatriz, Lucas, Mara Sandra).
-- [ ] **Plano de resposta a incidentes** (LGPD Art. 48 — notificar ANPD).
-- [ ] **Política de retenção e descarte** de PDFs/documentos (sugestão: trânsito em julgado + 5 anos).
-- [ ] **2FA obrigatório** para internos (TOTP/SMS além do magic link).
-
-### Infra / ops
-
-- [ ] **Upgrade Supabase Pro** (~$25/mês) — habilita PITR de 7 dias (backups). Hoje Free não tem.
-- [ ] **Apontar `marasandraconnect.com` para o app** no Cloudflare DNS (domínio já registrado).
+- [ ] **Tela global de `/repasses`** — adiada em 2026-06-09. A rota existe fora da sidebar.
+      É a espinha comercial do escritório e está fora do sistema.
+- [ ] **Dashboard próprio do parceiro** — hoje ele vê versão reduzida da visão interna, sem
+      "quanto tenho a receber" nem "o que precisa de mim".
+- [ ] **Aba Processos para o parceiro** (só leitura — o CNJ é o que ele passa ao cliente).
+- [ ] **Onboarding dedicado do parceiro**, além do aceite de termos.
+- [ ] **Cliente final no WhatsApp** — a fronteira ficou pronta num ponto só (resolvedor de
+      contato), a fase nunca começou.
 
 ---
 
-## WhatsApp (Evolution API) — **deixado de lado a pedido da Naira (2026-06-09)**
+## Funcionalidade — planejado e não construído
 
-> Será retomado em outra sessão. Estado e plano completos em
-> [INTEGRACAO_WHATSAPP.md](INTEGRACAO_WHATSAPP.md) e nos runbooks em `whatsapp/`.
-> Resumo: Fase 1 (saída) e Fase 2 (entrada/menu/comentário) **implantadas**;
-> Fase 3 (mídia/documento + onboarding por código) **já está no código** da
-> `whatsapp-inbound` mas ainda **não commitada/validada**; webhook de entrada
-> está **DESLIGADO** (só ligar em janela de teste). Faltam: decisões §11,
-> Fase 4 (andamento/status/decisão), Fase 5 (clientes), notificar interno quando
-> parceiro comenta pelo WhatsApp, validar lista/botões interativos.
+### Substituir o Tramitação — o plano parou no MVP 3
+
+Ver [SUBSTITUIR_TRAMITACAO.md](SUBSTITUIR_TRAMITACAO.md). MVPs 1, 2 e 3 entregues.
+
+- [ ] **MVP 4 — Agenda ↔ Google Calendar nos dois sentidos.** `agenda_eventos.gcal_event_id`
+      já existe e está sempre nulo. Falta OAuth por usuária, `gcal-sync-out`/`in` e convite
+      automático ao cliente.
+- [ ] **MVP 5 — Mobile.** Push no PWA (o manifest existe, o push não), foto da pauta virando
+      tarefa, áudio virando nota.
+
+### Outros
+
+- [ ] **Agendamento pelo WhatsApp** com os horários livres da agenda — o pedido mais concreto
+      do comercial ([CRM_COMERCIAL.md](CRM_COMERCIAL.md) §1). Depende da decisão do WhatsApp.
+- [ ] **Alerta de lead parado** em "novo" sem primeiro contato.
+- [ ] **Kit previdenciário digital** com acompanhamento de assinatura.
+- [ ] **Drive: arquivo > 5 MB** (falha no limite do multipart — precisa de resumable upload).
+- [ ] **Drive: subpastas** pelo app.
+- [ ] **Conector MNI** — falta a senha do PJe-TJMT no Keychain para o primeiro teste real e o
+      credenciamento no TRF1/TRF3 ([CONECTOR_MNI.md](CONECTOR_MNI.md)).
+- [ ] **Marcar comentários como lidos** ao abrir a thread (hoje só a caixa marca).
+- [ ] **Whitelist do Legalmail** — ajustar termos conforme o uso real.
+
+---
+
+## Técnico
+
+- [ ] **Quebrar `casos.$id.tsx`** (8.200 linhas) em componentes por aba.
+- [ ] **Aposentar as superfícies mortas** — tabela `mensagens`, decidir o destino dos
+      webhooks e do WhatsApp inbound (ver [ARQUITETURA.md](ARQUITETURA.md) §11).
+- [ ] **Modo escuro** — o CSS `.dark` existe, falta o botão de alternância.
+- [ ] **Componentes genéricos** (`Spinner`, `EmptyState`, `StatusBadge`, `DataField`,
+      `ConfirmDialog`, `MoneyTile`, `DialogShell`) — formalizar se/quando o reuso justificar.
+- [ ] **STYLE_GUIDE.md** documentando o design system.
+- [ ] **Varredura mobile** caso a caso (TabsList com scroll, tabela com overflow, dialog com
+      `max-h-[90vh]`).
+- [ ] **Upgrade do Supabase de staging** ou aceitar a hibernação do free.
+
+---
+
+## Não fazer (decidido)
+
+- ~~Judit~~ — descartada em 2026-07-29: R$ 1.000/mês pelo que DataJud + DJEN dão de graça.
+  Código no commit `14028ee` se um dia mudar o cenário. Ver [PILOTO_JUDIT.md](PILOTO_JUDIT.md).
+- ~~Scraper próprio do INSS~~ — fora de escopo; o TI continua sendo o feed admin se precisar.
+- ~~`check-legalmail-nome` automática no caso novo~~ — varre a base inteira, estoura o rate
+  limit. Fica sob demanda.
+- ~~Aba `/integracoes` unificando APIs e webhooks~~ — proposta de 2026-05-30
+  ([INTEGRACOES.md](INTEGRACOES.md) §7) que nunca foi construída. Os tokens seguem em
+  secrets de edge function. Reavaliar só se a troca de credencial virar incômodo real.
 
 ---
 
 ## Concluído (histórico)
 
-### Sessão 2026-06-09 (esta)
+### 2026-08 — Ambientes, refino e automação do INSS
 
-- [x] **✍️ Aceite eletrônico de termos no 1º acesso (parceiro)** — `/boas-vindas`
-      agora pede os dados legais do parceiro (CPF/CNPJ, OAB+UF, endereço), renderiza
-      os documentos com **autofill** (DPA + Termo de Uso + Política), e registra
-      **assinatura eletrônica simples** (checkbox + nome digitado) num registro
-      **imutável** (`aceites_termos`: versão, hash dos documentos, IP, user-agent,
-      data) via RPC `registrar_aceite_termos`. Documentos versionados em
-      [src/content/legal/](../src/content/legal/) + [termos.ts](../src/lib/legal/termos.ts).
-      _([migration](sql-migrations/migration_aceite_termos.sql), aplicada em prod.)_
-  - [x] **Re-aceite por versão** — gate exige nova assinatura quando `TERMOS_VERSAO`
-        muda (coluna `usuarios.termos_versao` + gate em `_authenticated.tsx`).
-  - [x] **Tela interna do aceite** — em `/parceiros`, botão por parceiro abre o
-        registro (versão, data, IP, documentos) e baixa **comprovante** HTML/imprimível.
-  - [ ] **Falta (você):** preencher a config do escritório em `termos.ts` (CNPJ,
-        endereço, encarregado/DPO, foro — hoje "[a preencher]").
-- [x] **Documentos jurídicos (minutas)** em [planning/legal/](legal/): DPA do parceiro,
-      Política de Privacidade e Adendo de IA — sob medida ao sistema (hospedagem BR,
-      subprocessadores reais, medidas implementadas). **CNISIA removida do escopo**
-      (escritório opera a própria plataforma). _Pendente: revisão por especialista LGPD._
-- [x] **🔒 Blindagem LGPD do `visivel_parceiro` no RLS** — **bug de confidencialidade
-      encontrado e corrigido**. A flag era respeitada só no frontend; um parceiro
-      conseguia ler, via API direta, andamentos/documentos internos e análises
-      inteiras dos próprios casos. As policies de `andamentos`, `documentos`,
-      `analises_tecnicas` e do Storage (bucket `documentos`) agora exigem
-      `visivel_parceiro` (análises = interno-only). _([migration](sql-migrations/migration_rls_visivel_parceiro.sql), aplicada em prod.)_
-- [x] **Audit log de acesso a documentos** — ver seção 🔴 acima (feito).
-- [x] **E-mail do magic link/convite repaginado** — templates HTML em português,
-      com a marca do portal (dourado/creme, cabeçalho tipográfico, CTA "Acessar o
-      portal"), aplicados no Supabase Auth via Management API. Fontes versionadas
-      em [auth-emails/](auth-emails/). Assuntos em PT-BR.
-- [x] **E-mails de notificação no ar** — 3 edge functions deployadas em produção
-      (`notify-novo-andamento`, `notify-novo-comentario`, `notify-solicitacao-doc`);
-      o frontend já as chamava (fire-and-forget) mas não estavam deployadas.
-      Secrets `RESEND_API_KEY`/`APP_BASE_URL` confirmados. Boot 401 OK nas 3.
-      _(Cobre "Notificações por email de movimentação nova".)_
-- [x] **Renderização Markdown do resultado da IA** — novo componente
-      [markdown.tsx](../src/components/markdown.tsx) (`react-markdown` + `remark-gfm`,
-      estilizado nos tokens do app); aplicado em Observações e Resumo do parceiro
-      na aba Análise técnica. _(IA_HANDOFF §4 C.)_
-- [x] **Triagem manual de publicações órfãs (DJE)** — RPC
-      `vincular_publicacao_dje` ([migration](sql-migrations/migration_vincular_publicacao_dje.sql),
-      aplicada em prod) + botão "Vincular a um caso" e diálogo de busca em
-      [publicacoes.tsx](../src/routes/_authenticated/publicacoes.tsx). Cria o
-      processo se faltar, gera o andamento e marca a publicação como vinculada.
-- [x] **PWA manifest + theme-color** — [manifest.webmanifest](../public/manifest.webmanifest)
-      + meta `theme-color`/apple-touch em [__root.tsx](../src/routes/__root.tsx).
-- [x] **Auditoria de estado** — sincronizado este TODO com o código real
-      (typecheck + build verdes).
+- [x] **Pipeline INSS por e-mail no ar** (14/08) — `inss-email-processor` + cron 05:00 +
+      auditoria em `inss_email_log`; andamento no requerimento certo, e-mail ao parceiro e
+      trava que sobrevive a exclusão.
+- [x] **Bancos separados** produção/staging com espelho anonimizado e usuários sintéticos.
+- [x] **Caixa de conversas** — fases 1 a 4: fonte única em `comentarios`, não-lido por
+      conversa, resposta inline, tempo real, sino como atalho, destinatário e filtro por pessoa.
+- [x] **Agenda geral do escritório** — filtros, legenda de cores, evento de vários dias,
+      evento restrito, conclusão, template por tipo, fuso fixo em Brasília.
+- [x] **Perícias** — rascunho padronizado → fila `/a-enviar` separada por quem agendou →
+      envio → e-mail; comparecimento e acompanhamento de implementação.
+- [x] **Sino por pessoa** — dispensar não apaga para os outros.
+- [x] **Papel comercial separado do modo de acesso** (`eh_parceiro` × `tipo`).
+- [x] **OCR no cadastro** — RG, comprovante e vários documentos na mesma leitura; completa
+      CPF com dígitos ilegíveis.
+- [x] **Chave de IA compartilhável** com a equipe interna.
+- [x] **Montagem de inicial em corrente**, com prazo fatal justificado e andamento por etapa.
+- [x] **TI desligado** — botões removidos e sync desativado; sobrou importação manual.
+- [x] **Truncamento do PostgREST corrigido** em etiquetas e exportação Excel.
 
-### Descoberto já-feito na auditoria (anterior a esta sessão)
+### 2026-07 — A virada: sair do Tramitação
 
-- [x] **Auto-refresh / realtime** — Supabase `postgres_changes` no sino de
-      notificações e no sino de movimentações do parceiro + polling 60s + evento
-      `msc:sync-done` recarregando o caso. _(IA_HANDOFF §4 D — atendido.)_
-- [x] **Badge in-app** — contador no sino + badge de publicações novas (DJEN) no sidebar.
-- [x] **Signed URLs com TTL curto** (60–300s) em todo acesso a documentos; nenhum `getPublicUrl`.
-- [x] **Criptografia da senha MEU INSS** — pgcrypto + Vault (`set/get/tem_senha_meu_inss`); coluna `_plain` migrada/removida.
-- [x] **Audit log de senha MEU INSS** — `acessos_senha_inss` populada por `get_senha_meu_inss` + tela [auditoria.tsx](../src/routes/_authenticated/auditoria.tsx).
-- [x] **RLS rigoroso no Storage** — policies por `caso_do_parceiro`/owner nos **3** buckets (`documentos`, `cnis-uploads`, `contratos`); todos privados.
-- [x] **DJE / Publicações (DJEN)** — tabelas `publicacoes_dje` + `oabs_monitoradas`, edge `sync-djen-publicacoes` (Comunica API CNJ, `x-region: sa-east-1`), tela [publicacoes.tsx](../src/routes/_authenticated/publicacoes.tsx) (interno vê órfãs+vinculadas, parceiro vê via andamentos), badge no sidebar.
-- [x] **Checks no `/casos/novo`** — `check-ti-cliente` por CPF integrado ("Buscar no TI" + import automático); duplicidade por CPF via `alertas_duplicidade`.
-- [x] **Telas `/clientes` e `/equipe`** — listagem/busca de clientes com casos agrupados + importar TI; gestão e convite de internos (`convidar-usuario`).
-- [x] **Tema base T1/T2** — CSS vars (light + `.dark`) em [styles.css](../src/styles.css) via `@theme inline` (Tailwind v4 CSS-first).
-- [x] **Plugin de IA / MCP** — ver [IA_HANDOFF.md](IA_HANDOFF.md): `ia-analise` (Dr. Cláudio), OCR de PDFs escaneados (BYOK), `ia-mcp` com `ler_documentos_caso`, `salvar_analise`, `salvar_peca_docx`.
+- [x] **Migração TI** — 360 clientes, 1.387 andamentos, 257 tarefas (82 perícias).
+- [x] **Tarefas e kanban** + 21 templates de despacho + "minhas de hoje".
+- [x] **Visão global de processos** (fases 1–4) + DataJud + digest diário + triagem por IA.
+- [x] **Pipeline solicitação → exigência** — pedido, cobrança do parceiro, entrega e tarefa
+      automática de cumprimento no INSS. *(Fechou o bug do handoff de 16/06 — verificado em
+      produção: entrega em 14/08 disparou o trigger corretamente.)*
+- [x] **CRM comercial** — formulário no site, esteira de 9 etapas, kanban, análise com
+      responsável, conversão em cliente.
+- [x] **Judit avaliada e descartada.**
 
-### Fases 1–17 (CRUD, casos, sync TI + Legalmail)
+### 2026-06 — Blindagem e conformidade
 
-- [x] Build Cloudflare desbloqueado; telas `/casos/{id}` (7 abas), `/casos/novo`, `/documentos`, `/conversas`, `/configuracoes`, `/parceiros` (convite magic link); dashboard clicável.
-- [x] **Edge functions:** `check-ti-cliente`, `sync-ti-cliente`, `check-legalmail-nome`, `sync-legalmail-caso` (slugs limpos).
-- [x] **Migrations:** `visivel_parceiro` em andamentos/documentos, `resumo_parceiro`, `solicitacoes_documento.origem/comentario`, `clientes.tags/ti_customer_id`, `andamentos.processo_admin_id/processo_judicial_id` + constraints/índices, RLS `andamentos_interno_acesso_total`.
-- [x] **/casos/$id refatorada:** header limpo, popups de edição, andamentos em 3 cards (Admin/Judicial/Gerais), accordion por processo, sub-seção "Sem processo", editar/excluir com detecção de RLS silencioso.
-- [x] **Sync TI:** notas → andamentos `origem='tramitacao'`, dedup por `ti_nota_id`, auto-vínculo ao processo admin mais antigo, backfill.
-- [x] **Sync Legalmail:** processos+movs `origem='legalmail'`, dedup por `legalmail_mov_id` e CNJ, whitelist (20 termos), botão "Sync Legal".
-- [x] **Decisões registradas:** TI só-leitura; match Legalmail ambíguo → órfão; histórico inicial 5 clientes; notas TI default `visivel_parceiro=false`; movs Legalmail default `true`.
-- [x] **Domínio `marasandraconnect.com` registrado** + **Resend** configurado (SMTP custom no Supabase Auth; magic link sai de `noreply@marasandraconnect.com`).
+- [x] **Falha de confidencialidade corrigida no RLS** — `visivel_parceiro` passou a valer no
+      banco para andamentos, documentos, análises e Storage.
+- [x] **Aceite eletrônico de termos** versionado (hash, IP, user-agent, comprovante) +
+      re-aceite por versão + tela interna do registro.
+- [x] **Registro de acesso a documento** (`acessos_documento` + `log_acesso_documento`).
+- [x] **Senha MEU INSS cifrada** (pgcrypto + Vault); coluna em texto puro removida.
+- [x] **E-mails de notificação no ar** (3 edge functions) + templates com a marca.
+- [x] **DJEN** — publicações com teor completo, tela de triagem, badge.
+- [x] **Site institucional** + dashboard movido de `/` para `/casos`.
+- [x] **Drive bidirecional** — upload espelhado, sync de novos/renomeados/apagados, rename e
+      delete propagando, cache de token.
+- [x] **Documentos jurídicos** (DPA, política, adendo de IA) redigidos sob medida.
+- [x] **Tema do escritório** (navy + dourado) e PWA manifest.
+
+### Até 2026-05 — O portal do parceiro
+
+- [x] CRUD de casos, tela do caso, documentos, conversas, convite de parceiro, dashboard.
+- [x] Integrações TI e Legalmail (só leitura), 4 edge functions de check/sync.
+- [x] Plugin de IA — chat BYOK, MCP, análise técnica com leitura de PDF (inclusive escaneado),
+      `salvar_analise` e `salvar_peca_docx`.
+- [x] Outbox de webhooks com HMAC + workflow n8n.
+- [x] WhatsApp fases 1–3 (saída, entrada, mídia) — hoje parado, ver achados.
+- [x] Domínio próprio + Resend.

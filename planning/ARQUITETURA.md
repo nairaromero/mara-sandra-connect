@@ -1,370 +1,355 @@
 # Mara Sandra Connect — Arquitetura
 
-> Estado atual do projeto: propósito, stack, schema do banco, rotas, convenções, decisões já tomadas, APIs externas, contatos.
-> Para o que vamos fazer adiante, ver [INTEGRACOES.md](INTEGRACOES.md), [UI_DESIGN.md](UI_DESIGN.md) e [TODO.md](TODO.md).
+> Estado atual do sistema: propósito, stack, ambientes, schema, rotas, automações,
+> convenções e decisões tomadas.
+> **Última auditoria contra o banco de produção: 2026-08-15** (commit `3c5b706`).
+> Onde este documento divergir do banco, vale o banco — e corrija aqui.
+> Para o que falta fazer, ver [TODO.md](TODO.md).
 
 ---
 
-## 1. Propósito do aplicativo
+## 1. Propósito
 
-**Mara Sandra Connect** é um app interno do escritório de advocacia **Mara Sandra Advocacia** (Naira Romero, sócia previdenciarista, Brasil). NÃO é SaaS público — é ferramenta operacional para um escritório específico.
+**Mara Sandra Connect** é o sistema operacional do escritório **Mara Sandra Vian
+Advocacia** (previdenciário brasileiro, Votuporanga/SP). NÃO é SaaS público.
+
+Hoje ele acumula três papéis:
+
+1. **Portal do parceiro** — o advogado captador acompanha os casos que indicou.
+2. **Ferramenta de operação do escritório** — tarefas, prazos, agenda, perícias,
+   processos, documentos. Substituiu o Tramitação Inteligente em 2026-07/08.
+3. **Site institucional público** — a raiz `/` é a home de captação.
 
 ### 1.1 Modelo de negócio
 
-- **Parceria entre advogados (correspondência jurídica):**
-  - Advogado **captador (parceiro)** indica cliente, fica com **30% dos honorários**
-  - **Mara Sandra (interno)** toca o caso (administrativo INSS + judicial), fica com **70%**
-  - Procuração e contrato de honorários ficam com Mara Sandra (modelo 1)
-  - O parceiro mantém contato com o cliente; o app é ferramenta operacional dele para acompanhar o que está rolando
-- O escritório também tem **clientes diretos** (sem parceiro indicador) — chamados de "cliente interno do escritório"
+- **Parceria (correspondência jurídica):** o advogado **captador** indica o cliente e
+  fica com **30%**; Mara Sandra toca o caso (administrativo + judicial) e fica com **70%**.
+  Procuração e contrato ficam com Mara Sandra. O percentual é por parceiro
+  (`usuarios.percentual_parceiro`).
+- O escritório também tem **clientes diretos** (sem parceiro indicador).
+- **Captação própria** pelo site institucional → `leads` → tela `/comercial`.
 
-### 1.2 Tipos de usuário (`usuarios.tipo` enum)
+### 1.2 Papéis
 
-- `interno` — Naira e equipe do escritório (acesso total)
-- `parceiro` — advogado captador (acesso restrito, vê só os casos dele)
-- **Cliente final NÃO loga.** Comunicação com cliente é via parceiro ou direta da Naira fora do app.
+| Conceito | Coluna | O que decide |
+|---|---|---|
+| **Modo de acesso** | `usuarios.tipo` (`interno` \| `parceiro`) | O que a pessoa vê na interface |
+| **Papel comercial** | `usuarios.eh_parceiro` (boolean) | Se ela recebe repasse de parceria |
 
-### 1.3 Áreas jurídicas
+Separados desde 2026-08-10: alguém da equipe interna pode ser parceiro comercial.
+**Cliente final não loga.**
 
-Direito previdenciário brasileiro (RGPS principalmente). Tipos de benefício suportados na criação de caso: aposentadoria por idade, tempo de contribuição, especial, PCD-LC142, incapacidade permanente, auxílios por incapacidade temporária e acidente, pensão por morte, salário-maternidade, BPC/LOAS, revisões.
+### 1.3 Áreas
+
+Direito previdenciário (RGPS). Os tipos de benefício vivem na tabela `tipos_beneficio`
+(editável pela UI), não mais num enum fixo.
 
 ---
 
-## 2. Stack técnica
+## 2. Stack
 
 | Camada | Tecnologia |
 |---|---|
-| Frontend | React 19 + TypeScript + Vite + Tailwind v4 + shadcn/ui + TanStack Router + TanStack Start (SSR) |
-| Backend | Supabase managed (Auth + Postgres + Storage + RLS) |
-| Edge functions | Supabase Edge Functions (Deno) |
-| Orquestração | n8n self-hosted (`nairavian-n8n.de`) — para integrações TI/Legalmail futuras |
-| Deploy frontend | Cloudflare Workers via push em GitHub (auto-deploy) |
-| Domínio | Produção: `marasandraconnect.com` (+ `www`), custom domain do Worker configurado no `wrangler.jsonc` em 2026-06-04. Fallback antigo: `mara-sandra-connect.nairaromerovian.workers.dev` |
-| Repositório | `https://github.com/nairaromero/mara-sandra-connect` (público) |
+| Frontend | React 19 + TypeScript + Vite + Tailwind v4 + shadcn/ui + TanStack Router/Start (SSR) |
+| Backend | Supabase gerenciado (Auth + Postgres + Storage + RLS + Realtime + pg_cron) |
+| Edge functions | Supabase Edge Functions (Deno) — 29 no ar |
+| Agendamento | **pg_cron no próprio banco** (7 jobs) + n8n self-hosted para o DJEN |
+| Orquestração | n8n (`nairavian-n8n.de`) — DJEN e filas de WhatsApp/webhooks |
+| Deploy | Cloudflare, automático no push para `main` |
+| Domínio | `marasandraconnect.com` (+ `www`) |
+| Repositório | `github.com/nairaromero/mara-sandra-connect` |
+| Gerenciador | **bun** (`bun add`, `bun dev` em :8080) |
 
-### 2.1 Supabase
+---
 
-- Projeto: `marasandra-app` em organização `Mara Sandra Advocacia` (Company, Free tier)
-- URL: `https://llugytkdsfsrciavhrfw.supabase.co`
-- Region: South America (São Paulo)
-- Auto-enable RLS em novas tabelas: ligado
-- Auto-expose new tables: desligado (mas concedemos GRANT manual para role `authenticated` e `service_role`)
-- Credenciais salvas no 1Password (publishable key e secret key)
+## 3. Ambientes (desde 2026-08-03)
 
-### 2.2 Edge Functions
+Detalhe completo em [AMBIENTES.md](AMBIENTES.md).
 
-| Nome / slug | URL | Função |
+| Ambiente | Frontend | Projeto Supabase |
 |---|---|---|
-| `check-ti-cliente` | https://llugytkdsfsrciavhrfw.supabase.co/functions/v1/check-ti-cliente | Verifica se um CPF existe no TI (sem sincronizar). Usado no cadastro de novo caso. |
-| `sync-ti-cliente` | https://llugytkdsfsrciavhrfw.supabase.co/functions/v1/sync-ti-cliente | Sincroniza cliente (tags, dados) + importa notas como andamentos. Usado pelo botão "Sync TI" do header. |
-| `check-legalmail-nome` | https://llugytkdsfsrciavhrfw.supabase.co/functions/v1/check-legalmail-nome | Busca processos no Legalmail por nome (match fuzzy). Sem importação. |
-| `sync-legalmail-caso` | https://llugytkdsfsrciavhrfw.supabase.co/functions/v1/sync-legalmail-caso | Importa processos selecionados do Legalmail + movimentações como andamentos. |
+| **Produção** | marasandraconnect.com (branch `main`) | `llugytkdsfsrciavhrfw` (Pro) |
+| **Staging** | previews de PR e branch `staging` | `alhqbpbekmxpoibrrnbi` (free) |
+| **Dev local** | localhost:8080 | staging (via `.env.local`) |
 
-### 2.3 Secrets do Supabase Edge Functions
-
-Já configurados em Project Settings → Edge Functions → Secrets:
-- `TI_TOKEN` = token do Tramitação Inteligente
-- `LEGALMAIL_TOKEN` = api_key do Legalmail
-- `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (automáticos)
-
----
-
-## 3. Schema do banco (Supabase Postgres)
-
-14 tabelas. As principais:
-
-### `usuarios` (linkada a `auth.users`)
-- id, nome, email, tipo (enum `tipo_usuario`: interno/parceiro), oab, telefone
-
-### `clientes` (cliente final)
-- id, nome, cpf (unique 11 dígitos), data_nascimento, telefone, email, observacoes
-- `senha_meu_inss_plain` text (TEMPORÁRIO — débito crítico, precisa criptografar via pgcrypto)
-- `tags jsonb` (adicionada para sincronização com TI)
-- `ti_customer_id integer` (cache do id no TI)
-
-### `casos` (entidade central)
-- id, cliente_id, parceiro_id (nullable — cliente interno do escritório), tipo_beneficio, fase (enum `fase_caso`: analise/admin/judicial/finalizado), status (enum `status_caso`), rmi_estimada, atrasados_estimados, tramitacao_id, observacoes, created_at, updated_at
-- **Importante**: `parceiro_id` foi tornado nullable durante o desenvolvimento via `alter table casos alter column parceiro_id drop not null`
-
-### `contratos_parceria`
-- Contrato entre Mara Sandra e cada advogado parceiro captador (vinculado a `usuarios.tipo='parceiro'`).
-
-### `andamentos` (timeline do caso)
-- id, caso_id, origem (enum `origem_andamento`: interno/tramitacao/legalmail/sistema), titulo, descricao, data_evento, criado_por, metadata (jsonb), visivel_parceiro (boolean), created_at
-
-### `documentos`
-- id, caso_id, tipo (enum `tipo_documento` — 22 valores), nome_arquivo, storage_path, tamanho_bytes, uploaded_by, visivel_parceiro, created_at
-
-### `solicitacoes_documento`
-- id, caso_id, tipo, descricao, status (enum `status_solicitacao`: pendente/atendido/dispensado), origem (text: interna/externa — adicionado pela nossa migration), comentario (text — adicionado), documento_id, solicitado_por, data_solicitacao, data_atendimento
-
-### `analises_tecnicas`
-- id, caso_id, versao, resultado_json (jsonb), beneficio_recomendado, revisoes_aplicaveis (array), rmi_estimada, valor_estimado_acao, modelo_ia, tokens_input, tokens_output, custo_brl, criado_por, created_at, resumo_parceiro (text — adicionado)
-
-### `mensagens` (chat caso ↔ parceiro)
-- id, caso_id, remetente_id, texto, lida, created_at
-
-### `repasses`
-- id, caso_id, parceiro_id, valor, status (enum `status_repasse`: previsto/a_pagar/pago), data_pagamento, created_at
-
-### `processos_admin` (INSS)
-- id, caso_id, numero_requerimento, data_protocolo, decisao, data_decisao, tramitacao_id, ultima_sync, created_at, updated_at
-
-### `processos_judiciais`
-- id, caso_id, numero_processo, vara, comarca, uf, data_distribuicao, legalmail_id, ultima_sync, created_at, updated_at
-
-### `alertas_duplicidade`
-- Tabela de auditoria — quando uma sincronização detecta possível duplicidade (CPF, nome similar etc.) que precisa de revisão humana.
-
-### `acessos_senha_inss` (audit log)
-- Log de quem acessou senha MEU INSS de cada cliente, quando. Requisito LGPD.
-
-### Enums críticos
-
-- `fase_caso`: `analise`, `admin`, `judicial`, `finalizado` (4 valores — não confundir com a versão antiga de 8)
-- `status_caso`: `aguardando_documentos`, `em_analise`, `em_revisao`, `em_andamento`, `concluido_exito`, `concluido_sem_exito`, `arquivado`
-- `status_repasse`: `previsto`, `a_pagar`, `pago`
-- `status_solicitacao`: `pendente`, `atendido`, `dispensado`
-- `origem_andamento`: `interno`, `tramitacao`, `legalmail`, `sistema`
-- `tipo_usuario`: `interno`, `parceiro`
-- `tipo_documento`: 22 valores (cnis, ppp, ctps, cat, hiscre, ltcat, certidões, etc.)
-
-### Funções importantes
-
-- `is_interno()` — checa se auth.uid() é tipo='interno'
-- `caso_do_parceiro(caso_id)` — checa se caso pertence ao parceiro logado
-- `set_senha_meu_inss(cliente_id, senha)` / `get_senha_meu_inss(cliente_id)` — pgcrypto com chave em GUC `app.inss_key` (chave **ainda não configurada** — débito crítico)
-- **NÃO existe trigger** ligando `auth.users` → `public.usuarios` (verificado em `pg_trigger`, 2026-07-16). Quem cria a linha em `usuarios` é a edge function `convidar-usuario` (upsert explícito após `inviteUserByEmail`). Qualquer criação de usuário fora dela precisa inserir em `usuarios` manualmente, senão a conta fica órfã (perfil não carrega no login).
-- `tg_set_updated_at()` — trigger genérico para colunas `updated_at`
-
-### Storage
-
-3 buckets privados: `cnis-uploads`, `documentos`, `contratos`. Policies via RLS por `caso_id` no path.
-
-### GRANTs aplicados
-
-```sql
-grant usage on schema public to anon, authenticated;
-grant select, insert, update, delete on all tables in schema public to authenticated;
-grant select, insert, update, delete on all tables in schema public to service_role;
-```
+- `vite.config.ts` injeta as vars de staging em qualquer branch ≠ `main`.
+- **Migration roda no staging primeiro**, valida, e só então em produção:
+  `node scripts/msc-sql.mjs --staging --file ...` → confirmar a linha
+  `[msc-sql] alvo: STAGING` → depois sem a flag.
+- Staging **não roda cron**, não dispara webhook e não tem Storage copiado.
+- Espelho anonimizado semanal: `bash scripts/espelho-staging.sh`.
 
 ---
 
-## 4. Rotas atuais do frontend
+## 4. Schema — 43 tabelas
 
-Todas em `src/routes/_authenticated/`:
+Contagem conferida em 2026-08-15. Agrupadas por domínio:
 
-| Rota | Arquivo | Status |
-|---|---|---|
-| `/` | [index.tsx](../src/routes/_authenticated/index.tsx) | Dashboard com métricas + 10 casos recentes |
-| `/login` | (fora de authenticated) | Login com magic link / e-mail+senha |
-| `/casos/novo` | [casos.novo.tsx](../src/routes/_authenticated/casos.novo.tsx) | Cadastro de caso completo |
-| `/casos/$id` | [casos.$id.tsx](../src/routes/_authenticated/casos.%24id.tsx) | Detalhe do caso (7 abas: visão geral, andamentos, documentos, análise técnica, chat, repasses, processos) — chat e processos condicionais |
-| `/parceiros` | [parceiros.tsx](../src/routes/_authenticated/parceiros.tsx) | Convite e listagem de parceiros (só interno) |
-| `/documentos` | [documentos.tsx](../src/routes/_authenticated/documentos.tsx) | Visão global de solicitações pendentes |
-| `/conversas` | [conversas.tsx](../src/routes/_authenticated/conversas.tsx) | Lista de chats por caso (polling 30s) |
-| `/configuracoes` | [configuracoes.tsx](../src/routes/_authenticated/configuracoes.tsx) | Perfil + senha + logout |
-| `/repasses` | **NÃO CRIADA** | Pendente |
-
-Sidebar com itens condicionais (Parceiros só aparece para interno). Layout autenticado com guard.
-
----
-
-## 5. Convenções obrigatórias do projeto
-
-**Atenção**: o parser do `@tanstack/router-generator` v1.167.28 é frágil. Erros comuns que pegamos:
-
-### 5.1 Sem JSX fragments `<>...</>`
-
-O parser não engole. Usar dois blocos `{cond && (<X />)}` separados em vez de `<>{...}</>`.
-
-### 5.2 100% ASCII
-
-Não usar caracteres não-ASCII em strings, comentários, ou regex literais. Em vez disso:
-- Comentários em pt-BR sem acentos (`Em analise` ao invés de `Em análise`)
-- Regex unicode usando escapes (`/[̀-ͯ]/g`, não diretamente o intervalo unicode)
-- Em-dash → vírgula ou hífen
-
-### 5.3 Sem non-null assertions inline (`x!.y`)
-
-Em vez de `clienteInsert!.id`, usar:
-```ts
-if (!clienteInsert) throw new Error("...");
-const id = clienteInsert.id;
-```
-
-### 5.4 Sem casts inline complexos
-
-Em vez de `(existente as { casos?: { id: string }[] } | null)?.casos?.[0]?.id`, declarar interface antes e fazer `as` em statement separado.
-
-### 5.5 Mobile-first
-
-Tailwind: estilo mobile primeiro, breakpoints crescem (`grid-cols-2 sm:grid-cols-4 lg:grid-cols-7`). Nunca o inverso. Detalhes em [UI_DESIGN.md](UI_DESIGN.md).
-
-### 5.6 Componente novo? Procurar genérico primeiro
-
-Ver [UI_DESIGN.md](UI_DESIGN.md) seção 3 para lista de componentes genéricos a criar (Spinner, EmptyState, StatusBadge, DataField, ConfirmDialog, MoneyTile, DialogShell).
-
-### 5.7 Tema unificado (em planejamento)
-
-Ver [UI_DESIGN.md](UI_DESIGN.md) seção 4 — paleta semântica via CSS vars + Tailwind config. **Ainda não implementado.**
-
-### 5.8 SSR e `<ClientOnly>`
-
-Como o frontend usa TanStack Start (SSR), alguns componentes que tocam `window`/`document` precisam estar dentro de `<ClientOnly>` (helper em [src/components/client-only.tsx](../src/components/client-only.tsx)).
-
----
-
-## 6. Decisões já tomadas
-
-### 6.1 LGPD
-Co-controle entre CNISIA/Mara Sandra e advogado parceiro.
-
-### 6.2 SLA aprovação
-Configurável por advogado parceiro (24/48/72h/manual).
-
-### 6.3 Cliente final não loga
-Só advogados (interno + parceiro). WhatsApp e contato direto fora do app por enquanto.
-
-### 6.4 Integrações TI/Legalmail são apenas leitura
-App não escreve no TI nem no Legalmail. Apenas consome. **Confirmado em 2026-05-27.**
-
-### 6.5 n8n para sync periódico, edge functions para checks pontuais
-- Edge function: chamadas síncronas do frontend (ex.: check duplicata ao cadastrar)
-- n8n: jobs cron que populam o Supabase a partir de TI/Legalmail (a planejar — ver [INTEGRACOES.md](INTEGRACOES.md))
-
-### 6.6 Match cliente entre sistemas
-- Mara Sandra ↔ TI: por **CPF** (ambos têm)
-- Mara Sandra ↔ Legalmail: por **NOME fuzzy** (Legalmail não expõe CPF na API). Quando ambíguo, processo fica órfão para vinculação manual.
-
-### 6.7 Parceiro pode cadastrar caso novo
-- Mas precisa passar nos 3 checks: Mara Sandra (CPF unique), TI (edge function), Legalmail (edge function fuzzy)
-- Se algum encontra → bloqueia ou pede confirmação
-
-### 6.8 Notificações
-Quando movimentação nova chegar (futuro): **email + badge in-app**, tanto interno quanto parceiro. **Confirmado em 2026-05-27.**
-
-### 6.9 Resend (SMTP customizado) pausado
-**Domínio `marasandraconnect.com` registrado em 2026-05-28.** Falta configurar DNS no Cloudflare + setup Resend pra enviar magic link com remetente próprio.
-
-### 6.10 Frontend ↔ Supabase direto
-CRUD/Auth via SDK direto do frontend (não passa por backend intermediário).
-
-### 6.11 Modelo híbrido confirmado
-n8n só em operações longas (análise IA, integração Tramitação/Legalmail, geração PDF). Resto fica no frontend.
-
----
-
-## 7. APIs externas — resumo operacional
-
-> Detalhamento completo (mapeamento de campos, workflows propostos) em [INTEGRACOES.md](INTEGRACOES.md).
-
-### 7.1 Tramitação Inteligente (TI)
-
-- Base: `https://planilha.tramitacaointeligente.com.br/api/v1`
-- Auth: `Authorization: Bearer <TI_TOKEN>`
-- Rate limit: não documentado, parece tolerante
-
-**Endpoints que funcionam:**
-- `GET /usuarios` — operadores (4)
-- `GET /clientes` — 763 clientes paginados (35 campos cada, incluindo CPF, RG, CNH, tags coloridas, email_exclusivo)
-- `GET /clientes/{id}` — detalhe
-- `GET /notas` — 789 notas com content, user, customer
-- `POST /clientes`, `POST /notas` — escrita (**não usaremos por enquanto** — decisão 6.4)
-
-**Endpoints que NÃO existem (404):**
-- `/tarefas`, `/processos`, `/movimentacoes` — confirmado, TI não expõe via API. Tarefas continuam via Chrome.
-
-### 7.2 Legalmail
-
-- Base: `https://app.legalmail.com.br`
-- Auth: `?api_key=<LEGALMAIL_TOKEN>` (query parameter, **não header**)
-- Doc oficial: `https://app.legalmail.com.br/api/docs` (OpenAPI 3)
-- Rate limit duro: **30 req/min**; bloqueio progressivo (10min→30min→1h→...→7 dias) se violar 3× em 10min
-- Já existe cliente Python em `/Users/nairaromero/Documents/Claude/Projects/Mara Sandra - Escritorio Previdenciario/briefing-astrea/legalmail_client.py` com rate limiter
-
-**Endpoints que funcionam:**
-- `GET /api/v1/lawsuit/all?offset&limit` — lista paginada (limit max 50)
-- `GET /api/v1/lawsuit/detail?idprocesso=<INT>` — detalhe (mesmo schema do all)
-- `GET /api/v1/lawsuit/case-files?idprocesso=<INT>` — movimentações (até 71+ por processo)
-
-**Importante**: o campo é `idprocesso` (singular) com tipo **INT** na chamada, mas o JSON retorna `idprocessos` (plural) como string.
-
-**O que não tem:**
-- CPF do polo ativo (apenas `poloativo_nome` text)
-- Download de documento (testado `hash_documento` em vários paths — todos 404; **endpoint de download ainda precisa ser pesquisado**, ver [INTEGRACOES.md](INTEGRACOES.md))
-
----
-
-## 8. Estado atual do desenvolvimento
-
-### Implementado e em produção
-
-- Build do Cloudflare desbloqueado (era erro do router-generator com construções TS densas)
-- Tela `/casos/{id}` completa, 7 abas, condicional a parceiro
-- Tela `/casos/novo` com cliente interno
-- Tela `/documentos` global
-- Tela `/conversas`
-- Tela `/configuracoes`
-- Dashboard com link clicável para `/casos/{id}`
-- Migrations aplicadas: `andamentos.visivel_parceiro`, `documentos.visivel_parceiro`, `analises_tecnicas.resumo_parceiro`, `solicitacoes_documento.origem`, `solicitacoes_documento.comentario`, `clientes.tags`, `clientes.ti_customer_id`, índices, GRANTs para service_role
-- Edge function `check-ti-cliente` deployada — ainda não consumida pelo frontend
-- Edge function `sync-ti-cliente` deployada — botão Sync TI no header do caso (importa tags + notas TI como andamentos)
-- Edge function `check-legalmail-nome` deployada — busca fuzzy por nome no Legalmail
-- Edge function `sync-legalmail-caso` deployada — importa processos selecionados + movimentações
-- Tags do TI renderizando coloridas no header
-
-### Em progresso / próximos
-
-Ver [TODO.md](TODO.md) para a lista priorizada e atualizada.
-
----
-
-## 9. Bugs conhecidos / pegadinhas
-
-- **Slug autogerado das edge functions**: quando cria via Dashboard, se o nome tem caractere inválido (ex.: `.ts`), o Supabase gera slug aleatório. Sempre digitar nome correto **sem extensão** e conferir a URL após deploy.
-- **Service role precisa de GRANT explícito**: nas novas tabelas, rodar `grant select, insert, update, delete on all tables in schema public to service_role;`
-- **Rate limit do Supabase SMTP**: 3 emails/hora no Free tier. Aguarda 1h se passar.
-- **Router-generator é frágil**: ver seção 5 das convenções. Já gastamos várias sessões debugando.
-
----
-
-## 10. Mapa dos arquivos da pasta `planning/`
-
-| Arquivo | Função |
+| Domínio | Tabelas |
 |---|---|
-| `ARQUITETURA.md` | Este documento. Estado atual do projeto. |
-| [INTEGRACOES.md](INTEGRACOES.md) | Plano detalhado de integração TI + Legalmail via n8n (workflows propostos, mapping de campos, decisões aplicadas) |
-| [UI_DESIGN.md](UI_DESIGN.md) | Mobile-first + componentes genéricos a extrair + plano de tema unificado |
-| [TODO.md](TODO.md) | Checklist consolidado de tudo que falta fazer |
-| `edge-functions/check-ti-cliente.ts` | Verifica se CPF existe no TI (deployada como `check-ti-cliente`) |
-| `edge-functions/sync-ti-cliente.ts` | Sincroniza cliente do TI + importa notas como andamentos (deployada como `sync-ti-cliente`) |
-| `edge-functions/check-legalmail-nome.ts` | Busca processo no Legalmail por nome fuzzy (deployada como `check-legalmail-nome`) |
-| `edge-functions/sync-legalmail-caso.ts` | Importa processos selecionados do Legalmail + movimentações como andamentos (deployada como `sync-legalmail-caso`) |
-| `sql-migrations/migration_caso_detalhe.sql` | Adiciona visivel_parceiro, resumo_parceiro, índices (já aplicada) |
-| `sql-migrations/migration_fase_casos.sql` | Adiciona casos.fase (SQL antiga — **não aplicar, já existe**) |
-| `sql-migrations/diagnostico_schema.sql` | Queries pra ver schema/enums do banco |
-| `explorers/explorer_ti.py` | Script Python que mapeia endpoints do TI |
-| `explorers/explorer_legalmail.py` | Script Python que mapeia endpoints do Legalmail |
-| `explorers/explorer_legalmail_v2.py` | Versão expandida buscando CPF e documentos |
+| **Núcleo** | `casos` · `clientes` · `usuarios` · `contratos_parceria` · `tipos_beneficio` · `etiquetas` · `clientes_etiquetas` |
+| **Operação do caso** | `andamentos` · `documentos` · `solicitacoes_documento` · `analises_tecnicas` · `processos_admin` · `processos_judiciais` · `repasses` |
+| **Trabalho diário** | `tarefas` · `tarefa_templates` · `agenda_eventos` |
+| **Comunicação** | `comentarios` · `conversa_leitura` · `notificacoes` · `notificacao_dispensada` · `comentario_email_throttle` · `mensagens` *(morta — ver §11)* |
+| **Fontes externas** | `publicacoes_dje` · `oabs_monitoradas` · `inss_email_log` · `usuario_gmail_oauth` · `alertas_duplicidade` |
+| **Comercial** | `leads` · `lead_comentarios` |
+| **IA** | `ia_integracoes` · `ia_tokens` · `ia_acoes` |
+| **WhatsApp** | `whatsapp_outbox` · `whatsapp_mensagens` · `whatsapp_sessoes` · `whatsapp_ativacao_codigos` · `whatsapp_lid_map` |
+| **Webhooks** | `webhook_destinos` · `webhook_eventos` · `webhook_config` |
+| **Conformidade** | `aceites_termos` · `acessos_documento` · `acessos_senha_inss` |
 
-Os arquivos `.tsx` que estão atualmente em produção estão em `src/routes/_authenticated/` deste mesmo repositório.
+### 4.1 Entidades centrais
+
+**Modelo mental:** `cliente → 1 pasta (caso) → processos (cada benefício) → andamentos`.
+O caso é um container; quem opera pensa em cliente e benefício.
+
+- **`casos`** — `cliente_id`, `parceiro_id` (nullable), `tipo_beneficio`, `fase`, `status`,
+  `rmi_estimada`, `atrasados_estimados`, `tramitacao_id`, `gdrive_folder_id` (+ nome,
+  vinculado_em/por).
+- **`clientes`** — `cpf` (unique), `data_nascimento`, `telefone`, `email`, `endereco`,
+  `senha_meu_inss` (**cifrada**), `tags` jsonb, `ti_customer_id`, `ti_dados` jsonb, `created_by`.
+- **`andamentos`** — `caso_id`, `origem`, `titulo`, `descricao`, `data_evento`, `criado_por`,
+  `metadata`, `visivel_parceiro`, `processo_admin_id`, `processo_judicial_id`.
+- **`tarefas`** — `caso_id` (nullable), `responsavel_id`, `tipo`, `status`, `prioridade`,
+  `due_at`, `origem`, `origem_ref`, `lembretes`, `metadata`, `processo_admin_id`,
+  `processo_judicial_id`. Unique `(origem, origem_ref)` quando `origem <> 'manual'` — é o
+  que torna todo pipeline automático idempotente.
+- **`agenda_eventos`** — `start_at`/`end_at`, `local`, `participantes`, `restrito_a uuid[]`
+  (NULL = todos os internos veem), `concluido_em`/`concluido_por`, `gcal_event_id` (não usado ainda).
+
+### 4.2 Enums (conferidos no banco)
+
+| Enum | Valores |
+|---|---|
+| `fase_caso` | `analise`, `admin`, `judicial`, `finalizado` |
+| `status_caso` | `aguardando_documentos`, `em_analise`, `em_revisao`, `em_andamento`, `concluido_exito`, `concluido_sem_exito`, `arquivado` |
+| `origem_andamento` | `interno`, `tramitacao`, `legalmail`, `sistema`, `djen`, `inss_email`, `datajud` |
+| `tipo_documento` | 25 valores (cnis, ppp, ctps, ctc, laudo_medico, … substabelecimento, declaracao_hipossuficiencia, declaracao_ausencia_duplicidade) |
+| `status_solicitacao` | `pendente`, `atendido`, `dispensado` |
+| `status_repasse` | `previsto`, `a_pagar`, `pago` |
+| `status_contrato` | `pendente`, `assinado`, `vigente`, `encerrado` |
+| `tipo_usuario` | `interno`, `parceiro` |
+
+`tarefas.origem` e `tarefas.tipo` são **text com CHECK**, não enum. Origens em uso:
+`manual`, `migracao_ti`, `ia`, `sync_inss_email`, `pericia_acompanhamento`, `pericia_lembrete`.
+
+### 4.3 Funções importantes
+
+- **Autorização:** `is_interno()`, `caso_do_parceiro(caso_id)`.
+- **Senha MEU INSS:** `set_senha_meu_inss` / `get_senha_meu_inss` / `tem_senha_meu_inss`
+  (pgcrypto, chave no Vault; toda leitura grava em `acessos_senha_inss`).
+- **Conformidade:** `registrar_aceite_termos`, `log_acesso_documento`.
+- **Tarefas/templates:** `aplicar_template`, `somar_dias_uteis`.
+- **Perícias:** `pericia_draft_texto`, `pericia_lembrete_texto`, `pericias_do_caso`,
+  `pericias_do_parceiro`, `rotina_diaria_pericia`, `trocar_etiqueta_pos_pericia`.
+- **Implementação do benefício:** `rotina_diaria_implementacao`, `implementacao_cadencia`.
+- **Filas:** `webhook_enqueue`/`claim_batch`/`mark_result`, `whatsapp_enqueue`/`claim_batch`/
+  `mark_result`, além das rotinas de purga (`*_purge`).
+- **Outros:** `vincular_publicacao_dje`, `excluir_cliente`, `ia_disponivel`,
+  `precisa_definir_senha`.
+
+**Não existe trigger** ligando `auth.users` → `public.usuarios`. Quem cria a linha é a
+edge function `convidar-usuario`. Criar usuário fora dela deixa a conta órfã
+(ver [reference: criar parceiro via SQL](../planning/)).
+
+### 4.4 Storage
+
+3 buckets **privados**, limite de 50 MB por arquivo: `documentos`, `cnis-uploads`,
+`contratos`. Acesso só por signed URL de 60–300s; RLS por `caso_do_parceiro`/owner e por
+`visivel_parceiro`. Nenhum `getPublicUrl` no código.
+
+### 4.5 Garantias que vivem no banco (não na tela)
+
+- **RLS em toda tabela.** Parceiro só alcança os casos dele mesmo chamando a API direto.
+- **`visivel_parceiro` é respeitado no RLS** de `andamentos`, `documentos` e do Storage;
+  `analises_tecnicas` é interno-only. *(Corrigido em 2026-06-09 — antes a flag valia só
+  no frontend, o que era falha de confidencialidade.)*
+- **PostgREST corta em 1000 linhas** (`max_rows`). Query que "traz tudo" precisa paginar
+  com `range()` e ordem estável — já mordeu em etiquetas e na exportação Excel.
 
 ---
 
-## 11. Pessoas/contatos do projeto
+## 5. Rotas — 27 telas
 
-- **Naira Romero (sócia, dev product owner)** — nairaromerovian@gmail.com — papel: interno + admin no TI
-- **Mara Sandra Vian de Oliveira** — sócia operacional — marasandra.adv@gmail.com — papel: interno
-- Domínio `marasandraconnect.com`: **registrado em 2026-05-28** (DNS no Cloudflare, ainda não apontado para o app, sem Resend configurado)
-- Marido da Naira: tem acesso SSH ao servidor n8n self-hosted (`nairavian-n8n.de`)
+### Públicas
+
+| Rota | Arquivo | O que é |
+|---|---|---|
+| `/` | [index.tsx](../src/routes/index.tsx) | Site institucional (SSR/SEO, captação, dois públicos) |
+| `/login` | [login.tsx](../src/routes/login.tsx) | Magic link / e-mail+senha |
+| `/definir-senha`, `/redefinir-senha` | | Primeiro acesso e recuperação |
+| `/privacidade` | | Política de privacidade |
+| `/upload` | [upload.tsx](../src/routes/upload.tsx) | Link assinado de upload (parceiro sem login) |
+
+### Autenticadas (`src/routes/_authenticated/`)
+
+| Rota | Quem vê | O que é |
+|---|---|---|
+| `/tarefas` | interno | **Home do interno.** Kanban + "minhas de hoje" |
+| `/agenda` | ambos | Agenda do escritório; parceiro vê só as perícias dele |
+| `/a-enviar` | interno | Fila de avisos de perícia aguardando envio |
+| `/clientes` | ambos | **Home do parceiro.** Lista, busca, filtros, etiquetas |
+| `/casos` | ambos | Dashboard (redireciona: interno → `/tarefas`, parceiro → `/clientes`) |
+| `/casos/novo` | ambos | Cadastro de caso |
+| `/casos/$id` | ambos | **Tela do caso** — abas, Drive, documentos, andamentos, perícias |
+| `/conversas` | ambos | Caixa de conversas (aceita `?caso=`) |
+| `/documentos` | ambos | Solicitações pendentes |
+| `/publicacoes` | ambos | Publicações DJEN + triagem das órfãs |
+| `/comercial` | interno | CRM de leads (kanban por etapa) |
+| `/processos` | interno | Visão global admin + judicial |
+| `/processos/movimentacoes` | interno | Feed diário do DataJud |
+| `/equipe` | interno | Gestão e convite de internos |
+| `/parceiros` | interno | Convite, percentual, registro de aceite |
+| `/etiquetas` | interno | Gestão de etiquetas |
+| `/webhooks` | interno | Destinos e eventos do outbox |
+| `/auditoria` | interno | Acessos à senha MEU INSS |
+| `/configuracoes` | ambos | Perfil, senha, IA, Gmail |
+| `/boas-vindas` | parceiro | Onboarding + aceite de termos |
+
+`/repasses` **existe no código mas não está na sidebar** — decisão de produto pendente.
 
 ---
 
-## 12. Estilo de trabalho
+## 6. Automações
 
-- Direto, técnico, sem rodeios
-- Naira valida cada decisão antes de implementar
-- Contexto: previdenciário brasileiro (não EOR Irlanda)
-- Mudanças pequenas e commitáveis independente
+### 6.1 Cron (pg_cron, só produção)
+
+| BRT | Job | O que faz |
+|---|---|---|
+| 05:00 | `msc-inss-email` | Lê o Gmail, classifica o despacho, cria andamento + tarefas |
+| 09:00 / 09:06 / 09:12 | `msc-datajud-sync-1/2/3` | 3 passadas de 60 processos, janela 90 dias |
+| 09:45 | `msc-digest-diario` | E-mail resumo do dia (**hoje só para a Naira** — campo `para`) |
+| 11:00 | `rotina-pericia-diaria` | Gera os rascunhos de aviso de perícia |
+| 11:10 | `rotina-implementacao-diaria` | Acompanha implantação do benefício concedido |
+| madrugada | `djen-sync` (n8n) | Publicações por OAB |
+| — | ~~`msc-ia-triagem`~~ | **Desligado em 2026-08-06** |
+
+Inspeção: `select * from cron.job`, histórico em `cron.job_run_details`, respostas em
+`net._http_response`.
+
+### 6.2 Edge functions (29)
+
+| Finalidade | Functions |
+|---|---|
+| Sincronizar | `sync-datajud-movimentacoes` · `sync-djen-publicacoes` · `sync-djen-caso` · `sync-legalmail-caso` · `sync-ti-cliente` · `sync-ti-todos` · `cnj-consulta-processo` · `listar-processos-legalmail` · `listar-clientes-ti` · `check-ti-cliente` · `check-legalmail-nome` |
+| Avisar | `notify-novo-andamento` · `notify-novo-comentario` · `notify-solicitacao-doc` · `digest-diario` · `send-email-hook` |
+| IA | `ia-analise` · `ia-assistant` · `ia-mcp` · `ia-config` · `ia-triagem-andamentos` · `extrair-dados-cliente` |
+| Pipeline INSS | `inss-email-processor` · `gmail-oauth-start` · `gmail-oauth-callback` |
+| Pessoas | `convidar-usuario` · `update-parceiro` |
+| WhatsApp | `whatsapp-inbound` |
+
+Deploy: **staging primeiro** (`--project-ref alhqbpbekmxpoibrrnbi`), depois produção.
+Segredos precisam existir nos **dois** projetos.
+
+---
+
+## 7. Integrações externas
+
+| Serviço | Para quê | Estado (2026-08-15) |
+|---|---|---|
+| **DataJud / CNJ** | Movimentação judicial | ✅ 1.523 andamentos; header `x-region: sa-east-1` obrigatório |
+| **DJEN / Comunica (CNJ)** | Publicações com teor completo | ⚠️ funciona; **218 de 243 órfãs** aguardando triagem |
+| **Gmail (INSS)** | E-mail do INSS → andamento + tarefa | ⚠️ no ar desde 2026-08-14 |
+| **Google Drive** | Espelho de documentos | ⚠️ bidirecional, mas só **63 de 380 casos** têm pasta |
+| **Resend** | E-mail transacional e magic link | ✅ |
+| **Anthropic / OpenAI** | Análise, triagem, assistente (BYOK) | ⚠️ pendências contratuais LGPD |
+| **Legalmail** | Processos e intimações | ⚠️ só importação manual; 30 req/min |
+| **Tramitação Inteligente** | Origem da base | 🔻 sync **desligado em 2026-08-11**; sobrou "Buscar/Importar do TI" |
+| **Evolution (WhatsApp)** | Conversa com parceiro | 🔴 **instância caída**; fila falhando desde junho |
+
+Detalhes por integração: [INTEGRACOES.md](INTEGRACOES.md), [INTEGRACAO_DJE.md](INTEGRACAO_DJE.md),
+[INTEGRACAO_WHATSAPP.md](INTEGRACAO_WHATSAPP.md), [INTEGRACAO_IA.md](INTEGRACAO_IA.md),
+[INTEGRACAO_DRIVE_BIDIRECIONAL.md](INTEGRACAO_DRIVE_BIDIRECIONAL.md), [CONECTOR_MNI.md](CONECTOR_MNI.md).
+
+---
+
+## 8. Convenções obrigatórias
+
+### 8.1 Parser do router-generator é frágil
+
+- **Sem fragments `<>…</>`** — usar blocos `{cond && (<X />)}` separados.
+- **100% ASCII** em código (comentários em pt-BR sem acento; regex unicode por escape).
+  *Texto visível ao usuário pode ter acento — a restrição é sintática.*
+- **Sem `x!.y`** — checar e atribuir antes.
+- **Sem cast inline complexo** — declarar a interface e fazer `as` em statement separado.
+
+### 8.2 Produto
+
+- **Mobile-first** — Tailwind do menor pro maior, nunca o inverso.
+- **SSR** — o que toca `window`/`document` vai dentro de `<ClientOnly>`.
+- **IA é interno-only** — verificação `usuario?.tipo === "interno"` em `_authenticated.tsx`.
+- **Toda alteração de banco** vira migration em `planning/sql-migrations/`, idempotente
+  quando possível.
+
+### 8.3 Fuso
+
+Horário do escritório é **America/Sao_Paulo**, fixado no backend
+([src/lib/fuso.ts](../src/lib/fuso.ts)). Timestamp sem offset é interpretado como Brasília,
+não UTC — foi a causa de deslocamento de 3h nas perícias migradas do TI.
+
+---
+
+## 9. Decisões tomadas
+
+| # | Decisão | Quando |
+|---|---|---|
+| 1 | TI e Legalmail são **só leitura** — o app nunca escreve neles | 2026-05-27 |
+| 2 | Match: TI por **CPF**; Legalmail por **nome fuzzy** (não expõe CPF); ambíguo → órfão | 2026-05-27 |
+| 3 | Cliente final **não loga** | — |
+| 4 | Frontend fala **direto** com o Supabase (sem backend intermediário) | — |
+| 5 | `check-legalmail-nome` **não** é chamada automática no caso novo (varre a base inteira) | 2026-06-09 |
+| 6 | Tela global de `/repasses` **adiada** por decisão de produto | 2026-06-09 |
+| 7 | Prazos: publicação gera **ciência D+1** e, havendo prazo, **fatal − 1** | 2026-07-29 |
+| 8 | Descoberta por OAB **não auto-cria** caso — vira publicação órfã pra triagem | 2026-07-28 |
+| 9 | **Judit descartada** (R$ 1.000/mês pelo que DataJud+DJEN dão de graça) | 2026-07-29 |
+| 10 | Bancos de produção e staging **separados** | 2026-08-03 |
+| 11 | Papel comercial (`eh_parceiro`) **separado** do modo de acesso (`tipo`) | 2026-08-10 |
+| 12 | Sync automático com o TI **desligado** | 2026-08-11 |
+
+---
+
+## 10. Pegadinhas conhecidas
+
+- **PostgREST trunca em 1000 linhas, calado.** Paginar com `range()`.
+- **Service role precisa de GRANT explícito** em tabela nova.
+- **Router-generator** regenera `routeTree.gen.ts` no build; `tsc` roda depois.
+- **Slug de edge function**: criar pelo Dashboard com nome inválido gera slug aleatório.
+- **Drive não funciona fora de produção** — o Google só aceita origem cadastrada, e não
+  aceita curinga; previews de PR nunca vão funcionar.
+- **CPF de teste**: nunca usar um que possa colidir com cliente real (já houve perda por
+  cascade delete).
+- **Logs de edge function** nem sempre mostram `console.error`; para diagnóstico, gravar no
+  banco e ler via `msc-sql`.
+
+---
+
+## 11. Superfícies mortas (existem no código, não são usadas)
+
+Registradas para ninguém investir nelas por engano:
+
+- **`mensagens`** — chat antigo, 0 linhas. Substituído por `comentarios` + `/conversas`.
+- **`/repasses`** — rota existe, fora da sidebar, **0 repasses lançados**.
+- **Webhooks** — módulo completo (HMAC, retry, tela, workflow n8n) com **0 destinos**
+  cadastrados e último evento em 2026-05-30.
+- **`whatsapp-inbound`** — webhook desligado desde 2026-06; a saída continua enfileirando
+  e **falhando** (ver [TODO.md](TODO.md)).
+
+---
+
+## 12. Pessoas
+
+- **Naira Romero** — sócia, product owner e quem desenvolve — nairaromerovian@gmail.com
+- **Mara Sandra Vian de Oliveira** — sócia operacional — marasandra.adv@gmail.com
+- Equipe interna: Mariane, Beatriz
+- Escritório: Mara Vian Sociedade Individual de Advocacia — CNPJ 60.244.853/0001-09 —
+  Votuporanga/SP. Canal de privacidade: marasandravian.advocacia@gmail.com
+
+---
+
+## 13. Como retomar o projeto
+
+1. Ler este documento (estado) e o [TODO.md](TODO.md) (o que falta).
+2. `git log --oneline -20` — o código costuma estar à frente dos docs.
+3. Conferir o banco antes de confiar em qualquer número daqui:
+   `node scripts/msc-sql.mjs "select ..."`.
+4. Índice de todos os documentos: [00_README.md](00_README.md).

@@ -6,7 +6,25 @@
 > que aqui reaproveitamos, ver [sql-migrations/migration_webhooks.sql](sql-migrations/migration_webhooks.sql)
 > e [webhooks/n8n-workflow.json](webhooks/n8n-workflow.json).
 >
-> **Status: PLANEJAMENTO. Nenhuma linha de código escrita ainda.** (2026-05-30)
+> ## 🔴 Estado em 2026-08-15 — implementado, mas parado e falhando
+>
+> A linha "Status: PLANEJAMENTO" abaixo é de 2026-05-30 e envelheceu. O que aconteceu:
+>
+> - **Fases 1, 2 e 3 foram implementadas** (saída com fila, entrada com menu numerado,
+>   mídia e cumprimento de solicitação). Tabelas, triggers e a edge `whatsapp-inbound`
+>   estão em produção.
+> - **O webhook de entrada está DESLIGADO** desde junho — última mensagem recebida em 04/06.
+> - **A instância do Evolution caiu e a saída falha em silêncio.** O trigger
+>   `tg_whatsapp_comentario_novo` continua enfileirando: 13 mensagens falharam com
+>   `Connection Closed` após 5 tentativas cada, a última em **14/08**. Ninguém é notificado.
+> - A decisão do §11.1 (número dedicado) **nunca foi tomada** — ver
+>   [whatsapp/PLANO_LINHA_DEDICADA.md](whatsapp/PLANO_LINHA_DEDICADA.md), que explica por que
+>   usar o número pessoal da Naira não é viável (privacidade, estabilidade e risco de ban).
+>
+> **Decisão pendente:** linha dedicada (e qual tecnologia) **ou** desligar o trigger de saída
+> para parar de acumular falha. Ver [TODO.md](TODO.md) §Achados.
+
+> **Status original: PLANEJAMENTO. Nenhuma linha de código escrita ainda.** (2026-05-30)
 
 ---
 
