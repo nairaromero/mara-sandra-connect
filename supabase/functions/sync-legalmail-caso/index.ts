@@ -112,6 +112,18 @@ function tituloPassaWhitelist(titulo: string): boolean {
   return false;
 }
 
+// O backend do Legalmail (MySQL) manda "0000-00-00" (as vezes com hora) quando
+// a data nao existe la. O Postgres rejeita com "date/time field value out of
+// range" e o processo inteiro ficava de fora do import (caso do #132490).
+// Normaliza: data zero, vazia ou improcessavel vira null.
+function dataOuNull(s: string | null | undefined): string | null {
+  if (!s) return null;
+  const t = String(s).trim();
+  if (!t || t.startsWith("0000-00-00")) return null;
+  if (isNaN(new Date(t).getTime())) return null;
+  return t;
+}
+
 interface LMProcesso {
   idprocessos: string | number;
   numero_processo: string;
@@ -247,7 +259,7 @@ serve(async (req) => {
       vara: proc.juizo || null,
       comarca: proc.foro || null,
       uf: null, // pode ser inferido do tribunal depois (opcional)
-      data_distribuicao: proc.data_distribuicao || null,
+      data_distribuicao: dataOuNull(proc.data_distribuicao),
       legalmail_id: lmIdStr,
       ultima_sync: new Date().toISOString(),
     };
@@ -350,12 +362,17 @@ serve(async (req) => {
       if (mov.tipo) descricaoPartes.push("Tipo: " + mov.tipo);
       const descricao = descricaoPartes.join("\n") || null;
 
+      // data_evento e NOT NULL: se a mov vier com data zero/invalida, entra
+      // com a data do import (a mov nao pode sumir) e o valor original fica
+      // registrado no metadata pra auditoria.
+      const dataEvento = dataOuNull(mov.data_movimentacao);
+
       const insertObj = {
         caso_id: casoId,
         origem: "legalmail",
         titulo: titulo,
         descricao: descricao,
-        data_evento: mov.data_movimentacao || null,
+        data_evento: dataEvento ?? new Date().toISOString(),
         criado_por: usuarioId,
         visivel_parceiro: true,
         processo_admin_id: null,
@@ -365,6 +382,9 @@ serve(async (req) => {
           fk_processo: mov.fk_processo ? String(mov.fk_processo) : null,
           hash_documento: mov.hash_documento || null,
           tipo_mov: mov.tipo || null,
+          ...(dataEvento === null
+            ? { data_movimentacao_invalida: mov.data_movimentacao ?? null }
+            : {}),
         },
       };
 
@@ -372,7 +392,13 @@ serve(async (req) => {
         .from("andamentos")
         .insert(insertObj);
       if (insAndErr) {
+        // Vai pro array de erros: engolir so no console fazia a mov sumir
+        // sem ninguem ficar sabendo.
         console.error("erro insert andamento mov", lmMovIdStr, insAndErr);
+        erros.push({
+          idprocesso: idproc,
+          motivo: "mov " + lmMovIdStr + ": " + insAndErr.message,
+        });
         continue;
       }
       movsImportadas++;
