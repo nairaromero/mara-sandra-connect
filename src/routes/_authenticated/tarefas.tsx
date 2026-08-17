@@ -3,7 +3,7 @@
 // Click em card abre Sheet de edição. Botão "Nova tarefa" abre Sheet vazia.
 
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   ChevronDown,
@@ -45,6 +45,7 @@ import { TarefaCard } from "@/components/tarefas/tarefa-card";
 import { TarefaSheet } from "@/components/tarefas/tarefa-sheet";
 import {
   atualizarTarefa,
+  contarTarefas,
   excluirTarefa,
   listarInternosAtivos,
   listarTarefas,
@@ -146,11 +147,34 @@ function TarefasPage() {
   const [sheetModo, setSheetModo] = useState<Modo | null>(null);
   const [aba, setAba] = useState<"ativos" | "arquivados">("ativos");
 
+  // Arquivados sao a maior parte das linhas e quase nunca sao olhados: so
+  // descem quando a aba abre. Ate la o contador vem de um COUNT no banco.
+  const [arquivadosCarregados, setArquivadosCarregados] = useState(false);
+  const [carregandoArquivados, setCarregandoArquivados] = useState(false);
+  const [totalArquivados, setTotalArquivados] = useState<number | null>(null);
+  // Espelho em ref: `carregar` e passado como callback pra varios filhos, e
+  // precisa manter identidade estavel sem perder de vista a aba ja aberta.
+  const arquivadosRef = useRef(false);
+
+  const marcarArquivados = useCallback((v: boolean) => {
+    arquivadosRef.current = v;
+    setArquivadosCarregados(v);
+  }, []);
+
   const carregar = useCallback(async () => {
     setCarregando(true);
     try {
-      const data = await listarTarefas({});
-      setTarefas(data);
+      const [ativas, total] = await Promise.all([
+        listarTarefas({ status: STATUS_ATIVOS }),
+        contarTarefas({ status: STATUS_ARQUIVADOS }),
+      ]);
+      setTotalArquivados(total);
+      if (arquivadosRef.current) {
+        const arquivadas = await listarTarefas({ status: STATUS_ARQUIVADOS });
+        setTarefas([...ativas, ...arquivadas]);
+      } else {
+        setTarefas(ativas);
+      }
     } catch (e) {
       console.error(e);
       toast.error("Falha ao carregar tarefas.");
@@ -158,6 +182,28 @@ function TarefasPage() {
       setCarregando(false);
     }
   }, []);
+
+  const trocarAba = useCallback(
+    async (v: "ativos" | "arquivados") => {
+      setAba(v);
+      if (v !== "arquivados" || arquivadosRef.current || carregandoArquivados) return;
+      setCarregandoArquivados(true);
+      try {
+        const arquivadas = await listarTarefas({ status: STATUS_ARQUIVADOS });
+        setTarefas((prev) => [
+          ...prev.filter((t) => STATUS_ATIVOS.includes(t.status)),
+          ...arquivadas,
+        ]);
+        marcarArquivados(true);
+      } catch (e) {
+        console.error(e);
+        toast.error("Falha ao carregar arquivados.");
+      } finally {
+        setCarregandoArquivados(false);
+      }
+    },
+    [carregandoArquivados, marcarArquivados],
+  );
 
   useEffect(() => {
     carregar();
@@ -436,7 +482,7 @@ function TarefasPage() {
 
         {/* Tabs Ativos / Arquivados + toggle Lista/Kanban */}
         <div className="flex items-center justify-between gap-2 flex-wrap">
-          <Tabs value={aba} onValueChange={(v) => setAba(v as "ativos" | "arquivados")}>
+          <Tabs value={aba} onValueChange={(v) => trocarAba(v as "ativos" | "arquivados")}>
             <TabsList>
               <TabsTrigger value="ativos">
                 Ativos
@@ -447,7 +493,11 @@ function TarefasPage() {
               <TabsTrigger value="arquivados">
                 Arquivados
                 <Badge variant="outline" className="ml-2 font-normal">
-                  {STATUS_ARQUIVADOS.reduce((acc, s) => acc + porStatus[s].length, 0)}
+                  {/* Antes de a aba abrir o numero vem do COUNT; depois passa a
+                      refletir os filtros aplicados, igual ao de Ativos. */}
+                  {arquivadosCarregados
+                    ? STATUS_ARQUIVADOS.reduce((acc, s) => acc + porStatus[s].length, 0)
+                    : (totalArquivados ?? "—")}
                 </Badge>
               </TabsTrigger>
             </TabsList>
@@ -477,7 +527,7 @@ function TarefasPage() {
         </div>
 
         {/* Conteudo: lista por prazo (default em Ativos) ou kanban */}
-        {carregando ? (
+        {carregando || (aba === "arquivados" && carregandoArquivados) ? (
           <div className="flex items-center justify-center h-64">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>

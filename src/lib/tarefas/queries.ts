@@ -1,6 +1,7 @@
 // Queries de tarefas (camada fina sobre supabase-js).
 
 import { supabase } from "@/lib/supabase";
+import { buscarPaginado } from "@/lib/supabase-paginado";
 import type {
   ProcessoDoCasoOpcao,
   TarefaComJoins,
@@ -29,15 +30,12 @@ export interface ListarTarefasFiltro {
   apenas_minhas_hoje?: { usuario_id: string };
 }
 
-export async function listarTarefas(filtro: ListarTarefasFiltro = {}): Promise<TarefaComJoins[]> {
-  let q = supabase
-    .from("tarefas")
-    .select(SELECT_COM_JOINS)
-    .order("due_at", { ascending: true, nullsFirst: false })
-    .order("prioridade", { ascending: true })
-    .order("created_at", { ascending: false })
-    .limit(500);
-
+/** Aplica os filtros de `ListarTarefasFiltro` numa query de `tarefas`. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function aplicarFiltros<Q extends { in: any; eq: any; is: any; or: any; lt: any }>(
+  q: Q,
+  filtro: ListarTarefasFiltro,
+): Q {
   if (filtro.status && filtro.status.length > 0) {
     q = q.in("status", filtro.status);
   }
@@ -64,9 +62,36 @@ export async function listarTarefas(filtro: ListarTarefasFiltro = {}): Promise<T
       .in("status", ["a_fazer", "fazendo"])
       .lt("due_at", amanhaInicio.toISOString());
   }
-  const { data, error } = await q;
+  return q;
+}
+
+export async function listarTarefas(filtro: ListarTarefasFiltro = {}): Promise<TarefaComJoins[]> {
+  // Pagina ate o fim: um `.limit()` fixo aqui cortava a lista pelo prazo mais
+  // distante — as tarefas de daqui a um mes sumiam da tela sem aviso nenhum.
+  const linhas = await buscarPaginado((inicio, fim) => {
+    const q = supabase
+      .from("tarefas")
+      .select(SELECT_COM_JOINS)
+      .order("due_at", { ascending: true, nullsFirst: false })
+      .order("prioridade", { ascending: true })
+      .order("created_at", { ascending: false })
+      // Desempate estavel: sem isso paginacao repete/pula linhas.
+      .order("id", { ascending: true })
+      .range(inicio, fim);
+    return aplicarFiltros(q, filtro);
+  });
+  return linhas as unknown as TarefaComJoins[];
+}
+
+/**
+ * Conta tarefas no banco sem trazer as linhas (`head`). Serve pros contadores
+ * de aba que precisam do numero antes de a lista ser carregada.
+ */
+export async function contarTarefas(filtro: ListarTarefasFiltro = {}): Promise<number> {
+  const q = supabase.from("tarefas").select("id", { count: "exact", head: true });
+  const { count, error } = await aplicarFiltros(q, filtro);
   if (error) throw error;
-  return (data as unknown as TarefaComJoins[]) ?? [];
+  return count ?? 0;
 }
 
 export async function listarTemplates(): Promise<TarefaTemplateRow[]> {
@@ -277,12 +302,16 @@ export async function listarProcessosDoCaso(casoId: string): Promise<ProcessoDoC
 export async function listarCasosResumo(): Promise<
   Array<{ id: string; cliente_nome: string | null }>
 > {
-  const { data, error } = await supabase
-    .from("casos")
-    .select("id, cliente:clientes(id, nome)")
-    .order("created_at", { ascending: false })
-    .limit(500);
-  if (error) throw error;
+  // 380 casos hoje contra um teto de 500: o seletor ia comecar a esconder caso
+  // calado. Pagina igual as tarefas.
+  const data = await buscarPaginado((inicio, fim) =>
+    supabase
+      .from("casos")
+      .select("id, cliente:clientes(id, nome)")
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(inicio, fim),
+  );
   return (data ?? []).map((c) => ({
     id: c.id,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
