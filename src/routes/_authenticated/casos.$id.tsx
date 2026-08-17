@@ -3921,6 +3921,13 @@ function TabDocumentos(props: TabDocumentosProps) {
     novos: number;
     apagados: number;
   } | null>(null);
+  // Ids (documentos.id) dos docs cujo gdrive_file_id aponta pra um arquivo
+  // que não existe mais no Drive. Alimentado pelo auto-check e pelo sync.
+  // Entram na fila do "Subir pendentes" — é o caminho de volta pro Drive
+  // quando alguém apagou a pasta lá e o arquivo só sobrou aqui.
+  const [sumidosDoDrive, setSumidosDoDrive] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   async function handleVincularPasta() {
     setVinculandoPasta(true);
@@ -3970,12 +3977,16 @@ function TabDocumentos(props: TabDocumentosProps) {
     }
   }
 
-  // Lote: sobe pro Drive todos os documentos do caso que ainda não têm
-  // gdrive_file_id. Útil pra casos pré-existentes que foram criados antes
-  // da Fase 1 do sync bidirecional.
+  // Lote: sobe pro Drive os documentos do caso que não estão lá. Duas
+  // origens, mesmo tratamento — baixa do Storage, sobe, grava o id novo:
+  //   1. Nunca subiram (gdrive_file_id null) — casos anteriores à Fase 1.
+  //   2. Subiram e foram apagados do Drive depois (id aponta pra arquivo
+  //      inexistente). O update sobrescreve o id morto pelo novo.
   async function handleSubirPendentesParaDrive() {
     if (!gdriveFolderId) return;
-    const pendentes = documentos.filter((d) => !d.gdrive_file_id);
+    const pendentes = documentos.filter(
+      (d) => !d.gdrive_file_id || sumidosDoDrive.has(d.id),
+    );
     if (pendentes.length === 0) {
       toast.success("Nenhum documento pendente — todos já estão no Drive.");
       return;
@@ -3983,6 +3994,7 @@ function TabDocumentos(props: TabDocumentosProps) {
     setSubindoPendentes({ feito: 0, total: pendentes.length });
     let okCount = 0;
     let errCount = 0;
+    const subidosOk: string[] = [];
     try {
       // Pega token uma vez (silencioso se já autorizou). Reusa pra todo o lote.
       await obterAccessToken();
@@ -4006,6 +4018,7 @@ function TabDocumentos(props: TabDocumentosProps) {
               .update({ gdrive_file_id: gdriveId })
               .eq("id", doc.id);
             okCount++;
+            subidosOk.push(doc.id);
           }
         } catch (err) {
           console.warn(
@@ -4016,6 +4029,31 @@ function TabDocumentos(props: TabDocumentosProps) {
           errCount++;
         }
         setSubindoPendentes({ feito: i + 1, total: pendentes.length });
+      }
+      // Tira da fila o que subiu. O auto-check não re-roda sozinho aqui
+      // (documentos.length não mudou), então o estado é ajustado na mão —
+      // senão o botão continuaria oferecendo subir o que já foi.
+      if (subidosOk.length > 0) {
+        // Quantos dos que subiram estavam na fila de "sumiu do Drive".
+        // Calculado fora do updater de propósito: updater roda 2x em dev
+        // (StrictMode) e um contador lá dentro dobraria.
+        const voltaram = subidosOk.filter((id) =>
+          sumidosDoDrive.has(id),
+        ).length;
+        setSumidosDoDrive((atual) => {
+          const restantes = new Set(atual);
+          for (const id of subidosOk) restantes.delete(id);
+          return restantes;
+        });
+        if (voltaram > 0) {
+          setMudancasPendentes((atual) => {
+            if (!atual) return atual;
+            const apagados = Math.max(0, atual.apagados - voltaram);
+            return atual.novos === 0 && apagados === 0
+              ? null
+              : { ...atual, apagados };
+          });
+        }
       }
       if (errCount === 0) {
         toast.success(`${okCount} documento(s) sincronizados pro Drive.`);
@@ -4041,6 +4079,7 @@ function TabDocumentos(props: TabDocumentosProps) {
   useEffect(() => {
     if (!isInterno || !gdriveFolderId || !isGoogleDriveConfigured()) {
       setMudancasPendentes(null);
+      setSumidosDoDrive(new Set());
       return;
     }
     let cancelado = false;
@@ -4088,10 +4127,12 @@ function TabDocumentos(props: TabDocumentosProps) {
           (f) =>
             !idsApp.has(f.id) && !nomesApp.has(f.name.toLowerCase().trim()),
         ).length;
-        const apagados = documentos.filter(
+        const sumidos = documentos.filter(
           (d) => d.gdrive_file_id && !driveById.has(d.gdrive_file_id),
-        ).length;
+        );
+        const apagados = sumidos.length;
         if (!cancelado) {
+          setSumidosDoDrive(new Set(sumidos.map((d) => d.id)));
           setMudancasPendentes(
             novos === 0 && apagados === 0 ? null : { novos, apagados },
           );
@@ -4102,6 +4143,9 @@ function TabDocumentos(props: TabDocumentosProps) {
         //   - User ainda não autorizou Drive nesta sessão (token expirou)
         //   - Rate limit
         //   - Pasta deletada/sem permissão
+        // Não zera sumidosDoDrive: sem listagem do Drive não dá pra saber se
+        // eles voltaram, e zerar tiraria a fila do "Subir pendentes" na cara
+        // do user por um erro transitório de token.
         if (!cancelado) setMudancasPendentes(null);
       }
     })();
@@ -4147,22 +4191,30 @@ function TabDocumentos(props: TabDocumentosProps) {
         (d) => d.gdrive_file_id && !driveById.has(d.gdrive_file_id),
       );
       let removidos = 0;
+      // Ids que continuam só no app depois desta rodada — viram a fila do
+      // "Subir pendentes", que devolve os arquivos pro Drive.
+      let aindaSumidos: string[] = apagadosNoDrive.map((d) => d.id);
       if (apagadosNoDrive.length > 0) {
         const msg =
           apagadosNoDrive.length +
           " arquivo(s) foram apagados do Drive:\n\n" +
           apagadosNoDrive.map((d) => "• " + d.nome_arquivo).join("\n") +
-          "\n\nRemover também do sistema?";
+          "\n\nRemover também do sistema?\n\n" +
+          "OK = apaga aqui também.\n" +
+          "Cancelar = mantém aqui; use \"Subir pendentes\" pra devolvê-los ao Drive.";
         if (window.confirm(msg)) {
+          const removidosIds = new Set<string>();
           for (const d of apagadosNoDrive) {
             try {
               await supabase.storage.from("documentos").remove([d.storage_path]);
               await supabase.from("documentos").delete().eq("id", d.id);
               removidos++;
+              removidosIds.add(d.id);
             } catch (err) {
               console.warn("[drive] falha ao remover", d.nome_arquivo, err);
             }
           }
+          aindaSumidos = aindaSumidos.filter((id) => !removidosIds.has(id));
         }
       }
 
@@ -4198,6 +4250,9 @@ function TabDocumentos(props: TabDocumentosProps) {
       // Limpa badge: o useEffect re-popula no próximo ciclo se ainda há
       // novos não importados (user pode ter fechado o picker sem importar).
       setMudancasPendentes(null);
+      // Já a fila de "sumiu do Drive" persiste: quem não foi apagado aqui
+      // continua faltando lá, e é isso que o "Subir pendentes" resolve.
+      setSumidosDoDrive(new Set(aindaSumidos));
       toast.success(partes.join(" · ") || "Tudo em dia.");
     } catch (err) {
       const msg = (err as { message?: string })?.message || "Erro ao sincronizar pasta";
@@ -5141,9 +5196,13 @@ function TabDocumentos(props: TabDocumentosProps) {
               )}
               {isInterno && isGoogleDriveConfigured() && gdriveFolderId && (
                 (() => {
-                  const pendentesCount = documentos.filter(
+                  const semId = documentos.filter(
                     (d) => !d.gdrive_file_id,
                   ).length;
+                  const sumidos = documentos.filter(
+                    (d) => d.gdrive_file_id && sumidosDoDrive.has(d.id),
+                  ).length;
+                  const pendentesCount = semId + sumidos;
                   if (pendentesCount === 0 && !subindoPendentes) return null;
                   return (
                     <Button
@@ -5151,8 +5210,16 @@ function TabDocumentos(props: TabDocumentosProps) {
                       variant="outline"
                       onClick={handleSubirPendentesParaDrive}
                       disabled={!!subindoPendentes}
-                      title={`Subir ${pendentesCount} documento(s) do app pro Drive`}
-                      className="border-[var(--gold)]/40"
+                      title={
+                        sumidos > 0
+                          ? `Subir ${pendentesCount} documento(s) pro Drive (${sumidos} foram apagados de lá e só existem aqui)`
+                          : `Subir ${pendentesCount} documento(s) do app pro Drive`
+                      }
+                      className={
+                        sumidos > 0
+                          ? "border-amber-500/60 bg-amber-50 hover:bg-amber-100"
+                          : "border-[var(--gold)]/40"
+                      }
                     >
                       {subindoPendentes ? (
                         <>
