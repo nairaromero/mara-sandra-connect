@@ -11,6 +11,7 @@ import {
   AlertCircle,
   ChevronDown,
   ChevronRight,
+  Pencil,
   Trash2,
 } from "lucide-react";
 
@@ -24,6 +25,7 @@ import { supabase } from "@/lib/supabase";
 import { notificarEquipe } from "@/lib/notificar";
 import { MAX_FILE_SIZE_MB, validateFileSize } from "@/lib/upload-limits";
 import { ClientOnly } from "@/components/client-only";
+import { EditarSolicitacaoDialog } from "@/components/documentos/editar-solicitacao-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -165,6 +167,8 @@ function DocumentosPendentesPage() {
   } | null>(null);
   const [comentarioModal, setComentarioModal] = useState("");
   const [salvandoModal, setSalvandoModal] = useState(false);
+  // Solicitação pendente sendo editada (só interno).
+  const [solicEditando, setSolicEditando] = useState<SolicitacaoComCaso | null>(null);
   // Upload de arquivo no atendimento
   const [arquivoUpload, setArquivoUpload] = useState<File | null>(null);
   const [comAnexo, setComAnexo] = useState(false);
@@ -561,6 +565,7 @@ function DocumentosPendentesPage() {
                 isInterno={isInterno}
                 onAtendido={(s) => abrirAcaoModal(s, "atendido")}
                 onDispensar={(s) => abrirAcaoModal(s, "dispensado")}
+                onEditar={setSolicEditando}
                 onExcluir={excluirSolicitacao}
               />
             ))}
@@ -714,6 +719,17 @@ function DocumentosPendentesPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        {/* Edição de solicitação pendente (interno only). */}
+        {isInterno && (
+          <EditarSolicitacaoDialog
+            solic={solicEditando}
+            onFechar={() => setSolicEditando(null)}
+            onSalvo={() => {
+              setSolicEditando(null);
+              carregar();
+            }}
+          />
+        )}
       </div>
     </ClientOnly>
   );
@@ -728,11 +744,12 @@ interface GrupoCasoProps {
   isInterno: boolean;
   onAtendido: (s: SolicitacaoComCaso) => void;
   onDispensar: (s: SolicitacaoComCaso) => void;
+  onEditar: (s: SolicitacaoComCaso) => void;
   onExcluir: (s: SolicitacaoComCaso) => void;
 }
 
 function GrupoCaso(props: GrupoCasoProps) {
-  const { grupo, isInterno, onAtendido, onDispensar, onExcluir } = props;
+  const { grupo, isInterno, onAtendido, onDispensar, onEditar, onExcluir } = props;
   const { caso, solicitacoes } = grupo;
   const nomeCliente = caso.clientes ? caso.clientes.nome : "(cliente sem nome)";
   const [cumpridosAberto, setCumpridosAberto] = useState(false);
@@ -771,6 +788,7 @@ function GrupoCaso(props: GrupoCasoProps) {
                 isInterno={isInterno}
                 onAtendido={onAtendido}
                 onDispensar={onDispensar}
+                onEditar={onEditar}
                 onExcluir={onExcluir}
               />
             ))}
@@ -812,6 +830,7 @@ function GrupoCaso(props: GrupoCasoProps) {
                     isInterno={isInterno}
                     onAtendido={onAtendido}
                     onDispensar={onDispensar}
+                    onEditar={onEditar}
                     onExcluir={onExcluir}
                   />
                 ))}
@@ -833,11 +852,12 @@ interface SolicitacaoItemProps {
   isInterno: boolean;
   onAtendido: (s: SolicitacaoComCaso) => void;
   onDispensar: (s: SolicitacaoComCaso) => void;
+  onEditar: (s: SolicitacaoComCaso) => void;
   onExcluir: (s: SolicitacaoComCaso) => void;
 }
 
 function SolicitacaoItem(props: SolicitacaoItemProps) {
-  const { s, isInterno, onAtendido, onDispensar, onExcluir } = props;
+  const { s, isInterno, onAtendido, onDispensar, onEditar, onExcluir } = props;
   const isPendente = s.status === "pendente";
   const isAtendido = s.status === "atendido";
   const isDispensado = s.status === "dispensado";
@@ -931,6 +951,16 @@ function SolicitacaoItem(props: SolicitacaoItemProps) {
               onClick={() => onDispensar(s)}
             >
               Dispensar
+            </Button>
+            {/* Editar tipo/observação — só interno. Útil sobretudo nas de
+                template (texto bruto do despacho do INSS). */}
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => onEditar(s)}
+              title="Editar solicitação"
+            >
+              <Pencil className="h-3 w-3" />
             </Button>
             <Button
               size="sm"
