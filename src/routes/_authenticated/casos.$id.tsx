@@ -3854,6 +3854,8 @@ function TabDocumentos(props: TabDocumentosProps) {
   } | null>(null);
   const [comentarioModal, setComentarioModal] = useState("");
   const [salvandoModal, setSalvandoModal] = useState(false);
+  // Solicitação pendente sendo editada (só interno).
+  const [solicEditando, setSolicEditando] = useState<SolicitacaoDocumento | null>(null);
   // Upload de arquivo no atendimento
   const [arquivoUpload, setArquivoUpload] = useState<File | null>(null);
   // Nome editavel do arquivo a ser salvo. Pre-preenchido com nomearArquivo
@@ -5626,6 +5628,17 @@ function TabDocumentos(props: TabDocumentosProps) {
                         >
                           Dispensar
                         </Button>
+                        {/* Editar tipo/observação. Só interno: o parceiro
+                            cumpre, não redefine o pedido. Útil sobretudo nas
+                            de template (texto bruto do despacho do INSS). */}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setSolicEditando(s)}
+                          title="Editar solicitação"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </Button>
                         <Button
                           size="sm"
                           variant="ghost"
@@ -5928,6 +5941,17 @@ function TabDocumentos(props: TabDocumentosProps) {
           tiposDocumento={tiposDocImportOptions}
           pastaRaizNome={gdriveFolderName}
           onConfirmar={importarDriveParaCaso}
+        />
+      )}
+      {/* Edição de solicitação pendente (interno only). */}
+      {isInterno && (
+        <EditarSolicitacaoDialog
+          solic={solicEditando}
+          onFechar={() => setSolicEditando(null)}
+          onSalvo={() => {
+            setSolicEditando(null);
+            onChange();
+          }}
         />
       )}
     </div>
@@ -6363,6 +6387,145 @@ function SolicitarDocBotao(props: {
           <Button onClick={criar} disabled={enviando || !valido}>
             {enviando && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
             Criar solicitação
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Edita uma solicitação pendente (só interno; a RLS solicitacoes_modify já
+// libera UPDATE pra is_interno()). Mesmos campos do "Nova solicitação".
+//
+// Convenção herdada de SolicitarDocBotao: tipo=outro guarda o nome
+// personalizado como prefixo "[Nome] " da descrição, porque a tabela não tem
+// coluna tipo_personalizado. Aqui o prefixo é separado ao abrir e remontado ao
+// salvar, pra editar como dois campos.
+//
+// Origem de template ("template:exigencia") não é editável: ela é o que liga a
+// solicitação ao fluxo de exigência (trigger que cria a tarefa "cumprir
+// exigência" quando atendida). Só externa/interna podem ser trocadas.
+function EditarSolicitacaoDialog(props: {
+  solic: SolicitacaoDocumento | null;
+  onFechar: () => void;
+  onSalvo: () => void;
+}) {
+  const { solic, onFechar, onSalvo } = props;
+  const [tipo, setTipo] = useState("");
+  const [tipoPersonalizado, setTipoPersonalizado] = useState("");
+  const [descricao, setDescricao] = useState("");
+  const [origem, setOrigem] = useState("externa");
+  const [salvando, setSalvando] = useState(false);
+
+  // Re-hidrata o formulário a cada solicitação aberta.
+  useEffect(() => {
+    if (!solic) return;
+    setTipo(solic.tipo);
+    setOrigem(solic.origem);
+    const m = /^\[([^\]]+)\]\s*([\s\S]*)$/.exec(solic.descricao ?? "");
+    if (solic.tipo === "outro" && m) {
+      setTipoPersonalizado(m[1]);
+      setDescricao(m[2]);
+    } else {
+      setTipoPersonalizado("");
+      setDescricao(solic.descricao ?? "");
+    }
+  }, [solic]);
+
+  const origemEditavel = origem === "externa" || origem === "interna";
+  // Nome personalizado é opcional na edição: solicitação de template nasce
+  // tipo=outro sem nome (a descrição é o despacho do INSS), e exigir um nome
+  // aqui travaria justamente o caso em que mais se precisa editar.
+  const valido = !!tipo;
+
+  async function salvar() {
+    if (!solic || !valido) return;
+    setSalvando(true);
+    try {
+      const descricaoFinal =
+        tipo === "outro" && tipoPersonalizado.trim()
+          ? "[" + tipoPersonalizado.trim() + "] " + descricao.trim()
+          : descricao.trim();
+      const resp = await supabase
+        .from("solicitacoes_documento")
+        .update({
+          tipo,
+          descricao: descricaoFinal || null,
+          origem,
+        })
+        .eq("id", solic.id);
+      if (resp.error) throw resp.error;
+      toast.success("Solicitação atualizada");
+      onSalvo();
+    } catch (err) {
+      console.error(err);
+      toast.error((err as { message?: string })?.message || "Erro ao salvar solicitação");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <Dialog open={!!solic} onOpenChange={(o) => !o && onFechar()}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Editar solicitação</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <Label className="text-xs">Tipo de documento</Label>
+            <DocTypeCombobox
+              options={TIPOS_DOCUMENTO_OPTIONS}
+              value={tipo}
+              onChange={setTipo}
+              placeholder="Selecione ou busque o tipo..."
+            />
+          </div>
+          {tipo === "outro" && (
+            <div>
+              <Label className="text-xs">Nome do documento</Label>
+              <Input
+                placeholder="Ex.: Cartão do INSS, Decisão do MS..."
+                value={tipoPersonalizado}
+                onChange={(e) => setTipoPersonalizado(e.target.value)}
+              />
+            </div>
+          )}
+          <div>
+            <Label className="text-xs">Quem vai providenciar?</Label>
+            {origemEditavel ? (
+              <Select value={origem} onValueChange={setOrigem}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="externa">Externa - parceiro ou cliente envia</SelectItem>
+                  <SelectItem value="interna">Interna - escritório providencia</SelectItem>
+                </SelectContent>
+              </Select>
+            ) : (
+              <p className="text-sm text-muted-foreground mt-1">
+                {ORIGEM_SOLICITACAO_LABEL[origem] || origem} — veio de template, a origem não muda.
+              </p>
+            )}
+          </div>
+          <div>
+            <Label className="text-xs">Observação</Label>
+            <Textarea
+              rows={8}
+              placeholder="Detalhes sobre o documento necessário..."
+              value={descricao}
+              onChange={(e) => setDescricao(e.target.value)}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onFechar} disabled={salvando}>
+            Cancelar
+          </Button>
+          <Button onClick={salvar} disabled={salvando || !valido}>
+            {salvando && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
+            Salvar
           </Button>
         </DialogFooter>
       </DialogContent>
