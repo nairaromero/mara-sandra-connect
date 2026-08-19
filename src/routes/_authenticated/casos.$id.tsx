@@ -43,6 +43,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useTiposBeneficio } from "@/hooks/use-tipos-beneficio";
 import { DESTAQUE_CLASSE, useFocoItem } from "@/hooks/use-foco-item";
 import { notificarEquipe } from "@/lib/notificar";
+import { descreverSolicitante } from "@/lib/documentos/solicitante";
 import { iaAnalise } from "@/lib/ia/client";
 import { supabase } from "@/lib/supabase";
 import { formatarTelefone } from "@/lib/telefone";
@@ -231,6 +232,7 @@ interface SolicitacaoDocumento {
   comentario: string | null;
   documento_id: string | null;
   solicitado_por: string | null;
+  solicitante?: { id: string; nome: string | null } | null;
   data_solicitacao: string;
   data_atendimento: string | null;
 }
@@ -770,7 +772,7 @@ function CasoDetalhePage() {
 
       const solicResp = await supabase
         .from("solicitacoes_documento")
-        .select("*")
+        .select("*, solicitante:usuarios!solicitacoes_documento_solicitado_por_fkey(id, nome)")
         .eq("caso_id", casoId)
         .order("data_solicitacao", { ascending: false });
       if (!solicResp.error) {
@@ -5594,7 +5596,15 @@ function TabDocumentos(props: TabDocumentosProps) {
                       {s.descricao && (
                         <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap">{s.descricao}</p>
                       )}
-                      <p className="text-xs text-muted-foreground mt-1">
+                      {isInterno && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Solicitado por{" "}
+                          <span className="font-medium text-foreground">
+                            {descreverSolicitante(s.solicitante, s.origem)}
+                          </span>
+                        </p>
+                      )}
+                      <p className="text-xs text-muted-foreground mt-0.5">
                         Solicitado em {formatDate(s.data_solicitacao)}
                         {s.data_atendimento
                           ? " - Atendido em " + formatDate(s.data_atendimento)

@@ -32,6 +32,11 @@ export interface TarefaRow {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
+  // Quem fez a última mudança de status (feito/cancelado/...) e quando.
+  // Preenchido por trigger; NULL autor = sistema (edge function/cron) ou
+  // anterior à migration_tarefas_autoria.
+  status_alterado_por?: string | null;
+  status_alterado_em?: string | null;
 }
 
 export interface ProcessoDoCasoOpcao {
@@ -42,6 +47,9 @@ export interface ProcessoDoCasoOpcao {
 
 export interface TarefaComJoins extends TarefaRow {
   responsavel: { id: string; nome: string | null } | null;
+  // Autoria: quem criou e quem mexeu no status por último.
+  criador?: { id: string; nome: string | null } | null;
+  status_autor?: { id: string; nome: string | null } | null;
   caso: {
     id: string;
     cliente: { id: string; nome: string | null } | null;
@@ -141,3 +149,22 @@ export const ORIGEM_LABEL: Record<TarefaOrigem, string> = {
   migracao_ti: "Migração TI",
   ia: "Sugerida pela IA",
 };
+
+// Linha de `tarefas_excluidas` (log alimentado por trigger AFTER DELETE).
+export interface TarefaExcluidaRow {
+  id: string;
+  tarefa_id: string;
+  caso_id: string | null;
+  titulo: string;
+  status: TarefaStatus;
+  tipo: TarefaTipo | null;
+  due_at: string | null;
+  responsavel_id: string | null;
+  created_by: string | null;
+  created_at: string | null;
+  excluida_por: string | null;
+  excluida_em: string;
+  excluidor?: { id: string; nome: string | null } | null;
+  responsavel?: { id: string; nome: string | null } | null;
+  caso?: { id: string; cliente: { id: string; nome: string | null } | null } | null;
+}

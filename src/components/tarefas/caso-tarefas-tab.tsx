@@ -11,6 +11,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { TarefaCard } from "@/components/tarefas/tarefa-card";
 import { TarefaSheet } from "@/components/tarefas/tarefa-sheet";
+import { TarefasExcluidas } from "@/components/tarefas/tarefas-excluidas";
 import { AgendaSheet } from "@/components/agenda/agenda-sheet";
 import { atualizarTarefa, excluirTarefa, listarTarefas } from "@/lib/tarefas/queries";
 import { STATUS_LABEL, type TarefaComJoins, type TarefaStatus } from "@/lib/tarefas/types";
@@ -40,6 +41,8 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
     evento: AgendaEventoComJoins;
   } | null>(null);
   const [aba, setAba] = useState<"ativos" | "arquivados">("ativos");
+  // Bump pra seção "Excluídas" re-buscar depois de uma exclusão aqui.
+  const [versaoExcluidas, setVersaoExcluidas] = useState(0);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -50,6 +53,8 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
       ]);
       setTarefas(ts);
       setEventos(es);
+      // Exclusão pelo sheet também passa por aqui (onSaved): atualiza o log.
+      setVersaoExcluidas((v) => v + 1);
       // Propaga pro parent. Andamentos do caso podem ter mudado (ex: etapa
       // de acompanhamento processual cria andamento ao marcar).
       onChange?.();
@@ -102,6 +107,7 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
     setTarefas((arr) => arr.filter((t) => t.id !== id));
     try {
       await excluirTarefa(id);
+      setVersaoExcluidas((v) => v + 1);
     } catch (e) {
       console.error(e);
       setTarefas(snapshot);
@@ -227,6 +233,11 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
               </section>
             );
           })}
+
+          {/* Log de exclusões (quem/quando) — só na aba Arquivados. */}
+          {aba === "arquivados" && (
+            <TarefasExcluidas casoId={casoId} versao={versaoExcluidas} />
+          )}
         </div>
       )}
 

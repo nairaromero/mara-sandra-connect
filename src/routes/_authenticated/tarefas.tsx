@@ -43,6 +43,7 @@ import {
 
 import { TarefaCard } from "@/components/tarefas/tarefa-card";
 import { TarefaSheet } from "@/components/tarefas/tarefa-sheet";
+import { TarefasExcluidas } from "@/components/tarefas/tarefas-excluidas";
 import {
   atualizarTarefa,
   contarTarefas,
@@ -146,6 +147,8 @@ function TarefasPage() {
 
   const [sheetModo, setSheetModo] = useState<Modo | null>(null);
   const [aba, setAba] = useState<"ativos" | "arquivados">("ativos");
+  // Bump pra seção "Excluídas" (aba Arquivados) re-buscar após exclusão.
+  const [versaoExcluidas, setVersaoExcluidas] = useState(0);
 
   // Arquivados sao a maior parte das linhas e quase nunca sao olhados: so
   // descem quando a aba abre. Ate la o contador vem de um COUNT no banco.
@@ -169,6 +172,8 @@ function TarefasPage() {
         contarTarefas({ status: STATUS_ARQUIVADOS }),
       ]);
       setTotalArquivados(total);
+      // Exclusão pelo sheet passa por aqui (onSaved): atualiza o log.
+      setVersaoExcluidas((v) => v + 1);
       if (arquivadosRef.current) {
         const arquivadas = await listarTarefas({ status: STATUS_ARQUIVADOS });
         setTarefas([...ativas, ...arquivadas]);
@@ -334,6 +339,7 @@ function TarefasPage() {
     setTarefas((arr) => arr.filter((t) => t.id !== id));
     try {
       await excluirTarefa(id);
+      setVersaoExcluidas((v) => v + 1);
       toast.success("Tarefa excluída.");
     } catch (e) {
       console.error(e);
@@ -732,6 +738,11 @@ function TarefasPage() {
               );
             })}
           </div>
+        )}
+
+        {/* Log de exclusões (quem/quando), últimas 50 — só em Arquivados. */}
+        {aba === "arquivados" && !carregando && !carregandoArquivados && (
+          <TarefasExcluidas mostrarCaso versao={versaoExcluidas} abertaInicial={false} />
         )}
 
         <TarefaSheet

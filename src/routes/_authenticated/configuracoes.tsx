@@ -77,7 +77,7 @@ function maskTelefone(v: string): string {
 // ===========================================================================
 
 function ConfiguracoesPage() {
-  const { usuario } = useAuth();
+  const { usuario, isAdmin } = useAuth();
   const navigate = useNavigate();
   const usuarioId = usuario ? usuario.id : null;
 
@@ -311,6 +311,7 @@ function ConfiguracoesPage() {
               <Badge variant="outline">
                 {dados.tipo === "interno" ? "Interno (escritório)" : "Parceiro"}
               </Badge>
+              {isAdmin && <Badge variant="outline">Administrador</Badge>}
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="sm:col-span-2">
@@ -486,20 +487,20 @@ function ConfiguracoesPage() {
         {/* Card: Tipos de beneficio (so interno gerencia o cadastro) */}
         {dados?.tipo === "interno" && <TiposBeneficioCard />}
 
-        {/* Cards de IA: so interno por enquanto. Backend mantido intacto -
-          parceiro nao ve a UI mas as APIs ainda existem. */}
-        {dados?.tipo === "interno" && (
+        {/* Cards de integração: só ADMIN (Naira/Mara). Backend mantido
+          intacto - os demais não veem a UI mas as APIs ainda existem. */}
+        {isAdmin && (
           <>
             {/* Card: Integracao de IA */}
             <IntegracaoIaCard />
 
             {/* Card: Conectar Claude/ChatGPT (Superficie B) */}
             <ConexaoClaudeCard />
+
+            {/* Card: Integração Gmail (INSS) */}
+            <IntegracaoGmailCard />
           </>
         )}
-
-        {/* Card: Integração Gmail (INSS) */}
-        <IntegracaoGmailCard />
 
         {/* Card: Sobre */}
         <Card>

@@ -27,12 +27,15 @@ interface InternoRow {
   nome: string | null;
   email: string | null;
   ativo: boolean;
+  eh_admin: boolean | null;
   onboarded_em: string | null;
 }
 
 function EquipePage() {
-  const { usuario } = useAuth();
-  const isInterno = usuario?.tipo === "interno";
+  const { usuario, isAdmin } = useAuth();
+  // Só admin (Naira/Mara) entra aqui. Os demais internos nem veem o item
+  // na sidebar; se caírem pela URL, levam aviso + redirect.
+  const isInterno = isAdmin;
 
   const [lista, setLista] = useState<Array<InternoRow>>([]);
   const [carregando, setCarregando] = useState(true);
@@ -44,7 +47,7 @@ function EquipePage() {
     setCarregando(true);
     const { data, error } = await supabase
       .from("usuarios")
-      .select("id, nome, email, ativo, onboarded_em")
+      .select("id, nome, email, ativo, eh_admin, onboarded_em")
       .eq("tipo", "interno")
       .order("nome", { ascending: true });
     if (!error) setLista((data || []) as Array<InternoRow>);
@@ -107,7 +110,7 @@ function EquipePage() {
       <div className="flex h-64 flex-col items-center justify-center gap-2 text-center">
         <ShieldAlert className="h-8 w-8 text-muted-foreground" />
         <p className="text-sm text-muted-foreground">
-          Área restrita a usuários internos.
+          Área restrita a administradores.
         </p>
       </div>
     );
@@ -213,6 +216,11 @@ function EquipePage() {
                         </p>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
+                        {u.eh_admin && (
+                          <Badge className="text-xs bg-gold-soft/60 text-foreground hover:bg-gold-soft/60 border border-gold/40">
+                            admin
+                          </Badge>
+                        )}
                         {!u.onboarded_em && (
                           <Badge variant="outline" className="text-xs">
                             convite pendente
