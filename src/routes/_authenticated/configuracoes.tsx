@@ -15,6 +15,7 @@ import {
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { formatarTelefone } from "@/lib/telefone";
 import { ClientOnly } from "@/components/client-only";
 import { IntegracaoIaCard } from "@/components/ia/integracao-ia-card";
 import { ConexaoClaudeCard } from "@/components/ia/conexao-claude-card";
@@ -354,7 +355,7 @@ function ConfiguracoesPage() {
                     inputMode="tel"
                   />
                 ) : (
-                  <p className="text-sm py-2">{dados.telefone || "-"}</p>
+                  <p className="text-sm py-2">{formatarTelefone(dados.telefone) || "-"}</p>
                 )}
               </div>
             </div>
