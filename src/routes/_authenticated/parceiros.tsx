@@ -20,6 +20,7 @@ import {
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { formatarTelefone } from "@/lib/telefone";
 import { ClientOnly } from "@/components/client-only";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -774,7 +775,7 @@ function ParceirosPage() {
                             Repasse:{" "}
                             {p.percentual_parceiro != null ? `${p.percentual_parceiro}%` : "—"}
                           </span>
-                          <span>Tel: {p.telefone ?? "—"}</span>
+                          <span>Tel: {formatarTelefone(p.telefone) || "—"}</span>
                         </div>
                         <div className="flex justify-end gap-0.5 border-t border-border pt-1.5">
                           <Button
@@ -846,7 +847,7 @@ function ParceirosPage() {
                             <TableCell>
                               {p.percentual_parceiro != null ? `${p.percentual_parceiro}%` : "—"}
                             </TableCell>
-                            <TableCell>{p.telefone ?? "—"}</TableCell>
+                            <TableCell>{formatarTelefone(p.telefone) || "—"}</TableCell>
                             <TableCell>
                               <div className="flex items-center gap-1">
                                 {ehDaEquipe(p) && (
@@ -1145,7 +1146,7 @@ function ParceirosPage() {
                 <div className="space-y-2 text-sm">
                   <p>
                     Vamos enviar um <strong>código de ativação</strong> para o WhatsApp do parceiro
-                    no número <strong>{ativarAlvo?.telefone ?? "—"}</strong>.
+                    no número <strong>{formatarTelefone(ativarAlvo?.telefone) || "—"}</strong>.
                   </p>
                   <p className="text-muted-foreground">
                     O parceiro deve <strong>responder o código</strong> na conversa com o bot para

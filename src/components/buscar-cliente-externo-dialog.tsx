@@ -22,6 +22,7 @@ import { useMemo, useState } from "react";
 import { Loader2, Search, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
+import { formatarTelefone } from "@/lib/telefone";
 import { mensagemDeErroEdge } from "@/lib/edge-function-error";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -150,7 +151,7 @@ export function BuscarNoTiDialog({ onEscolher }: { onEscolher: (c: ClienteTi) =>
                       <div className="text-sm font-medium">{c.nome || "(sem nome)"}</div>
                       <div className="text-xs text-muted-foreground font-mono">
                         {c.cpf || "sem CPF"}
-                        {c.telefone ? " · " + c.telefone : ""}
+                        {c.telefone ? " · " + formatarTelefone(c.telefone) : ""}
                       </div>
                     </button>
                   </li>
