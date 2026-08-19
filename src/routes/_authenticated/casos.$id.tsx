@@ -45,6 +45,7 @@ import { DESTAQUE_CLASSE, useFocoItem } from "@/hooks/use-foco-item";
 import { notificarEquipe } from "@/lib/notificar";
 import { iaAnalise } from "@/lib/ia/client";
 import { supabase } from "@/lib/supabase";
+import { formatarTelefone } from "@/lib/telefone";
 import { SeletorDestinatario } from "@/components/seletor-destinatario";
 import {
   sugerirDestinatario,
@@ -1295,7 +1296,7 @@ function IdentidadeClienteLinha(props: { cliente: Cliente; isInterno: boolean })
             <Phone className="h-3.5 w-3.5" />
             Telefone:
           </span>
-          <span>{cliente.telefone}</span>
+          <span>{formatarTelefone(cliente.telefone)}</span>
           <Button
             size="sm"
             variant="ghost"
@@ -1894,7 +1895,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
               )}
             </div>
             <Linha label="Nascimento" valor={formatDate(cliente.data_nascimento)} />
-            {isInterno && <Linha label="Telefone" valor={cliente.telefone || "-"} />}
+            {isInterno && <Linha label="Telefone" valor={formatarTelefone(cliente.telefone) || "-"} />}
             {isInterno && <Linha label="E-mail" valor={cliente.email || "-"} />}
             {isInterno && (
               // Senha MEU INSS inline: olhinho revela (RPC com audit) e o
