@@ -47,6 +47,8 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { decryptSecret } from "../_shared/crypto.ts";
+import { chatWith } from "../_shared/ia-providers.ts";
+import { carregarIntegracao, type IntegracaoIA } from "../_shared/ia-integracao.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -608,6 +610,85 @@ interface Lookups {
   nairaUsuarioId: string | null;
 }
 
+// ---------------------------------------------------------------------------
+// Mensagem simples pro parceiro (IA)
+// ---------------------------------------------------------------------------
+// A solicitação de documento de exigência ia pro parceiro com o despacho bruto
+// do INSS colado — texto longo, burocrático, e parceiro leigo não entendia o
+// que tinha que fazer. Aqui a IA reescreve: o que o INSS pediu, passos
+// numerados, prazo fatal em destaque. Se a IA não estiver configurada ou
+// falhar, cai no texto antigo (nunca bloqueia o processamento do e-mail).
+//
+// Chave: a integração efetiva da Naira (própria ou compartilhada do
+// escritório), mesma infra do assistente. Carregada uma vez por execução.
+
+const PROMPT_MENSAGEM_PARCEIRO = `Você redige mensagens curtas para parceiros comerciais de um escritório de advocacia previdenciária brasileiro. O parceiro é LEIGO: não entende de Direito Previdenciário nem os termos do INSS.
+
+Você receberá o despacho de uma exigência do INSS. Elabore, de forma simples e objetiva, uma mensagem para o parceiro dizendo o que precisa ser providenciado para cumprir a exigência e qual é o prazo fatal.
+
+Regras de conteúdo:
+- Comece com "Olá!" e uma frase curta explicando o que o INSS pediu (em palavras simples, sem jargão; se houver termo técnico, explique).
+- Liste o que o cliente/parceiro deve fazer em passos numerados (1., 2., 3., ...), um passo por linha, frases curtas.
+- Destaque o prazo com "⚠️" e a data entre asteriscos, assim: *DD/MM/AAAA*. Avise que, se não for cumprido no prazo, o pedido pode ser arquivado sem análise.
+- Se o despacho NÃO trouxer uma data, não invente: diga que o prazo é curto e que o escritório confirmará a data.
+- Termine pedindo que providencie o quanto antes e envie ao escritório para fazermos o cumprimento da exigência.
+- Não mencione números de protocolo, artigos de lei, matrícula de servidor, sites de validação nem instruções de uso do Meu INSS (quem protocola é o escritório).
+- Quando o problema for assinatura eletrônica não validada (procuração, termos, declarações), oriente as duas saídas aceitas: (a) imprimir o documento e assinar de próprio punho, com caneta, enviando foto ou digitalização colorida, completa e legível, sem cortar nenhuma parte; ou (b) assinar digitalmente pelo gov.br (assinatura gov.br). Não cite outros sites.
+- Documentos em foto/digitalização devem estar coloridos, legíveis e completos (frente e verso quando houver).
+
+Regras de formato (importante — o texto é exibido como texto puro):
+- Separe os blocos com UMA linha em branco: saudação/explicação, lista de passos, prazo, fechamento.
+- Um item numerado por linha.
+- Sem markdown além dos asteriscos da data (nada de #, **, listas com -, blocos de código).
+- Responda SOMENTE com a mensagem final, sem comentários.`;
+
+let integIACache: { integ: IntegracaoIA; apiKey: string } | null | undefined;
+
+async function redigirMensagemParceiro(
+  sb: SupabaseClient,
+  lookups: Lookups,
+  c: CamposEmail,
+): Promise<string | null> {
+  if (!c.despacho || !lookups.nairaUsuarioId) return null;
+  try {
+    if (integIACache === undefined) {
+      const r = await carregarIntegracao(sb, lookups.nairaUsuarioId);
+      if (!r.ok) {
+        console.warn("[inss] IA nao configurada p/ mensagem ao parceiro:", r.error);
+        integIACache = null;
+      } else {
+        integIACache = {
+          integ: r.integ,
+          apiKey: await decryptSecret(r.integ.api_key_cipher, r.integ.api_key_iv),
+        };
+      }
+    }
+    if (!integIACache) return null;
+
+    const hoje = new Date(Date.now() - 3 * 3600_000).toLocaleDateString("pt-BR");
+    const res = await chatWith(integIACache.integ.provider, integIACache.apiKey, integIACache.integ.modelo, {
+      system: PROMPT_MENSAGEM_PARCEIRO,
+      tools: [],
+      maxTokens: 900,
+      messages: [{
+        role: "user",
+        content:
+          `Data de hoje: ${hoje}\n` +
+          `Cliente: ${c.nome_cliente || "(sem nome)"}\n` +
+          `Serviço/benefício: ${c.servico || "(não informado)"}\n\n` +
+          `Despacho do INSS:\n${c.despacho}`,
+      }],
+    });
+    const texto = (res.text || "").trim();
+    // Resposta vazia ou curta demais = modelo se perdeu; melhor o texto antigo.
+    if (texto.length < 40) return null;
+    return texto;
+  } catch (err) {
+    console.warn("[inss] falha ao redigir mensagem ao parceiro:", err);
+    return null;
+  }
+}
+
 async function carregarLookups(sb: SupabaseClient): Promise<Lookups> {
   const { data } = await sb
     .from("usuarios")
@@ -860,12 +941,15 @@ async function processarMensagem(
     if ((item as { destino?: string }).destino === "solicitacao_documento" && match.caso_id) {
       const tituloSub = substituir(item.titulo, campos);
       const descSub = substituir(item.descricao ?? "", campos);
+      // Texto simples pra quem vai ler (parceiro leigo). Cai no template se a
+      // IA não responder.
+      const mensagemIA = await redigirMensagemParceiro(sb, lookups, campos);
       const { error: errSolic } = await sb
         .from("solicitacoes_documento")
         .insert({
           caso_id: match.caso_id,
           tipo: (item.tipo as string) || "outro",
-          descricao: descSub || tituloSub,
+          descricao: mensagemIA ?? (descSub || tituloSub),
           status: "pendente",
           origem: `template:${templateFinal}`,
           data_solicitacao: new Date().toISOString(),
@@ -1018,6 +1102,9 @@ serve(async (req) => {
     label?: string;
     message_id?: string;          // processa só uma mensagem específica
     message_ids?: string[];       // ou várias específicas
+    // Só gera a mensagem simples pro parceiro a partir de um despacho e
+    // devolve — sem ler Gmail nem gravar nada. Pra afinar o prompt.
+    preview_mensagem_parceiro?: { despacho: string; nome_cliente?: string; servico?: string };
   } = {};
   try {
     body = await req.json();
@@ -1026,6 +1113,9 @@ serve(async (req) => {
   const dias = Math.min(Math.max(body.dias ?? 1, 1), 30);
   const limite = Math.min(Math.max(body.limite ?? 50, 1), 200);
   const dryRun = body.dry_run === true;
+  // Integração de IA é resolvida de novo a cada execução (a isolate pode
+  // ficar quente entre chamadas do cron; chave trocada não pode ficar presa).
+  integIACache = undefined;
   const label = body.label ?? DEFAULT_LABEL;
   const onlyIds = body.message_id
     ? [body.message_id]
@@ -1036,6 +1126,22 @@ serve(async (req) => {
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, {
     auth: { persistSession: false },
   });
+
+  if (body.preview_mensagem_parceiro) {
+    const pv = body.preview_mensagem_parceiro;
+    const lookups = await carregarLookups(sb);
+    const texto = await redigirMensagemParceiro(sb, lookups, {
+      nome_cliente: pv.nome_cliente ?? "",
+      protocolo: "",
+      cpf: "",
+      nb: "",
+      servico: pv.servico ?? "",
+      status_assunto: "",
+      despacho: pv.despacho ?? "",
+      data_cessacao: "",
+    });
+    return jsonResponse({ mensagem: texto, ia_usada: texto !== null });
+  }
 
   try {
     const { token, gmailAddress } = await obterAccessToken(sb);
