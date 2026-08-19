@@ -5591,7 +5591,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                         </Badge>
                       </div>
                       {s.descricao && (
-                        <p className="text-xs text-muted-foreground mt-1">{s.descricao}</p>
+                        <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap">{s.descricao}</p>
                       )}
                       <p className="text-xs text-muted-foreground mt-1">
                         Solicitado em {formatDate(s.data_solicitacao)}
