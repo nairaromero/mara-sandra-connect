@@ -4,7 +4,7 @@
 
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { CalendarDays, MoreVertical, Trash2, User as UserIcon } from "lucide-react";
+import { CalendarDays, CheckCircle2, MoreVertical, Trash2, User as UserIcon, XCircle } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,7 @@ import { ComparecimentoPericia } from "@/components/tarefas/comparecimento-peric
 import { EtapaCumprimentoExigencia } from "@/components/tarefas/etapa-cumprimento-exigencia";
 import { EtapaProtocoloRealizado } from "@/components/tarefas/etapa-protocolo-realizado";
 import {
+  descreverAutoriaStatus,
   formatarDueAtCurto,
   formatarDueAtLongo,
   iniciaisDoNome,
@@ -90,6 +91,9 @@ export function TarefaCard({
   const ehProtocoloRealizado =
     (tarefa.metadata as { protocolo_realizado?: boolean })?.protocolo_realizado === true;
   const destacado = useDestaqueAtivo(tarefa.id);
+  // Arquivadas: quem concluiu/cancelou e quando (trigger de autoria).
+  const autoria = descreverAutoriaStatus(tarefa);
+  const AutoriaIcon = tarefa.status === "feito" ? CheckCircle2 : XCircle;
 
   return (
     <div
@@ -271,6 +275,23 @@ export function TarefaCard({
               )}
             </div>
           </>
+        )}
+
+        {autoria && (
+          <div
+            className={cn(
+              "flex items-center gap-1 text-muted-foreground",
+              compacto ? "text-[11px]" : "text-xs",
+            )}
+          >
+            <AutoriaIcon
+              className={cn(
+                "h-3.5 w-3.5 shrink-0",
+                tarefa.status === "feito" ? "text-emerald-600" : "text-muted-foreground",
+              )}
+            />
+            <span className="truncate">{autoria}</span>
+          </div>
         )}
 
         {ehAcompProcessual && (

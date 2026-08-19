@@ -52,9 +52,12 @@ import { criarEvento } from "@/lib/agenda/queries";
 import type { AgendaTipo } from "@/lib/agenda/types";
 import { calcularDueAtRelativo } from "@/lib/agenda/helpers";
 import {
+  descreverAutoriaStatus,
+  formatarDataHoraCurtaBR,
   formatarDueAtCurto,
   inputDateTimeValueFromIso,
   isoFromInputDateTime,
+  nomeAmigavel,
   substituirPlaceholders,
 } from "@/lib/tarefas/helpers";
 import {
@@ -725,8 +728,16 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
         <SheetHeader>
           <SheetTitle>{editando ? "Editar tarefa" : "Nova tarefa"}</SheetTitle>
           {editando && tarefa && (
-            <SheetDescription>
-              Criada em {new Date(tarefa.created_at).toLocaleString("pt-BR")} · origem {tarefa.origem}
+            <SheetDescription className="space-y-0.5">
+              {/* Autoria (trigger): quem criou e quem concluiu/cancelou. */}
+              <span className="block">
+                Criada em {formatarDataHoraCurtaBR(tarefa.created_at)}
+                {tarefa.criador?.nome ? ` por ${nomeAmigavel(tarefa.criador.nome)}` : ""} ·
+                origem {tarefa.origem}
+              </span>
+              {descreverAutoriaStatus(tarefa) && (
+                <span className="block">{descreverAutoriaStatus(tarefa)}</span>
+              )}
             </SheetDescription>
           )}
         </SheetHeader>

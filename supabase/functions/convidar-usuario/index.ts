@@ -56,7 +56,7 @@ serve(async (req) => {
   }
   const { data: perfil } = await admin
     .from("usuarios")
-    .select("tipo")
+    .select("tipo, eh_admin")
     .eq("id", userData.user.id)
     .maybeSingle();
   if (perfil?.tipo !== "interno") {
@@ -73,6 +73,11 @@ serve(async (req) => {
   const nome = String(body.nome || "").trim();
   const email = String(body.email || "").trim().toLowerCase();
   const tipo = body.tipo === "interno" ? "interno" : "parceiro";
+  // Convidar gente pra EQUIPE (interno) e so admin (Naira/Mara). Parceiro,
+  // qualquer interno continua podendo convidar (tela /parceiros).
+  if (tipo === "interno" && perfil?.eh_admin !== true) {
+    return jsonResponse({ error: "apenas administradores podem convidar internos" }, 403);
+  }
   const oab = String(body.oab || "").trim();
   const telefone = String(body.telefone || "").trim();
   const observacoes = body.observacoes ? String(body.observacoes).trim() : null;

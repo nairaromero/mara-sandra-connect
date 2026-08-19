@@ -7,6 +7,8 @@ interface AuthContextValue {
   session: Session | null;
   user: User | null;
   usuario: UsuarioRow | null;
+  /** interno + eh_admin (Naira/Mara). false enquanto carrega ou pra parceiro. */
+  isAdmin: boolean;
   loading: boolean;
   /**
    * true  = conta ainda sem senha (entrou por convite/magic link) e precisa
@@ -87,7 +89,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // cai pra select basico - assim o app nao trava em spinner infinito.
     const fullResp = await supabase
       .from("usuarios")
-      .select("id, nome, email, tipo, avatar_url, onboarded_em, aceitou_termos_em, termos_versao")
+      .select("id, nome, email, tipo, eh_admin, avatar_url, onboarded_em, aceitou_termos_em, termos_versao")
       .eq("id", userId)
       .maybeSingle();
 
@@ -151,6 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         session,
         user: session?.user ?? null,
         usuario,
+        isAdmin: usuario?.tipo === "interno" && usuario?.eh_admin === true,
         loading,
         precisaSenha,
         signOut,

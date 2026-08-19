@@ -136,9 +136,11 @@ function isHttpsUrl(v: string): boolean {
 }
 
 function WebhooksPage() {
-  const { usuario } = useAuth();
+  const { usuario, isAdmin } = useAuth();
   const navigate = useNavigate();
-  const isInterno = usuario?.tipo === "interno";
+  // Só admin (Naira/Mara) entra aqui. Os demais internos nem veem o item
+  // na sidebar; se caírem pela URL, levam aviso + redirect.
+  const isInterno = isAdmin;
 
   const [destinos, setDestinos] = useState<DestinoRow[]>([]);
   const [parceiros, setParceiros] = useState<ParceiroOption[]>([]);
@@ -170,7 +172,7 @@ function WebhooksPage() {
 
   useEffect(() => {
     if (usuario && !isInterno) {
-      toast.error("Acesso restrito à equipe interna.");
+      toast.error("Acesso restrito a administradores.");
       navigate({ to: "/casos" });
     }
   }, [usuario, isInterno, navigate]);
@@ -387,7 +389,7 @@ function WebhooksPage() {
     return (
       <div className="flex h-96 flex-col items-center justify-center gap-2 text-muted-foreground">
         <ShieldAlert className="h-8 w-8" />
-        <p className="text-sm">Acesso restrito à equipe interna.</p>
+        <p className="text-sm">Acesso restrito a administradores.</p>
       </div>
     );
   }
