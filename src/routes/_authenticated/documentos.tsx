@@ -13,6 +13,7 @@ import {
   ChevronRight,
   Pencil,
   Trash2,
+  User as UserIcon,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -20,6 +21,7 @@ import {
   TIPOS_DOCUMENTO_LABEL,
   nomeArquivoPorTipo,
 } from "@/lib/documentos/tipos";
+import { descreverSolicitante } from "@/lib/documentos/solicitante";
 import { listarInternosAtivos } from "@/lib/tarefas/queries";
 import { supabase } from "@/lib/supabase";
 import { notificarEquipe } from "@/lib/notificar";
@@ -910,11 +912,16 @@ function SolicitacaoItem(props: SolicitacaoItemProps) {
               {s.descricao}
             </p>
           )}
-          <p className="text-xs text-muted-foreground mt-1">
-            {/* Quem abriu o pedido. Fica sempre visível: no modo "todas do
-                escritório" é a informação que faltava pra saber de quem é
-                cada um; no modo filtrado, confirma que o recorte está certo. */}
-            {s.solicitante?.nome ? `Pedido por ${s.solicitante.nome} · ` : ""}
+          {/* Quem abriu o pedido. Fica sempre visível: no modo "todas do
+              escritório" é a informação que faltava pra saber de quem é
+              cada um; no modo filtrado, confirma que o recorte está certo.
+              Pedido do robô do INSS (solicitado_por nulo) é dito como tal. */}
+          <p className="text-xs mt-1.5 flex items-center gap-1">
+            <UserIcon className="h-3 w-3 shrink-0 text-muted-foreground" />
+            <span className="text-muted-foreground">Solicitado por</span>{" "}
+            <span className="font-medium">{descreverSolicitante(s.solicitante, s.origem)}</span>
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">
             Solicitado em {formatDate(s.data_solicitacao)}
             {s.data_atendimento
               ? " - Atendido em " + formatDate(s.data_atendimento)

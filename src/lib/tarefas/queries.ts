@@ -5,6 +5,7 @@ import { buscarPaginado } from "@/lib/supabase-paginado";
 import type {
   ProcessoDoCasoOpcao,
   TarefaComJoins,
+  TarefaExcluidaRow,
   TarefaRow,
   TarefaStatus,
   TarefaTemplateRow,
@@ -15,7 +16,10 @@ const SELECT_COM_JOINS = `
   id, caso_id, processo_admin_id, processo_judicial_id, responsavel_id, tipo,
   status, prioridade, titulo, descricao, due_at, origem, origem_ref, lembretes,
   gcal_event_id, metadata, created_by, created_at, updated_at, completed_at,
+  status_alterado_por, status_alterado_em,
   responsavel:usuarios!tarefas_responsavel_id_fkey(id, nome),
+  criador:usuarios!tarefas_created_by_fkey(id, nome),
+  status_autor:usuarios!tarefas_status_alterado_por_fkey(id, nome),
   caso:casos(id, cliente:clientes(id, nome)),
   processo_admin:processo_admin_id(id, numero_requerimento),
   processo_judicial:processo_judicial_id(id, numero_processo)
@@ -166,8 +170,49 @@ export async function atualizarTarefa(input: AtualizarTarefaInput): Promise<Tare
 }
 
 export async function excluirTarefa(id: string): Promise<void> {
+  // O trigger AFTER DELETE copia a linha pra `tarefas_excluidas` com quem
+  // excluiu (auth.uid()) — ver migration_tarefas_autoria.sql.
   const { error } = await supabase.from("tarefas").delete().eq("id", id);
   if (error) throw error;
+}
+
+/**
+ * Log de tarefas excluídas (quem/quando). Por caso ou geral (últimas N).
+ * `caso_id` não tem FK (o caso pode já ter sumido), então o cliente vem
+ * numa 2ª consulta em vez de embed.
+ */
+export async function listarTarefasExcluidas(args: {
+  caso_id?: string;
+  limite?: number;
+}): Promise<TarefaExcluidaRow[]> {
+  let q = supabase
+    .from("tarefas_excluidas")
+    .select(
+      `id, tarefa_id, caso_id, titulo, status, tipo, due_at, responsavel_id,
+       created_by, created_at, excluida_por, excluida_em,
+       excluidor:usuarios!tarefas_excluidas_excluida_por_fkey(id, nome),
+       responsavel:usuarios!tarefas_excluidas_responsavel_id_fkey(id, nome)`,
+    )
+    .order("excluida_em", { ascending: false });
+  if (args.caso_id) q = q.eq("caso_id", args.caso_id);
+  q = q.limit(args.limite ?? 50);
+  const { data, error } = await q;
+  if (error) throw error;
+  const rows = (data || []) as unknown as TarefaExcluidaRow[];
+
+  const casoIds = Array.from(new Set(rows.map((r) => r.caso_id).filter(Boolean))) as string[];
+  if (casoIds.length > 0 && !args.caso_id) {
+    const { data: casos } = await supabase
+      .from("casos")
+      .select("id, cliente:clientes(id, nome)")
+      .in("id", casoIds);
+    const porId = new Map<string, TarefaExcluidaRow["caso"]>();
+    for (const c of (casos || []) as unknown as NonNullable<TarefaExcluidaRow["caso"]>[]) {
+      porId.set(c.id, c);
+    }
+    for (const r of rows) r.caso = r.caso_id ? (porId.get(r.caso_id) ?? null) : null;
+  }
+  return rows;
 }
 
 export async function aplicarTemplate(args: {
