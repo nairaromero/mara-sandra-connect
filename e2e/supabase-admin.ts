@@ -114,6 +114,9 @@ export async function cleanupE2E(admin: SupabaseClient): Promise<void> {
       "documentos",
       "solicitacoes_documento",
       "tarefas",
+      // log de exclusões (trigger AFTER DELETE em tarefas) — limpar depois
+      // de tarefas, senão o próprio cleanup deixa rastro [E2E] no log.
+      "tarefas_excluidas",
       "notificacoes",
       "andamentos",
       "agenda_eventos",

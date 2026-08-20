@@ -165,3 +165,53 @@ export function substituirPlaceholders(
     .trim();
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Autoria (quem criou / quem concluiu ou cancelou). Preenchida por trigger —
+// ver migration_tarefas_autoria.sql. Autor NULL com data = "sistema" (edge
+// function/cron); sem data = tarefa anterior à migration.
+// ---------------------------------------------------------------------------
+
+interface PessoaLite {
+  id: string;
+  nome: string | null;
+}
+
+export function formatarDataHoraCurtaBR(iso: string | null | undefined): string {
+  if (!iso) return "";
+  return formatarBR(iso, {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+export function nomeOuSistema(p: PessoaLite | null | undefined, temData: boolean): string {
+  if (p?.nome) return nomeAmigavel(p.nome);
+  return temData ? "sistema" : "—";
+}
+
+/**
+ * "Concluída por Mara Sandra em 13/08/26 14:02" / "Cancelada pelo sistema em ..."
+ * Só pra tarefas arquivadas (feito/cancelado). null quando não há o que dizer.
+ */
+export function descreverAutoriaStatus(t: {
+  status: TarefaStatus;
+  status_alterado_em?: string | null;
+  status_autor?: PessoaLite | null;
+  completed_at?: string | null;
+}): string | null {
+  if (t.status !== "feito" && t.status !== "cancelado") return null;
+  const quando = t.status_alterado_em ?? (t.status === "feito" ? t.completed_at : null);
+  const verbo = t.status === "feito" ? "Concluída" : "Cancelada";
+  if (!quando) return null;
+  // Sem status_alterado_em = anterior à migration: sabemos quando, não quem.
+  const quem = t.status_autor?.nome
+    ? ` por ${nomeAmigavel(t.status_autor.nome)}`
+    : t.status_alterado_em
+      ? " pelo sistema"
+      : "";
+  return `${verbo}${quem} em ${formatarDataHoraCurtaBR(quando)}`;
+}

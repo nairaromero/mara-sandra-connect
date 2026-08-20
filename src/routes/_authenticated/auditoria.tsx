@@ -113,9 +113,11 @@ function TipoUsuarioBadge({ tipo }: { tipo: string | null | undefined }) {
 // ===========================================================================
 
 function AuditoriaPage() {
-  const { usuario } = useAuth();
+  const { usuario, isAdmin } = useAuth();
   const navigate = useNavigate();
-  const isInterno = usuario?.tipo === "interno";
+  // Só admin (Naira/Mara) entra aqui. Os demais internos nem veem o item
+  // na sidebar; se caírem pela URL, levam aviso + redirect.
+  const isInterno = isAdmin;
 
   const [rows, setRows] = useState<AcessoRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -125,7 +127,7 @@ function AuditoriaPage() {
 
   useEffect(() => {
     if (usuario && !isInterno) {
-      toast.error("Acesso restrito à equipe interna.");
+      toast.error("Acesso restrito a administradores.");
       navigate({ to: "/casos" });
     }
   }, [usuario, isInterno, navigate]);
@@ -204,7 +206,7 @@ function AuditoriaPage() {
     return (
       <div className="flex h-96 flex-col items-center justify-center gap-2 text-muted-foreground">
         <ShieldAlert className="h-8 w-8" />
-        <p className="text-sm">Acesso restrito à equipe interna.</p>
+        <p className="text-sm">Acesso restrito a administradores.</p>
       </div>
     );
   }

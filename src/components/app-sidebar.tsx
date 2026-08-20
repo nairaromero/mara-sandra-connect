@@ -56,9 +56,14 @@ const itemParceiroPericias = { title: "Perícias", url: "/agenda", icon: Calenda
 const itemsInternos = [
   { title: "Comercial", url: "/comercial", icon: Handshake },
   { title: "Processos", url: "/processos", icon: Briefcase },
-  { title: "Equipe", url: "/equipe", icon: UserCog },
   { title: "Parceiros", url: "/parceiros", icon: Users },
   { title: "Etiquetas", url: "/etiquetas", icon: Tag },
+];
+
+// Só admin (Naira/Mara): gestão da equipe, webhooks e auditoria. As rotas
+// também se protegem sozinhas (redirect) — aqui é só pra não aparecer.
+const itemsAdmin = [
+  { title: "Equipe", url: "/equipe", icon: UserCog },
   { title: "Webhooks", url: "/webhooks", icon: Webhook },
   { title: "Auditoria", url: "/auditoria", icon: ShieldCheck },
 ];
@@ -67,7 +72,7 @@ const itemsFooter = [{ title: "Configurações", url: "/configuracoes", icon: Se
 
 export function AppSidebar() {
   const { state, isMobile, setOpenMobile } = useSidebar();
-  const { usuario } = useAuth();
+  const { usuario, isAdmin } = useAuth();
   const isInterno = usuario?.tipo === "interno";
   const collapsed = state === "collapsed";
   // No modo estreito o sidebar e um painel (Sheet) que cobre o conteudo;
@@ -81,7 +86,13 @@ export function AppSidebar() {
     path === "/" ? currentPath === "/" : currentPath.startsWith(path);
 
   const items = isInterno
-    ? [...itemsInternosTopo, ...itemsBase, ...itemsInternos, ...itemsFooter]
+    ? [
+        ...itemsInternosTopo,
+        ...itemsBase,
+        ...itemsInternos,
+        ...(isAdmin ? itemsAdmin : []),
+        ...itemsFooter,
+      ]
     : [itemsBase[0], itemParceiroPericias, ...itemsBase.slice(1), ...itemsFooter];
 
   // Badge de publicacoes novas (DJEN) desde a ultima visita. RLS escopa por

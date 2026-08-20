@@ -37,6 +37,14 @@ feature branch  ──merge──▶  staging  ──merge (após validação)�
 - Apply: `node scripts/msc-sql.mjs --staging --file <arq>` (staging primeiro), depois sem a flag (produção).
 - Migrations devem ser idempotentes quando possível.
 
+## Papéis (interno / admin / parceiro)
+
+- `usuarios.tipo` = modo de acesso (`interno` x `parceiro`). `usuarios.eh_parceiro` = papel comercial.
+- `usuarios.eh_admin` (desde 2026-08-19) = admin do escritório. **Só Naira e Mara.** No front: `const { isAdmin } = useAuth()`. No SQL: `public.is_admin()`.
+- Só admin vê: Equipe interna (`/equipe`), Webhooks, Auditoria, e em Configurações os cards Integração de IA / Conectar Claude / Integração Gmail. Convidar interno (edge `convidar-usuario`) exige admin. RLS de webhooks/auditoria usa `is_admin()`.
+- Gestão da equipe pela UI (`/equipe`, RPCs em migration_equipe_admin_desligar): `definir_admin`, `desligar_interno` (não apaga: `ativo=false` + ban no auth + tarefas abertas/agenda futura migram pra outra pessoa; histórico fica no nome), `reativar_interno`.
+- Autoria em tarefas (migration_tarefas_autoria): `created_by`, `status_alterado_por/_em` via trigger; exclusões vão pra `tarefas_excluidas`.
+
 ## IA (importante)
 
 - IA fica disponível só pra usuários `tipo='interno'`. Parceiros não veem launcher de IA, integrações, nem assistant panel.

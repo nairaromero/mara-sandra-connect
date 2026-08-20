@@ -29,6 +29,9 @@ export interface UsuarioRow {
   nome: string | null;
   email: string | null;
   tipo: UsuarioTipo;
+  // Admin do escritório (só Naira e Mara). Libera Equipe interna, Webhooks,
+  // Auditoria e integrações em Configurações. Só vale com tipo=interno.
+  eh_admin?: boolean | null;
   avatar_url?: string | null;
   onboarded_em?: string | null;
   aceitou_termos_em?: string | null;
