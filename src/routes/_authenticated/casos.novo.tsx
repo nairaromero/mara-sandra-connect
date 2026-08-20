@@ -40,6 +40,7 @@ import {
 } from "@/components/preencher-com-documentos";
 import { NovoParceiroDialog } from "@/components/novo-parceiro-dialog";
 import { notificarEquipe } from "@/lib/notificar";
+import { criarTarefa, listarInternosAtivos } from "@/lib/tarefas/queries";
 import { DrivePickerDialog, type DriveImportedFile } from "@/components/drive-picker-dialog";
 import {
   abrirDrivePicker,
@@ -126,6 +127,7 @@ const schema = z.object({
   tipo_beneficio: z.string().min(1, "Selecione o tipo de benefício"),
   cliente_interno: z.boolean().optional(),
   parceiro_id: z.string().optional().or(z.literal("")),
+  tarefa_responsavel_id: z.string().optional().or(z.literal("")),
   observacoes_caso: z.string().max(1000).optional().or(z.literal("")),
 });
 
@@ -160,6 +162,9 @@ function NovoCasoPage() {
   const tiposBeneficio = useTiposBeneficio();
   const navigate = useNavigate();
   const [parceiros, setParceiros] = useState<Array<ParceiroOption>>([]);
+  const [internos, setInternos] = useState<
+    Array<{ id: string; nome: string | null; email: string | null }>
+  >([]);
   const [submitting, setSubmitting] = useState(false);
   const [showPwd, setShowPwd] = useState(false);
   // Marca que o cliente veio do TI (escolhido pelo nome na busca). Quando true,
@@ -207,6 +212,7 @@ function NovoCasoPage() {
       tipo_beneficio: "",
       cliente_interno: false,
       parceiro_id: "",
+      tarefa_responsavel_id: "",
       observacoes_caso: "",
     },
   });
@@ -292,7 +298,17 @@ function NovoCasoPage() {
       const parceirosData = (data || []) as Array<ParceiroOption>;
       setParceiros(parceirosData);
     })();
+    listarInternosAtivos().then(setInternos).catch(console.error);
   }, [isInterno]);
+
+  // A tarefa de novo cliente sai por padrão pra quem está cadastrando —
+  // sem responsável ela ficava perdida na fila geral.
+  useEffect(() => {
+    if (!isInterno || !usuario?.id) return;
+    if (!form.getValues("tarefa_responsavel_id")) {
+      form.setValue("tarefa_responsavel_id", usuario.id);
+    }
+  }, [isInterno, usuario?.id, form]);
 
   // Aplica os campos lidos do documento e joga os arquivos na lista de
   // documentos do caso, já com o tipo certo — assim o RG e o comprovante ficam
@@ -511,6 +527,41 @@ function NovoCasoPage() {
         throw new Error("Falha ao obter ID do caso recém-criado");
       }
       const casoId = casoInsert.id;
+
+      // 2a) Tarefa de novo cliente com responsável definido no form.
+      // Com parceiro indicador, o trigger caso_novo_parceiro_cria_tarefa já
+      // criou a tarefa sem responsável — aqui só atribui. Cliente interno não
+      // dispara o trigger, então a tarefa é criada aqui.
+      if (isInterno) {
+        const tarefaRespId = values.tarefa_responsavel_id || usuario.id;
+        try {
+          if (parceiroId) {
+            const atribuirResp = await supabase
+              .from("tarefas")
+              .update({ responsavel_id: tarefaRespId })
+              .eq("caso_id", casoId)
+              .eq("metadata->>etapa", "analise_inicial_parceiro")
+              .is("responsavel_id", null);
+            if (atribuirResp.error) throw atribuirResp.error;
+          } else {
+            await criarTarefa({
+              caso_id: casoId,
+              responsavel_id: tarefaRespId,
+              tipo: "interna",
+              prioridade: 2,
+              titulo: "Cliente novo - Analisar",
+              descricao: `Caso ${values.nome.trim()} cadastrado pela equipe. Revisar dados, documentos e definir próximos passos.`,
+              due_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+              metadata: { origem_caso_id: casoId, etapa: "analise_inicial_interno" },
+            });
+          }
+        } catch (errTarefa) {
+          console.error("Falha ao atribuir a tarefa de novo cliente:", errTarefa);
+          toast.warning(
+            "Caso criado, mas a tarefa de novo cliente ficou sem responsável. Ajuste na tela de tarefas.",
+          );
+        }
+      }
 
       // 2b) Grava a senha do MEU INSS criptografada via RPC.
       // Funcao backend cifra com pgcrypto e grava em senha_meu_inss (bytea).
@@ -986,6 +1037,36 @@ function NovoCasoPage() {
                             )}
                           </SelectContent>
                         </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+
+                {isInterno && (
+                  <FormField
+                    control={form.control}
+                    name="tarefa_responsavel_id"
+                    render={({ field }) => (
+                      <FormItem className={clienteInternoWatch ? "sm:col-span-2" : ""}>
+                        <FormLabel>Quem recebe a tarefa de novo cliente</FormLabel>
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecione o responsável" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {internos.map((u) => (
+                              <SelectItem key={u.id} value={u.id}>
+                                {u.nome || u.email || u.id}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                          A tarefa "Cliente novo - Analisar" já sai atribuída a essa pessoa.
+                        </p>
                         <FormMessage />
                       </FormItem>
                     )}
