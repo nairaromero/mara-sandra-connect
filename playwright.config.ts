@@ -18,9 +18,17 @@ export default defineConfig({
   globalSetup: "./e2e/auth.setup.ts",
   timeout: 60_000,
   expect: { timeout: 10_000 },
-  // Banco é o de produção (único): serializa pra evitar corridas entre specs
-  // que mexem nos mesmos dados [E2E].
+  // Banco é o de staging: serializa pra evitar corridas entre specs que mexem
+  // nos mesmos dados [E2E].
   workers: 1,
+  // O Playwright APAGA o outputDir inteiro no inicio de cada run — conferido
+  // empiricamente. Entao video de run antigo nunca acumula: cada execucao
+  // substitui a anterior. Um run completo com PW_VIDEO=1 ocupa ~5,6 MB em
+  // test-results/ e ~6,1 MB em playwright-report/, e os dois sao gitignored.
+  //
+  // NAO trocar por "failures-only": o video de teste que PASSA e justamente o
+  // registro de validacao de um lote (ver e2e/README.md).
+  preserveOutput: "always",
   retries: process.env.CI ? 1 : 0,
   reporter: [["list"], ["html", { open: "never" }]],
   use: {

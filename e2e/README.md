@@ -27,6 +27,31 @@ bun run e2e:video:staging    # staging  <- o que usar pra validar um lote
 
 Os videos saem em `test-results/<nome-do-teste>/video.webm`.
 
+### Espaco em disco — nao acumula
+
+`test-results/` e `playwright-report/` sao **gitignored**: video nunca vai pro
+repositorio.
+
+E o Playwright **apaga o `outputDir` inteiro no inicio de cada run** (conferido
+empiricamente: um arquivo plantado ali some no run seguinte). Ou seja, o video
+de hoje substitui o de ontem — nao acumula sozinho.
+
+Medido num run completo com `PW_VIDEO=1`:
+
+| | |
+|---|---|
+| `test-results/` | ~5,6 MB (13 videos) |
+| `playwright-report/` | ~6,1 MB |
+| traces | 0 — `trace: "retain-on-failure"`, so aparecem quando algo quebra |
+
+Trace de falha ocupa ~8 MB cada; por isso ficam so nos testes que falham.
+
+Se quiser limpar na mao (depois de um run interrompido, por exemplo):
+
+```bash
+bun run e2e:clean
+```
+
 ### Validar um lote antes de promover pra main
 
 ```bash
