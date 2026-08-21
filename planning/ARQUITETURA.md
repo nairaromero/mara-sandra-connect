@@ -2,7 +2,8 @@
 
 > Estado atual do sistema: propósito, stack, ambientes, schema, rotas, automações,
 > convenções e decisões tomadas.
-> **Última auditoria contra o banco de produção: 2026-08-15** (commit `3c5b706`).
+> **Última auditoria contra o banco de produção: 2026-08-21** (commit `d45a6d7`).
+> A anterior foi em 2026-08-15; os números que mudaram estão marcados abaixo.
 > Onde este documento divergir do banco, vale o banco — e corrija aqui.
 > Para o que falta fazer, ver [TODO.md](TODO.md).
 
@@ -52,7 +53,7 @@ Direito previdenciário (RGPS). Os tipos de benefício vivem na tabela `tipos_be
 |---|---|
 | Frontend | React 19 + TypeScript + Vite + Tailwind v4 + shadcn/ui + TanStack Router/Start (SSR) |
 | Backend | Supabase gerenciado (Auth + Postgres + Storage + RLS + Realtime + pg_cron) |
-| Edge functions | Supabase Edge Functions (Deno) — 29 no ar |
+| Edge functions | Supabase Edge Functions (Deno) — **29 no ar, 28 versionadas** (ver §6.2) |
 | Agendamento | **pg_cron no próprio banco** (7 jobs) + n8n self-hosted para o DJEN |
 | Orquestração | n8n (`nairavian-n8n.de`) — DJEN e filas de WhatsApp/webhooks |
 | Deploy | Cloudflare, automático no push para `main` |
@@ -81,15 +82,15 @@ Detalhe completo em [AMBIENTES.md](AMBIENTES.md).
 
 ---
 
-## 4. Schema — 43 tabelas
+## 4. Schema — 45 tabelas
 
-Contagem conferida em 2026-08-15. Agrupadas por domínio:
+Contagem conferida em **2026-08-21** (eram 43 em 15/08). Agrupadas por domínio:
 
 | Domínio | Tabelas |
 |---|---|
 | **Núcleo** | `casos` · `clientes` · `usuarios` · `contratos_parceria` · `tipos_beneficio` · `etiquetas` · `clientes_etiquetas` |
 | **Operação do caso** | `andamentos` · `documentos` · `solicitacoes_documento` · `analises_tecnicas` · `processos_admin` · `processos_judiciais` · `repasses` |
-| **Trabalho diário** | `tarefas` · `tarefa_templates` · `agenda_eventos` |
+| **Trabalho diário** | `tarefas` · `tarefa_templates` · `tarefas_excluidas` · `agenda_eventos` |
 | **Comunicação** | `comentarios` · `conversa_leitura` · `notificacoes` · `notificacao_dispensada` · `comentario_email_throttle` · `mensagens` *(morta — ver §11)* |
 | **Fontes externas** | `publicacoes_dje` · `oabs_monitoradas` · `inss_email_log` · `usuario_gmail_oauth` · `alertas_duplicidade` |
 | **Comercial** | `leads` · `lead_comentarios` |
@@ -206,7 +207,10 @@ edge function `convidar-usuario`. Criar usuário fora dela deixa a conta órfã
 | `/configuracoes` | ambos | Perfil, senha, IA, Gmail |
 | `/boas-vindas` | parceiro | Onboarding + aceite de termos |
 
-`/repasses` **existe no código mas não está na sidebar** — decisão de produto pendente.
+~~`/repasses` existe no código mas não está na sidebar~~ — **corrigido em 2026-08-21: essa rota
+nunca existiu.** `find src -iname "*repasse*"` não devolve nada. Repasses são uma **aba dentro
+de `casos.$id.tsx`** (`TabsTrigger value="repasses"`). A tela global segue sendo decisão de
+produto pendente — mas não há código dela.
 
 ---
 
@@ -214,18 +218,29 @@ edge function `convidar-usuario`. Criar usuário fora dela deixa a conta órfã
 
 ### 6.1 Cron (pg_cron, só produção)
 
-| BRT | Job | O que faz |
-|---|---|---|
-| 05:00 | `msc-inss-email` | Lê o Gmail, classifica o despacho, cria andamento + tarefas |
-| 09:00 / 09:06 / 09:12 | `msc-datajud-sync-1/2/3` | 3 passadas de 60 processos, janela 90 dias |
-| 09:45 | `msc-digest-diario` | E-mail resumo do dia (**hoje só para a Naira** — campo `para`) |
-| 11:00 | `rotina-pericia-diaria` | Gera os rascunhos de aviso de perícia |
-| 11:10 | `rotina-implementacao-diaria` | Acompanha implantação do benefício concedido |
-| madrugada | `djen-sync` (n8n) | Publicações por OAB |
-| — | ~~`msc-ia-triagem`~~ | **Desligado em 2026-08-06** |
+> ⚠️ **Corrigido em 2026-08-21.** Até esta data a tabela abaixo dizia "BRT" e listava
+> 05:00 / 09:00 / 09:45 / 11:00 / 11:10. **Estava errada em 3 horas.**
+> `cron.timezone = GMT` e o `TimeZone` do banco é `UTC` — os schedules são UTC.
+> Confirmado no histórico real (`cron.job_run_details` convertido para `America/Sao_Paulo`).
 
-Inspeção: `select * from cron.job`, histórico em `cron.job_run_details`, respostas em
-`net._http_response`.
+| BRT (real) | `schedule` (UTC) | Job | O que faz |
+|---|---|---|---|
+| **02:00** | `0 5 * * *` | `msc-inss-email` | Lê o Gmail, classifica o despacho, cria andamento + tarefas |
+| **06:00 / 06:06 / 06:12** | `0/6/12 9 * * *` | `msc-datajud-sync-1/2/3` | 3 passadas de 60 processos, janela 90 dias |
+| **06:45** | `45 9 * * *` | `msc-digest-diario` | E-mail resumo do dia (**hoje só para a Naira** — campo `para`) |
+| **08:00** | `0 11 * * *` | `rotina-pericia-diaria` | Gera os rascunhos de aviso de perícia |
+| **08:10** | `10 11 * * *` | `rotina-implementacao-diaria` | Acompanha implantação do benefício concedido |
+| madrugada | — | `djen-sync` (n8n) | Publicações por OAB |
+| — | — | ~~`msc-ia-triagem`~~ | **Desligado em 2026-08-06** (confirmado: não existe em `cron.job`) |
+
+Os 7 jobs estão `active` e com **zero falhas** no histórico. O `msc-inss-email` tem só 5
+execuções contra 23 dos syncs de DataJud — coerente com "no ar desde 2026-08-14".
+
+**Consequência a decidir:** o `msc-inss-email` lê o Gmail às **02:00**, não às 05:00. Se o INSS
+despacha de madrugada, a passada pode acontecer antes dos e-mails do dia chegarem.
+
+Inspeção: `select jobname, schedule, active from cron.job`, histórico em `cron.job_run_details`,
+respostas em `net._http_response`.
 
 ### 6.2 Edge functions (29)
 
@@ -238,6 +253,11 @@ Inspeção: `select * from cron.job`, histórico em `cron.job_run_details`, resp
 | Pessoas | `convidar-usuario` · `update-parceiro` |
 | WhatsApp | `whatsapp-inbound` |
 
+> 🔴 **`excluir-parceiro` roda em produção e NÃO está no repositório.** Descoberto em
+> 2026-08-21: a Management API lista **29 functions ACTIVE**, e `supabase/functions/` tem 28.
+> A diferença é `excluir-parceiro` — sem fonte, sem revisão, sem rollback possível.
+> Conferir com `GET /v1/projects/<ref>/functions` antes de mexer em qualquer coisa de parceiro.
+
 Deploy: **staging primeiro** (`--project-ref alhqbpbekmxpoibrrnbi`), depois produção.
 Segredos precisam existir nos **dois** projetos.
 
@@ -248,14 +268,31 @@ Segredos precisam existir nos **dois** projetos.
 | Serviço | Para quê | Estado (2026-08-15) |
 |---|---|---|
 | **DataJud / CNJ** | Movimentação judicial | ✅ 1.523 andamentos; header `x-region: sa-east-1` obrigatório |
-| **DJEN / Comunica (CNJ)** | Publicações com teor completo | ⚠️ funciona; **218 de 243 órfãs** aguardando triagem |
+| **DJEN / Comunica (CNJ)** | Publicações com teor completo | 🔴 **226 de 264 órfãs** (21/08); **96 delas são de processos JÁ cadastrados** — ver §7.1 |
 | **Gmail (INSS)** | E-mail do INSS → andamento + tarefa | ⚠️ no ar desde 2026-08-14 |
-| **Google Drive** | Espelho de documentos | ⚠️ bidirecional, mas só **63 de 380 casos** têm pasta |
+| **Google Drive** | Espelho de documentos | ⚠️ bidirecional; **76 de 395 casos** têm pasta (21/08) — 66 vinculados nos últimos 30 dias |
 | **Resend** | E-mail transacional e magic link | ✅ |
 | **Anthropic / OpenAI** | Análise, triagem, assistente (BYOK) | ⚠️ pendências contratuais LGPD |
 | **Legalmail** | Processos e intimações | ⚠️ só importação manual; 30 req/min |
 | **Tramitação Inteligente** | Origem da base | 🔻 sync **desligado em 2026-08-11**; sobrou "Buscar/Importar do TI" |
-| **Evolution (WhatsApp)** | Conversa com parceiro | 🔴 **instância caída**; fila falhando desde junho |
+| **Evolution (WhatsApp)** | Conversa com parceiro | ⏸️ **saída PAUSADA em 2026-08-21** (`migration_pausa_whatsapp_saida.sql`). A Evolution segue em `HTTP 500` |
+
+### 7.1 Publicações DJEN órfãs — o risco não é o que estava escrito
+
+O [TODO.md](TODO.md) descrevia as órfãs como *"intimação com prazo em processo não cadastrado"*.
+Medido no banco em **2026-08-21**, é outra coisa:
+
+| | |
+|---|---|
+| Órfãs (`caso_id is null`) | **226** de 264 |
+| Do tipo intimação | **224** |
+| **Cujo processo JÁ existe em `processos_judiciais`** | **96**, tocando **57 casos** |
+| Desses 96, últimos 30 dias / 7 dias | 20 / 5 |
+
+Ou seja: **vínculo que falhou em processo que o escritório já tem** — intimação com prazo em
+caso ativo que não aparece na tela do caso. Mais grave que o documentado, e mais barato de
+resolver: o match é determinístico por `numero_proc_normalizado`, e a função
+`vincular_publicacao_dje` **já existe no banco**.
 
 Detalhes por integração: [INTEGRACOES.md](INTEGRACOES.md), [INTEGRACAO_DJE.md](INTEGRACAO_DJE.md),
 [INTEGRACAO_WHATSAPP.md](INTEGRACAO_WHATSAPP.md), [INTEGRACAO_IA.md](INTEGRACAO_IA.md),
@@ -305,6 +342,8 @@ não UTC — foi a causa de deslocamento de 3h nas perícias migradas do TI.
 | 10 | Bancos de produção e staging **separados** | 2026-08-03 |
 | 11 | Papel comercial (`eh_parceiro`) **separado** do modo de acesso (`tipo`) | 2026-08-10 |
 | 12 | Sync automático com o TI **desligado** | 2026-08-11 |
+| 13 | Saída de **WhatsApp pausada** (Evolution em `HTTP 500`; trigger desabilitado) | 2026-08-21 |
+| 14 | **Scaffold da Lovable removido** — preset do Vite substituído por config própria | 2026-08-21 |
 
 ---
 
@@ -319,7 +358,21 @@ não UTC — foi a causa de deslocamento de 3h nas perícias migradas do TI.
 - **CPF de teste**: nunca usar um que possa colidir com cliente real (já houve perda por
   cascade delete).
 - **Logs de edge function** nem sempre mostram `console.error`; para diagnóstico, gravar no
-  banco e ler via `msc-sql`.
+  banco e ler via `msc-sql`. *(Do lado do Worker isso melhorou: os Workers Logs da Cloudflare
+  foram ligados em 2026-08-21 — `observability.logs.enabled` no `wrangler.jsonc`.)*
+- **Cron é UTC, não BRT** — ver o aviso em §6.1. Errar isso já custou 3h de diferença na
+  documentação.
+- **`bun install` já saiu com código 0 escondendo 403** de um registry privado. Depois de
+  instalar, confira que `node_modules/<pacote>/` existe de verdade antes de concluir que deu
+  certo. *(A causa foi corrigida em 2026-08-21.)*
+- **O build escreve todo o `.env.local` em `dist/server/.dev.vars`**, em texto puro — service
+  role incluso. `dist/` é gitignored e `dist/client` (o que vai público) está limpo, mas não
+  compartilhe a pasta `dist/`.
+- **As fontes do site não carregam.** `src/styles.css` importa Inter e Cormorant Garamond via
+  `@import`, mas o Tailwind v4 expande o `@import "tailwindcss"` antes deles — o `@import` fica
+  depois de regras, vira inválido e o otimizador **descarta**. O CSS em produção tem zero
+  `googleapis` e zero `@font-face`: todo mundo vê o fallback (`system-ui` e Georgia).
+  Correção: `<link>` no `<head>` em vez de `@import` no CSS.
 
 ---
 
@@ -328,11 +381,14 @@ não UTC — foi a causa de deslocamento de 3h nas perícias migradas do TI.
 Registradas para ninguém investir nelas por engano:
 
 - **`mensagens`** — chat antigo, 0 linhas. Substituído por `comentarios` + `/conversas`.
-- **`/repasses`** — rota existe, fora da sidebar, **0 repasses lançados**.
+- **`/repasses`** — ~~rota existe~~ **a rota nunca existiu** (ver §5); é aba de `casos.$id.tsx`.
+  Confirmado: **0 repasses lançados** para 23 parceiros e 395 casos.
 - **Webhooks** — módulo completo (HMAC, retry, tela, workflow n8n) com **0 destinos**
   cadastrados e último evento em 2026-05-30.
-- **`whatsapp-inbound`** — webhook desligado desde 2026-06; a saída continua enfileirando
-  e **falhando** (ver [TODO.md](TODO.md)).
+- **`whatsapp-inbound`** — webhook desligado desde 2026-06. A saída continuava enfileirando e
+  falhando (23 falhas, a última em 20/08) e foi **pausada em 2026-08-21**: o trigger
+  `trg_whatsapp_comentario_novo` está `DISABLED` nos dois bancos. Histórico preservado
+  (62 enviadas, 123 recebidas).
 
 ---
 
