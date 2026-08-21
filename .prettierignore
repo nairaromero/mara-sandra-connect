@@ -6,3 +6,8 @@ pnpm-lock.yaml
 package-lock.json
 bun.lock
 routeTree.gen.ts
+
+# O prettier acrescenta virgula final aqui. O wrangler aceita (parser JSONC),
+# mas JSON.parse estrito falha — e qualquer ferramenta que leia como JSON puro
+# quebra. Formatar este arquivo e a mao.
+wrangler.jsonc
