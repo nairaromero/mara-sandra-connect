@@ -5263,10 +5263,10 @@ function TabDocumentos(props: TabDocumentosProps) {
                   size="sm"
                   variant="outline"
                   onClick={handleClickDrive}
-                  title="Importar arquivos avulsos do Google Drive"
+                  title="Importar ARQUIVOS avulsos do Drive. Para vincular a pasta inteira do cliente, use 'Vincular pasta'."
                 >
                   <FileDown className="h-4 w-4 mr-2" />
-                  Drive
+                  Importar arquivos
                 </Button>
               )}
               <UploadDoc
