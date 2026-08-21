@@ -9,12 +9,12 @@
   // Cada versão de branch (build de PR) ganha URL de preview:
   // https://<8-chars-do-version-id>-mara-sandra-connect.nairaromerovian.workers.dev
   "preview_urls": true,
-  // Espelha o que ja esta configurado no painel da Cloudflare, pra que o
-  // deploy nao sobrescreva. logs.enabled=false mantem os Workers Logs
-  // desligados; invocation_logs=true preserva o registro de invocacao.
+  // Espelha o que esta configurado no painel da Cloudflare, pra que o deploy
+  // nao sobrescreva. Workers Logs LIGADOS desde 2026-08-21: sem eles o unico
+  // caminho de diagnostico de SSR era o wrapper de erro em src/server.ts.
   "observability": {
     "logs": {
-      "enabled": false,
+      "enabled": true,
       "invocation_logs": true
     }
   },
