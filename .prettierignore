@@ -11,3 +11,30 @@ routeTree.gen.ts
 # mas JSON.parse estrito falha — e qualquer ferramenta que leia como JSON puro
 # quebra. Formatar este arquivo e a mao.
 wrangler.jsonc
+
+# ─── Gerado: formatar aqui e perdido, regenerar desfaz ───────────────
+src/integrations/supabase/types.ts
+
+# ─── Texto juridico: template literal com o DPA que o parceiro aceita ─
+# O prettier reescreve o markdown dentro da string (insere linha em branco
+# depois de cada cabecalho). Renderiza igual, mas e conteudo contratual —
+# mudanca ali e decisao humana, nao de formatador.
+src/lib/legal/termos.ts
+
+# ─── planning/: documentacao, arquivo morto e exports de ferramenta ───
+# Nao entra em build nenhum. Formatar reflui prosa escrita a mao, mexe em
+# templates de e-mail (HTML de e-mail e sensivel a espaco em varios
+# clientes), reescreve exports do n8n e as copias arquivadas de edge
+# function — cujo original vive em supabase/functions/.
+planning/
+video-demo/
+
+# ─── Prosa: markdown escrito a mao ───────────────────────────────────
+# O prettier reflui paragrafo e reescreve tabela. O diff fica enorme e o
+# ganho e zero: ninguem compila markdown. Se um dia houver .md gerado,
+# vale reabrir.
+*.md
+
+# ─── Deliverables soltos na raiz ──────────────────────────────────────
+OVERVIEW.html
+
