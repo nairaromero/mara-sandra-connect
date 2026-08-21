@@ -1,40 +1,70 @@
+# Como este arquivo se relaciona com o .gitignore
+# ─────────────────────────────────────────────────────────────────────
+# O prettier 3.x JA RESPEITA o .gitignore. Verificado empiricamente nesta
+# versao (3.9.6): um arquivo malformado dentro de .wrangler/ nao aparece em
+# `prettier --list-different`, e um identico fora do gitignore aparece.
+#
+# Ou seja: tudo que o BUILD GERA ja esta fora, porque esta no .gitignore —
+# dist, dist-ssr, .output, .vinxi, .tanstack/, .nitro, .wrangler/,
+# src/routeTree.gen.ts, test-results/, playwright-report/, e2e/.auth/.
+# Nao precisa repetir aqui.
+#
+# Este arquivo serve para o outro caso: arquivos VERSIONADOS que nao devem
+# ser formatados.
+
+
+# ═══ Redundantes com o .gitignore — mantidos como rede ═══════════════
+# Se um dia alguem tirar um destes do .gitignore, o prettier continua fora.
 node_modules
 dist
 .output
 .vinxi
-pnpm-lock.yaml
-package-lock.json
-bun.lock
 routeTree.gen.ts
 
-# O prettier acrescenta virgula final aqui. O wrangler aceita (parser JSONC),
-# mas JSON.parse estrito falha — e qualquer ferramenta que leia como JSON puro
-# quebra. Formatar este arquivo e a mao.
+
+# ═══ Versionados que NAO devem ser formatados ════════════════════════
+
+# --- Lockfiles: gerados por gerenciador de pacote, mas versionados ---
+package-lock.json
+bun.lock
+pnpm-lock.yaml
+# deno.lock nao precisa: o prettier nao tem parser pra .lock
+
+# --- Config que o prettier quebraria ---
+# Ele acrescenta virgula final aqui. O wrangler aceita (parser JSONC), mas
+# JSON.parse estrito falha — e qualquer ferramenta que leia como JSON puro
+# quebra. Testados os dois. Este arquivo se formata a mao.
 wrangler.jsonc
 
-# ─── Gerado: formatar aqui e perdido, regenerar desfaz ───────────────
+# --- Gerado, mas versionado: formatar e perdido ---
+# A proxima regeneracao (supabase gen types) desfaz.
 src/integrations/supabase/types.ts
 
-# ─── Texto juridico: template literal com o DPA que o parceiro aceita ─
-# O prettier reescreve o markdown dentro da string (insere linha em branco
-# depois de cada cabecalho). Renderiza igual, mas e conteudo contratual —
-# mudanca ali e decisao humana, nao de formatador.
+# --- Texto juridico ---
+# Template literal com o DPA que o parceiro aceita. O prettier reescreve o
+# markdown dentro da string (insere linha em branco depois de cada
+# cabecalho). Renderiza igual, mas e conteudo contratual: mudanca ali e
+# decisao humana, nao de formatador. MEDIDO: com esta linha, o chunk
+# `termos-*.js` volta a sair identico no build.
 src/lib/legal/termos.ts
 
-# ─── planning/: documentacao, arquivo morto e exports de ferramenta ───
-# Nao entra em build nenhum. Formatar reflui prosa escrita a mao, mexe em
-# templates de e-mail (HTML de e-mail e sensivel a espaco em varios
-# clientes), reescreve exports do n8n e as copias arquivadas de edge
-# function — cujo original vive em supabase/functions/.
+# --- Documentacao, arquivo morto e export de ferramenta ---
+# Nao entra em build nenhum. Formatar reflui prosa escrita a mao, mexe nos
+# templates de e-mail do Supabase Auth (HTML de e-mail e sensivel a espaco
+# em varios clientes), reescreve os workflows exportados do n8n, e mexe nas
+# copias arquivadas de edge function — cujo original vive em
+# supabase/functions/.
 planning/
 video-demo/
 
-# ─── Prosa: markdown escrito a mao ───────────────────────────────────
-# O prettier reflui paragrafo e reescreve tabela. O diff fica enorme e o
-# ganho e zero: ninguem compila markdown. Se um dia houver .md gerado,
-# vale reabrir.
+# --- Prosa ---
+# O prettier reflui paragrafo e reescreve tabela. Diff enorme, ganho zero.
+# Se um dia houver .md gerado, vale reabrir.
 *.md
 
-# ─── Deliverables soltos na raiz ──────────────────────────────────────
+# --- Deliverables soltos na raiz ---
 OVERVIEW.html
 
+
+# NAO precisa entrar: src/components/ui/ (46 arquivos do shadcn) ja esta
+# 100% formatado — zero divergencia. Ignorar por reflexo ali seria engano.
