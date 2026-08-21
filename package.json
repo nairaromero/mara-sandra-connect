@@ -13,6 +13,8 @@
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui",
     "e2e:staging": "PLAYWRIGHT_BASE_URL=https://staging-mara-sandra-connect.nairaromerovian.workers.dev playwright test",
+    "e2e:video": "PW_VIDEO=1 playwright test",
+    "e2e:video:staging": "PW_VIDEO=1 PLAYWRIGHT_BASE_URL=https://staging-mara-sandra-connect.nairaromerovian.workers.dev playwright test",
     "format:check": "prettier --check ."
   },
   "dependencies": {

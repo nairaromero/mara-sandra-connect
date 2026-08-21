@@ -1,30 +1,68 @@
 # Testes E2E (Playwright)
 
-Testes ponta-a-ponta das funcionalidades principais, rodando contra o app real
-e o banco de **produção** (único). Leia as regras de segurança abaixo.
+Testes ponta-a-ponta rodando contra o app real e o banco de **staging**
+(projeto `alhqbpbekmxpoibrrnbi`, espelho anonimizado — ver
+[planning/AMBIENTES.md](../planning/AMBIENTES.md)).
+
+> **Corrigido em 2026-08-21.** Este README dizia que os testes rodavam contra
+> PRODUCAO, com regras de marcador `[E2E]` + cleanup para conviver com dados
+> reais. Isso deixou de valer quando os bancos foram separados (2026-08-03):
+> `e2e/env.ts` escolhe o projeto pela URL em `VITE_SUPABASE_URL` e, apontando
+> pro staging, usa `STAGING_SERVICE_ROLE_KEY` e `STAGING_SYNTH_PASSWORD`.
+> **Antes de rodar, confira pra onde `VITE_SUPABASE_URL` aponta** — se estiver
+> em producao, os testes usam a service key de producao. O marcador `[E2E]` e o
+> cleanup continuam valendo de qualquer forma.
 
 ## Rodar
 
 ```bash
-bun run e2e            # frontend local (vite dev :8085)
-bun run e2e:staging    # frontend da branch STAGING (URL estável do Cloudflare)
-bun run e2e:ui         # modo interativo (debug)
+bun run e2e                  # frontend local (vite dev :8085)
+bun run e2e:staging          # frontend da branch staging
+bun run e2e:ui               # modo interativo (debug)
 
-# Contra qualquer preview URL (versão de PR):
-PLAYWRIGHT_BASE_URL=https://<versao>-mara-sandra-connect.nairaromerovian.workers.dev bun run e2e
+# com VIDEO de cada teste
+bun run e2e:video            # local
+bun run e2e:video:staging    # staging  <- o que usar pra validar um lote
 ```
 
-**Atenção — o que muda com o alvo é só o FRONTEND.** O banco/Storage/edge
-functions são os de **produção** em todos os casos (o projeto tem backend
-único). É por isso que existem as regras de marcador `[E2E]` + cleanup abaixo.
-Isolamento real de dados exigiria um segundo projeto Supabase só de teste.
+Os videos saem em `test-results/<nome-do-teste>/video.webm`.
+
+### Validar um lote antes de promover pra main
+
+```bash
+bun run e2e:video:staging
+```
+
+Roda tudo, inclusive `smoke-lote.spec.ts` — que e **so leitura**: navega as
+telas principais, abre um caso e confere o form de caso novo, sem criar nem
+apagar nada. E o video serve de registro do que foi validado.
+
+### O cursor do mouse no video
+
+O Playwright move um ponteiro de verdade, mas **o video nao desenha cursor
+nenhum**. Quem desenha e o helper [`e2e/cursor.ts`](cursor.ts): chame
+`await cursorVisivel(page)` **antes do primeiro `goto`** e o video passa a
+mostrar o ponteiro e um pulso a cada clique.
+
+Para o vídeo ficar legivel, mova antes de clicar — `locator.click()` teleporta
+o mouse e o movimento some na gravacao:
+
+```ts
+const b = await alvo.boundingBox();
+await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 25 });
+await page.waitForTimeout(500);
+await alvo.click();
+```
 
 ## Segredos (`.env.local`, gitignored — em CI, GitHub Actions secrets)
 
 | Variável | O quê |
 |---|---|
-| `SUPABASE_SERVICE_ROLE_KEY` | admin: login programático, seed e cleanup. **Nunca** vai pro browser/git. |
-| `E2E_INTERNO_PASSWORD` | senha do usuário de teste interno `e2e+interno@marasandraconnect.com` (criado pelo setup no 1º uso) |
+| `VITE_SUPABASE_URL` | **decide o alvo.** Apontando pro staging, tudo abaixo muda pras chaves de staging |
+| `STAGING_SERVICE_ROLE_KEY` | admin no staging: login programático, seed e cleanup. **Nunca** vai pro browser/git |
+| `STAGING_SYNTH_PASSWORD` | senha única de todos os usuários sintéticos do espelho, inclusive `e2e+interno@marasandraconnect.com` |
+| `SUPABASE_SERVICE_ROLE_KEY` | só usada se o alvo for produção |
+| `E2E_INTERNO_PASSWORD` | só usada se o alvo for produção |
 
 ## Como funciona a autenticação
 
