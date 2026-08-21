@@ -15,7 +15,8 @@ dist-ssr
 .tanstack/**
 src/routeTree.gen.ts
 .nitro
-.env
+.env*
+!.env.example
 *.local
 
 # Wrangler / Cloudflare
