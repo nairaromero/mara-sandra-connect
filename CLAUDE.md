@@ -11,8 +11,10 @@ feature branch  ──merge──▶  staging  ──merge (após validação)�
                             (pre-prod)                            (prod)
 ```
 
-- **`main`** = produção. Deploy automático no Cloudflare Pages → marasandraconnect.com.
-- **`staging`** = pre-prod. Onde a Naira valida mudanças antes de ir pra `main`.
+- **`main`** = produção. Deploy automático (Workers Builds, worker `mara-sandra-connect`) → marasandraconnect.com.
+- **`staging`** = pre-prod. Deploy automático (projeto Workers Builds SEPARADO, worker `mara-sandra-connect-staging`, build com `CLOUDFLARE_ENV=staging`) → **staging.marasandraconnect.com**. É onde a Naira valida antes de ir pra `main`.
+- Os dois projetos têm trava no comando de build/deploy: só buildam a própria branch e só deployam o próprio nome de worker. NUNCA rodar `wrangler deploy` manual pra staging a partir do projeto de produção (incidente 2026-08-22: sobrescreveu produção com o banco de staging).
+- Merge `staging → main` é **squash** (um commit só, revert = `git revert <sha>`); logo depois, `git merge main` em staging pra realinhar.
 - **Feature branches** (`feat/*`, `fix/*`, `chore/*`) saem de `staging` e voltam pra `staging` via PR.
 
 **Pra abrir PR:** sempre `base: staging ← compare: <minha-branch>`. NÃO abrir PR direto pra `main` — só Naira merge `staging → main` quando tudo estiver pronto pra produção.
