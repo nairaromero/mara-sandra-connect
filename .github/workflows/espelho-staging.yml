@@ -26,6 +26,9 @@ jobs:
 
       # O servidor é Postgres 17; o postgresql-client do Ubuntu é 16 e o
       # pg_dump se recusa a dumpar servidor mais novo. Client 17 do PGDG.
+      # Instalar não basta: o wrapper /usr/bin/pg_dump (postgresql-common)
+      # continua escolhendo o 16 que já vem na imagem (1º run: "pg_dump
+      # 16.15" + "server version mismatch"). Por isso o PATH explícito.
       - name: Instala cliente Postgres 17
         run: |
           sudo apt-get install -y -qq curl ca-certificates
@@ -37,7 +40,8 @@ jobs:
             sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client-17
-          pg_dump --version
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+          /usr/lib/postgresql/17/bin/pg_dump --version
 
       # O passo 5/5 do espelho (scripts/seed-staging-contas.mjs) roda em node
       # com @supabase/supabase-js — precisa das deps instaladas.
