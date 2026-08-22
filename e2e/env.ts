@@ -50,6 +50,15 @@ export const ENV = {
   internoPassword: ehStaging ? pega("STAGING_SYNTH_PASSWORD") : pega("E2E_INTERNO_PASSWORD"),
   // Parceira de teste (login por magic link; e-mail preservado no espelho).
   parceiroEmail: process.env.E2E_PARCEIRO_EMAIL ?? "nairaromerovian+isabella@gmail.com",
+  // Admin sintetico (eh_admin=true). So existe no staging — criado por
+  // scripts/seed-staging-contas.mjs, mesma senha dos demais sinteticos.
+  adminEmail: process.env.E2E_ADMIN_EMAIL ?? "e2e+admin@marasandraconnect.com",
+  adminPassword: ehStaging ? pega("STAGING_SYNTH_PASSWORD") : pega("E2E_ADMIN_PASSWORD", false),
+  // Cloudflare Access (service token) na frente do staging: quando os dois
+  // estiverem definidos, o Playwright manda os headers CF-Access-Client-*.
+  // Sem eles, nada muda (staging aberto ou ambiente local).
+  cfAccessClientId: pega("CF_ACCESS_CLIENT_ID", false),
+  cfAccessClientSecret: pega("CF_ACCESS_CLIENT_SECRET", false),
   // Token da Management API (mesmo do scripts/msc-sql.mjs). Opcional: só o spec
   // de primeiro acesso usa, pra zerar a senha de um usuário e simular convite.
   accessToken: pega("SUPABASE_ACCESS_TOKEN", false),

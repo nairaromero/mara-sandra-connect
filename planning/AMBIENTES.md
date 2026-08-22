@@ -38,12 +38,25 @@ depois produção. Segredos de function: gerenciar nos DOIS projetos.
 bash scripts/espelho-staging.sh   # local; ou GitHub Actions "espelho-staging"
 ```
 
-Agendamento semanal: o arquivo `planning/espelho-staging.workflow.yml` está
-pronto — pra ativar, copie-o pra `.github/workflows/` pela UI do GitHub (o
-token local não tem escopo `workflow`; os secrets do repo já estão criados).
-Até lá, rodar o comando acima localmente. Pipeline:
-1. dump de produção (só dados, `public`) **já excluindo** tabelas sensíveis que
-   nunca saem de prod (chaves de IA, tokens OAuth, trilhas, WhatsApp, webhooks);
+Agendamento semanal: `.github/workflows/espelho-staging.yml` (segunda 05:00
+BRT, ou "Run workflow" à mão). Só roda a partir da `main` — entra em vigor no
+squash `staging → main` seguinte. Secrets no repo: `ESPELHO_LEITURA_PASSWORD`,
+`STAGING_DB_PASSWORD`, `STAGING_SYNTH_PASSWORD`, `STAGING_SERVICE_ROLE_KEY`,
+`STAGING_PUBLISHABLE_KEY` (cadastrados em 2026-08-23). O runner instala o
+client Postgres 17 do PGDG — o do Ubuntu é 16 e não dumpa servidor 17.
+Pipeline:
+0. travas (2026-08-23): a conexão de produção tem que ser o role
+   `espelho_leitura` (só `SELECT`, sem `BYPASSRLS`; criado por
+   `migration_espelho_role_leitura.sql`, senha em `ESPELHO_LEITURA_PASSWORD`) —
+   a senha do Postgres de produção **não é mais usada** pelo espelho; toda
+   tabela com RLS em produção precisa da policy `espelho_leitura_select`
+   (rodar a migration de novo quando nascer tabela nova); e o destino precisa
+   do marcador `comment on schema public is 'ambiente=staging'` (produção está
+   marcada `ambiente=producao`). Qualquer uma falhando, o script aborta antes
+   de tocar em qualquer banco;
+1. dump de produção (só dados, `public`, `--enable-row-security`) **já
+   excluindo** tabelas sensíveis que nunca saem de prod (chaves de IA, tokens
+   OAuth, trilhas, WhatsApp, webhooks);
 2. truncate + restore no staging;
 3. `scripts/anonimizar-staging.sql`: mascara PII estruturada (nome/CPF/telefone/
    e-mail/endereço/nascimento/senha MEU INSS), reescreve NOMES DE CLIENTES em
@@ -71,8 +84,11 @@ O ato de anonimizar é tratamento de dado pessoal (estudo técnico ANPD/2023):
 ## Credenciais (`.env.local`, gitignored; espelhadas em GitHub secrets)
 
 `STAGING_PROJECT_REF`, `STAGING_DB_PASSWORD`, `STAGING_PUBLISHABLE_KEY`,
-`STAGING_SERVICE_ROLE_KEY`, `STAGING_SYNTH_PASSWORD` — além das de produção
-já existentes. **Service role nunca vai pro browser/git.**
+`STAGING_SERVICE_ROLE_KEY`, `STAGING_SYNTH_PASSWORD`, `ESPELHO_LEITURA_PASSWORD`
+(role só-leitura de produção usado pelo espelho) — além das de produção já
+existentes. **Service role nunca vai pro browser/git.** O espelho não precisa
+de `SUPABASE_DB_PASSWORD`; se o workflow do GitHub for ativado, o secret a
+cadastrar é `ESPELHO_LEITURA_PASSWORD`, e `SUPABASE_DB_PASSWORD` pode sair de lá.
 
 ## O que o staging NÃO faz
 

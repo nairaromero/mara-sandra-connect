@@ -85,17 +85,37 @@ await alvo.click();
 |---|---|
 | `VITE_SUPABASE_URL` | **decide o alvo.** Apontando pro staging, tudo abaixo muda pras chaves de staging |
 | `STAGING_SERVICE_ROLE_KEY` | admin no staging: login programático, seed e cleanup. **Nunca** vai pro browser/git |
-| `STAGING_SYNTH_PASSWORD` | senha única de todos os usuários sintéticos do espelho, inclusive `e2e+interno@marasandraconnect.com` |
+| `STAGING_SYNTH_PASSWORD` | senha única de todos os usuários sintéticos do espelho, inclusive `e2e+admin/interno/parceiro@marasandraconnect.com` |
+| `STAGING_PUBLISHABLE_KEY` | chave anônima do staging — o seed de contas usa pra provar que cada conta loga |
+| `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` | opcionais: service token do Cloudflare Access quando o staging estiver protegido; o `playwright.config.ts` manda os headers `CF-Access-Client-*` |
 | `SUPABASE_SERVICE_ROLE_KEY` | só usada se o alvo for produção |
 | `E2E_INTERNO_PASSWORD` | só usada se o alvo for produção |
 
+## Contas de staging (uma por papel)
+
+`node scripts/seed-staging-contas.mjs` cria/recria (idempotente) três contas
+sintéticas, todas com `STAGING_SYNTH_PASSWORD`:
+
+| Conta | Papel |
+|---|---|
+| `e2e+admin@marasandraconnect.com` | interno com `eh_admin` — vê Equipe, Webhooks, Auditoria |
+| `e2e+interno@marasandraconnect.com` | interno comum — é a conta da suíte E2E |
+| `e2e+parceiro@marasandraconnect.com` | parceiro já onboardado (termos aceitos) |
+
+O espelho semanal apaga `auth.users`; `scripts/espelho-staging.sh` chama o
+seed no fim. Gente validando em staging.marasandraconnect.com usa a conta do
+papel que quer ver — **não** a `e2e+interno` ao mesmo tempo que a suíte roda
+(duas sessões na mesma conta se derrubam pela rotação de refresh token).
+
 ## Como funciona a autenticação
 
-`e2e/auth.setup.ts` (globalSetup) loga os dois papéis **sem UI de login** e
-grava `e2e/.auth/{interno,parceiro}.json` como storageState (a sessão do
+`e2e/auth.setup.ts` (globalSetup) loga os papéis **sem UI de login** e grava
+`e2e/.auth/{interno,parceiro,admin}.json` como storageState (a sessão do
 supabase-js vive em localStorage):
 
 - **interno**: `signInWithPassword` com o usuário e2e dedicado;
+- **admin**: `signInWithPassword` com `e2e+admin` (`STORAGE_ADMIN`). Se a conta
+  não existir, o setup avisa e não gera `admin.json` — rode o seed;
 - **parceiro**: Isabella (`nairaromerovian+isabella@gmail.com`) via
   `admin.generateLink({type:'magiclink'})` + `verifyOtp` — o token volta na
   resposta, nenhum e-mail é enviado.
