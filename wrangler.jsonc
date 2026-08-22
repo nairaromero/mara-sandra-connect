@@ -21,5 +21,16 @@
   "routes": [
     { "pattern": "marasandraconnect.com", "custom_domain": true },
     { "pattern": "www.marasandraconnect.com", "custom_domain": true }
-  ]
+  ],
+  // Ambiente de staging: deploy automatico quando a branch "staging" recebe push.
+  // O script scripts/cf-version.sh detecta WORKERS_CI_BRANCH=staging e roda
+  // `wrangler deploy --env staging` em vez de `wrangler versions upload`.
+  // O build do Vite ja aponta pro banco de staging via WORKERS_CI_BRANCH.
+  "env": {
+    "staging": {
+      "routes": [
+        { "pattern": "staging.marasandraconnect.com", "custom_domain": true }
+      ]
+    }
+  }
 }
