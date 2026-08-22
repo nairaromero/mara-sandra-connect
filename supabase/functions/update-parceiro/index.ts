@@ -115,6 +115,7 @@ serve(async (req) => {
     oab?: string;
     telefone?: string;
     percentual?: number;
+    emails_copia?: string[];
     enviar_link?: boolean;
     redirect_to?: string;
   };
@@ -172,6 +173,19 @@ serve(async (req) => {
   const emailMudou = novoEmail !== a.email;
   // enviar_link=true forca reenvio mesmo sem mudanca de email (ex.: parceiro
   // perdeu o email); default continua sendo enviar so quando o email muda.
+  // E-mails de cópia: normaliza, tira vazio/duplicado e o próprio principal
+  // (receberia duas vezes). Sem validação de formato aqui — o campo é livre
+  // e um endereço torto some no Resend, não derruba o cadastro.
+  const novosEmailsCopia = body.emails_copia !== undefined
+    ? Array.from(
+      new Set(
+        (body.emails_copia ?? [])
+          .map((e) => String(e).trim().toLowerCase())
+          .filter((e) => e.length > 0 && e.includes("@")),
+      ),
+    ).filter((e) => e !== novoEmail)
+    : undefined;
+
   const enviarLink = body.enviar_link === true ||
     (emailMudou && body.enviar_link !== false);
 
@@ -237,6 +251,7 @@ serve(async (req) => {
       ...(novoPercentual !== undefined
         ? { percentual_parceiro: novoPercentual }
         : {}),
+      ...(novosEmailsCopia !== undefined ? { emails_copia: novosEmailsCopia } : {}),
     })
     .eq("id", usuarioId);
   if (upUsr.error) {

@@ -167,6 +167,8 @@ function renderEmail(opts: {
 interface Destinatario {
   nome: string;
   email: string;
+  /** E-mails que recebem cópia do mesmo aviso (secretaria/sócio do parceiro). */
+  copias?: string[];
 }
 
 serve(async (req) => {
@@ -200,7 +202,7 @@ serve(async (req) => {
   const { data: comentario, error } = await supabase
     .from("comentarios")
     .select(
-      "id, texto, parent_id, caso_id, destinatario_id, casos:caso_id(id, parceiro_id, clientes:cliente_id(nome), usuarios_parceiro:parceiro_id(id, nome, email)), autor:autor_id(id, nome, email, tipo)",
+      "id, texto, parent_id, caso_id, destinatario_id, casos:caso_id(id, parceiro_id, clientes:cliente_id(nome), usuarios_parceiro:parceiro_id(id, nome, email, emails_copia)), autor:autor_id(id, nome, email, tipo)",
     )
     .eq("id", comentarioId)
     .maybeSingle();
@@ -272,6 +274,9 @@ serve(async (req) => {
       nome: c.casos.usuarios_parceiro.nome ||
         c.casos.usuarios_parceiro.email,
       email: c.casos.usuarios_parceiro.email,
+      // Secretaria/sócio do parceiro recebem cópia do mesmo aviso.
+      copias: ((c.casos.usuarios_parceiro as { emails_copia?: string[] }).emails_copia ?? [])
+        .filter((e) => e && e !== c.casos!.usuarios_parceiro!.email),
     });
   } else if (autorTipo === "parceiro") {
     // Roteamento por destinatario da CONVERSA.
@@ -373,7 +378,7 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         from: FROM_EMAIL,
-        to: dest.email,
+        to: [dest.email, ...(dest.copias ?? [])],
         subject,
         html,
         text,

@@ -195,6 +195,8 @@ function ParceirosPage() {
   const [editAlvo, setEditAlvo] = useState<ParceiroRow | null>(null);
   const [editNome, setEditNome] = useState("");
   const [editEmail, setEditEmail] = useState("");
+  // E-mails em cópia, digitados separados por vírgula. O principal é o login.
+  const [editEmailsCopia, setEditEmailsCopia] = useState("");
   const [editOab, setEditOab] = useState("");
   const [editTelefone, setEditTelefone] = useState("");
   const [editPercentual, setEditPercentual] = useState("30");
@@ -264,6 +266,7 @@ function ParceirosPage() {
     setEditAlvo(p);
     setEditNome(p.nome ?? "");
     setEditEmail(p.email ?? "");
+    setEditEmailsCopia(((p as { emails_copia?: string[] }).emails_copia ?? []).join(", "));
     setEditOab(p.oab ?? "");
     setEditTelefone(p.telefone ?? "");
     setEditPercentual(String(p.percentual_parceiro ?? 30));
@@ -292,6 +295,10 @@ function ParceirosPage() {
           oab: editOab.trim(),
           telefone: editTelefone.trim(),
           percentual: Number(editPercentual) || 30,
+          emails_copia: editEmailsCopia
+            .split(/[,;\n]/)
+            .map((e) => e.trim().toLowerCase())
+            .filter((e) => e.length > 0),
           // envia magic link se o email mudou OU se a Naira marcou o checkbox
           enviar_link: emailMudou || editEnviarLink,
           redirect_to:
@@ -379,7 +386,7 @@ function ParceirosPage() {
     const { data, error } = await supabase
       .from("usuarios")
       .select(
-        "id, nome, email, oab, telefone, percentual_parceiro, ativo, created_at, onboarded_em, tipo",
+        "id, nome, email, emails_copia, oab, telefone, percentual_parceiro, ativo, created_at, onboarded_em, tipo",
       )
       .eq("eh_parceiro", true)
       .order("created_at", { ascending: false });
@@ -1021,6 +1028,20 @@ function ParceirosPage() {
                       Email mudou - será enviado novo magic link ao salvar.
                     </p>
                   )}
+              </div>
+              <div>
+                <Label className="text-xs">E-mails em cópia</Label>
+                <Input
+                  value={editEmailsCopia}
+                  onChange={(e) => setEditEmailsCopia(e.target.value)}
+                  placeholder="secretaria@escritorio.com, socio@escritorio.com"
+                  autoComplete="off"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Separe por vírgula. Recebem cópia dos avisos (andamentos,
+                  comentários). O acesso ao sistema continua sendo só pelo e-mail
+                  principal — é ele que recebe o link de login.
+                </p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>

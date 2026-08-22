@@ -52,7 +52,7 @@ import {
 } from "@/components/ui/popover";
 import { ImportarClientesExcelDialog } from "@/components/importar-clientes-excel-dialog";
 import { exportarClientesExcel } from "@/lib/clientes-excel";
-import { ordenarEtiquetas } from "@/lib/etiquetas";
+import { beneficiosDasEtiquetas, ordenarEtiquetas } from "@/lib/etiquetas";
 import { TarefaSheet, type TarefaSheetModo } from "@/components/tarefas/tarefa-sheet";
 
 export const Route = createFileRoute("/_authenticated/clientes")({
@@ -100,6 +100,11 @@ interface ClienteAgrupado {
 // ===========================================================================
 // Helpers
 // ===========================================================================
+
+// "a_definir" é valor de banco; na tela vira texto legível.
+function rotuloBeneficio(valor: string): string {
+  return valor === "a_definir" ? "A definir (não classificado)" : valor;
+}
 
 function onlyDigits(s: string): string {
   return (s || "").replace(/\D/g, "");
@@ -198,6 +203,7 @@ function ClientesPage() {
   const [etiquetaFiltro, setEtiquetaFiltro] = useState<string>("");
   const [etiquetaPopOpen, setEtiquetaPopOpen] = useState(false);
   const [statusFiltro, setStatusFiltro] = useState<string>("");
+  const [beneficioFiltro, setBeneficioFiltro] = useState<string>("");
   // Paginacao client-side (os dados ja estao todos carregados).
   const [pagina, setPagina] = useState(1);
   const [porPagina, setPorPagina] = useState(10);
@@ -351,6 +357,26 @@ function ClientesPage() {
     : null;
 
   // Filtra clientes pela busca + parceiro + etiqueta + status
+  // Benefícios que de fato existem na base, pra não oferecer opção vazia.
+  // "a_definir" vai pro topo: é o motivo de o filtro existir (caso que entrou
+  // e ainda não foi classificado).
+  const beneficiosDisponiveis = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of clientes) {
+      for (const ca of c.casos) {
+        const b = (ca.tipo_beneficio ?? "").trim();
+        if (b) set.add(b);
+      }
+      for (const b of beneficiosDasEtiquetas(c.etiquetas)) set.add(b);
+    }
+    // Ordena pelo RÓTULO que aparece na tela, não pelo valor cru do banco:
+    // "a_definir" é exibido como "A definir (não classificado)" e tem que cair
+    // onde a pessoa procura por ele, em ordem alfabética como os demais.
+    return Array.from(set)
+      .map((valor) => ({ valor, rotulo: rotuloBeneficio(valor) }))
+      .sort((a, b) => a.rotulo.localeCompare(b.rotulo, "pt-BR"));
+  }, [clientes]);
+
   const clientesFiltrados = useMemo(() => {
     let result = clientes;
 
@@ -369,6 +395,19 @@ function ClientesPage() {
     // Filtro por status (algum caso do cliente com esse status)
     if (statusFiltro) {
       result = result.filter((c) => c.casos.some((ca) => ca.status === statusFiltro));
+    }
+
+    // Filtro por benefício. Existe sobretudo pra achar os "a definir" — caso
+    // que entrou e ainda não foi classificado.
+    if (beneficioFiltro) {
+      // Casa pelo campo OU pela etiqueta: o caso guarda um benefício só, mas o
+      // cliente pode ter dois na etiqueta. Sem isto, filtrar pelo segundo
+      // escondia o caso — e a alternativa seria inventar valor combinado.
+      result = result.filter(
+        (c) =>
+          c.casos.some((ca) => (ca.tipo_beneficio ?? "") === beneficioFiltro) ||
+          beneficiosDasEtiquetas(c.etiquetas).includes(beneficioFiltro),
+      );
     }
 
     // Filtro por busca textual
@@ -390,16 +429,16 @@ function ClientesPage() {
       // (inclui nomes de etiquetas)
       return c.searchHaystack.includes(buscaNormalizada);
     });
-  }, [clientes, parceiroFiltro, etiquetaFiltro, statusFiltro, buscaNormalizada, buscaDigits]);
+  }, [clientes, parceiroFiltro, etiquetaFiltro, statusFiltro, beneficioFiltro, buscaNormalizada, buscaDigits]);
 
   const temFiltroAtivo =
-    !!buscaNormalizada || !!parceiroFiltro || !!etiquetaFiltro || !!statusFiltro;
+    !!buscaNormalizada || !!parceiroFiltro || !!etiquetaFiltro || !!statusFiltro || !!beneficioFiltro;
 
   // Paginacao: volta pra pagina 1 sempre que qualquer filtro (ou o tamanho da
   // pagina) muda, senao a pessoa fica presa numa pagina que nao existe mais.
   useEffect(() => {
     setPagina(1);
-  }, [buscaNormalizada, parceiroFiltro, etiquetaFiltro, statusFiltro, porPagina]);
+  }, [buscaNormalizada, parceiroFiltro, etiquetaFiltro, statusFiltro, beneficioFiltro, porPagina]);
 
   const totalPaginas = Math.max(1, Math.ceil(clientesFiltrados.length / porPagina));
   const paginaAtual = Math.min(pagina, totalPaginas);
@@ -628,7 +667,27 @@ function ClientesPage() {
                 </Select>
               </div>
 
-              {(parceiroFiltro || etiquetaFiltro || statusFiltro) && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground shrink-0">Benefício:</span>
+                <Select
+                  value={beneficioFiltro || "__todos__"}
+                  onValueChange={(v) => setBeneficioFiltro(v === "__todos__" ? "" : v)}
+                >
+                  <SelectTrigger className="w-auto min-w-[170px] h-8 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__todos__">Todos</SelectItem>
+                    {beneficiosDisponiveis.map((b) => (
+                      <SelectItem key={b.valor} value={b.valor}>
+                        {b.rotulo}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {(parceiroFiltro || etiquetaFiltro || statusFiltro || beneficioFiltro) && (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -636,6 +695,7 @@ function ClientesPage() {
                     setParceiroFiltro("");
                     setEtiquetaFiltro("");
                     setStatusFiltro("");
+                    setBeneficioFiltro("");
                   }}
                   className="h-8 px-2 text-xs"
                 >

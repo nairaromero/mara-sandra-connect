@@ -219,7 +219,7 @@ serve(async (req) => {
   const { data, error } = await supabase
     .from("andamentos")
     .select(
-      "id, titulo, descricao, data_evento, origem, visivel_parceiro, casos:caso_id(id, parceiro_id, clientes:cliente_id(nome), usuarios_parceiro:parceiro_id(id, nome, email))",
+      "id, titulo, descricao, data_evento, origem, visivel_parceiro, casos:caso_id(id, parceiro_id, clientes:cliente_id(nome), usuarios_parceiro:parceiro_id(id, nome, email, emails_copia))",
     )
     .eq("id", andamentoId)
     .maybeSingle();
@@ -273,6 +273,10 @@ serve(async (req) => {
   const parceiroNome = a.casos.usuarios_parceiro.nome ||
     a.casos.usuarios_parceiro.email;
   const parceiroEmail = a.casos.usuarios_parceiro.email;
+  // Escritório de parceiro costuma ter secretaria/sócio que também acompanha.
+  // O principal segue sendo o login; estes vão em cópia.
+  const copias = ((a.casos.usuarios_parceiro as { emails_copia?: string[] }).emails_copia ?? [])
+    .filter((e) => e && e !== parceiroEmail);
   const clienteNome = a.casos.clientes
     ? a.casos.clientes.nome
     : "(cliente sem nome)";
@@ -297,7 +301,7 @@ serve(async (req) => {
     },
     body: JSON.stringify({
       from: FROM_EMAIL,
-      to: parceiroEmail,
+      to: [parceiroEmail, ...copias],
       subject: `Novo andamento - ${a.titulo} - ${clienteNome}`,
       html,
       text,
