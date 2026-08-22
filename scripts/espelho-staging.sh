@@ -68,4 +68,15 @@ echo "==> 4/4 anonimizando…"
 psql "$STG_URL" -q -v ON_ERROR_STOP=1 -v senha_sintetica="$SYNTH_PW" \
   -f "$(dirname "$0")/anonimizar-staging.sql"
 
+# O passo 2 apagou auth.users e o 4 recriou só quem existe em produção. As
+# contas sintéticas de papel (e2e+admin/interno/parceiro) não existem lá —
+# recria aqui. Precisa de STAGING_SERVICE_ROLE_KEY e STAGING_PUBLISHABLE_KEY
+# (no .env.local ou como secret do workflow); sem elas, avisa e segue.
+echo "==> 5/5 contas sintéticas de papel…"
+if command -v node >/dev/null 2>&1; then
+  node "$(dirname "$0")/seed-staging-contas.mjs" || echo "AVISO: seed de contas falhou — rode `node scripts/seed-staging-contas.mjs` à mão."
+else
+  echo "AVISO: node ausente — rode `node scripts/seed-staging-contas.mjs` à mão."
+fi
+
 echo "==> Espelho concluído: $(date '+%Y-%m-%d %H:%M')"

@@ -14,9 +14,16 @@ jobs:
       - uses: actions/checkout@v4
       - name: Instala cliente Postgres
         run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      # O passo 5/5 do espelho (scripts/seed-staging-contas.mjs) roda em node
+      # com @supabase/supabase-js — precisa das deps instaladas.
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
       - name: Roda o espelho
         env:
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
           STAGING_DB_PASSWORD: ${{ secrets.STAGING_DB_PASSWORD }}
           STAGING_SYNTH_PASSWORD: ${{ secrets.STAGING_SYNTH_PASSWORD }}
+          # Contas sintéticas de papel (e2e+admin/interno/parceiro) no fim:
+          STAGING_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SERVICE_ROLE_KEY }}
+          STAGING_PUBLISHABLE_KEY: ${{ secrets.STAGING_PUBLISHABLE_KEY }}
         run: bash scripts/espelho-staging.sh

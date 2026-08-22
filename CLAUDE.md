@@ -25,12 +25,19 @@ feature branch  ──merge──▶  staging  ──merge (após validação)�
 - Edge functions: deploy no staging (`--project-ref alhqbpbekmxpoibrrnbi`) antes de produção.
 - Build de branch ≠ main no Cloudflare aponta pro banco de staging automaticamente (vite.config.ts).
 
+**Contas de staging (uma por papel, senha = `STAGING_SYNTH_PASSWORD`):**
+- `e2e+admin@marasandraconnect.com` (interno + `eh_admin`), `e2e+interno@…` (interno comum), `e2e+parceiro@…` (parceiro, já onboardado). Só existem no staging.
+- Criadas/recriadas por `node scripts/seed-staging-contas.mjs` (idempotente; o `espelho-staging.sh` chama no fim, porque o espelho apaga `auth.users`). Se alguma conta não logar, rodar o seed.
+- Pessoa valida em staging.marasandraconnect.com com a conta do papel que quer ver — NÃO compartilhar `e2e+interno` com a suíte E2E (duas sessões na mesma conta se derrubam pela rotação de refresh token).
+- E2E: `e2e/auth.setup.ts` gera `e2e/.auth/{interno,parceiro,admin}.json`; spec de admin usa `STORAGE_ADMIN`. Parceiro nos testes continua sendo a Isabella (magic link).
+- Se o staging ficar atrás do Cloudflare Access: `CF_ACCESS_CLIENT_ID`/`CF_ACCESS_CLIENT_SECRET` (service token) no `.env.local` — o `playwright.config.ts` manda os headers sozinho.
+
 ## Rotina deploy
 
 1. Naira diz "implementar X".
 2. Crio branch `feat/x` saindo de `staging`.
 3. Commit, push, abro PR `feat/x → staging`.
-4. Naira valida (em preview Cloudflare ou local) e merge.
+4. Naira valida (em staging.marasandraconnect.com, com a conta do papel certo, ou local) e merge.
 5. Quando um lote estiver validado: Naira merge `staging → main` → deploy prod.
 
 ## DB
