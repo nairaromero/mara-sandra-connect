@@ -8,8 +8,12 @@
 #
 # For any other branch: upload a preview version (the default behavior).
 
+echo "cf-version.sh: WORKERS_CI_BRANCH=$WORKERS_CI_BRANCH"
+
 if [ "$WORKERS_CI_BRANCH" = "staging" ]; then
+  echo "cf-version.sh: deploying to staging env"
   npx wrangler deploy --env staging
 else
+  echo "cf-version.sh: uploading preview version"
   npx wrangler versions upload
 fi
