@@ -141,10 +141,23 @@ function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [usuario?.id, usuario?.tipo]);
 
+  // Spinner enquanto o hook carrega - mas evita travar pra sempre.
+  // Apos 5s, mostra mensagem em vez de loop infinito.
+  // Fica AQUI, antes do early return abaixo (issue #179): no primeiro render
+  // `usuario` ainda e undefined e estes hooks rodam; quando o tipo chega, o
+  // redirect retornava antes deles e o React quebrava com "Rendered fewer
+  // hooks than expected" (erro #300 minificado).
+  const [spinnerTimedOut, setSpinnerTimedOut] = useState(false);
+  useEffect(() => {
+    if (usuario) return;
+    const t = setTimeout(() => setSpinnerTimedOut(true), 5000);
+    return () => clearTimeout(t);
+  }, [usuario]);
+
   // Ninguem tem "Inicio": interno comeca o dia em /tarefas e parceiro em
   // /clientes. O dashboard abaixo ficou sem uso (mesma situacao de /repasses
-  // e /conversas - decisao de produto pendente). O redirect fica DEPOIS dos
-  // hooks (regra de hooks) e no render, porque o tipo vem do useAuth.
+  // e /conversas - decisao de produto pendente). O redirect fica DEPOIS de
+  // TODOS os hooks (regra de hooks) e no render, porque o tipo vem do useAuth.
   if (usuario?.tipo === "interno") {
     return <Navigate to="/tarefas" replace />;
   }
@@ -222,15 +235,6 @@ function DashboardPage() {
   function abrirCaso(id: string) {
     navigate({ to: "/casos/$id", params: { id: id } });
   }
-
-  // Spinner enquanto o hook carrega - mas evita travar pra sempre.
-  // Apos 5s, mostra mensagem em vez de loop infinito.
-  const [spinnerTimedOut, setSpinnerTimedOut] = useState(false);
-  useEffect(() => {
-    if (usuario) return;
-    const t = setTimeout(() => setSpinnerTimedOut(true), 5000);
-    return () => clearTimeout(t);
-  }, [usuario]);
 
   if (!usuario) {
     return (
