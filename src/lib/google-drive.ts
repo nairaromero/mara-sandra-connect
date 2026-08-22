@@ -54,6 +54,26 @@ export function isGoogleDriveConfigured(): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Promise com executor async (issue #180)
+//
+// `new Promise(async (resolve, reject) => …)` engole qualquer throw do corpo:
+// vira rejeicao de uma async function que ninguem observa, e a Promise de
+// fora fica pendente pra sempre. Aconteceu de verdade: o script do Google
+// Identity chegou vazio (proxy/bloqueador "neutralizando"), loadGoogleScripts
+// resolveu, `window.google.accounts` nao existia, o TypeError foi engolido e
+// "Vincular pasta" ficou com spinner ate recarregar a pagina.
+//
+// Aqui o throw (sincrono ou de await) vira reject, e o caller ve o toast.
+// ---------------------------------------------------------------------------
+function promiseComExecutorAsync<T>(
+  executor: (resolve: (valor: T) => void, reject: (erro: unknown) => void) => Promise<void>,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    executor(resolve, reject).catch(reject);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Carregamento dos scripts (idempotente)
 // ---------------------------------------------------------------------------
 let scriptsLoadingPromise: Promise<void> | null = null;
@@ -152,7 +172,7 @@ export function abrirDrivePicker(): Promise<DrivePickerResult> {
     );
   }
 
-  return new Promise(async (resolve, reject) => {
+  return promiseComExecutorAsync(async (resolve, reject) => {
     try {
       await loadGoogleScripts();
     } catch (err) {
@@ -310,7 +330,7 @@ export function abrirDrivePickerPasta(): Promise<DrivePickedFolder> {
     );
   }
 
-  return new Promise(async (resolve, reject) => {
+  return promiseComExecutorAsync(async (resolve, reject) => {
     try {
       await loadGoogleScripts();
     } catch (err) {
@@ -670,7 +690,7 @@ export function obterAccessToken(): Promise<string> {
   if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) {
     return Promise.resolve(cachedToken.token);
   }
-  return new Promise(async (resolve, reject) => {
+  return promiseComExecutorAsync(async (resolve, reject) => {
     try {
       await loadGoogleScripts();
     } catch (err) {
