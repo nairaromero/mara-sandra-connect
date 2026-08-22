@@ -197,11 +197,17 @@ function abrirPickerComToken(
     .setOAuthToken(accessToken)
     .setDeveloperKey(EFFECTIVE_API_KEY)
     .addView(
+      // Pastas aparecem so pra NAVEGAR ate os arquivos — nao sao selecionaveis
+      // (setSelectFolderEnabled(false)). Sem um titulo explicito o Picker cai
+      // no default em ingles "Select a file", e quem queria VINCULAR uma pasta
+      // marcava a pasta e ficava olhando o botao Select apagado sem entender.
+      // Vincular pasta e o outro fluxo: abrirDrivePickerPasta().
       new window.google.picker.DocsView()
         .setIncludeFolders(true)
         .setSelectFolderEnabled(false),
     )
     .setLocale("pt")
+    .setTitle("Escolha os ARQUIVOS para importar (pasta aqui so navega)")
     .setCallback((data: any) => {
       console.log("[DrivePicker] picker callback action:", data.action, "data:", data);
       if (data.action === window.google.picker.Action.PICKED) {

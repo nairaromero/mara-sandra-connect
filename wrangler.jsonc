@@ -9,6 +9,15 @@
   // Cada versão de branch (build de PR) ganha URL de preview:
   // https://<8-chars-do-version-id>-mara-sandra-connect.nairaromerovian.workers.dev
   "preview_urls": true,
+  // Espelha o que esta configurado no painel da Cloudflare, pra que o deploy
+  // nao sobrescreva. Workers Logs LIGADOS desde 2026-08-21: sem eles o unico
+  // caminho de diagnostico de SSR era o wrapper de erro em src/server.ts.
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    }
+  },
   "routes": [
     { "pattern": "marasandraconnect.com", "custom_domain": true },
     { "pattern": "www.marasandraconnect.com", "custom_domain": true }

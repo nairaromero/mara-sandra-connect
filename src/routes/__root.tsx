@@ -8,9 +8,18 @@ import {
   Scripts,
 } from "@tanstack/react-router";
 
+import { Loader2 } from "lucide-react";
+
 import appCss from "../styles.css?url";
 import { AuthProvider } from "@/hooks/use-auth";
 import { Toaster } from "@/components/ui/sonner";
+import {
+  instalarAutoReloadChunkVelho,
+  isChunkLoadError,
+  reloadPorChunkVelho,
+} from "@/lib/stale-chunk";
+
+instalarAutoReloadChunkVelho();
 
 function NotFoundComponent() {
   return (
@@ -35,6 +44,15 @@ function NotFoundComponent() {
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
   const router = useRouter();
+  // Chunk de deploy antigo (404 após novo build): recarrega a página em vez
+  // de mostrar a tela de erro — o reload busca o HTML/chunks novos e resolve.
+  if (isChunkLoadError(error) && reloadPorChunkVelho()) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
