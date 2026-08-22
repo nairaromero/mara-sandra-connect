@@ -1,0 +1,54 @@
+# Espelha produção -> staging com anonimização (planning/AMBIENTES.md).
+# Semanal (segunda 05:00 BRT = 08:00 UTC) + manual pelo botão "Run workflow".
+#
+# Só roda a partir da branch default (main): agendamento e workflow_dispatch
+# do GitHub ignoram workflows que existem só em outras branches.
+#
+# Credenciais (Settings -> Secrets and variables -> Actions):
+#   ESPELHO_LEITURA_PASSWORD  role só-leitura de produção (migration_espelho_role_leitura)
+#   STAGING_DB_PASSWORD       Postgres do staging (truncate/restore/anonimizar)
+#   STAGING_SYNTH_PASSWORD    senha única dos usuários sintéticos
+#   STAGING_SERVICE_ROLE_KEY  seed das contas de papel (passo 5/5)
+#   STAGING_PUBLISHABLE_KEY   idem (prova que cada conta loga)
+# A senha do Postgres de PRODUÇÃO não entra aqui.
+name: espelho-staging
+on:
+  schedule:
+    - cron: "0 8 * * 1"
+  workflow_dispatch:
+
+jobs:
+  espelhar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # O servidor é Postgres 17; o postgresql-client do Ubuntu é 16 e o
+      # pg_dump se recusa a dumpar servidor mais novo. Client 17 do PGDG.
+      - name: Instala cliente Postgres 17
+        run: |
+          sudo apt-get install -y -qq curl ca-certificates
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" |
+            sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+          pg_dump --version
+
+      # O passo 5/5 do espelho (scripts/seed-staging-contas.mjs) roda em node
+      # com @supabase/supabase-js — precisa das deps instaladas.
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+
+      - name: Roda o espelho
+        env:
+          ESPELHO_LEITURA_PASSWORD: ${{ secrets.ESPELHO_LEITURA_PASSWORD }}
+          STAGING_DB_PASSWORD: ${{ secrets.STAGING_DB_PASSWORD }}
+          STAGING_SYNTH_PASSWORD: ${{ secrets.STAGING_SYNTH_PASSWORD }}
+          STAGING_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SERVICE_ROLE_KEY }}
+          STAGING_PUBLISHABLE_KEY: ${{ secrets.STAGING_PUBLISHABLE_KEY }}
+        run: bash scripts/espelho-staging.sh

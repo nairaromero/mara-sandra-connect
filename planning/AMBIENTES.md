@@ -38,10 +38,13 @@ depois produção. Segredos de function: gerenciar nos DOIS projetos.
 bash scripts/espelho-staging.sh   # local; ou GitHub Actions "espelho-staging"
 ```
 
-Agendamento semanal: o arquivo `planning/espelho-staging.workflow.yml` está
-pronto — pra ativar, copie-o pra `.github/workflows/` pela UI do GitHub (o
-token local não tem escopo `workflow`; os secrets do repo já estão criados).
-Até lá, rodar o comando acima localmente. Pipeline:
+Agendamento semanal: `.github/workflows/espelho-staging.yml` (segunda 05:00
+BRT, ou "Run workflow" à mão). Só roda a partir da `main` — entra em vigor no
+squash `staging → main` seguinte. Secrets no repo: `ESPELHO_LEITURA_PASSWORD`,
+`STAGING_DB_PASSWORD`, `STAGING_SYNTH_PASSWORD`, `STAGING_SERVICE_ROLE_KEY`,
+`STAGING_PUBLISHABLE_KEY` (cadastrados em 2026-08-23). O runner instala o
+client Postgres 17 do PGDG — o do Ubuntu é 16 e não dumpa servidor 17.
+Pipeline:
 0. travas (2026-08-23): a conexão de produção tem que ser o role
    `espelho_leitura` (só `SELECT`, sem `BYPASSRLS`; criado por
    `migration_espelho_role_leitura.sql`, senha em `ESPELHO_LEITURA_PASSWORD`) —
