@@ -27,6 +27,7 @@ Legenda: 🟢 descreve o estado atual · 🟡 parcialmente desatualizado · ⚪ 
 
 | Arquivo | Estado | Conteúdo |
 |---|---|---|
+| [DECISOES.md](DECISOES.md) | 🟢 | **Por que o sistema é assim**: 21 decisões com contexto, opções, o que pesou e o que custou. Estudo de caso — ler antes de propor mudança estrutural |
 | [AMBIENTES.md](AMBIENTES.md) | 🟢 | Produção × staging, migrations em duas etapas, espelho anonimizado, LGPD do anonimato |
 | [UI_DESIGN.md](UI_DESIGN.md) | 🟡 | Mobile-first, componentes genéricos, plano de tema (T1/T2 feitos, T3+ em aberto) |
 
