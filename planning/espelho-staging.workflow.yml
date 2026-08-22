@@ -20,7 +20,9 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Roda o espelho
         env:
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          # Role só-leitura de produção (migration_espelho_role_leitura) —
+          # a senha do Postgres de produção não entra mais aqui.
+          ESPELHO_LEITURA_PASSWORD: ${{ secrets.ESPELHO_LEITURA_PASSWORD }}
           STAGING_DB_PASSWORD: ${{ secrets.STAGING_DB_PASSWORD }}
           STAGING_SYNTH_PASSWORD: ${{ secrets.STAGING_SYNTH_PASSWORD }}
           # Contas sintéticas de papel (e2e+admin/interno/parceiro) no fim:
