@@ -48,12 +48,11 @@ Coisas que estavam abertas **sem constar em nenhuma lista**. Ordenadas por risco
       real esperando (leads → n8n) ou vira código morto mantido de graça.
 - [ ] **`casos.$id.tsx` com 8.300 linhas** — um terço de todo o código de tela. É onde toda
       mudança cai e onde o risco de quebrar algo sem perceber é maior.
-- [ ] **Fontes do site não carregam** — `@import` do Google Fonts em `src/styles.css` é
-      descartado pelo Tailwind v4; todo mundo vê o fallback. → `<link>` no `<head>`.
-- [ ] **`excluir-parceiro`**: conferir a cópia em `supabase/functions/` contra a versão
-      deployada (nunca foi atualizada desde 03/06) antes de mexer.
-- [ ] **Drive em staging**: cadastrar `https://staging.marasandraconnect.com` como origem
-      JavaScript autorizada no Google Cloud, senão o picker não abre fora de produção.
+- [ ] **Fontes do site não carregam** — issue #199.
+- [x] ~~`excluir-parceiro`: conferir a cópia contra a versão deployada~~ — conferido em
+      2026-08-23: o fonte extraído do bundle em produção (v17, 2026-05-29) é idêntico à
+      cópia em `supabase/functions/excluir-parceiro/index.ts` após normalização.
+- [ ] **Drive em staging** (origem no Google Cloud) — issue #200.
 
 ---
 

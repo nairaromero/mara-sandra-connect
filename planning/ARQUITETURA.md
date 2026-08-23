@@ -258,10 +258,11 @@ respostas em `net._http_response`.
 | Pessoas | `convidar-usuario` · `update-parceiro` |
 | WhatsApp | `whatsapp-inbound` |
 
-> ⚠️ **`excluir-parceiro`**: roda em produção (versão de 2026-06-03, nunca atualizada) e só
-> existia como cópia solta em `planning/edge-functions/`. Em 2026-08-23 a cópia foi movida
-> para `supabase/functions/excluir-parceiro/index.ts` — **não foi conferida contra o que está
-> deployado**. Antes de mexer: `GET /v1/projects/<ref>/functions` e comparar.
+> ℹ️ **`excluir-parceiro`**: deployada em 2026-05-29 (v17, `verify_jwt=true`) e nunca
+> atualizada; até 2026-08-23 só existia como cópia solta em `planning/edge-functions/`. A cópia
+> foi movida para `supabase/functions/excluir-parceiro/index.ts` e **conferida contra o bundle
+> em produção** (fonte extraído via `GET /v1/projects/<ref>/functions/excluir-parceiro/body`;
+> idêntico após normalização com esbuild). A partir daqui, deploy dela segue o fluxo normal.
 
 Deploy: **staging primeiro** (`--project-ref alhqbpbekmxpoibrrnbi`), depois produção.
 Segredos precisam existir nos **dois** projetos.
