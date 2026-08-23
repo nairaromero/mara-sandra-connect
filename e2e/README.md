@@ -40,7 +40,7 @@ Medido num run completo com `PW_VIDEO=1`:
 
 | | |
 |---|---|
-| `test-results/` | ~5,6 MB (13 videos) |
+| `test-results/` | ~8 MB (um vídeo por teste — 18 hoje) |
 | `playwright-report/` | ~6,1 MB |
 | traces | 0 — `trace: "retain-on-failure"`, so aparecem quando algo quebra |
 
@@ -120,7 +120,7 @@ supabase-js vive em localStorage):
   `admin.generateLink({type:'magiclink'})` + `verifyOtp` — o token volta na
   resposta, nenhum e-mail é enviado.
 
-## Regras pro banco de produção único
+## Regras pros dados de teste (banco de staging)
 
 1. **Todo dado criado por teste leva o marcador `[E2E]`** no nome do cliente.
 2. Seeds sempre via `e2e/supabase-admin.ts` (`seedClienteCaso`, `seedSolicitacao`).

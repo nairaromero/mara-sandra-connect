@@ -6,7 +6,16 @@
 > que aqui reaproveitamos, ver [sql-migrations/migration_webhooks.sql](sql-migrations/migration_webhooks.sql)
 > e [webhooks/n8n-workflow.json](webhooks/n8n-workflow.json).
 >
-> ## 🔴 Estado em 2026-08-15 — implementado, mas parado e falhando
+> ## ⏸️ Estado em 2026-08-23 — implementado, saída PAUSADA
+>
+> Em **2026-08-21** a saída foi pausada (`migration_pausa_whatsapp_saida.sql`): trigger
+> `trg_whatsapp_comentario_novo` desabilitado, pendentes cancelados, histórico preservado
+> (62 enviadas, 123 recebidas). A Evolution segue em `HTTP 500`. O que falta é a decisão de
+> linha dedicada — ver [whatsapp/PLANO_LINHA_DEDICADA.md](whatsapp/PLANO_LINHA_DEDICADA.md)
+> e DECISOES.md D9. Pra retomar: `alter table public.comentarios enable trigger
+> trg_whatsapp_comentario_novo` depois que a instância estiver de pé.
+>
+> ### Estado anterior, em 2026-08-15 — implementado, mas parado e falhando
 >
 > A linha "Status: PLANEJAMENTO" abaixo é de 2026-05-30 e envelheceu. O que aconteceu:
 >
@@ -15,7 +24,7 @@
 >   estão em produção.
 > - **O webhook de entrada está DESLIGADO** desde junho — última mensagem recebida em 04/06.
 > - **A instância do Evolution caiu e a saída falha em silêncio.** O trigger
->   `tg_whatsapp_comentario_novo` continua enfileirando: 13 mensagens falharam com
+>   `trg_whatsapp_comentario_novo` continuava enfileirando: 13 mensagens falharam com
 >   `Connection Closed` após 5 tentativas cada, a última em **14/08**. Ninguém é notificado.
 > - A decisão do §11.1 (número dedicado) **nunca foi tomada** — ver
 >   [whatsapp/PLANO_LINHA_DEDICADA.md](whatsapp/PLANO_LINHA_DEDICADA.md), que explica por que
@@ -375,7 +384,7 @@ Segredos guardados no **Vault** (`set_secret`): `EVOLUTION_URL`,
 `EVOLUTION_API_KEY`, `EVOLUTION_INSTANCE`, `WHATSAPP_WEBHOOK_TOKEN`.
 
 > Esses campos são gerenciados pela **aba "Integrações"** (UI), não por env do
-> Supabase — ver [INTEGRACOES.md](INTEGRACOES.md) §7. A mesma aba também passa a
+> Supabase — ver a proposta de aba `/integracoes` (2026-05-30, nunca construída — DECISOES.md D5). A mesma aba também passa a
 > gerenciar TI e Legalmail, e contém (em seção separada) os webhooks.
 
 ---

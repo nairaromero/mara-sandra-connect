@@ -96,8 +96,8 @@ risco teórico.
 - **O que pesou.** Cada MVP entregava valor sozinho e reduzia dependência sem
   exigir que tudo estivesse pronto.
 - **O que custou.** Migração de dados (D6) e 77 clientes sem CPF que não
-  puderam migrar. A documentação do plano ficou parcialmente obsoleta
-  (INTEGRACOES.md vale pelo mapeamento de campos, não pelo plano).
+  puderam migrar. Os planos originais (SUBSTITUIR_TRAMITACAO, INTEGRACOES,
+  MIGRACAO_TI) foram removidos em 2026-08-23; ficam no histórico do git.
 
 ### D6 · Migração do TI: caso automático, extras em JSON, só clientes com tag (2026-07-20)
 

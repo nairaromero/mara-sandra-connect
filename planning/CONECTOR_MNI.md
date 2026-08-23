@@ -2,7 +2,7 @@
 
 Status: piloto pronto pro TJMT (aguardando senha do PJe pra 1º teste real);
 TRF1 e TRF3 dependem de credenciamento junto ao tribunal.
-Decisão: substitui o piloto Judit descartado (planning/PILOTO_JUDIT.md) —
+Decisão: substitui o piloto Judit descartado (planning/DECISOES.md (D7)) —
 mesmo resultado (PDFs dos autos) a custo zero, via webservice oficial do CNJ.
 
 ## O que é

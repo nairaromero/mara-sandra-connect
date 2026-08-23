@@ -6,8 +6,10 @@
   "main": "src/server.ts",
   // Produção só no domínio próprio; workers.dev segue desligado.
   "workers_dev": false,
-  // Cada versão de branch (build de PR) ganha URL de preview:
-  // https://<8-chars-do-version-id>-mara-sandra-connect.nairaromerovian.workers.dev
+  // Preview URL por versao (*.workers.dev) nao e mais usada: o projeto de
+  // producao so builda a main, e staging tem worker e dominio proprios (env
+  // abaixo). Fica ligado so porque `wrangler versions upload` ainda funciona
+  // pra inspecao manual; ninguem depende disso.
   "preview_urls": true,
   // Espelha o que esta configurado no painel da Cloudflare, pra que o deploy
   // nao sobrescreva. Workers Logs LIGADOS desde 2026-08-21: sem eles o unico
@@ -28,7 +30,7 @@
   // com o nome e as rotas abaixo — nunca as de producao.
   // NUNCA rodar `wrangler deploy` pra staging a partir do projeto de producao:
   // o token de build de la so enxerga o worker mara-sandra-connect (ver
-  // incidente de 2026-08-22 em planning/DIAGNOSTICO_PREVIEW_URL.md).
+  // incidente de 2026-08-22 em planning/DECISOES.md D16).
   "env": {
     "staging": {
       "name": "mara-sandra-connect-staging",

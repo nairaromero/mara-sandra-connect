@@ -28,7 +28,6 @@ src/routeTree.gen.ts
 
 # Scripts de exploração com tokens hardcoded (não versionar)
 # Tokens antigos já foram rotacionados; manter ignorado evita repetir o vazamento.
-planning/explorers/
 
 # Editor directories and files
 .vscode/*

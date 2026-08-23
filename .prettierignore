@@ -55,7 +55,6 @@ src/lib/legal/termos.ts
 # copias arquivadas de edge function — cujo original vive em
 # supabase/functions/.
 planning/
-video-demo/
 
 # --- Prosa ---
 # O prettier reflui paragrafo e reescreve tabela. Diff enorme, ganho zero.
