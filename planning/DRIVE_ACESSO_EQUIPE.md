@@ -73,13 +73,12 @@ No cliente OAuth **"Drive Picker (frontend)"** as origens autorizadas hoje são:
 | `https://www.marasandraconnect.com` | produção ✅ |
 | `http://localhost:5173` | porta errada — o dev deste projeto roda em **8080** |
 
-Ou seja: **em produção o Drive funciona**; no **dev local e nos previews do
-Cloudflare, não** (o Google recusa a origem). Se quiser Drive fora de produção,
-adicionar `http://localhost:8080` e a URL estável de staging.
-
-O Google **não aceita curinga** em origem JavaScript, então URLs de preview de
-PR (`https://<versao>-mara-sandra-connect...workers.dev`) nunca vão funcionar
-com Drive — só a URL fixa de staging, se for cadastrada.
+Ou seja: **em produção o Drive funciona**; no **dev local e no staging, não**
+(o Google recusa a origem). Se quiser Drive fora de produção, adicionar
+`http://localhost:8080` e `https://staging.marasandraconnect.com` na lista de
+origens JavaScript autorizadas do OAuth Client — **ainda não foi feito**
+(está no TODO). O Google não aceita curinga; por isso a URL de staging precisa
+ser fixa, e é (desde 2026-08-22).
 
 ### 2. Mover/criar as pastas dos casos na conta do escritório
 
@@ -146,4 +145,4 @@ Se aparecer "Access blocked" ou "app não verificado", é o passo 1 que faltou.
 - Tabela `casos`: `gdrive_folder_id`, `gdrive_folder_name`, `gdrive_vinculado_em`.
 - Tabela `documentos`: `gdrive_file_id`, `pasta_relativa`.
 
-Histórico da integração: [INTEGRACAO_DRIVE_BIDIRECIONAL.md](INTEGRACAO_DRIVE_BIDIRECIONAL.md).
+O doc de histórico do Drive bidirecional (fases 1–3) foi removido em 2026-08-23; as pendências que sobraram estão no TODO.md, e o porquê da conta única em DECISOES.md D11.

@@ -47,7 +47,7 @@ global. Este doc cobre as 4 fases pra fechar essa lacuna e superar o TI.
 - `oabs_monitoradas` com as duas OABs da Mara: **439.016/SP** e **22.928/MT**.
 - `publicacoes_dje` + tela `/publicacoes` (triagem vinculada/órfã).
 - Edge `cnj-consulta-processo` (DataJud) que auto-preenche tribunal/vara/comarca.
-- Plano DJE (`INTEGRACAO_DJE.md`) e plano geral (`SUBSTITUIR_TRAMITACAO.md`).
+- Plano DJE (`INTEGRACAO_DJE.md`) e plano geral (`DECISOES.md (D5)`).
 
 ## Fase 1 — Tela `/processos` (só frontend) ← ESTA BRANCH
 

@@ -1,8 +1,9 @@
 # TODO — Mara Sandra Connect
 
 > Checklist consolidado do que está em aberto.
-> **Auditoria contra o banco de produção: 2026-08-15.** Os números aqui foram lidos do
-> banco, não estimados — se estiverem velhos, confira antes de agir.
+> **Auditoria contra o banco de produção: 2026-08-15**, números revistos em 2026-08-21
+> (ver ARQUITETURA.md) e lista revisada em 2026-08-23. Os números foram lidos do banco,
+> não estimados — se estiverem velhos, confira antes de agir.
 > Convenção: marque `[x]` ao concluir, não apague — o histórico fica no fim.
 > Contexto: [ARQUITETURA.md](ARQUITETURA.md) · índice: [00_README.md](00_README.md).
 
@@ -12,22 +13,21 @@
 
 Coisas que estavam abertas **sem constar em nenhuma lista**. Ordenadas por risco.
 
-- [ ] **WhatsApp falhando calado desde junho.** A instância do Evolution caiu
-      (`Connection Closed`) mas o trigger `tg_whatsapp_comentario_novo` continua
-      enfileirando: **13 mensagens falharam** após 5 tentativas cada, a última em 14/08.
-      Ninguém é avisado da falha.
-      → Decidir: linha dedicada (ver [whatsapp/PLANO_LINHA_DEDICADA.md](whatsapp/PLANO_LINHA_DEDICADA.md))
-      **ou** desligar o trigger. O e-mail continua saindo, então o estrago é limitado —
-      mas a fila entope em silêncio.
-- [ ] **218 das 243 publicações DJEN estão órfãs.** 90% da fila de triagem parada.
-      Uma órfã pode ser intimação com prazo em processo não cadastrado — é o cenário de
-      prazo perdido. → Rotina diária de triagem **ou** filtro que separe o que é do
-      escritório do ruído da OAB.
-- [ ] **Zero repasses lançados** para 23 parceiros e 380 casos. O modelo 30/70 não existe
+- [x] ~~WhatsApp falhando calado desde junho~~ — **saída pausada em 2026-08-21**
+      (`migration_pausa_whatsapp_saida.sql`: trigger `trg_whatsapp_comentario_novo`
+      desabilitado, pendentes cancelados, histórico preservado). Sobra a decisão:
+- [ ] **WhatsApp: linha dedicada ou desligar de vez** — chip + Evolution (grátis, mesmo risco
+      de ban) ou API oficial (custo por mensagem). Ver
+      [whatsapp/PLANO_LINHA_DEDICADA.md](whatsapp/PLANO_LINHA_DEDICADA.md) e DECISOES.md D9.
+- [ ] **226 das 264 publicações DJEN estão órfãs (21/08) — e 96 são de processos JÁ
+      cadastrados** (57 casos). Não é "processo desconhecido": é vínculo que falhou em caso
+      ativo. O match é determinístico por `numero_proc_normalizado` e
+      `vincular_publicacao_dje` já existe. → Rodar o vínculo em lote; depois rotina diária.
+- [ ] **Zero repasses lançados** para 23 parceiros e 395 casos. O modelo 30/70 não existe
       dentro do sistema; o parceiro não vê o que tem a receber. Ver §"Produto" abaixo.
-- [ ] **317 dos 380 casos sem pasta do Drive.** Todo o sync bidirecional rende em 1 caso a
-      cada 6. → Cenário A (criar pasta automaticamente no caso novo) resolve daqui pra frente;
-      os antigos precisam de vinculação em lote.
+- [ ] **319 dos 395 casos sem pasta do Drive** (76 com pasta em 21/08). → Cenário A (criar
+      pasta automaticamente no caso novo) resolve daqui pra frente; os antigos precisam de
+      vinculação em lote.
 - [ ] **8 aceites de termos para 23 parceiros.** Dois terços operam sem o instrumento
       contratual de dados (LGPD art. 39). O gate por versão já existe — basta forçar o
       re-aceite subindo `TERMOS_VERSAO`.
@@ -40,15 +40,19 @@ Coisas que estavam abertas **sem constar em nenhuma lista**. Ordenadas por risco
 - [ ] **Resíduo da migração TI:** 82 casos com `tipo_beneficio='a_definir'` e 52 sem
       parceiro (criados só para segurar os andamentos importados). Somam-se aos 77 clientes
       sem CPF que nunca migraram. Enquanto existirem, contagem nenhuma é confiável.
-- [ ] **Espelho semanal do staging nunca foi agendado.** O arquivo está pronto em
-      `espelho-staging.workflow.yml` — falta copiar para `.github/workflows/` **pela UI do
-      GitHub** (o token local não tem escopo `workflow`). Sem isso o projeto free hiberna.
+- [x] ~~Espelho semanal do staging nunca foi agendado~~ — **ativo desde 2026-08-23**
+      (`.github/workflows/espelho-staging.yml`, segunda 05:00 BRT, role só-leitura em produção).
 - [ ] **9 processos judiciais nunca sincronizaram** no DataJud (`ultima_sync` nula).
 - [ ] **Triagem por IA desligada desde 06/08** (`msc-ia-triagem`) — decidir se volta.
 - [ ] **Webhooks: módulo inteiro inerte.** 0 destinos, último evento em 30/05. Ou tem uso
       real esperando (leads → n8n) ou vira código morto mantido de graça.
-- [ ] **`casos.$id.tsx` com 8.200 linhas** — um terço de todo o código de tela. É onde toda
+- [ ] **`casos.$id.tsx` com 8.300 linhas** — um terço de todo o código de tela. É onde toda
       mudança cai e onde o risco de quebrar algo sem perceber é maior.
+- [ ] **Fontes do site não carregam** — issue #199.
+- [x] ~~`excluir-parceiro`: conferir a cópia contra a versão deployada~~ — conferido em
+      2026-08-23: o fonte extraído do bundle em produção (v17, 2026-05-29) é idêntico à
+      cópia em `supabase/functions/excluir-parceiro/index.ts` após normalização.
+- [ ] **Drive em staging** (origem no Google Cloud) — issue #200.
 
 ---
 
@@ -87,8 +91,8 @@ Coisas que estavam abertas **sem constar em nenhuma lista**. Ordenadas por risco
 
 ## Produto — decidido adiar, vale revisitar
 
-- [ ] **Tela global de `/repasses`** — adiada em 2026-06-09. A rota existe fora da sidebar.
-      É a espinha comercial do escritório e está fora do sistema.
+- [ ] **Tela global de `/repasses`** — adiada em 2026-06-09. A rota **não existe** (repasses
+      é uma aba em `casos.$id`). É a espinha comercial do escritório e está fora do sistema.
 - [ ] **Dashboard próprio do parceiro** — hoje ele vê versão reduzida da visão interna, sem
       "quanto tenho a receber" nem "o que precisa de mim".
 - [ ] **Aba Processos para o parceiro** (só leitura — o CNJ é o que ele passa ao cliente).
@@ -102,7 +106,8 @@ Coisas que estavam abertas **sem constar em nenhuma lista**. Ordenadas por risco
 
 ### Substituir o Tramitação — o plano parou no MVP 3
 
-Ver [SUBSTITUIR_TRAMITACAO.md](SUBSTITUIR_TRAMITACAO.md). MVPs 1, 2 e 3 entregues.
+MVPs 1 (pipeline INSS por e-mail), 2 (tarefas/kanban) e 3 (prazos/perícias) entregues; o
+TI foi desligado em 2026-08-11. Por quê e como: DECISOES.md D5.
 
 - [ ] **MVP 4 — Agenda ↔ Google Calendar nos dois sentidos.** `agenda_eventos.gcal_event_id`
       já existe e está sempre nulo. Falta OAuth por usuária, `gcal-sync-out`/`in` e convite
@@ -113,11 +118,14 @@ Ver [SUBSTITUIR_TRAMITACAO.md](SUBSTITUIR_TRAMITACAO.md). MVPs 1, 2 e 3 entregue
 ### Outros
 
 - [ ] **Agendamento pelo WhatsApp** com os horários livres da agenda — o pedido mais concreto
-      do comercial ([CRM_COMERCIAL.md](CRM_COMERCIAL.md) §1). Depende da decisão do WhatsApp.
+      do comercial. Depende da decisão do WhatsApp.
 - [ ] **Alerta de lead parado** em "novo" sem primeiro contato.
 - [ ] **Kit previdenciário digital** com acompanhamento de assinatura.
 - [ ] **Drive: arquivo > 5 MB** (falha no limite do multipart — precisa de resumable upload).
 - [ ] **Drive: subpastas** pelo app.
+- [ ] **Drive: sinalização global** (sidebar/sino com todos os casos com mudança pendente),
+      **sync em background** (polling/webhook, sem clique) e **conflito de conteúdo** (mesmo
+      arquivo alterado nos dois lados — hoje só trata nome/delete).
 - [ ] **Conector MNI** — falta a senha do PJe-TJMT no Keychain para o primeiro teste real e o
       credenciamento no TRF1/TRF3 ([CONECTOR_MNI.md](CONECTOR_MNI.md)).
 - [ ] **Marcar comentários como lidos** ao abrir a thread (hoje só a caixa marca).
@@ -127,7 +135,7 @@ Ver [SUBSTITUIR_TRAMITACAO.md](SUBSTITUIR_TRAMITACAO.md). MVPs 1, 2 e 3 entregue
 
 ## Técnico
 
-- [ ] **Quebrar `casos.$id.tsx`** (8.200 linhas) em componentes por aba.
+- [ ] **Quebrar `casos.$id.tsx`** (8.300 linhas) em componentes por aba.
 - [ ] **Aposentar as superfícies mortas** — tabela `mensagens`, decidir o destino dos
       webhooks e do WhatsApp inbound (ver [ARQUITETURA.md](ARQUITETURA.md) §11).
 - [ ] **Modo escuro** — o CSS `.dark` existe, falta o botão de alternância.
@@ -143,13 +151,15 @@ Ver [SUBSTITUIR_TRAMITACAO.md](SUBSTITUIR_TRAMITACAO.md). MVPs 1, 2 e 3 entregue
 ## Não fazer (decidido)
 
 - ~~Judit~~ — descartada em 2026-07-29: R$ 1.000/mês pelo que DataJud + DJEN dão de graça.
-  Código no commit `14028ee` se um dia mudar o cenário. Ver [PILOTO_JUDIT.md](PILOTO_JUDIT.md).
+  Código no commit `14028ee` se um dia mudar o cenário. Ver DECISOES.md D7.
 - ~~Scraper próprio do INSS~~ — fora de escopo; o TI continua sendo o feed admin se precisar.
 - ~~`check-legalmail-nome` automática no caso novo~~ — varre a base inteira, estoura o rate
   limit. Fica sob demanda.
-- ~~Aba `/integracoes` unificando APIs e webhooks~~ — proposta de 2026-05-30
-  ([INTEGRACOES.md](INTEGRACOES.md) §7) que nunca foi construída. Os tokens seguem em
-  secrets de edge function. Reavaliar só se a troca de credencial virar incômodo real.
+- ~~Aba `/integracoes` unificando APIs e webhooks~~ — proposta de 2026-05-30 que nunca foi
+  construída. Os tokens seguem em secrets de edge function. Reavaliar só se a troca de
+  credencial virar incômodo real.
+- ~~Preview URL de PR no Cloudflare~~ — abandonada em 2026-08-22 (range de IP inalcançável
+  e risco de sobrescrever produção). Validar = merge na `staging` → staging.marasandraconnect.com.
 
 ---
 
@@ -157,9 +167,21 @@ Ver [SUBSTITUIR_TRAMITACAO.md](SUBSTITUIR_TRAMITACAO.md). MVPs 1, 2 e 3 entregue
 
 ### 2026-08 — Ambientes, refino e automação do INSS
 
-- [x] **Pipeline INSS por e-mail no ar** (14/08) — `inss-email-processor` + cron 05:00 +
-      auditoria em `inss_email_log`; andamento no requerimento certo, e-mail ao parceiro e
-      trava que sobrevive a exclusão.
+- [x] **Staging com domínio próprio** (22/08) — worker separado em
+      staging.marasandraconnect.com; contas por papel (`e2e+admin/interno/parceiro`);
+      squash `staging → main`.
+- [x] **Espelho semanal ativo no GitHub Actions** (23/08) — produção lida só pelo role
+      `espelho_leitura`; travas antes do truncate; seed das contas no fim.
+- [x] **Sessão morta volta pro `/login`** (#184, 22/08) — 401 tratado no fetch do supabase-js;
+      hooks depois do early return em `/casos` (#179); executor async do Drive picker (#180).
+- [x] **Papel admin** (19/08) — `eh_admin`/`is_admin()`; gestão da equipe em `/equipe`
+      (tornar admin, desligar com migração de tarefas, reativar); autoria em tarefas.
+- [x] **Lovable removido + upgrade de 206 versões** (21/08) — `vite.config.ts` próprio,
+      `minimumReleaseAge` no bun; lint sem ruído de formatação.
+- [x] **E2E com vídeo e cursor visível**; smoke do lote; spec do site público.
+- [x] **Pipeline INSS por e-mail no ar** (14/08) — `inss-email-processor` + cron 05:00 UTC
+      (02:00 BRT) + auditoria em `inss_email_log`; andamento no requerimento certo, e-mail ao
+      parceiro e trava que sobrevive a exclusão.
 - [x] **Bancos separados** produção/staging com espelho anonimizado e usuários sintéticos.
 - [x] **Caixa de conversas** — fases 1 a 4: fonte única em `comentarios`, não-lido por
       conversa, resposta inline, tempo real, sino como atalho, destinatário e filtro por pessoa.
