@@ -30,7 +30,7 @@ Legenda: 🟢 descreve o estado atual · 🟡 parcialmente desatualizado.
 | Arquivo | Estado | Conteúdo |
 |---|---|---|
 | [AMBIENTES.md](AMBIENTES.md) | 🟢 | Produção × staging, migrations em duas etapas, espelho anonimizado (role só-leitura, travas, workflow semanal), LGPD do anonimato |
-| [../CLAUDE.md](../CLAUDE.md) | 🟢 | Fluxo de trabalho: branches, squash, contas de staging, papéis, comandos |
+| [../CLAUDE.md](../CLAUDE.md) | 🟢 | Fluxo de trabalho: branches, merge `staging → main`, contas de staging, papéis, comandos |
 | [../e2e/README.md](../e2e/README.md) | 🟢 | Testes E2E: como rodar, vídeo, contas, regras de dados |
 
 ### Operação e integrações
