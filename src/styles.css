@@ -1,8 +1,10 @@
 @import "tailwindcss" source(none);
 @source "../src";
 @import "tw-animate-css";
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
-@import url("https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&display=swap");
+/* As fontes (Inter, Cormorant Garamond) NAO entram por @import aqui: o
+   Tailwind v4 expande o @import "tailwindcss" em regras antes deles, o
+   @import vira invalido e o otimizador descarta — em producao ninguem via as
+   fontes (issue #199). Elas vao por <link> no head em src/routes/__root.tsx. */
 
 @custom-variant dark (&:is(.dark *));
 
