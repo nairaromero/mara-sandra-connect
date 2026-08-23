@@ -36,9 +36,10 @@ Hoje ele acumula três papéis:
 |---|---|---|
 | **Modo de acesso** | `usuarios.tipo` (`interno` \| `parceiro`) | O que a pessoa vê na interface |
 | **Papel comercial** | `usuarios.eh_parceiro` (boolean) | Se ela recebe repasse de parceria |
+| **Admin do escritório** | `usuarios.eh_admin` (boolean, desde 2026-08-19) | Só Naira e Mara: Equipe, Webhooks, Auditoria, integrações (IA/Claude/Gmail), convidar interno. No SQL, `public.is_admin()` |
 
 Separados desde 2026-08-10: alguém da equipe interna pode ser parceiro comercial.
-**Cliente final não loga.**
+**Cliente final não loga.** Por que é assim: [DECISOES.md](DECISOES.md) D1 e D3.
 
 ### 1.3 Áreas
 
@@ -56,7 +57,7 @@ Direito previdenciário (RGPS). Os tipos de benefício vivem na tabela `tipos_be
 | Edge functions | Supabase Edge Functions (Deno) — **29 no ar, 28 versionadas** (ver §6.2) |
 | Agendamento | **pg_cron no próprio banco** (7 jobs) + n8n self-hosted para o DJEN |
 | Orquestração | n8n (`nairavian-n8n.de`) — DJEN e filas de WhatsApp/webhooks |
-| Deploy | Cloudflare, automático no push para `main` |
+| Deploy | Cloudflare Workers Builds — 2 projetos: `mara-sandra-connect` ← `main` (produção) e `mara-sandra-connect-staging` ← `staging` (staging.marasandraconnect.com). Sem preview de PR |
 | Domínio | `marasandraconnect.com` (+ `www`) |
 | Repositório | `github.com/nairaromero/mara-sandra-connect` |
 | Gerenciador | **bun** (`bun add`, `bun dev` em :8080) |
@@ -70,15 +71,17 @@ Detalhe completo em [AMBIENTES.md](AMBIENTES.md).
 | Ambiente | Frontend | Projeto Supabase |
 |---|---|---|
 | **Produção** | marasandraconnect.com (branch `main`) | `llugytkdsfsrciavhrfw` (Pro) |
-| **Staging** | previews de PR e branch `staging` | `alhqbpbekmxpoibrrnbi` (free) |
+| **Staging** | staging.marasandraconnect.com (branch `staging`, worker próprio) | `alhqbpbekmxpoibrrnbi` (free) |
 | **Dev local** | localhost:8080 | staging (via `.env.local`) |
 
-- `vite.config.ts` injeta as vars de staging em qualquer branch ≠ `main`.
+- `vite.config.ts` injeta as vars de staging em qualquer branch ≠ `main` (só `staging` builda).
+- Contas de staging por papel (`e2e+admin`, `e2e+interno`, `e2e+parceiro`): ver CLAUDE.md.
 - **Migration roda no staging primeiro**, valida, e só então em produção:
   `node scripts/msc-sql.mjs --staging --file ...` → confirmar a linha
   `[msc-sql] alvo: STAGING` → depois sem a flag.
 - Staging **não roda cron**, não dispara webhook e não tem Storage copiado.
-- Espelho anonimizado semanal: `bash scripts/espelho-staging.sh`.
+- Espelho anonimizado semanal: GitHub Actions `espelho-staging` (segunda 05:00 BRT) ou
+  `bash scripts/espelho-staging.sh`. Produção só é lida pelo role `espelho_leitura`.
 
 ---
 
@@ -136,7 +139,9 @@ O caso é um container; quem opera pensa em cliente e benefício.
 
 ### 4.3 Funções importantes
 
-- **Autorização:** `is_interno()`, `caso_do_parceiro(caso_id)`.
+- **Autorização:** `is_interno()`, `is_admin()`, `caso_do_parceiro(caso_id)`.
+- **Equipe (admin):** `definir_admin`, `desligar_interno`, `reativar_interno`.
+- **Espelho:** role `espelho_leitura` + policies `espelho_leitura_select` (só SELECT).
 - **Senha MEU INSS:** `set_senha_meu_inss` / `get_senha_meu_inss` / `tem_senha_meu_inss`
   (pgcrypto, chave no Vault; toda leitura grava em `acessos_senha_inss`).
 - **Conformidade:** `registrar_aceite_termos`, `log_acesso_documento`.
@@ -151,7 +156,7 @@ O caso é um container; quem opera pensa em cliente e benefício.
 
 **Não existe trigger** ligando `auth.users` → `public.usuarios`. Quem cria a linha é a
 edge function `convidar-usuario`. Criar usuário fora dela deixa a conta órfã
-(ver [reference: criar parceiro via SQL](../planning/)).
+(no staging, `scripts/seed-staging-contas.mjs` faz as duas partes).
 
 ### 4.4 Storage
 
@@ -199,12 +204,12 @@ edge function `convidar-usuario`. Criar usuário fora dela deixa a conta órfã
 | `/comercial` | interno | CRM de leads (kanban por etapa) |
 | `/processos` | interno | Visão global admin + judicial |
 | `/processos/movimentacoes` | interno | Feed diário do DataJud |
-| `/equipe` | interno | Gestão e convite de internos |
+| `/equipe` | **admin** | Gestão e convite de internos; tornar/remover admin; desligar/reativar |
 | `/parceiros` | interno | Convite, percentual, registro de aceite |
 | `/etiquetas` | interno | Gestão de etiquetas |
-| `/webhooks` | interno | Destinos e eventos do outbox |
-| `/auditoria` | interno | Acessos à senha MEU INSS |
-| `/configuracoes` | ambos | Perfil, senha, IA, Gmail |
+| `/webhooks` | **admin** | Destinos e eventos do outbox |
+| `/auditoria` | **admin** | Acessos à senha MEU INSS |
+| `/configuracoes` | ambos | Perfil, senha; cards de IA/Claude/Gmail só pra admin |
 | `/boas-vindas` | parceiro | Onboarding + aceite de termos |
 
 ~~`/repasses` existe no código mas não está na sidebar~~ — **corrigido em 2026-08-21: essa rota
@@ -253,10 +258,11 @@ respostas em `net._http_response`.
 | Pessoas | `convidar-usuario` · `update-parceiro` |
 | WhatsApp | `whatsapp-inbound` |
 
-> 🔴 **`excluir-parceiro` roda em produção e NÃO está no repositório.** Descoberto em
-> 2026-08-21: a Management API lista **29 functions ACTIVE**, e `supabase/functions/` tem 28.
-> A diferença é `excluir-parceiro` — sem fonte, sem revisão, sem rollback possível.
-> Conferir com `GET /v1/projects/<ref>/functions` antes de mexer em qualquer coisa de parceiro.
+> ℹ️ **`excluir-parceiro`**: deployada em 2026-05-29 (v17, `verify_jwt=true`) e nunca
+> atualizada; até 2026-08-23 só existia como cópia solta em `planning/edge-functions/`. A cópia
+> foi movida para `supabase/functions/excluir-parceiro/index.ts` e **conferida contra o bundle
+> em produção** (fonte extraído via `GET /v1/projects/<ref>/functions/excluir-parceiro/body`;
+> idêntico após normalização com esbuild). A partir daqui, deploy dela segue o fluxo normal.
 
 Deploy: **staging primeiro** (`--project-ref alhqbpbekmxpoibrrnbi`), depois produção.
 Segredos precisam existir nos **dois** projetos.
@@ -294,9 +300,11 @@ caso ativo que não aparece na tela do caso. Mais grave que o documentado, e mai
 resolver: o match é determinístico por `numero_proc_normalizado`, e a função
 `vincular_publicacao_dje` **já existe no banco**.
 
-Detalhes por integração: [INTEGRACOES.md](INTEGRACOES.md), [INTEGRACAO_DJE.md](INTEGRACAO_DJE.md),
+Detalhes por integração: [INTEGRACAO_DJE.md](INTEGRACAO_DJE.md),
 [INTEGRACAO_WHATSAPP.md](INTEGRACAO_WHATSAPP.md), [INTEGRACAO_IA.md](INTEGRACAO_IA.md),
-[INTEGRACAO_DRIVE_BIDIRECIONAL.md](INTEGRACAO_DRIVE_BIDIRECIONAL.md), [CONECTOR_MNI.md](CONECTOR_MNI.md).
+[DRIVE_ACESSO_EQUIPE.md](DRIVE_ACESSO_EQUIPE.md), [CONECTOR_MNI.md](CONECTOR_MNI.md).
+Por que cada integração é assim (TI/Legalmail só leitura, Judit descartada, Drive com conta
+única, WhatsApp pausado): [DECISOES.md](DECISOES.md).
 
 ---
 
@@ -344,6 +352,13 @@ não UTC — foi a causa de deslocamento de 3h nas perícias migradas do TI.
 | 12 | Sync automático com o TI **desligado** | 2026-08-11 |
 | 13 | Saída de **WhatsApp pausada** (Evolution em `HTTP 500`; trigger desabilitado) | 2026-08-21 |
 | 14 | **Scaffold da Lovable removido** — preset do Vite substituído por config própria | 2026-08-21 |
+| 15 | Staging como **worker separado** em staging.marasandraconnect.com; preview de PR abandonada | 2026-08-22 |
+| 16 | `staging → main` por **squash**; realinhar por reset | 2026-08-22 |
+| 17 | Sessão morta: **401 tratado num ponto só** (fetch do supabase-js) | 2026-08-22 |
+| 18 | Espelho lê produção com **role só-leitura** + travas antes de truncar | 2026-08-23 |
+| 19 | **Contas de staging por papel** (admin/interno/parceiro) | 2026-08-23 |
+
+Contexto, alternativas e custo de cada uma: [DECISOES.md](DECISOES.md).
 
 ---
 
@@ -353,8 +368,8 @@ não UTC — foi a causa de deslocamento de 3h nas perícias migradas do TI.
 - **Service role precisa de GRANT explícito** em tabela nova.
 - **Router-generator** regenera `routeTree.gen.ts` no build; `tsc` roda depois.
 - **Slug de edge function**: criar pelo Dashboard com nome inválido gera slug aleatório.
-- **Drive não funciona fora de produção** — o Google só aceita origem cadastrada, e não
-  aceita curinga; previews de PR nunca vão funcionar.
+- **Drive só funciona em origem cadastrada no Google Cloud** — produção está; localhost e
+  `staging.marasandraconnect.com` só se alguém cadastrar (ver DRIVE_ACESSO_EQUIPE.md).
 - **CPF de teste**: nunca usar um que possa colidir com cliente real (já houve perda por
   cascade delete).
 - **Logs de edge function** nem sempre mostram `console.error`; para diagnóstico, gravar no
@@ -404,7 +419,8 @@ Registradas para ninguém investir nelas por engano:
 
 ## 13. Como retomar o projeto
 
-1. Ler este documento (estado) e o [TODO.md](TODO.md) (o que falta).
+1. Ler este documento (estado), o [TODO.md](TODO.md) (o que falta) e o
+   [DECISOES.md](DECISOES.md) (por quê).
 2. `git log --oneline -20` — o código costuma estar à frente dos docs.
 3. Conferir o banco antes de confiar em qualquer número daqui:
    `node scripts/msc-sql.mjs "select ..."`.

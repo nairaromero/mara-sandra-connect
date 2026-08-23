@@ -1,7 +1,7 @@
 # Plano — Linha dedicada da "Mara Central" (WhatsApp)
 
 > Decisão a tomar com a Naira. Não implementar nada antes do aval.
-> Data: 2026-06-02.
+> Data: 2026-06-02. **Estado em 2026-08-23:** saída do WhatsApp pausada (trigger desligado), Evolution em HTTP 500, decisão ainda não tomada — ver DECISOES.md D9.
 
 ## Por que isso existe
 

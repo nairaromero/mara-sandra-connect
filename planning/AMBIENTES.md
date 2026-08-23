@@ -5,7 +5,7 @@ Antes havia UM projeto Supabase pra tudo. Agora:
 | Ambiente | Frontend | Projeto Supabase |
 |---|---|---|
 | **Produção** | marasandraconnect.com (branch `main`) | `llugytkdsfsrciavhrfw` (Pro) |
-| **Staging** | staging-….workers.dev + previews de PR | `alhqbpbekmxpoibrrnbi` (free, org pessoal) |
+| **Staging** | staging.marasandraconnect.com (branch `staging`, worker `mara-sandra-connect-staging`) | `alhqbpbekmxpoibrrnbi` (free, org pessoal) |
 | **Dev local** (`bun dev`) | localhost | staging (via `.env.local`) |
 | **Testes E2E** | localhost/staging | staging |
 
@@ -16,7 +16,8 @@ Nada que rode local/staging encosta mais no banco de produção.
 - `src/lib/supabase.ts` lê `VITE_SUPABASE_URL`/`VITE_SUPABASE_PUBLISHABLE_KEY`;
   **fallback = produção** (build sem vars se comporta como sempre).
 - `vite.config.ts`: build do Cloudflare em branch **≠ main** (`WORKERS_CI_BRANCH`)
-  injeta as vars de STAGING automaticamente. `main` → produção.
+  injeta as vars de STAGING automaticamente. `main` → produção. Na prática só
+  `staging` builda fora da `main` (preview de PR não existe mais — ver CLAUDE.md).
 - Dev local: `.env.local` aponta pro staging (chave anon é pública por design).
 
 ## Migrations (mudou!)
@@ -39,8 +40,8 @@ bash scripts/espelho-staging.sh   # local; ou GitHub Actions "espelho-staging"
 ```
 
 Agendamento semanal: `.github/workflows/espelho-staging.yml` (segunda 05:00
-BRT, ou "Run workflow" à mão). Só roda a partir da `main` — entra em vigor no
-squash `staging → main` seguinte. Secrets no repo: `ESPELHO_LEITURA_PASSWORD`,
+BRT, ou "Run workflow" à mão). **Ativo na `main` desde 2026-08-23** (primeiro
+run bem-sucedido: 1m20). Secrets no repo: `ESPELHO_LEITURA_PASSWORD`,
 `STAGING_DB_PASSWORD`, `STAGING_SYNTH_PASSWORD`, `STAGING_SERVICE_ROLE_KEY`,
 `STAGING_PUBLISHABLE_KEY` (cadastrados em 2026-08-23). O runner instala o
 client Postgres 17 do PGDG — o do Ubuntu é 16 e não dumpa servidor 17.
@@ -86,9 +87,9 @@ O ato de anonimizar é tratamento de dado pessoal (estudo técnico ANPD/2023):
 `STAGING_PROJECT_REF`, `STAGING_DB_PASSWORD`, `STAGING_PUBLISHABLE_KEY`,
 `STAGING_SERVICE_ROLE_KEY`, `STAGING_SYNTH_PASSWORD`, `ESPELHO_LEITURA_PASSWORD`
 (role só-leitura de produção usado pelo espelho) — além das de produção já
-existentes. **Service role nunca vai pro browser/git.** O espelho não precisa
-de `SUPABASE_DB_PASSWORD`; se o workflow do GitHub for ativado, o secret a
-cadastrar é `ESPELHO_LEITURA_PASSWORD`, e `SUPABASE_DB_PASSWORD` pode sair de lá.
+existentes. **Service role nunca vai pro browser/git.** O espelho não usa
+`SUPABASE_DB_PASSWORD` (nem local, nem no workflow — o secret de produção no
+GitHub é só o do role de leitura; `SUPABASE_DB_PASSWORD` foi removido de lá).
 
 ## O que o staging NÃO faz
 

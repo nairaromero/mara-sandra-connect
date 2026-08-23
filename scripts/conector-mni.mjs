@@ -5,7 +5,7 @@
 // (Modelo Nacional de Interoperabilidade, SOAP) com as credenciais do
 // advogado e sobe os PDFs pro sistema (bucket documentos + aba Documentos
 // do caso). Credenciais NUNCA saem do computador — a nuvem recebe só os
-// arquivos. Ver planning/PILOTO_JUDIT.md (seção MNI).
+// arquivos. Ver planning/DECISOES.md (D7) (seção MNI).
 //
 // Tribunais habilitados: TJMT (PJe, MNI aberto). TRF1/TRF3 exigem
 // credenciamento prévio do tribunal — adicionar em ENDPOINTS quando liberar.

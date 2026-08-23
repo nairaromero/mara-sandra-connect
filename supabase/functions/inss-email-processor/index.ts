@@ -1,6 +1,6 @@
 // supabase/functions/inss-email-processor/index.ts
 //
-// MVP 1 do plano em planning/SUBSTITUIR_TRAMITACAO.md.
+// MVP 1 do plano em planning/DECISOES.md (D5).
 //
 // Lê e-mails do INSS no Gmail da Naira (label `inss-agent`), extrai campos,
 // classifica pelo despacho usando a mesma matriz da skill Cowork

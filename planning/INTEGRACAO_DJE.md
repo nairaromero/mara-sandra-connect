@@ -8,7 +8,7 @@
 
 ## 1. Motivação
 
-O Legalmail (ver [INTEGRACOES.md](INTEGRACOES.md) §3.4) entrega a **lista de movimentações** com
+O Legalmail (ver DECISOES.md D4 §3.4) entrega a **lista de movimentações** com
 `titulo`, `tipo` e `data_movimentacao` — ou seja, o **rótulo** da movimentação ("Sentença",
 "Despacho", "Intimação polo passivo"), mas **não o teor**. O conteúdo fica atrás de um
 `hash_documento` cujo endpoint de download nem foi confirmado, e baixá-lo abre toda a discussão
