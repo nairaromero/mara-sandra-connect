@@ -44,3 +44,7 @@ src/routeTree.gen.ts
 e2e/.auth/
 test-results/
 playwright-report/
+
+# Arquivos pessoais de visao geral gerados fora do repo
+OVERVIEW.html
+OVERVIEW.pdf
