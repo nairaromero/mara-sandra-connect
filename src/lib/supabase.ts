@@ -42,6 +42,11 @@ async function encerrarSessaoMorta(confirmar: boolean) {
     if (confirmar) {
       const { error } = await supabase.auth.getUser();
       if (!error) return;
+      // So desloga com resposta DEFINITIVA do GoTrue (401/403: JWT invalido,
+      // sessao inexistente). Erro de rede ou 5xx e soluco transitorio — o
+      // signOut aqui apagaria a sessao no servidor por nada.
+      const status = (error as { status?: number }).status;
+      if (status !== 401 && status !== 403) return;
     }
     await supabase.auth.signOut({ scope: "local" });
   } finally {
