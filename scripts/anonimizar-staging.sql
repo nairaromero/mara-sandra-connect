@@ -74,15 +74,20 @@ update public.clientes c set
   ti_dados        = null
 from mapa_nomes m where m.id = c.id;
 
--- Usuários: internos mantêm nome; parceiros REAIS são mascarados. Contas da
--- própria equipe (nairaromerovian+*, e2e+*, @marasandraconnect.com) mantêm o
--- e-mail — são de teste/equipe, não PII de terceiro — pra login familiar no
--- staging (senha vira a sintética de qualquer forma).
+-- Usuários: internos mantêm nome E e-mail; parceiros REAIS são mascarados.
+-- E-mail de interno não é PII de terceiro (é a própria equipe) e o app usa
+-- esse e-mail como chave: os itens de tarefa_templates apontam o executor por
+-- `executor_email`. Quando o e-mail da Mara em produção virou
+-- marasandra.adv@gmail.com (2026-08), a regra antiga (só nairaromerovian*)
+-- passou a mascará-lo e todo template que apontava pra ela saía sem
+-- responsável no staging. Contas de teste (e2e+*, @marasandraconnect.com)
+-- também ficam, pra login familiar (senha vira a sintética de qualquer forma).
 update public.usuarios u set
   nome      = case when u.tipo = 'parceiro'
                     and u.email not like 'nairaromerovian%'
                    then 'Parceiro ' || pg_temp.sufixo(u.id) else u.nome end,
-  email     = case when u.email like 'nairaromerovian%'
+  email     = case when u.tipo = 'interno'
+                     or u.email like 'nairaromerovian%'
                      or u.email like 'e2e+%'
                      or u.email like '%@marasandraconnect.com'
                    then u.email

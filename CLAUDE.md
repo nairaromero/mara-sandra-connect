@@ -29,7 +29,8 @@ feature branch  ──merge──▶  staging  ──merge (após validação)�
 - `e2e+admin@marasandraconnect.com` (interno + `eh_admin`), `e2e+interno@…` (interno comum), `e2e+parceiro@…` (parceiro, já onboardado). Só existem no staging.
 - Criadas/recriadas por `node scripts/seed-staging-contas.mjs` (idempotente; o `espelho-staging.sh` chama no fim, porque o espelho apaga `auth.users`). Se alguma conta não logar, rodar o seed.
 - Pessoa valida em staging.marasandraconnect.com com a conta do papel que quer ver — NÃO compartilhar `e2e+interno` com a suíte E2E (duas sessões na mesma conta se derrubam pela rotação de refresh token).
-- E2E: `e2e/auth.setup.ts` gera `e2e/.auth/{interno,parceiro,admin}.json`; spec de admin usa `STORAGE_ADMIN`. Parceiro nos testes continua sendo a Isabella (magic link).
+- E2E: `e2e/auth.setup.ts` gera `e2e/.auth/{interno,parceiro,admin}.json`; spec de admin usa `STORAGE_ADMIN`. Parceiro nos testes é o `e2e+parceiro` (senha). Era a Isabella por magic link até 2026-08-23 — o e-mail dela em produção mudou e o espelho passou a mascará-lo.
+- Spec que derruba sessão (ex.: `parceiro-desligar`) cria o próprio usuário descartável (`e2e+desligar@…`) e apaga no fim — nunca usa a conta do storageState.
 - Se o staging ficar atrás do Cloudflare Access: `CF_ACCESS_CLIENT_ID`/`CF_ACCESS_CLIENT_SECRET` (service token) no `.env.local` — o `playwright.config.ts` manda os headers sozinho.
 
 ## Rotina deploy

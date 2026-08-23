@@ -2,9 +2,9 @@
 // nao entra mais e nao ve caso nenhum — mesmo com o access token que ja tinha
 // na mao. Reativar desfaz. Nada e apagado.
 //
-// Usa a conta sintetica e2e+parceiro (seed-staging-contas). O teste a desliga
-// e a reativa no fim; se algo quebrar no meio, o afterAll e o proprio seed
-// deixam a conta de pe de novo.
+// Cria um parceiro sintetico PROPRIO (e2e+desligar@…) e apaga no fim: nao usa
+// o e2e+parceiro do storageState, porque desligar derruba as sessoes e os
+// refresh tokens — o parceiro.json dos outros specs deixaria de valer.
 //
 // Com video:  bun run e2e:video:staging
 
@@ -18,8 +18,8 @@ import { adminClient, cleanupE2E, seedClienteCaso } from "../supabase-admin";
 test.use({ storageState: STORAGE_INTERNO });
 test.setTimeout(120_000);
 
-const PARCEIRO_EMAIL = "e2e+parceiro@marasandraconnect.com";
-const PARCEIRO_NOME = "[E2E] Parceiro";
+const PARCEIRO_EMAIL = "e2e+desligar@marasandraconnect.com";
+const PARCEIRO_NOME = "[E2E] Parceiro Desligar";
 const STORAGE_KEY = `sb-${PROJECT_REF}-auth-token`;
 
 const admin = adminClient();
@@ -35,17 +35,49 @@ function anon() {
 async function loginParceiro(): Promise<{ session: Session | null; erro: string | null }> {
   const { data, error } = await anon().auth.signInWithPassword({
     email: PARCEIRO_EMAIL,
-    password: ENV.internoPassword, // mesma senha sintetica de todos
+    password: ENV.parceiroPassword,
   });
   return { session: data.session ?? null, erro: error?.message ?? null };
 }
 
-async function garantirParceiroAtivo() {
-  await admin
+// Parceiro descartavel: auth + perfil onboardado (senao cai em /boas-vindas).
+async function criarParceiroDescartavel(): Promise<string> {
+  await apagarParceiroDescartavel(); // sobra de run interrompido
+  const { data, error } = await admin.auth.admin.createUser({
+    email: PARCEIRO_EMAIL,
+    password: ENV.parceiroPassword,
+    email_confirm: true,
+  });
+  if (error || !data.user) throw new Error(`criar parceiro descartavel: ${error?.message}`);
+  const agora = new Date().toISOString();
+  const { error: perfilErr } = await admin.from("usuarios").upsert({
+    id: data.user.id,
+    email: PARCEIRO_EMAIL,
+    nome: PARCEIRO_NOME,
+    tipo: "parceiro",
+    eh_parceiro: true,
+    ativo: true,
+    onboarded_em: agora,
+    aceitou_termos_em: agora,
+    termos_versao: "1.0-2026-06-09",
+  });
+  if (perfilErr) throw new Error(`perfil parceiro descartavel: ${perfilErr.message}`);
+  return data.user.id;
+}
+
+async function apagarParceiroDescartavel() {
+  const { data: u } = await admin
     .from("usuarios")
-    .update({ ativo: true, desligado_em: null, desligado_por: null })
-    .eq("id", parceiroId);
-  await admin.auth.admin.updateUserById(parceiroId, { ban_duration: "none" });
+    .select("id")
+    .eq("email", PARCEIRO_EMAIL)
+    .maybeSingle();
+  const { data: lista } = await admin.auth.admin.listUsers({ perPage: 1000 });
+  const authUser = lista?.users.find((x) => x.email === PARCEIRO_EMAIL);
+  const id = (u?.id as string | undefined) ?? authUser?.id;
+  if (!id) return;
+  await cleanupE2E(admin); // casos [E2E] que apontam pra ele
+  await admin.from("usuarios").delete().eq("id", id);
+  await admin.auth.admin.deleteUser(id);
 }
 
 // Abre uma aba LOGADA COMO O PARCEIRO (contexto separado do interno).
@@ -69,24 +101,19 @@ async function moverE(page: Page, alvo: ReturnType<Page["getByRole"]>) {
   }
 }
 
-test.beforeAll(async () => {
-  const { data: p } = await admin
-    .from("usuarios")
-    .select("id")
-    .eq("email", PARCEIRO_EMAIL)
-    .single();
-  if (!p) throw new Error(`${PARCEIRO_EMAIL} nao existe — rode node scripts/seed-staging-contas.mjs`);
-  parceiroId = p.id as string;
-  await garantirParceiroAtivo();
+const visivel = (page: Page, texto: string) =>
+  page.getByText(texto).filter({ visible: true }).first();
 
+test.beforeAll(async () => {
+  if (!ENV.parceiroPassword) throw new Error("STAGING_SYNTH_PASSWORD ausente");
+  parceiroId = await criarParceiroDescartavel();
   const sufixo = `Desligar ${Date.now()}`;
   nomeCliente = `[E2E] ${sufixo}`;
   await seedClienteCaso(admin, { sufixo, parceiroId });
 });
 
 test.afterAll(async () => {
-  await garantirParceiroAtivo();
-  await cleanupE2E(admin);
+  await apagarParceiroDescartavel();
 });
 
 test("parceiro desligado nao entra nem ve caso; reativar desfaz", async ({ page, browser }) => {
@@ -97,7 +124,7 @@ test("parceiro desligado nao entra nem ve caso; reativar desfaz", async ({ page,
   expect(antes.erro, "parceiro ativo precisa logar").toBeNull();
   const aba = await abaDoParceiro(browser, antes.session!);
   await aba.goto("/clientes");
-  await expect(aba.getByText(nomeCliente).filter({ visible: true }).first()).toBeVisible({ timeout: 20_000 });
+  await expect(visivel(aba, nomeCliente)).toBeVisible({ timeout: 20_000 });
   await aba.waitForTimeout(1000);
 
   // 2) Interno desliga o parceiro pela tela /parceiros.
@@ -135,7 +162,7 @@ test("parceiro desligado nao entra nem ve caso; reativar desfaz", async ({ page,
   expect(deNovo.erro, "parceiro reativado precisa logar").toBeNull();
   const aba2 = await abaDoParceiro(browser, deNovo.session!);
   await aba2.goto("/clientes");
-  await expect(aba2.getByText(nomeCliente).filter({ visible: true }).first()).toBeVisible({ timeout: 20_000 });
+  await expect(visivel(aba2, nomeCliente)).toBeVisible({ timeout: 20_000 });
   await aba2.waitForTimeout(1000);
 
   await aba.context().close();
