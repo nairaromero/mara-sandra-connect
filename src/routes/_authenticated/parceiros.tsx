@@ -16,6 +16,8 @@ import {
   Download,
   Send,
   Clock,
+  UserX,
+  UserCheck,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -77,6 +79,9 @@ interface ParceiroRow {
   telefone: string | null;
   percentual_parceiro: number | null;
   ativo: boolean;
+  // Desligado pela UI (RPC desligar_parceiro): conta bloqueada, historico
+  // preservado. NULL = em atividade.
+  desligado_em: string | null;
   created_at: string | null;
   onboarded_em: string | null;
   // Modo de acesso. Quase sempre 'parceiro', mas alguem da equipe pode tambem
@@ -209,6 +214,54 @@ function ParceirosPage() {
   // continuam existindo. So comentarios feitos pelo parceiro sao apagados.
   const [excluirAlvo, setExcluirAlvo] = useState<ParceiroRow | null>(null);
   const [excluindo, setExcluindo] = useState(false);
+
+  // ---- Desligar / reativar parceiro (soft delete, issue #202) ----
+  // E o caminho normal pra parceiro que saiu: bloqueia o login e derruba as
+  // sessoes, mas casos, comentarios, documentos e repasses ficam no nome
+  // dele. Reversivel. A exclusao fisica (acima) fica so pra convite pendente.
+  const [desligarAlvo, setDesligarAlvo] = useState<ParceiroRow | null>(null);
+  const [desligando, setDesligando] = useState(false);
+  const [reativando, setReativando] = useState<string | null>(null);
+
+  async function desligarConfirmado() {
+    if (!desligarAlvo) return;
+    setDesligando(true);
+    try {
+      const { data, error } = await supabase.rpc("desligar_parceiro", {
+        p_usuario_id: desligarAlvo.id,
+      });
+      if (error) throw error;
+      const r = (data || {}) as { casos_preservados?: number };
+      toast.success(
+        `${desligarAlvo.nome ?? "Parceiro"} desligado.` +
+          (r.casos_preservados
+            ? ` ${r.casos_preservados} caso(s) continuam no nome dele, só pra consulta da equipe.`
+            : ""),
+      );
+      setDesligarAlvo(null);
+      await loadParceiros();
+    } catch (err) {
+      console.error(err);
+      toast.error((err as { message?: string }).message || "Falha ao desligar parceiro");
+    } finally {
+      setDesligando(false);
+    }
+  }
+
+  async function reativarParceiro(p: ParceiroRow) {
+    setReativando(p.id);
+    try {
+      const { error } = await supabase.rpc("reativar_parceiro", { p_usuario_id: p.id });
+      if (error) throw error;
+      toast.success(`${p.nome ?? "Parceiro"} reativado.`);
+      await loadParceiros();
+    } catch (err) {
+      console.error(err);
+      toast.error((err as { message?: string }).message || "Falha ao reativar parceiro");
+    } finally {
+      setReativando(null);
+    }
+  }
 
   // ---- Ativar WhatsApp (onboarding por código) ----
   // Gera um código (RPC whatsapp_gerar_codigo_ativacao) que é enviado ao
@@ -386,7 +439,7 @@ function ParceirosPage() {
     const { data, error } = await supabase
       .from("usuarios")
       .select(
-        "id, nome, email, emails_copia, oab, telefone, percentual_parceiro, ativo, created_at, onboarded_em, tipo",
+        "id, nome, email, emails_copia, oab, telefone, percentual_parceiro, ativo, desligado_em, created_at, onboarded_em, tipo",
       )
       .eq("eh_parceiro", true)
       .order("created_at", { ascending: false });
@@ -772,7 +825,7 @@ function ParceirosPage() {
                             {p.ativo ? (
                               <Badge variant="secondary">Ativo</Badge>
                             ) : (
-                              <Badge variant="outline">Inativo</Badge>
+                              <Badge variant="outline">{p.desligado_em ? "Desligado" : "Inativo"}</Badge>
                             )}
                           </div>
                         </div>
@@ -812,17 +865,33 @@ function ParceirosPage() {
                           >
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
-                          {!ehDaEquipe(p) && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => setExcluirAlvo(p)}
-                              aria-label="Excluir parceiro"
-                              className="text-muted-foreground hover:text-destructive"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
+                          {!ehDaEquipe(p) &&
+                            (p.ativo ? (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setDesligarAlvo(p)}
+                                aria-label="Desligar parceiro"
+                                className="text-muted-foreground hover:text-destructive"
+                              >
+                                <UserX className="h-3.5 w-3.5" />
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => reativarParceiro(p)}
+                                disabled={reativando === p.id}
+                                aria-label="Reativar parceiro"
+                                className="text-muted-foreground hover:text-green-600"
+                              >
+                                {reativando === p.id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <UserCheck className="h-3.5 w-3.5" />
+                                )}
+                              </Button>
+                            ))}
                         </div>
                       </div>
                     ))}
@@ -869,7 +938,7 @@ function ParceirosPage() {
                                 {p.ativo ? (
                                   <Badge variant="secondary">Ativo</Badge>
                                 ) : (
-                                  <Badge variant="outline">Inativo</Badge>
+                                  <Badge variant="outline">{p.desligado_em ? "Desligado" : "Inativo"}</Badge>
                                 )}
                               </div>
                             </TableCell>
@@ -908,17 +977,35 @@ function ParceirosPage() {
                                 >
                                   <Pencil className="h-3.5 w-3.5" />
                                 </Button>
-                                {!ehDaEquipe(p) && (
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => setExcluirAlvo(p)}
-                                    aria-label="Excluir parceiro"
-                                    className="text-muted-foreground hover:text-destructive"
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </Button>
-                                )}
+                                {!ehDaEquipe(p) &&
+                                  (p.ativo ? (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => setDesligarAlvo(p)}
+                                      aria-label="Desligar parceiro"
+                                      title="Desligar (bloqueia o acesso; histórico fica)"
+                                      className="text-muted-foreground hover:text-destructive"
+                                    >
+                                      <UserX className="h-3.5 w-3.5" />
+                                    </Button>
+                                  ) : (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => reativarParceiro(p)}
+                                      disabled={reativando === p.id}
+                                      aria-label="Reativar parceiro"
+                                      title="Reativar (volta a entrar e a ver os casos dele)"
+                                      className="text-muted-foreground hover:text-green-600"
+                                    >
+                                      {reativando === p.id ? (
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                      ) : (
+                                        <UserCheck className="h-3.5 w-3.5" />
+                                      )}
+                                    </Button>
+                                  ))}
                               </div>
                             </TableCell>
                           </TableRow>
@@ -1096,6 +1183,37 @@ function ParceirosPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* AlertDialog: desligar parceiro (soft delete) */}
+        <AlertDialog
+          open={desligarAlvo !== null}
+          onOpenChange={(o) => !o && !desligando && setDesligarAlvo(null)}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Desligar {desligarAlvo?.nome ?? "parceiro"}?</AlertDialogTitle>
+              <AlertDialogDescription>
+                A pessoa não consegue mais entrar nem ver os casos dela. Nada é apagado: casos,
+                comentários, documentos e repasses continuam no nome dela, visíveis só pra
+                equipe. Dá pra reativar depois.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={desligando}>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault();
+                  desligarConfirmado();
+                }}
+                disabled={desligando}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {desligando ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                Desligar
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {/* AlertDialog: confirmar exclusao destrutiva */}
         <AlertDialog
