@@ -116,9 +116,14 @@ supabase-js vive em localStorage):
 - **interno**: `signInWithPassword` com o usuário e2e dedicado;
 - **admin**: `signInWithPassword` com `e2e+admin` (`STORAGE_ADMIN`). Se a conta
   não existir, o setup avisa e não gera `admin.json` — rode o seed;
-- **parceiro**: Isabella (`nairaromerovian+isabella@gmail.com`) via
+- **parceiro**: `e2e+parceiro` por `signInWithPassword` (`STORAGE_PARCEIRO`).
+  Se não houver senha configurada (alvo = produção), cai no magic link:
   `admin.generateLink({type:'magiclink'})` + `verifyOtp` — o token volta na
-  resposta, nenhum e-mail é enviado.
+  resposta, nenhum e-mail é enviado. Até 2026-08-23 o parceiro era a Isabella;
+  o e-mail dela em produção mudou e o espelho passou a mascará-lo.
+- **spec que derruba sessão** (`parceiro-desligar`): cria um parceiro
+  descartável (`e2e+desligar@…`) e apaga no fim. Nunca desligue a conta do
+  storageState — os specs seguintes perderiam a sessão.
 
 ## Regras pros dados de teste (banco de staging)
 
@@ -127,8 +132,8 @@ supabase-js vive em localStorage):
 3. `cleanupE2E()` roda no `afterAll` de cada spec: apaga storage, documentos,
    solicitações, tarefas, notificações, comentários, andamentos, agenda, casos
    e clientes `[E2E]%` — inclusive o que triggers criaram durante o teste.
-4. Nunca tocar em dados sem o marcador. Nunca usar contas reais além da
-   Isabella (parceira de teste).
+4. Nunca tocar em dados sem o marcador. Nunca usar contas reais — só as
+   sintéticas `e2e+*`.
 5. `workers: 1` no config: specs rodam em série pra não disputar os dados.
 
 ## Escrevendo testes novos

@@ -8,8 +8,9 @@
 //   aqui: vem de `node scripts/seed-staging-contas.mjs` (só staging). Se não
 //   existir, o setup avisa e o admin.json não é gerado — os specs que usam
 //   STORAGE_ADMIN falham com a mensagem certa, os outros seguem.
-// - PARCEIRO: Isabella (magic link) — admin.generateLink devolve o token SEM
-//   enviar e-mail; verifyOtp troca por sessão. Padrão recomendado pelo Supabase.
+// - PARCEIRO: e2e+parceiro@… (seed-staging-contas) + signInWithPassword. Sem
+//   senha configurada (alvo = produção), cai no magic link: admin.generateLink
+//   devolve o token SEM enviar e-mail; verifyOtp troca por sessão.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -108,6 +109,20 @@ async function sessaoAdmin(): Promise<Session | null> {
 }
 
 async function sessaoParceiro(): Promise<Session> {
+  if (ENV.parceiroPassword) {
+    const { data, error } = await anonClient().auth.signInWithPassword({
+      email: ENV.parceiroEmail,
+      password: ENV.parceiroPassword,
+    });
+    if (!data.session) {
+      throw new Error(
+        `login parceiro ${ENV.parceiroEmail} falhou (${error?.message}). ` +
+          "Rode `node scripts/seed-staging-contas.mjs`.",
+      );
+    }
+    return data.session;
+  }
+
   const admin = adminClient();
   const { data, error } = await admin.auth.admin.generateLink({
     type: "magiclink",

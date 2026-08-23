@@ -48,8 +48,12 @@ export const ENV = {
   internoEmail: process.env.E2E_INTERNO_EMAIL ?? "e2e+interno@marasandraconnect.com",
   // No staging todos os usuários sintéticos usam a mesma senha do espelho.
   internoPassword: ehStaging ? pega("STAGING_SYNTH_PASSWORD") : pega("E2E_INTERNO_PASSWORD"),
-  // Parceira de teste (login por magic link; e-mail preservado no espelho).
-  parceiroEmail: process.env.E2E_PARCEIRO_EMAIL ?? "nairaromerovian+isabella@gmail.com",
+  // Parceiro sintetico de teste (seed-staging-contas), login por senha. Ate
+  // 2026-08-23 era a Isabella por magic link — quebrou quando o e-mail dela
+  // em producao mudou e o espelho passou a mascara-lo. Com senha definida,
+  // o auth.setup loga por senha; sem senha (alvo = producao), magic link.
+  parceiroEmail: process.env.E2E_PARCEIRO_EMAIL ?? "e2e+parceiro@marasandraconnect.com",
+  parceiroPassword: ehStaging ? pega("STAGING_SYNTH_PASSWORD") : pega("E2E_PARCEIRO_PASSWORD", false),
   // Admin sintetico (eh_admin=true). So existe no staging — criado por
   // scripts/seed-staging-contas.mjs, mesma senha dos demais sinteticos.
   adminEmail: process.env.E2E_ADMIN_EMAIL ?? "e2e+admin@marasandraconnect.com",
