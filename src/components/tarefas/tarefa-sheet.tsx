@@ -2,7 +2,7 @@
 // (Minhas hoje) e na tab Tarefas do caso. "Aplicar template" só aparece
 // quando há caso selecionado.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Loader2, Trash2, ExternalLink, AlarmClock } from "lucide-react";
@@ -287,6 +287,10 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   const [salvando, setSalvando] = useState(false);
   // Diálogo de adiamento de prazo fatal: exige justificativa antes de salvar.
   const [confirmandoAdiamento, setConfirmandoAdiamento] = useState(false);
+  // Avisos do agendamento (data passada / perícia duplicada) num AlertDialog;
+  // a ref pula as checagens UMA vez quando a pessoa manda seguir.
+  const [avisosAgenda, setAvisosAgenda] = useState<string[] | null>(null);
+  const ignorarAvisosAgenda = useRef(false);
   const [justificativa, setJustificativa] = useState("");
   const [excluindo, setExcluindo] = useState(false);
 
@@ -508,6 +512,8 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       setComprovanteDivergente(null);
       setAvisoProtocolo("");
       setAvisoEndereco("");
+      setAvisosAgenda(null);
+      ignorarAvisosAgenda.current = false;
       setPericiaEvento(true);
       setExtrasResp([]);
       setTemplateSelecionado(modo.templateInicial ?? "");
@@ -733,49 +739,50 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           const dur = agendaItem.duracao_min ?? 60;
           const endIso = new Date(agendaStart.getTime() + dur * 60_000).toISOString();
 
-          // Data no passado? Evento nasce direto em "Arquivados" e a pessoa
-          // acha que o agendamento não funcionou (aconteceu no teste com
-          // comprovante antigo). Confirmação explícita.
-          if (agendaStart.getTime() < Date.now()) {
-            const quando = agendaStart.toLocaleString("pt-BR", {
-              day: "2-digit",
-              month: "2-digit",
-              year: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-              timeZone: "America/Sao_Paulo",
-            });
-            const ok = window.confirm(
-              `A data do agendamento (${quando}) JÁ PASSOU — o evento vai direto pra aba Arquivados. Criar mesmo assim?`,
-            );
-            if (!ok) {
-              setSalvando(false);
-              return;
-            }
-          }
-
-          // Agendamento duplicado? (mesmo caso, mesmo tipo, mesmo dia)
-          if (casoId) {
-            const jaExiste = await buscarEventoMesmoDia(
-              casoId,
-              ((agendaItem.tipo as AgendaTipo) || "pericia"),
-              startIso,
-            );
-            if (jaExiste) {
-              const hora = new Date(jaExiste.start_at).toLocaleTimeString("pt-BR", {
+          // Guardas do agendamento (data passada / duplicado), num diálogo do
+          // app — o confirm nativo não aparece em vídeo nem combina com o
+          // resto da UI. "Agendar mesmo assim" rechama salvar() pulando as
+          // checagens UMA vez (a ref é consumida logo abaixo).
+          const pularAvisos = ignorarAvisosAgenda.current;
+          ignorarAvisosAgenda.current = false;
+          if (!pularAvisos) {
+            const avisos: string[] = [];
+            if (agendaStart.getTime() < Date.now()) {
+              const quando = agendaStart.toLocaleString("pt-BR", {
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric",
                 hour: "2-digit",
                 minute: "2-digit",
                 timeZone: "America/Sao_Paulo",
               });
-              const rotuloEv =
-                (agendaItem.tipo as string) === "audiencia" ? "audiência" : "perícia";
-              const ok = window.confirm(
-                `Este cliente já tem ${rotuloEv} marcada neste dia (às ${hora}). Criar OUTRA mesmo assim?`,
+              avisos.push(
+                `A data do agendamento (${quando}) JÁ PASSOU — o evento vai direto pra aba Arquivados.`,
               );
-              if (!ok) {
-                setSalvando(false);
-                return;
+            }
+            if (casoId) {
+              const jaExiste = await buscarEventoMesmoDia(
+                casoId,
+                ((agendaItem.tipo as AgendaTipo) || "pericia"),
+                startIso,
+              );
+              if (jaExiste) {
+                const hora = new Date(jaExiste.start_at).toLocaleTimeString("pt-BR", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  timeZone: "America/Sao_Paulo",
+                });
+                const rotuloEv =
+                  (agendaItem.tipo as string) === "audiencia" ? "audiência" : "perícia";
+                avisos.push(
+                  `Este cliente já tem ${rotuloEv} marcada neste dia (às ${hora}).`,
+                );
               }
+            }
+            if (avisos.length > 0) {
+              setAvisosAgenda(avisos);
+              setSalvando(false);
+              return;
             }
           }
           // Aviso direto marcado ANTES do insert: o trigger só cria a tarefa
@@ -1823,6 +1830,42 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
               }}
             >
               Adiar mesmo assim
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Guardas do agendamento: data passada / perícia duplicada no dia. */}
+      <AlertDialog
+        open={!!avisosAgenda}
+        onOpenChange={(o) => {
+          if (!o) setAvisosAgenda(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlarmClock className="h-5 w-5 text-destructive" />
+              Tem certeza que quer agendar?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                {(avisosAgenda ?? []).map((a) => (
+                  <p key={a}>{a}</p>
+                ))}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar e corrigir</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                ignorarAvisosAgenda.current = true;
+                setAvisosAgenda(null);
+                void salvar();
+              }}
+            >
+              Agendar mesmo assim
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
