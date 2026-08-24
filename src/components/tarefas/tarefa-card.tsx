@@ -23,6 +23,7 @@ import { AcompanhamentoPericia } from "@/components/tarefas/acompanhamento-peric
 import { AcompanhamentoImplementacao } from "@/components/tarefas/acompanhamento-implementacao";
 import { MontagemInicial } from "@/components/tarefas/montagem-inicial";
 import { ComparecimentoPericia } from "@/components/tarefas/comparecimento-pericia";
+import { EnviarAvisoParceiro } from "@/components/tarefas/enviar-aviso-parceiro";
 import { EtapaCumprimentoExigencia } from "@/components/tarefas/etapa-cumprimento-exigencia";
 import { EtapaProtocoloRealizado } from "@/components/tarefas/etapa-protocolo-realizado";
 import {
@@ -86,6 +87,7 @@ export function TarefaCard({
       ?.acompanhamento_implementacao === true;
   const ehComparecimento =
     (tarefa.metadata as { confirmar_comparecimento?: boolean })?.confirmar_comparecimento === true;
+  const ehEnviarAviso = !!(tarefa.metadata as { enviar_aviso?: object })?.enviar_aviso;
   const ehCumprimentoExigencia =
     (tarefa.metadata as { cumprimento_exigencia?: boolean })?.cumprimento_exigencia === true;
   const ehProtocoloRealizado =
@@ -332,6 +334,15 @@ export function TarefaCard({
 
         {ehComparecimento && (
           <ComparecimentoPericia
+            tarefa={tarefa}
+            onUpdated={onChanged ?? (() => {})}
+            compacto
+            stopPropagation
+          />
+        )}
+
+        {ehEnviarAviso && (
+          <EnviarAvisoParceiro
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}
             compacto

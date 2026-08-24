@@ -36,7 +36,10 @@ import {
   listarProcessosDoCaso,
   listarTemplates,
   obterContextoCaso,
+  type ContextoCasoParaTemplate,
 } from "@/lib/tarefas/queries";
+import { enviarAvisoEvento, montarTextoAvisoEvento } from "@/lib/agenda/aviso";
+import { AvisoParceiroEvento } from "@/components/agenda/aviso-parceiro-evento";
 import {
   PRIORIDADE_LABEL,
   STATUS_LABEL,
@@ -80,6 +83,7 @@ import { AcompanhamentoPericia } from "@/components/tarefas/acompanhamento-peric
 import { AcompanhamentoImplementacao } from "@/components/tarefas/acompanhamento-implementacao";
 import { MontagemInicial } from "@/components/tarefas/montagem-inicial";
 import { ComparecimentoPericia } from "@/components/tarefas/comparecimento-pericia";
+import { EnviarAvisoParceiro } from "@/components/tarefas/enviar-aviso-parceiro";
 import { EtapaCumprimentoExigencia } from "@/components/tarefas/etapa-cumprimento-exigencia";
 import { EtapaProtocoloRealizado } from "@/components/tarefas/etapa-protocolo-realizado";
 import { useDestaque } from "@/lib/destaque/destaque-context";
@@ -153,6 +157,13 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
     if (fatal) setPrazoFatal(fatal);
   };
 
+  // Aviso ao parceiro embutido no agendamento por template de agenda
+  // (perícia/audiência) — mesma mecânica do AgendaSheet.
+  const [ctxCaso, setCtxCaso] = useState<ContextoCasoParaTemplate | null>(null);
+  const [avisoAtivo, setAvisoAtivo] = useState(true);
+  const [avisoTexto, setAvisoTexto] = useState("");
+  const [avisoEditado, setAvisoEditado] = useState(false);
+
   const [casos, setCasos] = useState<Array<{ id: string; cliente_nome: string | null }>>([]);
   const [internos, setInternos] = useState<
     Array<{ id: string; nome: string | null; email: string | null }>
@@ -195,6 +206,58 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
         .find((t) => t.nome === templateSelecionado)
         ?.itens.some((i) => i.due_relative_to === "prazo_fatal") ?? false
     : false;
+
+  const agendaTipoDoTemplate = templateAgenda
+    ? ((templateAgenda.itens.find((i) => i.destino === "agenda")?.tipo ?? "") as string)
+    : "";
+  const avisoAplicavel =
+    !editando &&
+    (agendaTipoDoTemplate === "pericia" || agendaTipoDoTemplate === "audiencia") &&
+    !!casoId &&
+    !!ctxCaso?.parceiro_id;
+
+  // Contexto do caso (parceiro, nomes) pro aviso — atualiza quando muda o caso.
+  useEffect(() => {
+    if (!casoId) {
+      setCtxCaso(null);
+      return;
+    }
+    let cancelado = false;
+    obterContextoCaso(casoId, processoToken)
+      .then((c) => {
+        if (!cancelado) setCtxCaso(c);
+      })
+      .catch(() => {});
+    return () => {
+      cancelado = true;
+    };
+  }, [casoId, processoToken]);
+
+  // Texto padrão do aviso — regenera até a pessoa editar na mão.
+  useEffect(() => {
+    if (!avisoAplicavel || avisoEditado || !ctxCaso) return;
+    const natureza: "admin" | "judicial" =
+      templateSelecionado === "pericia_judicial" || processoToken.startsWith("judicial:")
+        ? "judicial"
+        : "admin";
+    let cancelado = false;
+    montarTextoAvisoEvento({
+      tipo: agendaTipoDoTemplate === "audiencia" ? "audiencia" : "pericia",
+      natureza,
+      cliente: ctxCaso.cliente_nome,
+      servico: ctxCaso.servico || ctxCaso.tipo_beneficio,
+      startIso: dueDate ? isoFromInputDateTime(dueDate) : null,
+      local: local.trim() || null,
+    })
+      .then((t) => {
+        if (!cancelado) setAvisoTexto(t);
+      })
+      .catch(() => {});
+    return () => {
+      cancelado = true;
+    };
+     
+  }, [avisoAplicavel, avisoEditado, ctxCaso, agendaTipoDoTemplate, dueDate, local, templateSelecionado, processoToken]);
 
   // Carrega listas auxiliares uma vez (ao abrir).
   useEffect(() => {
@@ -329,6 +392,9 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       }
       setPrazoDias("");
       setPrazoDiasCustom("");
+      setAvisoAtivo(true);
+      setAvisoTexto("");
+      setAvisoEditado(false);
       setPericiaEvento(true);
       setExtrasResp([]);
       setTemplateSelecionado(modo.templateInicial ?? "");
@@ -544,6 +610,9 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           agendaStart = new Date(startIso);
           const dur = agendaItem.duracao_min ?? 60;
           const endIso = new Date(agendaStart.getTime() + dur * 60_000).toISOString();
+          // Aviso direto marcado ANTES do insert: o trigger só cria a tarefa
+          // "Enviar aviso ao parceiro" quando a flag falta.
+          const enviaAviso = avisoAplicavel && avisoAtivo && !!avisoTexto.trim();
           const novoEvento = await criarEvento({
             tipo: (agendaItem.tipo as AgendaTipo) || "pericia",
             titulo: titulo.trim(),
@@ -555,8 +624,29 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
             responsavel_id: responsavelId,
             processo_admin_id: proc.processo_admin_id,
             processo_judicial_id: proc.processo_judicial_id,
+            ...(enviaAviso ? { metadata: { aviso_direto: true } } : {}),
           });
           marcarDestaque(novoEvento.id);
+
+          if (enviaAviso && casoId) {
+            try {
+              await enviarAvisoEvento({
+                casoId,
+                eventoId: novoEvento.id,
+                tipoAviso:
+                  (agendaItem.tipo as string) === "audiencia"
+                    ? "audiencia_aviso"
+                    : "pericia_aviso",
+                texto: avisoTexto.trim(),
+                autorId: usuario?.id ?? null,
+              });
+            } catch (e) {
+              console.error("aviso ao parceiro falhou:", e);
+              toast.error(
+                "Evento criado, mas o aviso ao parceiro FALHOU — envie manualmente pelos Comentários do caso.",
+              );
+            }
+          }
         } else {
           // Comportamento clássico: form cria tarefa principal.
           const firstMeta = (mainItem?.meta ?? {}) as Record<string, unknown>;
@@ -857,6 +947,11 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
             )}
 
           {editando && tarefa &&
+            !!(tarefa.metadata as { enviar_aviso?: object })?.enviar_aviso && (
+              <EnviarAvisoParceiro tarefa={tarefa} onUpdated={onSaved} />
+            )}
+
+          {editando && tarefa &&
             (tarefa.metadata as { cumprimento_exigencia?: boolean })?.cumprimento_exigencia && (
               <EtapaCumprimentoExigencia tarefa={tarefa} onUpdated={onSaved} />
             )}
@@ -1144,6 +1239,19 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
                 placeholder="Ex: APS Cabreúva, endereço, sala..."
               />
             </div>
+          )}
+
+          {avisoAplicavel && (
+            <AvisoParceiroEvento
+              rotulo={agendaTipoDoTemplate === "audiencia" ? "audiência" : "perícia"}
+              ativo={avisoAtivo}
+              onAtivoChange={setAvisoAtivo}
+              texto={avisoTexto}
+              onTextoChange={(v) => {
+                setAvisoTexto(v);
+                setAvisoEditado(true);
+              }}
+            />
           )}
 
           {templateTemSolicitacao && !editando && (

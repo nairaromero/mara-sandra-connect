@@ -69,6 +69,9 @@ export interface CriarEventoInput {
   start_at: string;
   end_at: string;
   local: string | null;
+  // aviso_direto=true: a UI enviou o aviso ao parceiro na hora; o trigger do
+  // banco não cria a tarefa "Enviar aviso ao parceiro".
+  metadata?: Record<string, unknown>;
 }
 
 export async function criarEvento(input: CriarEventoInput): Promise<AgendaEventoRow> {

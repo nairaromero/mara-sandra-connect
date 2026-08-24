@@ -238,15 +238,19 @@ serve(async (req) => {
     } | null;
   };
 
-  if (!c.autor || !c.casos) {
+  if (!c.casos) {
     return jsonResponse({
       enviado: false,
-      motivo: "autor ou caso ausente (dado inconsistente)",
+      motivo: "caso ausente (dado inconsistente)",
     });
   }
 
-  const autorTipo = c.autor.tipo;
-  const autorNome = c.autor.nome || c.autor.email || "(autor sem nome)";
+  // Autor nulo = comentário do sistema (ex.: lembrete automático de perícia/
+  // audiência do job diário). Trata como equipe: vai pro parceiro.
+  const autorTipo = c.autor?.tipo ?? "interno";
+  const autorNome = c.autor
+    ? (c.autor.nome || c.autor.email || "(autor sem nome)")
+    : "Equipe Mara Vian Advocacia";
   const clienteNome = c.casos.clientes
     ? c.casos.clientes.nome
     : "(cliente sem nome)";
