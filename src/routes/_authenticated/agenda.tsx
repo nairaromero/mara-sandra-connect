@@ -251,6 +251,7 @@ function AgendaPage() {
             [
               ["todos", "Tudo"],
               ["pericias", "Perícias"],
+              ["audiencias", "Audiências"],
               ["atendimentos", "Atendimentos"],
             ] as Array<[GrupoAgenda, string]>
           ).map(([g, label]) => (

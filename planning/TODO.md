@@ -32,6 +32,10 @@ Os tempos entre parênteses apontam o trecho da gravação da reunião.
       de "documento entregue" manda pro Meu INSS ou pros autos conforme a origem.
 - [ ] Template de perícia — confirmação de comparecimento; parceiro só é notificado
       após conferência interna; encaixa no fluxo `/a-enviar` já desenhado (00:46)
+      — **pulado em 2026-08-24**: a Naira não lembra o que foi combinado; rediscutir
+      com a equipe. Estado atual mapeado: template `pericia_parceiro` + widget de
+      comparecimento notificam o parceiro NA HORA; o gap provável é rotear essas
+      comunicações pela fila `/a-enviar` antes de sair.
 - [ ] Template de audiência + modelo de registro de atendimento (00:42, 00:46)
 - [ ] Template de montagem de requerimento (cadastro → montagem → revisão → protocolo) (00:30)
 - [ ] Tarefa automática de acompanhamento de implantação em processo ganho
@@ -40,6 +44,10 @@ Os tempos entre parênteses apontam o trecho da gravação da reunião.
 - [ ] E-mail automático ao cliente confirmando caso em análise, no vínculo do processo
 - [ ] Agenda: ocultar concluídas, destacar eventos, diferenciar tarefa comum × prazo
       fatal × solicitação de documento, filtro de audiências (00:39, 00:42)
+      — **filtro de Audiências feito em 2026-08-24** (audiência saiu do grupo
+      Perícias e ganhou botão próprio); "ocultar concluídas" já existia (botão
+      "Esconder concluídos"). Restam: destacar eventos importantes e a
+      diferenciação visual comum × fatal × solicitação.
 - [ ] Integração Trello → sistema (+ Drive): importar casos pendentes com e-mail ao
       parceiro na importação — ninguém move manualmente até existir (01:11)
 - [ ] Integração financeira Banco Asas — boletos, Pix, cartão; conciliação automática
