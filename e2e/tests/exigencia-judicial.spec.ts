@@ -9,9 +9,14 @@
 
 import { test, expect } from "@playwright/test";
 import { STORAGE_INTERNO } from "../auth.setup";
+import { cursorVisivel } from "../cursor";
 import { adminClient, cleanupE2E, seedClienteCaso } from "../supabase-admin";
 
 test.use({ storageState: STORAGE_INTERNO });
+
+test.beforeEach(async ({ page }) => {
+  await cursorVisivel(page);
+});
 
 const admin = adminClient();
 let casoId: string;
