@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Loader2, Trash2, ExternalLink, AlarmClock } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { DocTypeCombobox } from "@/components/doc-type-combobox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -811,23 +812,24 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
               </div>
             ) : (
               <>
-                <Select
+                {/* Combobox com busca: 395+ casos, rolar a lista nao dava. */}
+                <DocTypeCombobox
+                  options={[
+                    { value: "sem", label: "Sem caso" },
+                    ...casos.map((c) => ({
+                      value: c.id,
+                      label: c.cliente_nome ?? "(sem nome)",
+                    })),
+                  ]}
                   value={casoId ?? "sem"}
-                  onValueChange={(v) => {
+                  onChange={(v) => {
                     setCasoId(v === "sem" ? null : v);
                     setProcessoToken("");
                   }}
-                >
-                  <SelectTrigger><SelectValue placeholder="Sem caso" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="sem">Sem caso</SelectItem>
-                    {casos.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.cliente_nome ?? "(sem nome)"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  placeholder="Sem caso"
+                  searchPlaceholder="Buscar cliente..."
+                  emptyText="Nenhum cliente encontrado."
+                />
                 {editando && trocandoCaso && (
                   <div className="flex items-center gap-2">
                     <p className="text-xs text-muted-foreground">
