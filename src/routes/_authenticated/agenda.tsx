@@ -24,7 +24,7 @@ import { cn } from "@/lib/utils";
 
 import { AgendaSheet } from "@/components/agenda/agenda-sheet";
 import { AgendaMes } from "@/components/agenda/agenda-mes";
-import { listarAgenda } from "@/lib/agenda/queries";
+import { excluirEvento, listarAgenda } from "@/lib/agenda/queries";
 import { type AgendaEventoComJoins, tipoBadge } from "@/lib/agenda/types";
 import { TarefaSheet, type TarefaSheetModo } from "@/components/tarefas/tarefa-sheet";
 import { listarTarefas } from "@/lib/tarefas/queries";
@@ -212,6 +212,25 @@ function AgendaPage() {
   const lista = aba === "proximas" ? proximas : passadas;
   const dias = useMemo(() => agruparPorDia(lista), [lista]);
 
+  // Lixeira dos cards do painel do dia (pedido da Naira: não dava pra excluir
+  // dali, só abrindo o evento). Confirmação antes; tarefa-pseudo-evento fica
+  // de fora — se exclui pela tarefa.
+  async function excluirDoPainel(id: string) {
+    const e = eventos.find((x) => x.id === id);
+    const nome = e?.caso?.cliente?.nome ?? e?.titulo ?? "este agendamento";
+    if (!window.confirm(`Excluir o agendamento de ${nome}? Não dá pra desfazer.`)) {
+      return;
+    }
+    try {
+      await excluirEvento(id);
+      toast.success("Agendamento excluído.");
+      carregar();
+    } catch (err) {
+      console.error(err);
+      toast.error("Falha ao excluir o agendamento.");
+    }
+  }
+
   function abrirEditor(id: string) {
     if (id.startsWith(PREFIXO_TAREFA)) {
       const t = tarefasPericia.find((x) => x.id === id.slice(PREFIXO_TAREFA.length));
@@ -308,7 +327,11 @@ function AgendaPage() {
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         ) : vista === "mes" ? (
-          <AgendaMes eventos={itensVisiveis} onEventoClick={abrirEditor} />
+          <AgendaMes
+            eventos={itensVisiveis}
+            onEventoClick={abrirEditor}
+            onEventoExcluir={excluirDoPainel}
+          />
         ) : dias.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center text-sm text-muted-foreground">
@@ -358,7 +381,19 @@ function AgendaPage() {
                           só o tipo (perícia INSS/judicial) e o nome do
                           cliente. A hora fica no evento. */}
                         <div className="font-medium text-sm break-words">
-                          {e.caso?.cliente?.nome ?? e.titulo}
+                          {e.caso_id ? (
+                            <Link
+                              to="/casos/$id"
+                              params={{ id: e.caso_id }}
+                              className="hover:underline hover:text-[var(--gold)]"
+                              title="Abrir o caso deste cliente"
+                              onClick={(ev) => ev.stopPropagation()}
+                            >
+                              {e.caso?.cliente?.nome ?? e.titulo}
+                            </Link>
+                          ) : (
+                            e.caso?.cliente?.nome ?? e.titulo
+                          )}
                         </div>
                         <div className="flex items-center justify-between text-xs text-muted-foreground gap-2 flex-wrap">
                           <div className="flex items-center gap-1 min-w-0">
