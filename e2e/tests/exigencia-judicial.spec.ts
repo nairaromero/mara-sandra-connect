@@ -131,3 +131,31 @@ test("exigência judicial cria solicitação com prazo e FATAL no dia útil ante
   expect(ands![0].visivel_parceiro).toBe(true);
   expect(ands![0].titulo).toContain("Exigência judicial");
 });
+
+test("calculadora de prazo: publicação + dias úteis preenche o fatal", async ({
+  page,
+}) => {
+  await page.goto("/tarefas");
+  await page.getByRole("button", { name: "Nova tarefa" }).click();
+  await page.getByRole("combobox").filter({ hasText: "Sem caso" }).click();
+  await page.getByRole("option", { name: nomeCliente }).click();
+  await page.getByRole("combobox").filter({ hasText: "Escolha um template" }).click();
+  await page.getByRole("option", { name: "Exigência Judicial" }).click();
+
+  // Publicação numa segunda (07/09/2026); 15 dias úteis correm de terça 08
+  // e fecham na segunda 28/09.
+  await page.getByLabel("Publicado em").fill("2026-09-07");
+  await page.getByLabel("Prazo em dias úteis", { exact: true }).click();
+  await page.getByRole("option", { name: "15 dias" }).click();
+  await expect(
+    page.getByLabel("Prazo fatal (fim do prazo judicial)"),
+  ).toHaveValue("2026-09-28");
+
+  // Prazo fora do padrão: "Outro…" com 20 dias úteis → segunda 05/10.
+  await page.getByLabel("Prazo em dias úteis", { exact: true }).click();
+  await page.getByRole("option", { name: "Outro…" }).click();
+  await page.getByLabel("Prazo em dias úteis (outro)").fill("20");
+  await expect(
+    page.getByLabel("Prazo fatal (fim do prazo judicial)"),
+  ).toHaveValue("2026-10-05");
+});

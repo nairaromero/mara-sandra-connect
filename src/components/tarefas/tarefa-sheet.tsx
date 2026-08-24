@@ -51,7 +51,11 @@ import {
 } from "@/lib/tarefas/types";
 import { criarEvento } from "@/lib/agenda/queries";
 import type { AgendaTipo } from "@/lib/agenda/types";
-import { calcularDueAtRelativo, dueAtDoPrazoFatal } from "@/lib/agenda/helpers";
+import {
+  calcularDueAtRelativo,
+  dueAtDoPrazoFatal,
+  fatalPorDiasUteis,
+} from "@/lib/agenda/helpers";
 import {
   descreverAutoriaStatus,
   formatarDataHoraCurtaBR,
@@ -135,6 +139,19 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   // Prazo fatal informado ao aplicar template com item ancorado em
   // due_relative_to="prazo_fatal" (Exigência Judicial): "aaaa-mm-dd".
   const [prazoFatal, setPrazoFatal] = useState<string>("");
+  // Calculadora do fatal: data da publicação + prazo em dias úteis
+  // (5/10/15/outro). Preenche prazoFatal, que segue editável — feriado não
+  // é descontado, quem aplica confere.
+  const [pubData, setPubData] = useState<string>("");
+  const [prazoDias, setPrazoDias] = useState<string>("");
+  const [prazoDiasCustom, setPrazoDiasCustom] = useState<string>("");
+
+  const recalcularFatal = (pub: string, diasStr: string, custom: string) => {
+    const dias = parseInt(diasStr === "outro" ? custom : diasStr, 10);
+    if (!pub || !Number.isInteger(dias) || dias <= 0) return;
+    const fatal = fatalPorDiasUteis(pub, dias);
+    if (fatal) setPrazoFatal(fatal);
+  };
 
   const [casos, setCasos] = useState<Array<{ id: string; cliente_nome: string | null }>>([]);
   const [internos, setInternos] = useState<
@@ -303,6 +320,15 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       setLocal("");
       setDocsExigencia("");
       setPrazoFatal("");
+      {
+        // "Publicado em" já nasce com hoje — o comum é processar a
+        // publicação no dia em que ela sai no Legalmail.
+        const hoje = new Date();
+        const pad = (n: number) => String(n).padStart(2, "0");
+        setPubData(`${hoje.getFullYear()}-${pad(hoje.getMonth() + 1)}-${pad(hoje.getDate())}`);
+      }
+      setPrazoDias("");
+      setPrazoDiasCustom("");
       setPericiaEvento(true);
       setExtrasResp([]);
       setTemplateSelecionado(modo.templateInicial ?? "");
@@ -1156,19 +1182,80 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           )}
 
           {templateTemPrazoFatalForm && !editando && (
-            <div className="space-y-1.5 rounded-lg border border-dashed border-red-300 bg-red-50/40 p-3">
-              <Label htmlFor="t-prazo-fatal" className="text-red-900">
-                Prazo fatal (fim do prazo judicial)
-              </Label>
-              <Input
-                id="t-prazo-fatal"
-                type="date"
-                value={prazoFatal}
-                onChange={(e) => setPrazoFatal(e.target.value)}
-              />
+            <div className="space-y-2 rounded-lg border border-dashed border-red-300 bg-red-50/40 p-3">
+              <Label className="text-red-900">Prazo judicial</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <Label
+                    htmlFor="t-pub-data"
+                    className="text-xs font-normal text-red-900/80"
+                  >
+                    Publicado em
+                  </Label>
+                  <Input
+                    id="t-pub-data"
+                    type="date"
+                    value={pubData}
+                    onChange={(e) => {
+                      setPubData(e.target.value);
+                      recalcularFatal(e.target.value, prazoDias, prazoDiasCustom);
+                    }}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs font-normal text-red-900/80">
+                    Prazo (dias úteis)
+                  </Label>
+                  <Select
+                    value={prazoDias}
+                    onValueChange={(v) => {
+                      setPrazoDias(v);
+                      recalcularFatal(pubData, v, prazoDiasCustom);
+                    }}
+                  >
+                    <SelectTrigger aria-label="Prazo em dias úteis">
+                      <SelectValue placeholder="Escolher" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="5">5 dias</SelectItem>
+                      <SelectItem value="10">10 dias</SelectItem>
+                      <SelectItem value="15">15 dias</SelectItem>
+                      <SelectItem value="outro">Outro…</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              {prazoDias === "outro" && (
+                <Input
+                  type="number"
+                  min={1}
+                  placeholder="Quantos dias úteis?"
+                  aria-label="Prazo em dias úteis (outro)"
+                  value={prazoDiasCustom}
+                  onChange={(e) => {
+                    setPrazoDiasCustom(e.target.value);
+                    recalcularFatal(pubData, "outro", e.target.value);
+                  }}
+                />
+              )}
+              <div className="space-y-1">
+                <Label
+                  htmlFor="t-prazo-fatal"
+                  className="text-xs font-normal text-red-900/80"
+                >
+                  Prazo fatal (fim do prazo judicial)
+                </Label>
+                <Input
+                  id="t-prazo-fatal"
+                  type="date"
+                  value={prazoFatal}
+                  onChange={(e) => setPrazoFatal(e.target.value)}
+                />
+              </div>
               <p className="text-xs text-red-900/70">
-                Data-limite que consta na publicação. A tarefa FATAL é criada
-                para o dia útil anterior a essa data.
+                Calculado em dias úteis a partir do dia útil seguinte à
+                publicação. Feriado não é descontado — confira e ajuste o fatal
+                se precisar. A tarefa FATAL é criada para o dia útil anterior.
               </p>
             </div>
           )}
