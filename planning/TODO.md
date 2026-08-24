@@ -9,6 +9,43 @@
 
 ---
 
+## 🔵 Lote atual — reunião de agosto + pedidos diretos (aberto em 2026-08-24)
+
+Em execução item a item, com commits direto na `staging`; a Naira valida em
+staging.marasandraconnect.com e, fechado o lote, faz um único merge `staging → main`.
+Os tempos entre parênteses apontam o trecho da gravação da reunião.
+
+- [x] E-mails ao parceiro + aba do app: "Mara Sandra" → **"Mara Vian Advocacia"**
+      (remetente, título em negrito e assinatura texto dos `notify-*`; título da aba).
+      Ainda em aberto, decidir um a um: assuntos/corpo dos e-mails de auth
+      (`send-email-hook`), digest interno, subtítulo "Plataforma Mara Sandra Connect",
+      imagem do logo e o domínio `noreply@marasandraconnect.com`.
+- [x] Sheet de tarefa: campo Caso virou combobox com busca de cliente
+      (substring, ignorando acento e caixa).
+- [ ] Dividir exigência em dois templates: **Exigência INSS × Exigência Judicial**,
+      renomeando as tarefas existentes; texto ao parceiro claro e com prazo (00:50)
+- [ ] Template de perícia — confirmação de comparecimento; parceiro só é notificado
+      após conferência interna; encaixa no fluxo `/a-enviar` já desenhado (00:46)
+- [ ] Template de audiência + modelo de registro de atendimento (00:42, 00:46)
+- [ ] Template de montagem de requerimento (cadastro → montagem → revisão → protocolo) (00:30)
+- [ ] Tarefa automática de acompanhamento de implantação em processo ganho
+      (carta de concessão, histórico de crédito, termo aditivo) (00:35)
+- [ ] Prorrogação de auxílio-doença pela DCB: tarefa criada 15 dias antes do fatal (00:34)
+- [ ] E-mail automático ao cliente confirmando caso em análise, no vínculo do processo
+- [ ] Agenda: ocultar concluídas, destacar eventos, diferenciar tarefa comum × prazo
+      fatal × solicitação de documento, filtro de audiências (00:39, 00:42)
+- [ ] Integração Trello → sistema (+ Drive): importar casos pendentes com e-mail ao
+      parceiro na importação — ninguém move manualmente até existir (01:11)
+- [ ] Integração financeira Banco Asas — boletos, Pix, cartão; conciliação automática
+      a partir de setembro (01:16)
+- [ ] Revisar benefício legado dos clientes — filtro novo existe, dado antigo
+      incompleto (01:03; conversa com o resíduo da migração TI logo abaixo)
+- [ ] Auto-reload quando sai versão nova, pra sumir com o "erro de login" pós-deploy (01:05)
+- [ ] Planejar migração dos logins pro Google Workspace `@advocaciaprev.com`
+      (muda e-mail de auth de todo mundo; planejar junto com a troca de domínio)
+
+---
+
 ## 🔴 Achados da auditoria de 2026-08-15
 
 Coisas que estavam abertas **sem constar em nenhuma lista**. Ordenadas por risco.
