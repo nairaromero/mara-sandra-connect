@@ -252,7 +252,16 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
         return;
       }
       aplicarComprovante(campos, file);
-      toast.success("Comprovante lido — confira os campos preenchidos.");
+      // Comprovante velho: perícia com data já passada some da lista de
+      // Ativos e parece que o agendamento "não funcionou".
+      if (campos.data && campos.data < new Date().toISOString().slice(0, 10)) {
+        const [a, m, d] = campos.data.split("-");
+        toast.warning(
+          `Atenção: a perícia deste comprovante é de ${d}/${m}/${a} — data que JÁ PASSOU. Confira se o arquivo é o atual.`,
+        );
+      } else {
+        toast.success("Comprovante lido — confira os campos preenchidos.");
+      }
     } catch (e) {
       console.error("extrair comprovante falhou:", e);
       toast.error("Falha ao ler o comprovante. Preencha os campos na mão.");
@@ -723,6 +732,27 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           agendaStart = new Date(startIso);
           const dur = agendaItem.duracao_min ?? 60;
           const endIso = new Date(agendaStart.getTime() + dur * 60_000).toISOString();
+
+          // Data no passado? Evento nasce direto em "Arquivados" e a pessoa
+          // acha que o agendamento não funcionou (aconteceu no teste com
+          // comprovante antigo). Confirmação explícita.
+          if (agendaStart.getTime() < Date.now()) {
+            const quando = agendaStart.toLocaleString("pt-BR", {
+              day: "2-digit",
+              month: "2-digit",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+              timeZone: "America/Sao_Paulo",
+            });
+            const ok = window.confirm(
+              `A data do agendamento (${quando}) JÁ PASSOU — o evento vai direto pra aba Arquivados. Criar mesmo assim?`,
+            );
+            if (!ok) {
+              setSalvando(false);
+              return;
+            }
+          }
 
           // Agendamento duplicado? (mesmo caso, mesmo tipo, mesmo dia)
           if (casoId) {

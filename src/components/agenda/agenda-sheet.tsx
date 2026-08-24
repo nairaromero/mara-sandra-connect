@@ -382,6 +382,25 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
         });
         toast.success("Evento atualizado.");
       } else {
+        // Data no passado? Evento nasce direto em "Arquivados"/Passadas e a
+        // pessoa acha que o agendamento não funcionou.
+        if (new Date(startIso).getTime() < Date.now()) {
+          const quando = new Date(startIso).toLocaleString("pt-BR", {
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+            timeZone: "America/Sao_Paulo",
+          });
+          const ok = window.confirm(
+            `A data do agendamento (${quando}) JÁ PASSOU — o evento não aparece entre os próximos. Criar mesmo assim?`,
+          );
+          if (!ok) {
+            setSalvando(false);
+            return;
+          }
+        }
         // Agendamento duplicado? (mesmo caso, mesmo tipo, mesmo dia)
         if (casoId) {
           const jaExiste = await buscarEventoMesmoDia(casoId, tipo, startIso);
