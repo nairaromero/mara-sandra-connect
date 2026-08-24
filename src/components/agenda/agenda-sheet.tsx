@@ -747,6 +747,17 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
             />
           </div>
 
+          {!editando &&
+            (tipo === "pericia" || tipo === "audiencia") &&
+            !!casoId &&
+            !!ctxCaso &&
+            !ctxCaso.parceiro_id && (
+              <p className="rounded-md border border-dashed bg-muted/40 p-2.5 text-xs text-muted-foreground">
+                Este caso não tem parceiro indicador — nenhum aviso será enviado
+                e não nascerá tarefa de aviso.
+              </p>
+            )}
+
           {avisoAplicavel && (
             <AvisoParceiroEvento
               rotulo={tipo === "audiencia" ? "audiência" : "perícia"}

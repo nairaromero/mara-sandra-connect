@@ -15,6 +15,9 @@ export interface DadosAvisoEvento {
   servico: string;
   startIso: string | null;
   local: string | null;
+  // Vêm do comprovante de agendamento (extração por IA), quando houver.
+  protocolo?: string | null;
+  endereco?: string | null;
 }
 
 /** Texto padrão do aviso, gerado pelas funções SQL (fonte única). */
@@ -32,10 +35,10 @@ export async function montarTextoAvisoEvento(d: DadosAvisoEvento): Promise<strin
     p_natureza: d.natureza,
     p_cliente: d.cliente,
     p_servico: d.servico,
-    p_protocolo: null,
+    p_protocolo: d.protocolo ?? null,
     p_quando: d.startIso,
     p_local: d.local,
-    p_endereco: null,
+    p_endereco: d.endereco ?? null,
   });
   if (error) throw error;
   return (data as string) ?? "";

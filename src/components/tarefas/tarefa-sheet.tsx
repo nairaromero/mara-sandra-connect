@@ -110,6 +110,14 @@ interface Props {
 
 const TIPOS: TarefaTipo[] = ["interna", "prazo", "pericia", "pos_protocolo", "contato_cliente"];
 
+// Mesma sanitização de casos.$id/casos.novo (storage não aceita acento/espaço).
+function sanitizeFileName(name: string): string {
+  return name
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
 export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   const aberto = modo !== null;
   const { marcar: marcarDestaque } = useDestaque();
@@ -163,6 +171,79 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   const [avisoAtivo, setAvisoAtivo] = useState(true);
   const [avisoTexto, setAvisoTexto] = useState("");
   const [avisoEditado, setAvisoEditado] = useState(false);
+  // Comprovante de agendamento (Meu INSS): a IA lê o PDF/foto e preenche
+  // data/local/protocolo/endereço; no salvar, o arquivo sobe pros Documentos
+  // do caso seguindo a numeração dos arquivos existentes ("26 - …").
+  const [comprovanteFile, setComprovanteFile] = useState<File | null>(null);
+  const [extraindoComprovante, setExtraindoComprovante] = useState(false);
+  const [avisoProtocolo, setAvisoProtocolo] = useState<string>("");
+  const [avisoEndereco, setAvisoEndereco] = useState<string>("");
+
+  async function lerComprovante(file: File) {
+    setExtraindoComprovante(true);
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result).split(",")[1] ?? "");
+        r.onerror = () => reject(r.error);
+        r.readAsDataURL(file);
+      });
+      const { data, error } = await supabase.functions.invoke(
+        "extrair-agendamento-pericia",
+        {
+          body: {
+            arquivo: {
+              nome: file.name,
+              mime: file.type || "application/pdf",
+              base64,
+            },
+          },
+        },
+      );
+      if (error) throw error;
+      const campos = (
+        data as {
+          campos?: {
+            data?: string | null;
+            hora?: string | null;
+            local?: string | null;
+            endereco?: string | null;
+            protocolo?: string | null;
+            servico?: string | null;
+            requerente?: string | null;
+          } | null;
+        } | null
+      )?.campos;
+      if (!campos) {
+        toast.error("Não consegui ler o comprovante — preencha os campos na mão.");
+        return;
+      }
+      if (campos.data) {
+        setDueDate(`${campos.data}T${campos.hora || "09:00"}`);
+      }
+      if (campos.local) setLocal(campos.local);
+      setAvisoProtocolo(campos.protocolo ?? "");
+      setAvisoEndereco(campos.endereco ?? "");
+      setAvisoEditado(false); // regenera o aviso com os dados do comprovante
+      setComprovanteFile(file);
+      // O comprovante é do cliente certo? Nome divergente é o erro clássico
+      // de anexar o arquivo da pessoa errada.
+      const req = (campos.requerente ?? "").trim().toLowerCase();
+      const cli = (ctxCaso?.cliente_nome ?? "").trim().toLowerCase();
+      if (req && cli && req !== cli) {
+        toast.warning(
+          `Atenção: o comprovante é de "${campos.requerente}", mas o caso é de "${ctxCaso?.cliente_nome}". Confira o arquivo.`,
+        );
+      } else {
+        toast.success("Comprovante lido — confira os campos preenchidos.");
+      }
+    } catch (e) {
+      console.error("extrair comprovante falhou:", e);
+      toast.error("Falha ao ler o comprovante. Preencha os campos na mão.");
+    } finally {
+      setExtraindoComprovante(false);
+    }
+  }
 
   const [casos, setCasos] = useState<Array<{ id: string; cliente_nome: string | null }>>([]);
   const [internos, setInternos] = useState<
@@ -248,6 +329,8 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       servico: ctxCaso.servico || ctxCaso.tipo_beneficio,
       startIso: dueDate ? isoFromInputDateTime(dueDate) : null,
       local: local.trim() || null,
+      protocolo: avisoProtocolo || null,
+      endereco: avisoEndereco || null,
     })
       .then((t) => {
         if (!cancelado) setAvisoTexto(t);
@@ -257,7 +340,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       cancelado = true;
     };
      
-  }, [avisoAplicavel, avisoEditado, ctxCaso, agendaTipoDoTemplate, dueDate, local, templateSelecionado, processoToken]);
+  }, [avisoAplicavel, avisoEditado, ctxCaso, agendaTipoDoTemplate, dueDate, local, templateSelecionado, processoToken, avisoProtocolo, avisoEndereco]);
 
   // Carrega listas auxiliares uma vez (ao abrir).
   useEffect(() => {
@@ -395,6 +478,10 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       setAvisoAtivo(true);
       setAvisoTexto("");
       setAvisoEditado(false);
+      setComprovanteFile(null);
+      setExtraindoComprovante(false);
+      setAvisoProtocolo("");
+      setAvisoEndereco("");
       setPericiaEvento(true);
       setExtrasResp([]);
       setTemplateSelecionado(modo.templateInicial ?? "");
@@ -644,6 +731,50 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
               console.error("aviso ao parceiro falhou:", e);
               toast.error(
                 "Evento criado, mas o aviso ao parceiro FALHOU — envie manualmente pelos Comentários do caso.",
+              );
+            }
+          }
+
+          // Comprovante lido sobe pros Documentos do caso, seguindo a
+          // numeração dos arquivos já existentes ("25 - …" → "26 - …").
+          if (comprovanteFile && casoId) {
+            try {
+              const { data: docsExist } = await supabase
+                .from("documentos")
+                .select("nome_arquivo")
+                .eq("caso_id", casoId);
+              let maior = 0;
+              for (const d of docsExist ?? []) {
+                const m = /^(\d+)\s*-/.exec(
+                  (d as { nome_arquivo: string | null }).nome_arquivo ?? "",
+                );
+                if (m) maior = Math.max(maior, parseInt(m[1], 10));
+              }
+              const semNumero = comprovanteFile.name.replace(/^\d+\s*-\s*/, "");
+              const nomeFinal = maior > 0 ? `${maior + 1} - ${semNumero}` : semNumero;
+              const storagePath = `${casoId}/${Date.now()}_${sanitizeFileName(nomeFinal)}`;
+              const up = await supabase.storage
+                .from("documentos")
+                .upload(storagePath, comprovanteFile, {
+                  cacheControl: "3600",
+                  upsert: false,
+                });
+              if (up.error) throw up.error;
+              const ins = await supabase.from("documentos").insert({
+                caso_id: casoId,
+                tipo: "outro",
+                tipo_personalizado: "Comprovante de agendamento de perícia",
+                nome_arquivo: nomeFinal,
+                storage_path: storagePath,
+                tamanho_bytes: comprovanteFile.size,
+                uploaded_by: usuario?.id ?? null,
+                visivel_parceiro: true,
+              });
+              if (ins.error) throw ins.error;
+            } catch (e) {
+              console.error("upload do comprovante falhou:", e);
+              toast.error(
+                "Perícia criada, mas o upload do comprovante falhou — anexe manualmente em Documentos.",
               );
             }
           }
@@ -1240,6 +1371,58 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
               />
             </div>
           )}
+
+          {!editando &&
+            agendaTipoDoTemplate === "pericia" &&
+            !!casoId && (
+              <div className="space-y-1.5 rounded-lg border border-dashed p-3 bg-muted/30">
+                <Label htmlFor="t-comprovante">
+                  Comprovante do agendamento (PDF ou foto do Meu INSS)
+                </Label>
+                <Input
+                  id="t-comprovante"
+                  type="file"
+                  accept="application/pdf,image/*"
+                  disabled={extraindoComprovante}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) lerComprovante(f);
+                  }}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {extraindoComprovante ? (
+                    <span className="inline-flex items-center gap-1">
+                      <Loader2 className="h-3 w-3 animate-spin" /> Lendo o
+                      comprovante…
+                    </span>
+                  ) : comprovanteFile ? (
+                    <>
+                      <strong>{comprovanteFile.name}</strong> lido — data, local,
+                      protocolo e endereço preenchidos. Ao salvar, o arquivo
+                      entra nos Documentos do caso seguindo a numeração.
+                    </>
+                  ) : (
+                    <>
+                      Anexe o comprovante e a IA preenche data, local, protocolo
+                      e endereço — e o arquivo sobe pros Documentos do caso ao
+                      salvar.
+                    </>
+                  )}
+                </p>
+              </div>
+            )}
+
+          {!editando &&
+            (agendaTipoDoTemplate === "pericia" ||
+              agendaTipoDoTemplate === "audiencia") &&
+            !!casoId &&
+            !!ctxCaso &&
+            !ctxCaso.parceiro_id && (
+              <p className="rounded-md border border-dashed bg-muted/40 p-2.5 text-xs text-muted-foreground">
+                Este caso não tem parceiro indicador — nenhum aviso será enviado
+                e não nascerá tarefa de aviso.
+              </p>
+            )}
 
           {avisoAplicavel && (
             <AvisoParceiroEvento
