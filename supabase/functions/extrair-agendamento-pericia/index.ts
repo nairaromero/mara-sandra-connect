@@ -7,6 +7,7 @@
 // servico e o nome do periciando (pra conferir contra o cliente do caso).
 //
 // Body: { arquivo: { nome, mime, base64 } }   (base64 SEM prefixo data:)
+//   OU  { texto: "…" }  — publicação/intimação colada como texto puro.
 // Resp: { campos: { data, hora, local, endereco, protocolo, servico,
 //                   requerente }, aviso? }
 //
@@ -67,18 +68,28 @@ serve(async (req) => {
     return jsonResponse({ error: "secrets ausentes na funcao" }, 500);
   }
 
-  let body: { arquivo?: { nome?: string; mime?: string; base64?: string } };
+  let body: {
+    arquivo?: { nome?: string; mime?: string; base64?: string };
+    texto?: string;
+  };
   try {
     body = await req.json();
   } catch {
     return jsonResponse({ error: "body invalido" }, 400);
   }
   const arq = body.arquivo;
-  if (!arq?.base64 || !arq?.mime) {
-    return jsonResponse({ error: "arquivo { mime, base64 } obrigatorio" }, 400);
+  const textoColado = (body.texto ?? "").trim();
+  if (!textoColado && (!arq?.base64 || !arq?.mime)) {
+    return jsonResponse(
+      { error: "arquivo { mime, base64 } ou texto obrigatorio" },
+      400,
+    );
   }
-  if ((arq.base64.length * 3) / 4 > MAX_BYTES) {
+  if (arq?.base64 && (arq.base64.length * 3) / 4 > MAX_BYTES) {
     return jsonResponse({ error: "arquivo acima de 8MB" }, 413);
+  }
+  if (textoColado.length > 20000) {
+    return jsonResponse({ error: "texto acima de 20 mil caracteres" }, 413);
   }
 
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
@@ -110,12 +121,14 @@ serve(async (req) => {
       resIntegracao.integ.api_key_cipher,
       resIntegracao.integ.api_key_iv,
     );
-    const attachments: Attachment[] = [{
-      kind: arq.mime === "application/pdf" ? "pdf" : "image",
-      mediaType: arq.mime,
-      base64: arq.base64,
-      name: arq.nome ?? "comprovante",
-    }];
+    const attachments: Attachment[] = textoColado
+      ? []
+      : [{
+        kind: arq!.mime === "application/pdf" ? "pdf" : "image",
+        mediaType: arq!.mime!,
+        base64: arq!.base64!,
+        name: arq!.nome ?? "comprovante",
+      }];
     const res = await chatWith(
       resIntegracao.integ.provider,
       apiKey,
@@ -127,9 +140,12 @@ serve(async (req) => {
         attachments,
         messages: [{
           role: "user",
-          content:
-            "Extraia os dados do agendamento de pericia do documento anexado. " +
-            "Responda apenas com o JSON.",
+          content: textoColado
+            ? "Extraia os dados do agendamento de pericia do texto da " +
+              "publicacao/intimacao abaixo. Responda apenas com o JSON.\n\n" +
+              textoColado
+            : "Extraia os dados do agendamento de pericia do documento anexado. " +
+              "Responda apenas com o JSON.",
         }],
       },
     );

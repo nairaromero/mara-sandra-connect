@@ -41,6 +41,7 @@ import {
 import { enviarAvisoEvento, montarTextoAvisoEvento } from "@/lib/agenda/aviso";
 import {
   extrairComprovante,
+  extrairDePublicacao,
   mesmoNome,
   subirComprovanteDocumento,
   type CamposComprovante,
@@ -182,11 +183,13 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   // arquivo certo (pedido da Naira — aviso solto passava batido).
   const [comprovanteDivergente, setComprovanteDivergente] = useState<{
     campos: CamposComprovante;
-    file: File;
+    file: File | null; // null = veio de publicação colada (nada a subir)
     requerente: string;
   } | null>(null);
+  // Alternativa ao arquivo: colar o texto da publicação/intimação.
+  const [publicacaoColada, setPublicacaoColada] = useState("");
 
-  function aplicarComprovante(campos: CamposComprovante, file: File) {
+  function aplicarComprovante(campos: CamposComprovante, file: File | null) {
     if (campos.data) {
       setDueDate(`${campos.data}T${campos.hora || "09:00"}`);
     }
@@ -194,7 +197,47 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
     setAvisoProtocolo(campos.protocolo ?? "");
     setAvisoEndereco(campos.endereco ?? "");
     setAvisoEditado(false); // regenera o aviso com os dados do comprovante
-    setComprovanteFile(file);
+    if (file) setComprovanteFile(file);
+  }
+
+  function avisarSeDataPassada(campos: CamposComprovante) {
+    if (campos.data && campos.data < new Date().toISOString().slice(0, 10)) {
+      const [a, m, d] = campos.data.split("-");
+      toast.warning(
+        `Atenção: a perícia é de ${d}/${m}/${a} — data que JÁ PASSOU. Confira se é a publicação/comprovante atual.`,
+      );
+      return true;
+    }
+    return false;
+  }
+
+  async function lerPublicacaoColada() {
+    if (!publicacaoColada.trim()) {
+      toast.error("Cole o texto da publicação primeiro.");
+      return;
+    }
+    setExtraindoComprovante(true);
+    setComprovanteDivergente(null);
+    try {
+      const campos = await extrairDePublicacao(publicacaoColada.trim());
+      if (!campos) {
+        toast.error("Não consegui ler a publicação — preencha os campos na mão.");
+        return;
+      }
+      if (!mesmoNome(campos.requerente, ctxCaso?.cliente_nome)) {
+        setComprovanteDivergente({ campos, file: null, requerente: campos.requerente ?? "" });
+        return;
+      }
+      aplicarComprovante(campos, null);
+      if (!avisarSeDataPassada(campos)) {
+        toast.success("Publicação lida — confira os campos preenchidos.");
+      }
+    } catch (e) {
+      console.error("extrair publicação falhou:", e);
+      toast.error("Falha ao ler a publicação. Preencha os campos na mão.");
+    } finally {
+      setExtraindoComprovante(false);
+    }
   }
 
   async function lerComprovante(file: File) {
@@ -219,12 +262,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       aplicarComprovante(campos, file);
       // Comprovante velho: perícia com data já passada some da lista de
       // Ativos e parece que o agendamento "não funcionou".
-      if (campos.data && campos.data < new Date().toISOString().slice(0, 10)) {
-        const [a, m, d] = campos.data.split("-");
-        toast.warning(
-          `Atenção: a perícia deste comprovante é de ${d}/${m}/${a} — data que JÁ PASSOU. Confira se o arquivo é o atual.`,
-        );
-      } else {
+      if (!avisarSeDataPassada(campos)) {
         toast.success("Comprovante lido — confira os campos preenchidos.");
       }
     } catch (e) {
@@ -477,6 +515,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       setComprovanteFile(null);
       setExtraindoComprovante(false);
       setComprovanteDivergente(null);
+      setPublicacaoColada("");
       setAvisoProtocolo("");
       setAvisoEndereco("");
       setAvisosAgenda(null);
@@ -1300,7 +1339,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
             !!casoId && (
               <div className="space-y-1.5 rounded-lg border border-dashed p-3 bg-muted/30">
                 <Label htmlFor="t-comprovante">
-                  Comprovante do agendamento (PDF ou foto do Meu INSS)
+                  Comprovante do agendamento (PDF/foto) ou publicação
                 </Label>
                 <Input
                   id="t-comprovante"
@@ -1332,6 +1371,33 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
                     </>
                   )}
                 </p>
+                <div className="space-y-1.5 border-t border-dashed pt-2">
+                  <Label
+                    htmlFor="t-publicacao-colada"
+                    className="text-xs font-normal text-muted-foreground"
+                  >
+                    …ou cole o texto da publicação/intimação
+                  </Label>
+                  <Textarea
+                    id="t-publicacao-colada"
+                    rows={3}
+                    value={publicacaoColada}
+                    onChange={(e) => setPublicacaoColada(e.target.value)}
+                    placeholder="Cole aqui a publicação (Legalmail/DJE) que marcou a perícia — a IA preenche os campos do mesmo jeito."
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={extraindoComprovante || !publicacaoColada.trim()}
+                    onClick={lerPublicacaoColada}
+                  >
+                    {extraindoComprovante ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : null}
+                    Ler publicação
+                  </Button>
+                </div>
                 {comprovanteDivergente && (
                   <div className="space-y-2 rounded-md border border-red-300 bg-red-50/70 p-3">
                     <p className="text-sm font-medium text-red-900">

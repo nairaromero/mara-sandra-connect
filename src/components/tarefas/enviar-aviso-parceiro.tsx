@@ -10,12 +10,13 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Send } from "lucide-react";
+import { Loader2, Send, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/lib/supabase";
 import { enviarAvisoEvento } from "@/lib/agenda/aviso";
+import { extrairDePublicacao, preencherLacunasAviso } from "@/lib/agenda/comprovante";
 import { useAuth } from "@/hooks/use-auth";
 import type { TarefaComJoins } from "@/lib/tarefas/types";
 
@@ -43,6 +44,38 @@ export function EnviarAvisoParceiro({
   const { usuario } = useAuth();
   const [texto, setTexto] = useState(meta?.texto ?? "");
   const [enviando, setEnviando] = useState(false);
+  const [completando, setCompletando] = useState(false);
+
+  // Aviso nascido de publicação: a IA lê o andamento de origem e preenche as
+  // lacunas (_____) do texto — sem apagar o que a pessoa já editou.
+  async function completarComIA() {
+    if (completando || !meta?.origem_andamento_id) return;
+    setCompletando(true);
+    try {
+      const { data: and } = await supabase
+        .from("andamentos")
+        .select("titulo, descricao")
+        .eq("id", meta.origem_andamento_id)
+        .maybeSingle();
+      const fonte = [and?.titulo, and?.descricao].filter(Boolean).join("\n");
+      if (!fonte.trim()) {
+        toast.error("Não achei o texto da publicação de origem.");
+        return;
+      }
+      const campos = await extrairDePublicacao(fonte);
+      if (!campos) {
+        toast.error("A IA não conseguiu ler a publicação — complete na mão.");
+        return;
+      }
+      setTexto((atual) => preencherLacunasAviso(atual, campos));
+      toast.success("Lacunas preenchidas com os dados da publicação — revise antes de enviar.");
+    } catch (e) {
+      console.error("completar com IA falhou:", e);
+      toast.error("Falha ao ler a publicação — complete na mão.");
+    } finally {
+      setCompletando(false);
+    }
+  }
 
   if (!meta || !tarefa.caso_id) return null;
   if (tarefa.status === "feito" || tarefa.status === "cancelado") return null;
@@ -101,14 +134,32 @@ export function EnviarAvisoParceiro({
         rows={compacto ? 5 : 9}
         className="font-mono text-xs"
       />
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <p className="text-xs text-emerald-900/70">
           Sai como comentário do caso, por e-mail ao parceiro, e conclui esta tarefa.
         </p>
-        <Button size="sm" onClick={enviar} disabled={enviando}>
-          {enviando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-          Enviar
-        </Button>
+        <div className="flex items-center gap-2">
+          {meta.origem_andamento_id && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={completarComIA}
+              disabled={completando || enviando}
+              title="A IA lê a publicação de origem e preenche as lacunas do texto"
+            >
+              {completando ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+              Completar com IA
+            </Button>
+          )}
+          <Button size="sm" onClick={enviar} disabled={enviando || completando}>
+            {enviando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            Enviar
+          </Button>
+        </div>
       </div>
     </div>
   );

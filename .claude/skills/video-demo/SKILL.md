@@ -31,6 +31,12 @@ filme — é o registro de apresentação, complementar ao vídeo técnico da su
    cursor viajar até o alvo, `ler(page, ms)` depois de cada tela — o espectador
    precisa de tempo pra LER. Pausa longa (~5s) na cena-troféu (ex.: a mensagem
    reescrita pela IA).
+3b. **Narração legendada** (`narrar(page, "…")`): um letreiro no rodapé explica
+   cada cena em uma frase curta ("A publicação chegou pelo DJE e virou
+   andamento no caso"). Narre ANTES da ação da cena; o letreiro some ao
+   navegar — narre de novo após cada goto/reload. É o que faz o filme se
+   explicar sozinho pra quem nunca viu a tela. Rolar até o que a narração
+   menciona — nada de citar coisa fora do enquadramento.
 4. **Still de conferência por cena** (`estudio.still(page, "atoN-XX-nome")`).
    É assim que se revisa o filme sem assistir: olhe os stills ANTES de entregar
    e refilme se uma cena saiu errada.

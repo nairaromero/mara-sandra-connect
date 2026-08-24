@@ -30,6 +30,43 @@ export async function extrairComprovante(file: File): Promise<CamposComprovante 
   return (data as { campos?: CamposComprovante | null } | null)?.campos ?? null;
 }
 
+/** Idem, mas a partir do TEXTO colado da publicação/intimação. */
+export async function extrairDePublicacao(texto: string): Promise<CamposComprovante | null> {
+  const { data, error } = await supabase.functions.invoke("extrair-agendamento-pericia", {
+    body: { texto },
+  });
+  if (error) throw error;
+  return (data as { campos?: CamposComprovante | null } | null)?.campos ?? null;
+}
+
+/**
+ * Preenche as lacunas (_____) de um texto de aviso já montado com os campos
+ * extraídos — preserva o que a pessoa já editou; só substitui o que está em
+ * branco. Usado pelo botão "Completar com IA" da tarefa de aviso.
+ */
+export function preencherLacunasAviso(texto: string, campos: CamposComprovante): string {
+  let out = texto;
+  const troca = (rotuloRegex: RegExp, valor: string | null | undefined) => {
+    if (valor && valor.trim()) {
+      out = out.replace(rotuloRegex, (m) => m.replace("_____", valor.trim()));
+    }
+  };
+  let dataFmt: string | null = null;
+  if (campos.data) {
+    const [y, m, d] = campos.data.split("-").map(Number);
+    if (y && m && d) {
+      const dia = new Date(y, m - 1, d).toLocaleDateString("pt-BR", { weekday: "long" });
+      dataFmt = `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${y} (${dia})`;
+    }
+  }
+  troca(/📅 Data: _____/u, dataFmt);
+  troca(/⏰ Horário: _____/u, campos.hora);
+  troca(/📍 Local: _____/u, campos.local);
+  troca(/🗺️ Endereço: _____/u, campos.endereco);
+  troca(/(?:🔢 Protocolo|⚖️ Processo): _____/u, campos.protocolo);
+  return out;
+}
+
 /** Nomes iguais? (sem acento/caixa) — pega comprovante da pessoa errada. */
 export function mesmoNome(a: string | null | undefined, b: string | null | undefined): boolean {
   const norm = (s: string) =>
