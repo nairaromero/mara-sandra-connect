@@ -39,6 +39,12 @@ import {
   type ContextoCasoParaTemplate,
 } from "@/lib/tarefas/queries";
 import { enviarAvisoEvento, montarTextoAvisoEvento } from "@/lib/agenda/aviso";
+import {
+  extrairComprovante,
+  mesmoNome,
+  subirComprovanteDocumento,
+  type CamposComprovante,
+} from "@/lib/agenda/comprovante";
 import { AvisoParceiroEvento } from "@/components/agenda/aviso-parceiro-evento";
 import {
   PRIORIDADE_LABEL,
@@ -110,24 +116,6 @@ interface Props {
 
 const TIPOS: TarefaTipo[] = ["interna", "prazo", "pericia", "pos_protocolo", "contato_cliente"];
 
-// Campos extraídos do comprovante de agendamento pelo extrair-agendamento-pericia.
-interface CamposComprovante {
-  data?: string | null;
-  hora?: string | null;
-  local?: string | null;
-  endereco?: string | null;
-  protocolo?: string | null;
-  servico?: string | null;
-  requerente?: string | null;
-}
-
-// Mesma sanitização de casos.$id/casos.novo (storage não aceita acento/espaço).
-function sanitizeFileName(name: string): string {
-  return name
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/[^a-zA-Z0-9._-]/g, "_");
-}
 
 export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   const aberto = modo !== null;
@@ -213,37 +201,14 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
     setExtraindoComprovante(true);
     setComprovanteDivergente(null);
     try {
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const r = new FileReader();
-        r.onload = () => resolve(String(r.result).split(",")[1] ?? "");
-        r.onerror = () => reject(r.error);
-        r.readAsDataURL(file);
-      });
-      const { data, error } = await supabase.functions.invoke(
-        "extrair-agendamento-pericia",
-        {
-          body: {
-            arquivo: {
-              nome: file.name,
-              mime: file.type || "application/pdf",
-              base64,
-            },
-          },
-        },
-      );
-      if (error) throw error;
-      const campos = (data as { campos?: CamposComprovante | null } | null)?.campos;
+      const campos = await extrairComprovante(file);
       if (!campos) {
         toast.error("Não consegui ler o comprovante — preencha os campos na mão.");
         return;
       }
       // O comprovante é do cliente certo? Nome divergente = arquivo da pessoa
       // errada, o erro clássico. Bloqueia até resolverem.
-      const norm = (s: string) =>
-        s.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
-      const req = norm(campos.requerente ?? "");
-      const cli = norm(ctxCaso?.cliente_nome ?? "");
-      if (req && cli && req !== cli) {
+      if (!mesmoNome(campos.requerente, ctxCaso?.cliente_nome)) {
         setComprovanteDivergente({
           campos,
           file,
@@ -358,7 +323,9 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       servico: ctxCaso.servico || ctxCaso.tipo_beneficio,
       startIso: dueDate ? isoFromInputDateTime(dueDate) : null,
       local: local.trim() || null,
-      protocolo: avisoProtocolo || null,
+      // Sem comprovante, o número vem do processo selecionado no form
+      // (judicial = nº do processo; admin = nº do requerimento).
+      protocolo: avisoProtocolo || ctxCaso.protocolo || null,
       endereco: avisoEndereco || null,
     })
       .then((t) => {
@@ -827,38 +794,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           // numeração dos arquivos já existentes ("25 - …" → "26 - …").
           if (comprovanteFile && casoId) {
             try {
-              const { data: docsExist } = await supabase
-                .from("documentos")
-                .select("nome_arquivo")
-                .eq("caso_id", casoId);
-              let maior = 0;
-              for (const d of docsExist ?? []) {
-                const m = /^(\d+)\s*-/.exec(
-                  (d as { nome_arquivo: string | null }).nome_arquivo ?? "",
-                );
-                if (m) maior = Math.max(maior, parseInt(m[1], 10));
-              }
-              const semNumero = comprovanteFile.name.replace(/^\d+\s*-\s*/, "");
-              const nomeFinal = maior > 0 ? `${maior + 1} - ${semNumero}` : semNumero;
-              const storagePath = `${casoId}/${Date.now()}_${sanitizeFileName(nomeFinal)}`;
-              const up = await supabase.storage
-                .from("documentos")
-                .upload(storagePath, comprovanteFile, {
-                  cacheControl: "3600",
-                  upsert: false,
-                });
-              if (up.error) throw up.error;
-              const ins = await supabase.from("documentos").insert({
-                caso_id: casoId,
-                tipo: "outro",
-                tipo_personalizado: "Comprovante de agendamento de perícia",
-                nome_arquivo: nomeFinal,
-                storage_path: storagePath,
-                tamanho_bytes: comprovanteFile.size,
-                uploaded_by: usuario?.id ?? null,
-                visivel_parceiro: true,
-              });
-              if (ins.error) throw ins.error;
+              await subirComprovanteDocumento(casoId, comprovanteFile, usuario?.id ?? null);
             } catch (e) {
               console.error("upload do comprovante falhou:", e);
               toast.error(
