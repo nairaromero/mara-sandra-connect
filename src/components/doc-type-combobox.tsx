@@ -1,6 +1,7 @@
-// Combobox de tipo de documento.
-// Substitui o Select padrao por um campo com lupa + busca por substring.
-// Tipos definidos pelos consumidores (recebidos via prop `options`).
+// Combobox generico com busca por substring, ignorando acento e caixa.
+// Substitui o Select padrao onde a lista e longa demais pra rolar.
+// Opcoes definidas pelos consumidores (prop `options`). Nasceu pro tipo de
+// documento (dai o nome); hoje tambem busca o cliente/caso no sheet de tarefa.
 import { useState } from "react";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -30,12 +31,26 @@ interface DocTypeComboboxProps {
   onChange: (newValue: string) => void;
   placeholder?: string;
   disabled?: boolean;
+  searchPlaceholder?: string;
+  emptyText?: string;
+}
+
+/** Lowercase + sem acento (mesmo idioma de doc-type-inference). */
+function normalizar(s: string) {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "");
 }
 
 export function DocTypeCombobox(props: DocTypeComboboxProps) {
-  const { options, value, onChange, placeholder, disabled } = props;
+  const { options, value, onChange, placeholder, disabled, searchPlaceholder, emptyText } = props;
   const [open, setOpen] = useState(false);
   const selected = options.find((o) => o.value === value);
+  // O cmdk identifica cada item pelo `value` da opcao (unico por contrato,
+  // mesmo quando dois rotulos repetem — ex.: dois casos "(sem nome)"); na hora
+  // de filtrar, buscamos no rotulo correspondente via este Map.
+  const labelPorValue = new Map(options.map((o) => [o.value, o.label]));
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -59,15 +74,21 @@ export function DocTypeCombobox(props: DocTypeComboboxProps) {
         align="start"
         style={{ width: "var(--radix-popover-trigger-width)" }}
       >
-        <Command>
-          <CommandInput placeholder="Buscar tipo..." />
+        <Command
+          filter={(itemValue, search) =>
+            normalizar(labelPorValue.get(itemValue) ?? itemValue).includes(normalizar(search))
+              ? 1
+              : 0
+          }
+        >
+          <CommandInput placeholder={searchPlaceholder ?? "Buscar tipo..."} />
           <CommandList>
-            <CommandEmpty>Nenhum tipo encontrado.</CommandEmpty>
+            <CommandEmpty>{emptyText ?? "Nenhum tipo encontrado."}</CommandEmpty>
             <CommandGroup>
               {options.map((opt) => (
                 <CommandItem
                   key={opt.value}
-                  value={opt.label}
+                  value={opt.value}
                   onSelect={() => {
                     onChange(opt.value);
                     setOpen(false);

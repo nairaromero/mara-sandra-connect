@@ -9,6 +9,57 @@
 
 ---
 
+## 🔵 Lote atual — reunião de agosto + pedidos diretos (aberto em 2026-08-24)
+
+Em execução item a item, com commits direto na `staging`; a Naira valida em
+staging.marasandraconnect.com e, fechado o lote, faz um único merge `staging → main`.
+Os tempos entre parênteses apontam o trecho da gravação da reunião.
+
+- [x] E-mails ao parceiro + aba do app: "Mara Sandra" → **"Mara Vian Advocacia"**
+      (remetente, título em negrito e assinatura texto dos `notify-*`; título da aba).
+      Ainda em aberto, decidir um a um: assuntos/corpo dos e-mails de auth
+      (`send-email-hook`), digest interno, subtítulo "Plataforma Mara Sandra Connect",
+      imagem do logo e o domínio `noreply@marasandraconnect.com`.
+- [x] Sheet de tarefa: campo Caso virou combobox com busca de cliente
+      (substring, ignorando acento e caixa).
+- [x] Dividir exigência em dois templates: **Exigência INSS × Exigência Judicial**,
+      renomeando as tarefas existentes; texto ao parceiro claro e com prazo (00:50)
+      — feito em 2026-08-24 (`migration_exigencia_inss_judicial.sql`): rótulos/títulos
+      novos daqui pra frente (tarefas abertas ficam como estão); no judicial quem
+      aplica informa o prazo fatal da publicação e a FATAL nasce no dia útil
+      anterior; a solicitação ao parceiro é reescrita em linguagem simples pela
+      edge `mensagem-parceiro-exigencia` (fallback = texto do template); o trigger
+      de "documento entregue" manda pro Meu INSS ou pros autos conforme a origem.
+- [ ] Template de perícia — confirmação de comparecimento; parceiro só é notificado
+      após conferência interna; encaixa no fluxo `/a-enviar` já desenhado (00:46)
+      — **pulado em 2026-08-24**: a Naira não lembra o que foi combinado; rediscutir
+      com a equipe. Estado atual mapeado: template `pericia_parceiro` + widget de
+      comparecimento notificam o parceiro NA HORA; o gap provável é rotear essas
+      comunicações pela fila `/a-enviar` antes de sair.
+- [ ] Template de audiência + modelo de registro de atendimento (00:42, 00:46)
+- [ ] Template de montagem de requerimento (cadastro → montagem → revisão → protocolo) (00:30)
+- [ ] Tarefa automática de acompanhamento de implantação em processo ganho
+      (carta de concessão, histórico de crédito, termo aditivo) (00:35)
+- [ ] Prorrogação de auxílio-doença pela DCB: tarefa criada 15 dias antes do fatal (00:34)
+- [ ] E-mail automático ao cliente confirmando caso em análise, no vínculo do processo
+- [ ] Agenda: ocultar concluídas, destacar eventos, diferenciar tarefa comum × prazo
+      fatal × solicitação de documento, filtro de audiências (00:39, 00:42)
+      — **filtro de Audiências feito em 2026-08-24** (audiência saiu do grupo
+      Perícias e ganhou botão próprio); "ocultar concluídas" já existia (botão
+      "Esconder concluídos"). Restam: destacar eventos importantes e a
+      diferenciação visual comum × fatal × solicitação.
+- [ ] Integração Trello → sistema (+ Drive): importar casos pendentes com e-mail ao
+      parceiro na importação — ninguém move manualmente até existir (01:11)
+- [ ] Integração financeira Banco Asas — boletos, Pix, cartão; conciliação automática
+      a partir de setembro (01:16)
+- [ ] Revisar benefício legado dos clientes — filtro novo existe, dado antigo
+      incompleto (01:03; conversa com o resíduo da migração TI logo abaixo)
+- [ ] Auto-reload quando sai versão nova, pra sumir com o "erro de login" pós-deploy (01:05)
+- [ ] Planejar migração dos logins pro Google Workspace `@advocaciaprev.com`
+      (muda e-mail de auth de todo mundo; planejar junto com a troca de domínio)
+
+---
+
 ## 🔴 Achados da auditoria de 2026-08-15
 
 Coisas que estavam abertas **sem constar em nenhuma lista**. Ordenadas por risco.

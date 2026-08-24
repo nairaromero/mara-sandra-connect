@@ -4,7 +4,8 @@
 // num evento abre o sheet de edição.
 
 import { useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, MapPin } from "lucide-react";
+import { ChevronLeft, ChevronRight, MapPin, Trash2 } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import {
   addMonths,
   startOfMonth,
@@ -28,11 +29,14 @@ interface Props {
   eventos: AgendaEventoComJoins[];
   onEventoClick: (id: string) => void;
   onDiaClick?: (data: Date) => void;
+  // Lixeira nos cards do painel do dia (só eventos de verdade — os
+  // pseudo-eventos de tarefa, id "tarefa:*", se excluem pela tarefa).
+  onEventoExcluir?: (id: string) => void;
 }
 
 const WEEK_LABELS = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
 
-export function AgendaMes({ eventos, onEventoClick, onDiaClick }: Props) {
+export function AgendaMes({ eventos, onEventoClick, onDiaClick, onEventoExcluir }: Props) {
   // Grade e "hoje" seguem o calendário de Brasília: às 7h de Madri ainda é
   // ontem no Brasil, e a perícia não pode pular de célula por causa disso.
   const [refDate, setRefDate] = useState<Date>(() => comoLocalBR(new Date()));
@@ -214,22 +218,53 @@ export function AgendaMes({ eventos, onEventoClick, onDiaClick }: Props) {
           ) : (
             <div className="space-y-2">
               {(eventosPorDia.get(diaSelecionado) ?? []).map((e) => (
-                <button
+                <div
                   key={e.id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => onEventoClick(e.id)}
-                  className="w-full text-left rounded-md border bg-background p-2 hover:bg-muted/30"
+                  onKeyDown={(ev) => {
+                    if (ev.key === "Enter") onEventoClick(e.id);
+                  }}
+                  className="w-full cursor-pointer text-left rounded-md border bg-background p-2 hover:bg-muted/30"
                 >
-                  <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
                     <Badge
                       variant="outline"
                       className={cn("font-normal text-xs", tipoBadge(e).className)}
                     >
                       {tipoBadge(e).label}
                     </Badge>
+                    {onEventoExcluir && !e.id.startsWith("tarefa:") && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                        title="Excluir agendamento"
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          onEventoExcluir(e.id);
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
                   </div>
                   <div className="text-sm font-medium mt-1 break-words">
-                    {e.caso?.cliente?.nome ?? e.titulo}
+                    {e.caso_id ? (
+                      <Link
+                        to="/casos/$id"
+                        params={{ id: e.caso_id }}
+                        className="hover:underline hover:text-[var(--gold)]"
+                        title="Abrir o caso deste cliente"
+                        onClick={(ev) => ev.stopPropagation()}
+                      >
+                        {e.caso?.cliente?.nome ?? e.titulo}
+                      </Link>
+                    ) : (
+                      e.caso?.cliente?.nome ?? e.titulo
+                    )}
                   </div>
                   {e.local && (
                     <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
@@ -239,7 +274,7 @@ export function AgendaMes({ eventos, onEventoClick, onDiaClick }: Props) {
                       </span>
                     </div>
                   )}
-                </button>
+                </div>
               ))}
             </div>
           )}

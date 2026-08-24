@@ -15,7 +15,6 @@ import {
   Handshake,
   Briefcase,
   MessagesSquare,
-  Send,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import {
@@ -47,7 +46,6 @@ const itemsBase = [
 const itemsInternosTopo = [
   { title: "Tarefas", url: "/tarefas", icon: ListTodo },
   { title: "Agenda", url: "/agenda", icon: Calendar },
-  { title: "A enviar", url: "/a-enviar", icon: Send },
 ];
 
 // Parceiro: /agenda renderiza a visao restrita (so pericias dos casos dele).
@@ -213,67 +211,9 @@ export function AppSidebar() {
     };
   }, [meuId]);
 
-  // Badge de rascunhos a enviar (avisos de perícia gerados aguardando a equipe
-  // revisar e enviar ao parceiro). Só interno tem rascunho (RLS). Mesmo padrão:
-  // poll + tempo real em comentarios + evento msc:rascunhos-mudou ao enviar.
-  const [rascunhoBadge, setRascunhoBadge] = useState(0);
-  useEffect(() => {
-    if (!isInterno) {
-      setRascunhoBadge(0);
-      return;
-    }
-    let vivo = true;
-    async function calc() {
-      // Mesmo critério da tela /a-enviar: dono = responsável da tarefa
-      // "Avisar cliente da perícia" do caso; sem essa tarefa, conta pra todos.
-      const { data: rasc } = await supabase
-        .from("comentarios")
-        .select("id, caso_id")
-        .eq("rascunho", true);
-      const linhas = (rasc || []) as Array<{ id: string; caso_id: string }>;
-      if (linhas.length === 0) {
-        if (vivo) setRascunhoBadge(0);
-        return;
-      }
-      const casoIds = [...new Set(linhas.map((r) => r.caso_id).filter(Boolean))];
-      const { data: tars } = await supabase
-        .from("tarefas")
-        .select("caso_id, responsavel_id, created_at")
-        .in("caso_id", casoIds)
-        .ilike("titulo", "Avisar cliente da perícia%")
-        .order("created_at", { ascending: false });
-      const respPorCaso: Record<string, string | null> = {};
-      for (const t of (tars || []) as Array<{ caso_id: string; responsavel_id: string | null }>) {
-        if (!(t.caso_id in respPorCaso)) respPorCaso[t.caso_id] = t.responsavel_id;
-      }
-      const meus = linhas.filter((r) => {
-        const resp = respPorCaso[r.caso_id];
-        return resp == null || resp === usuario?.id;
-      });
-      if (vivo) setRascunhoBadge(meus.length);
-    }
-    calc();
-    const t = setInterval(calc, 60000);
-    const canal = supabase
-      .channel("sidebar-rascunhos")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "comentarios" },
-        () => calc(),
-      )
-      .subscribe();
-    if (typeof window !== "undefined") {
-      window.addEventListener("msc:rascunhos-mudou", calc);
-    }
-    return () => {
-      vivo = false;
-      clearInterval(t);
-      supabase.removeChannel(canal);
-      if (typeof window !== "undefined") {
-        window.removeEventListener("msc:rascunhos-mudou", calc);
-      }
-    };
-  }, [isInterno, usuario?.id]);
+  // A antiga fila "A enviar" (rascunhos de aviso de perícia) aposentou em
+  // 2026-08-24: o aviso sai direto no agendamento e o que sobra vira tarefa
+  // "Enviar aviso ao parceiro" — o badge de rascunhos foi junto.
 
   return (
     <Sidebar collapsible="icon">
@@ -325,9 +265,7 @@ export function AppSidebar() {
                       ? docBadge
                       : item.url === "/conversas"
                         ? conversasBadge
-                        : item.url === "/a-enviar"
-                          ? rascunhoBadge
-                          : 0;
+                        : 0;
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>

@@ -131,6 +131,10 @@ export interface PlaceholderContext {
   status_assunto?: string;
   // Nome de quem está aplicando o template (ausência da equipe, por ex.).
   nome_usuario?: string;
+  // Número do processo judicial vinculado (Exigência Judicial).
+  processo?: string;
+  // Prazo fatal informado no form, já formatado DD/MM/AAAA.
+  prazo_fatal?: string;
 }
 
 /**
@@ -151,6 +155,8 @@ export function substituirPlaceholders(
     despacho: ctx.despacho ?? "",
     status_assunto: ctx.status_assunto ?? "",
     nome_usuario: ctx.nome_usuario ?? "",
+    processo: ctx.processo ?? "",
+    prazo_fatal: ctx.prazo_fatal ?? "",
   };
   let out = texto.replace(/\{(\w+)\}/g, (_, key: string) => mapa[key] ?? "");
 
@@ -158,8 +164,11 @@ export function substituirPlaceholders(
   // Ex: "Despacho:\n" sozinho no fim, ou "Serviço: ." → "Serviço: ."
   out = out
     .replace(/\n*Despacho:\s*\n*\s*$/i, "")
+    .replace(/\n*Trecho da publicação:\s*\n*\s*$/i, "")
     .replace(/\n*Serviço:\s*\.\s*$/i, ".")
     .replace(/Requerimento\s+\./g, "(sem requerimento).")
+    .replace(/processo\s+\./gi, "processo.")
+    .replace(/Prazo fatal:\s*\.\s*/g, "")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();

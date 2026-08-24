@@ -145,3 +145,12 @@ supabase-js vive em localStorage):
   `waitForTimeout`.
 - Verificação forte: depois do fluxo de UI, conferir o efeito no banco com o
   client admin (ver specs existentes).
+
+## Filme de demonstração (demo/)
+
+Diferente da suíte (validação técnica), `e2e/demo/` grava o **filme de
+apresentação** de uma feature — ritmo humano, cursor deslizando, atos por
+papel (equipe → parceiro → equipe), dados de cena verossímeis e limpeza total.
+Ritual completo na skill do Claude: `.claude/skills/video-demo/SKILL.md`.
+Rodar: `node e2e/demo/roteiros/<roteiro>.cjs` (saída em `e2e/demo/saida/`,
+gitignorada — vídeo nunca entra no repo).

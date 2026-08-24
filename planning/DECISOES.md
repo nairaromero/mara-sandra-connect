@@ -283,13 +283,27 @@ risco teórico.
 - **O que custou.** Feature só é visível depois de mergeada na `staging`; quem
   precisa ver antes roda local. Um projeto a mais pra manter.
 
-### D17 · `staging → main` por squash; realinhar por reset (2026-08-22)
+### D17 · `staging → main` por merge commit, sem comandos destrutivos (2026-08-22 → revisto 2026-08-23)
 
-- **Decisão.** Cada lote vira **um** commit na `main` (revert = `git revert
-  <sha>`). Depois, `staging` é realinhada com `git reset --hard origin/main` +
-  push `--force-with-lease` — não com `git merge main`, que mantém os commits
-  órfãos e infla o PR seguinte (chegou a 59 commits listados pra 14 arquivos).
-- **O que custou.** Um force-push por lote, numa branch compartilhada.
+- **Contexto.** Em 22/08 o lote passou a ir pra `main` por **squash** (um
+  commit, revert simples). Squash descarta a história da `staging`; pra ela
+  não divergir, era preciso `reset --hard` + `push --force-with-lease` depois
+  de cada lote. Sem isso, o PR seguinte listava os commits antigos (chegou a
+  59 commits pra 14 arquivos).
+- **Opções.** (a) Squash + reset/force após cada lote; (b) squash + realinhar
+  por merge, aceitando o ruído no PR; (c) **merge commit** em `staging → main`:
+  a `main` passa a conter a história da `staging`, nada diverge, nada precisa
+  ser reescrito.
+- **Decisão (23/08).** (c). E uma regra explícita: **nenhum comando git
+  destrutivo** no repo — sem `reset --hard`, `push --force` ou
+  `--force-with-lease`, nem em branch própria; erro já pushado se corrige com
+  commit por cima.
+- **O que pesou.** Branch compartilhada reescrita é o tipo de operação que
+  apaga trabalho sem aviso; o Yuri pediu que isso ficasse fora do fluxo. O
+  preço do merge commit (revert de lote vira `git revert -m 1 <sha>`, história
+  com merges) é pequeno perto disso.
+- **O que custou.** A história da `main` deixa de ser "um commit por lote".
+  Revert exige o `-m 1`.
 
 ### D18 · Contas de staging por papel (2026-08-23)
 

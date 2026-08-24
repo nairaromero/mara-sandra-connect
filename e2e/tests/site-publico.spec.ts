@@ -34,6 +34,25 @@ test.describe("site institucional (publico)", () => {
     await expect(page.locator('meta[property="og:type"]')).toHaveAttribute("content", "website");
   });
 
+  test("fontes Inter e Cormorant Garamond carregam de verdade (issue #199)", async ({ page }) => {
+    // Regressao: o @import no CSS era descartado pelo Tailwind v4 e todo mundo
+    // via o fallback (system-ui / Georgia). Agora vai por <link> no head.
+    await page.goto("/");
+    await expect(page.locator('link[rel="stylesheet"][href*="fonts.googleapis.com"]')).toHaveCount(1);
+
+    // O browser precisa ter BAIXADO as faces — nao basta a regra existir.
+    const carregadas = await page.evaluate(async () => {
+      const fonts = (document as Document & { fonts: FontFaceSet }).fonts;
+      await fonts.ready;
+      await Promise.all([fonts.load('16px "Inter"'), fonts.load('16px "Cormorant Garamond"')]);
+      return [...fonts]
+        .filter((f) => f.status === "loaded")
+        .map((f) => f.family.replace(/"/g, ""));
+    });
+    expect(carregadas).toContain("Inter");
+    expect(carregadas).toContain("Cormorant Garamond");
+  });
+
   test("navegacao e o formulario dos dois publicos existem", async ({ page }) => {
     await cursorVisivel(page);
     await page.goto("/");

@@ -42,6 +42,53 @@ export function proximoDiaUtil(d: Date): Date {
 }
 
 /**
+ * Fatal de prazo processual em dias ÚTEIS (CPC art. 224): exclui o dia da
+ * publicação, conta a partir do dia útil seguinte; o N-ésimo dia útil é o
+ * fatal. Feriados NÃO são descontados — quem aplica confere o resultado
+ * (ficar aquém do fatal real é o erro seguro; passar dele, nunca).
+ * Datas como "aaaa-mm-dd" — aritmética de calendário puro, sem fuso.
+ */
+export function fatalPorDiasUteis(
+  publicadoEm: string,
+  diasUteis: number,
+): string | null {
+  const [y, m, d] = publicadoEm.split("-").map(Number);
+  if (!y || !m || !d || !Number.isInteger(diasUteis) || diasUteis <= 0) return null;
+  const data = new Date(y, m - 1, d);
+  let restantes = diasUteis;
+  while (restantes > 0) {
+    data.setDate(data.getDate() + 1);
+    const dow = data.getDay(); // 0=dom, 6=sáb
+    if (dow !== 0 && dow !== 6) restantes--;
+  }
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${data.getFullYear()}-${pad(data.getMonth() + 1)}-${pad(data.getDate())}`;
+}
+
+/**
+ * Due de tarefa ancorada no PRAZO FATAL informado no form (ex.: template
+ * Exigência Judicial): fatal + offset_dias (offset -1 = regra da casa,
+ * vencer um dia antes do fatal), às 09:00 de Brasília. Se cair em fim de
+ * semana, RECUA pra sexta — o par do proximoDiaUtil empurra pra frente,
+ * o que aqui seria perder o prazo.
+ */
+export function dueAtDoPrazoFatal(
+  fatalDia: string, // "aaaa-mm-dd" (input type=date)
+  offsetDias: number | undefined,
+): string | null {
+  const [y, m, d] = fatalDia.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  const local = comoLocalBR(new Date());
+  local.setFullYear(y, m - 1, d);
+  local.setHours(9, 0, 0, 0);
+  local.setDate(local.getDate() + (offsetDias ?? 0));
+  const dow = local.getDay(); // 0=dom, 6=sáb
+  if (dow === 6) local.setDate(local.getDate() - 1);
+  else if (dow === 0) local.setDate(local.getDate() - 2);
+  return deLocalBR(local).toISOString();
+}
+
+/**
  * Calcula due_at de uma tarefa-extra em template misto, dado o
  * start do agenda_evento e a configuração do item.
  */

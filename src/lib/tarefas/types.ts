@@ -85,8 +85,16 @@ export interface TarefaTemplateItem {
   offset_dias?: number;
   // Âncora de prazo (tarefas): "hoje" (default), "data_cessacao" (do e-mail),
   // "agenda" (start_at do evento criado no mesmo apply),
-  // "sexta_antes_agenda" (sexta-feira anterior ao agenda).
-  due_relative_to?: "hoje" | "data_cessacao" | "agenda" | "sexta_antes_agenda";
+  // "sexta_antes_agenda" (sexta-feira anterior ao agenda),
+  // "prazo_fatal" (data informada no form ao aplicar — ex.: Exigência
+  // Judicial; offset_dias conta a partir dela e fim de semana recua pra
+  // sexta, nunca avança — atrasar prazo fatal é perder o prazo).
+  due_relative_to?:
+    | "hoje"
+    | "data_cessacao"
+    | "agenda"
+    | "sexta_antes_agenda"
+    | "prazo_fatal";
   // Apenas itens destino=agenda
   duracao_min?: number;
   // Apenas itens destino=agenda: template que NÃO depende de caso (ex.:

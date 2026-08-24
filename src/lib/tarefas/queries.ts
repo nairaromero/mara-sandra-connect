@@ -248,6 +248,10 @@ export interface ContextoCasoParaTemplate {
   protocolo: string;
   servico: string;
   numero_processo_judicial: string;
+  // Pro aviso automático ao parceiro (perícia/audiência): sem parceiro no
+  // caso, não há a quem avisar.
+  parceiro_id: string | null;
+  tipo_beneficio: string;
 }
 
 /**
@@ -265,13 +269,17 @@ export async function obterContextoCaso(
     protocolo: "",
     servico: "",
     numero_processo_judicial: "",
+    parceiro_id: null,
+    tipo_beneficio: "",
   };
 
   const { data: caso } = await supabase
     .from("casos")
-    .select("cliente_id")
+    .select("cliente_id, parceiro_id, tipo_beneficio")
     .eq("id", casoId)
     .maybeSingle();
+  ctx.parceiro_id = (caso?.parceiro_id as string | null) ?? null;
+  ctx.tipo_beneficio = (caso?.tipo_beneficio as string | null) ?? "";
   if (caso?.cliente_id) {
     const { data: cliente } = await supabase
       .from("clientes")

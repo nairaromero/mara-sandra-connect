@@ -353,7 +353,7 @@ não UTC — foi a causa de deslocamento de 3h nas perícias migradas do TI.
 | 13 | Saída de **WhatsApp pausada** (Evolution em `HTTP 500`; trigger desabilitado) | 2026-08-21 |
 | 14 | **Scaffold da Lovable removido** — preset do Vite substituído por config própria | 2026-08-21 |
 | 15 | Staging como **worker separado** em staging.marasandraconnect.com; preview de PR abandonada | 2026-08-22 |
-| 16 | `staging → main` por **squash**; realinhar por reset | 2026-08-22 |
+| 16 | `staging → main` por **merge commit** (era squash em 22/08); **sem comandos git destrutivos** | 2026-08-23 |
 | 17 | Sessão morta: **401 tratado num ponto só** (fetch do supabase-js) | 2026-08-22 |
 | 18 | Espelho lê produção com **role só-leitura** + travas antes de truncar | 2026-08-23 |
 | 19 | **Contas de staging por papel** (admin/interno/parceiro) | 2026-08-23 |

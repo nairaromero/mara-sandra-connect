@@ -2,12 +2,13 @@
 // (Minhas hoje) e na tab Tarefas do caso. "Aplicar template" só aparece
 // quando há caso selecionado.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Loader2, Trash2, ExternalLink, AlarmClock } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { DocTypeCombobox } from "@/components/doc-type-combobox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -35,7 +36,10 @@ import {
   listarProcessosDoCaso,
   listarTemplates,
   obterContextoCaso,
+  type ContextoCasoParaTemplate,
 } from "@/lib/tarefas/queries";
+import { enviarAvisoEvento, montarTextoAvisoEvento } from "@/lib/agenda/aviso";
+import { AvisoParceiroEvento } from "@/components/agenda/aviso-parceiro-evento";
 import {
   PRIORIDADE_LABEL,
   STATUS_LABEL,
@@ -48,9 +52,13 @@ import {
   type TarefaTemplateRow,
   type TarefaTipo,
 } from "@/lib/tarefas/types";
-import { criarEvento } from "@/lib/agenda/queries";
+import { buscarEventoMesmoDia, criarEvento } from "@/lib/agenda/queries";
 import type { AgendaTipo } from "@/lib/agenda/types";
-import { calcularDueAtRelativo } from "@/lib/agenda/helpers";
+import {
+  calcularDueAtRelativo,
+  dueAtDoPrazoFatal,
+  fatalPorDiasUteis,
+} from "@/lib/agenda/helpers";
 import {
   descreverAutoriaStatus,
   formatarDataHoraCurtaBR,
@@ -75,6 +83,7 @@ import { AcompanhamentoPericia } from "@/components/tarefas/acompanhamento-peric
 import { AcompanhamentoImplementacao } from "@/components/tarefas/acompanhamento-implementacao";
 import { MontagemInicial } from "@/components/tarefas/montagem-inicial";
 import { ComparecimentoPericia } from "@/components/tarefas/comparecimento-pericia";
+import { EnviarAvisoParceiro } from "@/components/tarefas/enviar-aviso-parceiro";
 import { EtapaCumprimentoExigencia } from "@/components/tarefas/etapa-cumprimento-exigencia";
 import { EtapaProtocoloRealizado } from "@/components/tarefas/etapa-protocolo-realizado";
 import { useDestaque } from "@/lib/destaque/destaque-context";
@@ -100,6 +109,25 @@ interface Props {
 }
 
 const TIPOS: TarefaTipo[] = ["interna", "prazo", "pericia", "pos_protocolo", "contato_cliente"];
+
+// Campos extraídos do comprovante de agendamento pelo extrair-agendamento-pericia.
+interface CamposComprovante {
+  data?: string | null;
+  hora?: string | null;
+  local?: string | null;
+  endereco?: string | null;
+  protocolo?: string | null;
+  servico?: string | null;
+  requerente?: string | null;
+}
+
+// Mesma sanitização de casos.$id/casos.novo (storage não aceita acento/espaço).
+function sanitizeFileName(name: string): string {
+  return name
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-zA-Z0-9._-]/g, "_");
+}
 
 export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   const aberto = modo !== null;
@@ -131,6 +159,116 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   // INSS com os documentos pedidos — vai pra descrição da solicitação,
   // substituindo o placeholder {despacho} no template.
   const [docsExigencia, setDocsExigencia] = useState<string>("");
+  // Prazo fatal informado ao aplicar template com item ancorado em
+  // due_relative_to="prazo_fatal" (Exigência Judicial): "aaaa-mm-dd".
+  const [prazoFatal, setPrazoFatal] = useState<string>("");
+  // Calculadora do fatal: data da publicação + prazo em dias úteis
+  // (5/10/15/outro). Preenche prazoFatal, que segue editável — feriado não
+  // é descontado, quem aplica confere.
+  const [pubData, setPubData] = useState<string>("");
+  const [prazoDias, setPrazoDias] = useState<string>("");
+  const [prazoDiasCustom, setPrazoDiasCustom] = useState<string>("");
+
+  const recalcularFatal = (pub: string, diasStr: string, custom: string) => {
+    const dias = parseInt(diasStr === "outro" ? custom : diasStr, 10);
+    if (!pub || !Number.isInteger(dias) || dias <= 0) return;
+    const fatal = fatalPorDiasUteis(pub, dias);
+    if (fatal) setPrazoFatal(fatal);
+  };
+
+  // Aviso ao parceiro embutido no agendamento por template de agenda
+  // (perícia/audiência) — mesma mecânica do AgendaSheet.
+  const [ctxCaso, setCtxCaso] = useState<ContextoCasoParaTemplate | null>(null);
+  const [avisoAtivo, setAvisoAtivo] = useState(true);
+  const [avisoTexto, setAvisoTexto] = useState("");
+  const [avisoEditado, setAvisoEditado] = useState(false);
+  // Comprovante de agendamento (Meu INSS): a IA lê o PDF/foto e preenche
+  // data/local/protocolo/endereço; no salvar, o arquivo sobe pros Documentos
+  // do caso seguindo a numeração dos arquivos existentes ("26 - …").
+  const [comprovanteFile, setComprovanteFile] = useState<File | null>(null);
+  const [extraindoComprovante, setExtraindoComprovante] = useState(false);
+  const [avisoProtocolo, setAvisoProtocolo] = useState<string>("");
+  const [avisoEndereco, setAvisoEndereco] = useState<string>("");
+  // Comprovante de OUTRA pessoa: nada é preenchido e o salvar fica BLOQUEADO
+  // até a pessoa confirmar explicitamente que é o mesmo cliente ou anexar o
+  // arquivo certo (pedido da Naira — aviso solto passava batido).
+  const [comprovanteDivergente, setComprovanteDivergente] = useState<{
+    campos: CamposComprovante;
+    file: File;
+    requerente: string;
+  } | null>(null);
+
+  function aplicarComprovante(campos: CamposComprovante, file: File) {
+    if (campos.data) {
+      setDueDate(`${campos.data}T${campos.hora || "09:00"}`);
+    }
+    if (campos.local) setLocal(campos.local);
+    setAvisoProtocolo(campos.protocolo ?? "");
+    setAvisoEndereco(campos.endereco ?? "");
+    setAvisoEditado(false); // regenera o aviso com os dados do comprovante
+    setComprovanteFile(file);
+  }
+
+  async function lerComprovante(file: File) {
+    setExtraindoComprovante(true);
+    setComprovanteDivergente(null);
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result).split(",")[1] ?? "");
+        r.onerror = () => reject(r.error);
+        r.readAsDataURL(file);
+      });
+      const { data, error } = await supabase.functions.invoke(
+        "extrair-agendamento-pericia",
+        {
+          body: {
+            arquivo: {
+              nome: file.name,
+              mime: file.type || "application/pdf",
+              base64,
+            },
+          },
+        },
+      );
+      if (error) throw error;
+      const campos = (data as { campos?: CamposComprovante | null } | null)?.campos;
+      if (!campos) {
+        toast.error("Não consegui ler o comprovante — preencha os campos na mão.");
+        return;
+      }
+      // O comprovante é do cliente certo? Nome divergente = arquivo da pessoa
+      // errada, o erro clássico. Bloqueia até resolverem.
+      const norm = (s: string) =>
+        s.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
+      const req = norm(campos.requerente ?? "");
+      const cli = norm(ctxCaso?.cliente_nome ?? "");
+      if (req && cli && req !== cli) {
+        setComprovanteDivergente({
+          campos,
+          file,
+          requerente: campos.requerente ?? "",
+        });
+        return;
+      }
+      aplicarComprovante(campos, file);
+      // Comprovante velho: perícia com data já passada some da lista de
+      // Ativos e parece que o agendamento "não funcionou".
+      if (campos.data && campos.data < new Date().toISOString().slice(0, 10)) {
+        const [a, m, d] = campos.data.split("-");
+        toast.warning(
+          `Atenção: a perícia deste comprovante é de ${d}/${m}/${a} — data que JÁ PASSOU. Confira se o arquivo é o atual.`,
+        );
+      } else {
+        toast.success("Comprovante lido — confira os campos preenchidos.");
+      }
+    } catch (e) {
+      console.error("extrair comprovante falhou:", e);
+      toast.error("Falha ao ler o comprovante. Preencha os campos na mão.");
+    } finally {
+      setExtraindoComprovante(false);
+    }
+  }
 
   const [casos, setCasos] = useState<Array<{ id: string; cliente_nome: string | null }>>([]);
   const [internos, setInternos] = useState<
@@ -149,6 +287,10 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   const [salvando, setSalvando] = useState(false);
   // Diálogo de adiamento de prazo fatal: exige justificativa antes de salvar.
   const [confirmandoAdiamento, setConfirmandoAdiamento] = useState(false);
+  // Avisos do agendamento (data passada / perícia duplicada) num AlertDialog;
+  // a ref pula as checagens UMA vez quando a pessoa manda seguir.
+  const [avisosAgenda, setAvisosAgenda] = useState<string[] | null>(null);
+  const ignorarAvisosAgenda = useRef(false);
   const [justificativa, setJustificativa] = useState("");
   const [excluindo, setExcluindo] = useState(false);
 
@@ -166,6 +308,68 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
         .find((t) => t.nome === templateSelecionado)
         ?.itens.some((i) => i.destino === "solicitacao_documento") ?? false
     : false;
+
+  // Template atual tem item ancorado no prazo fatal (Exigência Judicial)?
+  // Se sim, o form mostra o campo de data do fatal — obrigatório no salvar.
+  const templateTemPrazoFatalForm = templateSelecionado
+    ? templates
+        .find((t) => t.nome === templateSelecionado)
+        ?.itens.some((i) => i.due_relative_to === "prazo_fatal") ?? false
+    : false;
+
+  const agendaTipoDoTemplate = templateAgenda
+    ? ((templateAgenda.itens.find((i) => i.destino === "agenda")?.tipo ?? "") as string)
+    : "";
+  const avisoAplicavel =
+    !editando &&
+    (agendaTipoDoTemplate === "pericia" || agendaTipoDoTemplate === "audiencia") &&
+    !!casoId &&
+    !!ctxCaso?.parceiro_id;
+
+  // Contexto do caso (parceiro, nomes) pro aviso — atualiza quando muda o caso.
+  useEffect(() => {
+    if (!casoId) {
+      setCtxCaso(null);
+      return;
+    }
+    let cancelado = false;
+    obterContextoCaso(casoId, processoToken)
+      .then((c) => {
+        if (!cancelado) setCtxCaso(c);
+      })
+      .catch(() => {});
+    return () => {
+      cancelado = true;
+    };
+  }, [casoId, processoToken]);
+
+  // Texto padrão do aviso — regenera até a pessoa editar na mão.
+  useEffect(() => {
+    if (!avisoAplicavel || avisoEditado || !ctxCaso) return;
+    const natureza: "admin" | "judicial" =
+      templateSelecionado === "pericia_judicial" || processoToken.startsWith("judicial:")
+        ? "judicial"
+        : "admin";
+    let cancelado = false;
+    montarTextoAvisoEvento({
+      tipo: agendaTipoDoTemplate === "audiencia" ? "audiencia" : "pericia",
+      natureza,
+      cliente: ctxCaso.cliente_nome,
+      servico: ctxCaso.servico || ctxCaso.tipo_beneficio,
+      startIso: dueDate ? isoFromInputDateTime(dueDate) : null,
+      local: local.trim() || null,
+      protocolo: avisoProtocolo || null,
+      endereco: avisoEndereco || null,
+    })
+      .then((t) => {
+        if (!cancelado) setAvisoTexto(t);
+      })
+      .catch(() => {});
+    return () => {
+      cancelado = true;
+    };
+     
+  }, [avisoAplicavel, avisoEditado, ctxCaso, agendaTipoDoTemplate, dueDate, local, templateSelecionado, processoToken, avisoProtocolo, avisoEndereco]);
 
   // Carrega listas auxiliares uma vez (ao abrir).
   useEffect(() => {
@@ -223,6 +427,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
         protocolo: ctx.protocolo,
         cpf: ctx.cliente_cpf,
         servico: ctx.servico,
+        processo: ctx.numero_processo_judicial,
       };
       setTitulo(substituirPlaceholders(main.titulo, ph));
       setDescricao(substituirPlaceholders(main.descricao ?? "", ph));
@@ -289,6 +494,26 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       setDueDate("");
       setLocal("");
       setDocsExigencia("");
+      setPrazoFatal("");
+      {
+        // "Publicado em" já nasce com hoje — o comum é processar a
+        // publicação no dia em que ela sai no Legalmail.
+        const hoje = new Date();
+        const pad = (n: number) => String(n).padStart(2, "0");
+        setPubData(`${hoje.getFullYear()}-${pad(hoje.getMonth() + 1)}-${pad(hoje.getDate())}`);
+      }
+      setPrazoDias("");
+      setPrazoDiasCustom("");
+      setAvisoAtivo(true);
+      setAvisoTexto("");
+      setAvisoEditado(false);
+      setComprovanteFile(null);
+      setExtraindoComprovante(false);
+      setComprovanteDivergente(null);
+      setAvisoProtocolo("");
+      setAvisoEndereco("");
+      setAvisosAgenda(null);
+      ignorarAvisosAgenda.current = false;
       setPericiaEvento(true);
       setExtrasResp([]);
       setTemplateSelecionado(modo.templateInicial ?? "");
@@ -457,6 +682,23 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
         ) ?? null;
         const mainItem = agendaItem ?? primeiroTarefa ?? tplItens[0] ?? null;
 
+        // Template ancorado no prazo fatal (Exigência Judicial) não sai sem a
+        // data — o FATAL derivaria de nada.
+        if (templateTemPrazoFatalForm && !prazoFatal) {
+          toast.error("Informe o prazo fatal da publicação.");
+          setSalvando(false);
+          return;
+        }
+
+        // Comprovante de outra pessoa pendente de decisão: não deixa salvar.
+        if (comprovanteDivergente) {
+          toast.error(
+            "O comprovante anexado é de outra pessoa. Confirme que é o mesmo cliente ou anexe o arquivo certo.",
+          );
+          setSalvando(false);
+          return;
+        }
+
         // Contexto pra substituir placeholders e lookup de e-mail→uuid
         // (compartilhado entre main + extras).
         const ctx = casoId ? await obterContextoCaso(casoId, processoToken) : null;
@@ -474,6 +716,9 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           // (docsExigencia). No fluxo automático INSS, o edge function
           // popula despacho com o trecho extraído do e-mail.
           despacho: docsExigencia.trim(),
+          processo: ctx?.numero_processo_judicial ?? "",
+          // Formata direto da string do input (sem passar por Date — fuso).
+          prazo_fatal: prazoFatal ? prazoFatal.split("-").reverse().join("/") : "",
         };
         const emailParaId = new Map<string, string>();
         for (const u of internos) {
@@ -493,6 +738,56 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           agendaStart = new Date(startIso);
           const dur = agendaItem.duracao_min ?? 60;
           const endIso = new Date(agendaStart.getTime() + dur * 60_000).toISOString();
+
+          // Guardas do agendamento (data passada / duplicado), num diálogo do
+          // app — o confirm nativo não aparece em vídeo nem combina com o
+          // resto da UI. "Agendar mesmo assim" rechama salvar() pulando as
+          // checagens UMA vez (a ref é consumida logo abaixo).
+          const pularAvisos = ignorarAvisosAgenda.current;
+          ignorarAvisosAgenda.current = false;
+          if (!pularAvisos) {
+            const avisos: string[] = [];
+            if (agendaStart.getTime() < Date.now()) {
+              const quando = agendaStart.toLocaleString("pt-BR", {
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+                timeZone: "America/Sao_Paulo",
+              });
+              avisos.push(
+                `A data do agendamento (${quando}) JÁ PASSOU — o evento vai direto pra aba Arquivados.`,
+              );
+            }
+            if (casoId) {
+              const jaExiste = await buscarEventoMesmoDia(
+                casoId,
+                ((agendaItem.tipo as AgendaTipo) || "pericia"),
+                startIso,
+              );
+              if (jaExiste) {
+                const hora = new Date(jaExiste.start_at).toLocaleTimeString("pt-BR", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  timeZone: "America/Sao_Paulo",
+                });
+                const rotuloEv =
+                  (agendaItem.tipo as string) === "audiencia" ? "audiência" : "perícia";
+                avisos.push(
+                  `Este cliente já tem ${rotuloEv} marcada neste dia (às ${hora}).`,
+                );
+              }
+            }
+            if (avisos.length > 0) {
+              setAvisosAgenda(avisos);
+              setSalvando(false);
+              return;
+            }
+          }
+          // Aviso direto marcado ANTES do insert: o trigger só cria a tarefa
+          // "Enviar aviso ao parceiro" quando a flag falta.
+          const enviaAviso = avisoAplicavel && avisoAtivo && !!avisoTexto.trim();
           const novoEvento = await criarEvento({
             tipo: (agendaItem.tipo as AgendaTipo) || "pericia",
             titulo: titulo.trim(),
@@ -504,8 +799,73 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
             responsavel_id: responsavelId,
             processo_admin_id: proc.processo_admin_id,
             processo_judicial_id: proc.processo_judicial_id,
+            ...(enviaAviso ? { metadata: { aviso_direto: true } } : {}),
           });
           marcarDestaque(novoEvento.id);
+
+          if (enviaAviso && casoId) {
+            try {
+              await enviarAvisoEvento({
+                casoId,
+                eventoId: novoEvento.id,
+                tipoAviso:
+                  (agendaItem.tipo as string) === "audiencia"
+                    ? "audiencia_aviso"
+                    : "pericia_aviso",
+                texto: avisoTexto.trim(),
+                autorId: usuario?.id ?? null,
+              });
+            } catch (e) {
+              console.error("aviso ao parceiro falhou:", e);
+              toast.error(
+                "Evento criado, mas o aviso ao parceiro FALHOU — envie manualmente pelos Comentários do caso.",
+              );
+            }
+          }
+
+          // Comprovante lido sobe pros Documentos do caso, seguindo a
+          // numeração dos arquivos já existentes ("25 - …" → "26 - …").
+          if (comprovanteFile && casoId) {
+            try {
+              const { data: docsExist } = await supabase
+                .from("documentos")
+                .select("nome_arquivo")
+                .eq("caso_id", casoId);
+              let maior = 0;
+              for (const d of docsExist ?? []) {
+                const m = /^(\d+)\s*-/.exec(
+                  (d as { nome_arquivo: string | null }).nome_arquivo ?? "",
+                );
+                if (m) maior = Math.max(maior, parseInt(m[1], 10));
+              }
+              const semNumero = comprovanteFile.name.replace(/^\d+\s*-\s*/, "");
+              const nomeFinal = maior > 0 ? `${maior + 1} - ${semNumero}` : semNumero;
+              const storagePath = `${casoId}/${Date.now()}_${sanitizeFileName(nomeFinal)}`;
+              const up = await supabase.storage
+                .from("documentos")
+                .upload(storagePath, comprovanteFile, {
+                  cacheControl: "3600",
+                  upsert: false,
+                });
+              if (up.error) throw up.error;
+              const ins = await supabase.from("documentos").insert({
+                caso_id: casoId,
+                tipo: "outro",
+                tipo_personalizado: "Comprovante de agendamento de perícia",
+                nome_arquivo: nomeFinal,
+                storage_path: storagePath,
+                tamanho_bytes: comprovanteFile.size,
+                uploaded_by: usuario?.id ?? null,
+                visivel_parceiro: true,
+              });
+              if (ins.error) throw ins.error;
+            } catch (e) {
+              console.error("upload do comprovante falhou:", e);
+              toast.error(
+                "Perícia criada, mas o upload do comprovante falhou — anexe manualmente em Documentos.",
+              );
+            }
+          }
         } else {
           // Comportamento clássico: form cria tarefa principal.
           const firstMeta = (mainItem?.meta ?? {}) as Record<string, unknown>;
@@ -585,12 +945,44 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
             if (item.destino === "solicitacao_documento" && casoId) {
               const tituloSub = substituirPlaceholders(item.titulo, ph);
               const descSub = substituirPlaceholders(item.descricao ?? "", ph);
+              // Exigência judicial: a IA reescreve o trecho da publicação em
+              // linguagem simples pro parceiro (mesma ideia do fluxo automático
+              // do INSS). IA fora do ar ou sem chave → segue o texto do
+              // template — nunca bloqueia a aplicação.
+              let descricaoSolic = descSub || tituloSub;
+              if (
+                (item.meta as { mensagem_ia?: string } | undefined)?.mensagem_ia ===
+                  "exigencia_judicial" &&
+                docsExigencia.trim()
+              ) {
+                try {
+                  const { data: ia } = await supabase.functions.invoke(
+                    "mensagem-parceiro-exigencia",
+                    {
+                      body: {
+                        tipo: "judicial",
+                        despacho: docsExigencia.trim(),
+                        prazo_fatal: prazoFatal || null,
+                        nome_cliente: ctx?.cliente_nome ?? null,
+                      },
+                    },
+                  );
+                  const msg = (ia as { mensagem?: string | null } | null)?.mensagem;
+                  if (msg && msg.trim().length >= 40) {
+                    descricaoSolic = msg.trim();
+                  } else {
+                    toast.info("IA indisponível — a solicitação saiu com o texto padrão.");
+                  }
+                } catch {
+                  toast.info("IA indisponível — a solicitação saiu com o texto padrão.");
+                }
+              }
               const { data: solic, error: errSolic } = await supabase
                 .from("solicitacoes_documento")
                 .insert({
                   caso_id: casoId,
                   tipo: (item.tipo as string) || "outro",
-                  descricao: descSub || tituloSub,
+                  descricao: descricaoSolic,
                   status: "pendente",
                   solicitado_por: usuario?.id ?? null,
                   origem: `template:${tpl.nome}`,
@@ -626,9 +1018,11 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
             }
             const ancora = item.due_relative_to ?? "hoje";
             const extraDueAt =
-              ancora === "agenda" || ancora === "sexta_antes_agenda"
-                ? calcularDueAtRelativo(ancora, agendaStart, item.offset_dias)
-                : calcularDueAtRelativo("hoje", null, item.offset_dias);
+              ancora === "prazo_fatal"
+                ? dueAtDoPrazoFatal(prazoFatal, item.offset_dias)
+                : ancora === "agenda" || ancora === "sexta_antes_agenda"
+                  ? calcularDueAtRelativo(ancora, agendaStart, item.offset_dias)
+                  : calcularDueAtRelativo("hoje", null, item.offset_dias);
             const tarefaExtra = await criarTarefa({
               caso_id: casoId,
               processo_admin_id: proc.processo_admin_id,
@@ -772,6 +1166,11 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
             )}
 
           {editando && tarefa &&
+            !!(tarefa.metadata as { enviar_aviso?: object })?.enviar_aviso && (
+              <EnviarAvisoParceiro tarefa={tarefa} onUpdated={onSaved} />
+            )}
+
+          {editando && tarefa &&
             (tarefa.metadata as { cumprimento_exigencia?: boolean })?.cumprimento_exigencia && (
               <EtapaCumprimentoExigencia tarefa={tarefa} onUpdated={onSaved} />
             )}
@@ -811,23 +1210,24 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
               </div>
             ) : (
               <>
-                <Select
+                {/* Combobox com busca: 395+ casos, rolar a lista nao dava. */}
+                <DocTypeCombobox
+                  options={[
+                    { value: "sem", label: "Sem caso" },
+                    ...casos.map((c) => ({
+                      value: c.id,
+                      label: c.cliente_nome ?? "(sem nome)",
+                    })),
+                  ]}
                   value={casoId ?? "sem"}
-                  onValueChange={(v) => {
+                  onChange={(v) => {
                     setCasoId(v === "sem" ? null : v);
                     setProcessoToken("");
                   }}
-                >
-                  <SelectTrigger><SelectValue placeholder="Sem caso" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="sem">Sem caso</SelectItem>
-                    {casos.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.cliente_nome ?? "(sem nome)"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  placeholder="Sem caso"
+                  searchPlaceholder="Buscar cliente..."
+                  emptyText="Nenhum cliente encontrado."
+                />
                 {editando && trocandoCaso && (
                   <div className="flex items-center gap-2">
                     <p className="text-xs text-muted-foreground">
@@ -959,6 +1359,88 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
             </div>
           )}
 
+          {!editando &&
+            agendaTipoDoTemplate === "pericia" &&
+            !!casoId && (
+              <div className="space-y-1.5 rounded-lg border border-dashed p-3 bg-muted/30">
+                <Label htmlFor="t-comprovante">
+                  Comprovante do agendamento (PDF ou foto do Meu INSS)
+                </Label>
+                <Input
+                  id="t-comprovante"
+                  type="file"
+                  accept="application/pdf,image/*"
+                  disabled={extraindoComprovante}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) lerComprovante(f);
+                  }}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {extraindoComprovante ? (
+                    <span className="inline-flex items-center gap-1">
+                      <Loader2 className="h-3 w-3 animate-spin" /> Lendo o
+                      comprovante…
+                    </span>
+                  ) : comprovanteFile ? (
+                    <>
+                      <strong>{comprovanteFile.name}</strong> lido — data, local,
+                      protocolo e endereço preenchidos. Ao salvar, o arquivo
+                      entra nos Documentos do caso seguindo a numeração.
+                    </>
+                  ) : (
+                    <>
+                      Anexe o comprovante e a IA preenche data, local, protocolo
+                      e endereço — e o arquivo sobe pros Documentos do caso ao
+                      salvar.
+                    </>
+                  )}
+                </p>
+                {comprovanteDivergente && (
+                  <div className="space-y-2 rounded-md border border-red-300 bg-red-50/70 p-3">
+                    <p className="text-sm font-medium text-red-900">
+                      Comprovante de outra pessoa — nada foi preenchido.
+                    </p>
+                    <p className="text-xs text-red-900/80">
+                      O comprovante é de{" "}
+                      <strong>{comprovanteDivergente.requerente}</strong>, mas o
+                      caso é de <strong>{ctxCaso?.cliente_nome}</strong>. Anexe o
+                      arquivo certo — ou, se tiver certeza de que é a mesma
+                      pessoa (nome grafado diferente no cadastro), confirme
+                      abaixo. Enquanto isso, o salvar fica bloqueado.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          aplicarComprovante(
+                            comprovanteDivergente.campos,
+                            comprovanteDivergente.file,
+                          );
+                          setComprovanteDivergente(null);
+                          toast.success(
+                            "Comprovante aceito — confira os campos preenchidos.",
+                          );
+                        }}
+                      >
+                        Confirmei — é o mesmo cliente
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setComprovanteDivergente(null)}
+                      >
+                        Descartar arquivo
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
           <div className="space-y-1.5">
             <Label htmlFor="t-titulo">Título</Label>
             <Input
@@ -1060,20 +1542,141 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
             </div>
           )}
 
+          {!editando &&
+            (agendaTipoDoTemplate === "pericia" ||
+              agendaTipoDoTemplate === "audiencia") &&
+            !!casoId &&
+            !!ctxCaso &&
+            !ctxCaso.parceiro_id && (
+              <p className="rounded-md border border-dashed bg-muted/40 p-2.5 text-xs text-muted-foreground">
+                Este caso não tem parceiro indicador — nenhum aviso será enviado
+                e não nascerá tarefa de aviso.
+              </p>
+            )}
+
+          {avisoAplicavel && (
+            <AvisoParceiroEvento
+              rotulo={agendaTipoDoTemplate === "audiencia" ? "audiência" : "perícia"}
+              ativo={avisoAtivo}
+              onAtivoChange={setAvisoAtivo}
+              texto={avisoTexto}
+              onTextoChange={(v) => {
+                setAvisoTexto(v);
+                setAvisoEditado(true);
+              }}
+            />
+          )}
+
           {templateTemSolicitacao && !editando && (
             <div className="space-y-1.5 rounded-lg border border-dashed border-amber-300 bg-amber-50/40 p-3">
               <Label htmlFor="t-docs-exigencia" className="text-amber-900">
-                Documentos solicitados pelo INSS
+                {templateTemPrazoFatalForm
+                  ? "Documentos solicitados pela Justiça"
+                  : "Documentos solicitados pelo INSS"}
               </Label>
               <Textarea
                 id="t-docs-exigencia"
                 value={docsExigencia}
                 onChange={(e) => setDocsExigencia(e.target.value)}
-                placeholder="Cole aqui o trecho do despacho/exigência do INSS com a lista de documentos pedidos. Esse texto vai pra descrição da solicitação que aparece ao parceiro."
+                placeholder={
+                  templateTemPrazoFatalForm
+                    ? "Cole aqui o trecho da publicação (Legalmail) com os documentos pedidos. A IA reescreve em linguagem simples pro parceiro; se estiver indisponível, esse texto vai como está."
+                    : "Cole aqui o trecho do despacho/exigência do INSS com a lista de documentos pedidos. Esse texto vai pra descrição da solicitação que aparece ao parceiro."
+                }
                 rows={4}
               />
               <p className="text-xs text-amber-900/70">
-                Esse texto fica visível ao parceiro na aba <strong>Documentos solicitados</strong> do caso.
+                {templateTemPrazoFatalForm ? (
+                  <>
+                    A IA reescreve esse trecho em linguagem simples — é a versão
+                    reescrita que o parceiro vê na aba{" "}
+                    <strong>Documentos solicitados</strong> do caso.
+                  </>
+                ) : (
+                  <>
+                    Esse texto fica visível ao parceiro na aba{" "}
+                    <strong>Documentos solicitados</strong> do caso.
+                  </>
+                )}
+              </p>
+            </div>
+          )}
+
+          {templateTemPrazoFatalForm && !editando && (
+            <div className="space-y-2 rounded-lg border border-dashed border-red-300 bg-red-50/40 p-3">
+              <Label className="text-red-900">Prazo judicial</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <Label
+                    htmlFor="t-pub-data"
+                    className="text-xs font-normal text-red-900/80"
+                  >
+                    Publicado em
+                  </Label>
+                  <Input
+                    id="t-pub-data"
+                    type="date"
+                    value={pubData}
+                    onChange={(e) => {
+                      setPubData(e.target.value);
+                      recalcularFatal(e.target.value, prazoDias, prazoDiasCustom);
+                    }}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs font-normal text-red-900/80">
+                    Prazo (dias úteis)
+                  </Label>
+                  <Select
+                    value={prazoDias}
+                    onValueChange={(v) => {
+                      setPrazoDias(v);
+                      recalcularFatal(pubData, v, prazoDiasCustom);
+                    }}
+                  >
+                    <SelectTrigger aria-label="Prazo em dias úteis">
+                      <SelectValue placeholder="Escolher" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="5">5 dias</SelectItem>
+                      <SelectItem value="10">10 dias</SelectItem>
+                      <SelectItem value="15">15 dias</SelectItem>
+                      <SelectItem value="outro">Outro…</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              {prazoDias === "outro" && (
+                <Input
+                  type="number"
+                  min={1}
+                  placeholder="Quantos dias úteis?"
+                  aria-label="Prazo em dias úteis (outro)"
+                  value={prazoDiasCustom}
+                  onChange={(e) => {
+                    setPrazoDiasCustom(e.target.value);
+                    recalcularFatal(pubData, "outro", e.target.value);
+                  }}
+                />
+              )}
+              <div className="space-y-1">
+                <Label
+                  htmlFor="t-prazo-fatal"
+                  className="text-xs font-normal text-red-900/80"
+                >
+                  Prazo fatal (fim do prazo judicial)
+                </Label>
+                <Input
+                  id="t-prazo-fatal"
+                  type="date"
+                  value={prazoFatal}
+                  onChange={(e) => setPrazoFatal(e.target.value)}
+                />
+              </div>
+              <p className="text-xs text-red-900/70">
+                Calculado em dias úteis a partir do dia útil seguinte à
+                publicação. Feriado não é descontado — confira e ajuste o fatal
+                se precisar. A tarefa FATAL é criada para o dia útil anterior.
               </p>
             </div>
           )}
@@ -1227,6 +1830,42 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
               }}
             >
               Adiar mesmo assim
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Guardas do agendamento: data passada / perícia duplicada no dia. */}
+      <AlertDialog
+        open={!!avisosAgenda}
+        onOpenChange={(o) => {
+          if (!o) setAvisosAgenda(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlarmClock className="h-5 w-5 text-destructive" />
+              Tem certeza que quer agendar?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                {(avisosAgenda ?? []).map((a) => (
+                  <p key={a}>{a}</p>
+                ))}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar e corrigir</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                ignorarAvisosAgenda.current = true;
+                setAvisosAgenda(null);
+                void salvar();
+              }}
+            >
+              Agendar mesmo assim
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

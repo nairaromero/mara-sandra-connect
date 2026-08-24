@@ -24,7 +24,8 @@ src/routeTree.gen.ts
 .dev.vars
 
 # Claude Code harness (local, não vai pro repo)
-.claude/
+.claude/*
+!.claude/skills/
 
 # Scripts de exploração com tokens hardcoded (não versionar)
 # Tokens antigos já foram rotacionados; manter ignorado evita repetir o vazamento.
@@ -44,3 +45,8 @@ src/routeTree.gen.ts
 e2e/.auth/
 test-results/
 playwright-report/
+
+# Arquivos pessoais de visao geral gerados fora do repo
+OVERVIEW.html
+OVERVIEW.pdf
+e2e/demo/saida/

@@ -46,9 +46,11 @@ export const TIPO_LABEL: Record<AgendaTipo, string> = {
 
 // Grupos do filtro da agenda. "Atendimento" junta tudo que e gente sentada na
 // sua frente — guiche, atendimento e reuniao —, que e como a equipe pensa na
-// pratica. Interno fica de fora dos dois: nao e nem pericia nem atendimento.
+// pratica. Audiencia pegava carona no grupo de pericias; desde a reuniao de
+// agosto/2026 tem botao proprio (pedido 00:42). Interno fica fora de todos.
 export const GRUPOS_AGENDA = {
-  pericias: ["pericia", "audiencia"] as Array<AgendaTipo>,
+  pericias: ["pericia"] as Array<AgendaTipo>,
+  audiencias: ["audiencia"] as Array<AgendaTipo>,
   atendimentos: ["guiche", "atendimento", "reuniao"] as Array<AgendaTipo>,
 };
 

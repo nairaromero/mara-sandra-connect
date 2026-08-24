@@ -24,7 +24,12 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { atualizarEvento, criarEvento, excluirEvento } from "@/lib/agenda/queries";
+import {
+  atualizarEvento,
+  buscarEventoMesmoDia,
+  criarEvento,
+  excluirEvento,
+} from "@/lib/agenda/queries";
 import { type AgendaEventoComJoins, type AgendaTipo, TIPO_LABEL } from "@/lib/agenda/types";
 import { calcularDueAtRelativo } from "@/lib/agenda/helpers";
 import {
@@ -43,7 +48,10 @@ import {
   listarProcessosDoCaso,
   listarTemplates,
   obterContextoCaso,
+  type ContextoCasoParaTemplate,
 } from "@/lib/tarefas/queries";
+import { enviarAvisoEvento, montarTextoAvisoEvento } from "@/lib/agenda/aviso";
+import { AvisoParceiroEvento } from "@/components/agenda/aviso-parceiro-evento";
 import {
   templateTemAgenda,
   type ProcessoDoCasoOpcao,
@@ -111,6 +119,62 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
   const [concluindo, setConcluindo] = useState(false);
   const { usuario } = useAuth();
 
+  // Aviso ao parceiro embutido (perícia/audiência com caso de parceiro):
+  // o texto padrão vem do banco e a revisão acontece aqui, antes de salvar.
+  const [ctxCaso, setCtxCaso] = useState<ContextoCasoParaTemplate | null>(null);
+  const [avisoAtivo, setAvisoAtivo] = useState(true);
+  const [avisoTexto, setAvisoTexto] = useState("");
+  const [avisoEditado, setAvisoEditado] = useState(false);
+
+  const avisoAplicavel =
+    !editando &&
+    (tipo === "pericia" || tipo === "audiencia") &&
+    !!casoId &&
+    !!ctxCaso?.parceiro_id;
+
+  useEffect(() => {
+    if (!casoId) {
+      setCtxCaso(null);
+      return;
+    }
+    let cancelado = false;
+    obterContextoCaso(casoId, processoToken)
+      .then((c) => {
+        if (!cancelado) setCtxCaso(c);
+      })
+      .catch(() => {});
+    return () => {
+      cancelado = true;
+    };
+  }, [casoId, processoToken]);
+
+  // Regenera o texto padrão quando os dados do agendamento mudam — até a
+  // pessoa editar na mão (aí o texto é dela e ninguém mexe mais).
+  useEffect(() => {
+    if (!avisoAplicavel || avisoEditado || !ctxCaso) return;
+    const natureza: "admin" | "judicial" =
+      templateSelecionado === "pericia_judicial" || processoToken.startsWith("judicial:")
+        ? "judicial"
+        : "admin";
+    let cancelado = false;
+    montarTextoAvisoEvento({
+      tipo,
+      natureza,
+      cliente: ctxCaso.cliente_nome,
+      servico: ctxCaso.servico || ctxCaso.tipo_beneficio,
+      startIso: startInput ? inputDatetimeToIso(startInput) : null,
+      local: local.trim() || null,
+    })
+      .then((t) => {
+        if (!cancelado) setAvisoTexto(t);
+      })
+      .catch(() => {});
+    return () => {
+      cancelado = true;
+    };
+     
+  }, [avisoAplicavel, avisoEditado, ctxCaso, tipo, startInput, local, templateSelecionado, processoToken]);
+
   // Com caso, oferece os templates de cliente; sem caso, só os que não
   // dependem de um (ausência). Assim a ausência é alcançável mesmo com
   // "Sem caso" — antes o seletor inteiro sumia.
@@ -165,6 +229,9 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
       setProcessoToken(modo.processoTokenInicial ?? "");
       setResponsavelId(null);
       setTemplateSelecionado("");
+      setAvisoAtivo(true);
+      setAvisoTexto("");
+      setAvisoEditado(false);
     } else {
       const e = modo.evento;
       setTipo(e.tipo);
@@ -315,6 +382,46 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
         });
         toast.success("Evento atualizado.");
       } else {
+        // Data no passado? Evento nasce direto em "Arquivados"/Passadas e a
+        // pessoa acha que o agendamento não funcionou.
+        if (new Date(startIso).getTime() < Date.now()) {
+          const quando = new Date(startIso).toLocaleString("pt-BR", {
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+            timeZone: "America/Sao_Paulo",
+          });
+          const ok = window.confirm(
+            `A data do agendamento (${quando}) JÁ PASSOU — o evento não aparece entre os próximos. Criar mesmo assim?`,
+          );
+          if (!ok) {
+            setSalvando(false);
+            return;
+          }
+        }
+        // Agendamento duplicado? (mesmo caso, mesmo tipo, mesmo dia)
+        if (casoId) {
+          const jaExiste = await buscarEventoMesmoDia(casoId, tipo, startIso);
+          if (jaExiste) {
+            const hora = new Date(jaExiste.start_at).toLocaleTimeString("pt-BR", {
+              hour: "2-digit",
+              minute: "2-digit",
+              timeZone: "America/Sao_Paulo",
+            });
+            const ok = window.confirm(
+              `Este cliente já tem ${TIPO_LABEL[tipo].toLowerCase()} neste dia (às ${hora}). Criar OUTRO agendamento mesmo assim?`,
+            );
+            if (!ok) {
+              setSalvando(false);
+              return;
+            }
+          }
+        }
+        // Aviso direto marcado no evento ANTES do insert: o trigger do banco
+        // só cria a tarefa "Enviar aviso ao parceiro" quando a flag falta.
+        const enviaAviso = avisoAplicavel && avisoAtivo && !!avisoTexto.trim();
         // Cria o evento de agenda.
         const novoEvento = await criarEvento({
           tipo,
@@ -327,8 +434,26 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
           responsavel_id: responsavelId,
           processo_admin_id: proc.processo_admin_id,
           processo_judicial_id: proc.processo_judicial_id,
+          ...(enviaAviso ? { metadata: { aviso_direto: true } } : {}),
         });
         marcarDestaque(novoEvento.id);
+
+        if (enviaAviso && casoId) {
+          try {
+            await enviarAvisoEvento({
+              casoId,
+              eventoId: novoEvento.id,
+              tipoAviso: tipo === "audiencia" ? "audiencia_aviso" : "pericia_aviso",
+              texto: avisoTexto.trim(),
+              autorId: usuario?.id ?? null,
+            });
+          } catch (e) {
+            console.error("aviso ao parceiro falhou:", e);
+            toast.error(
+              "Evento criado, mas o aviso ao parceiro FALHOU — envie manualmente pelos Comentários do caso.",
+            );
+          }
+        }
 
         // Se aplicou um template de agenda com itens destino=tarefa,
         // cria essas tarefas extras (datas relativas ao start_at do evento).
@@ -663,6 +788,30 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
               rows={4}
             />
           </div>
+
+          {!editando &&
+            (tipo === "pericia" || tipo === "audiencia") &&
+            !!casoId &&
+            !!ctxCaso &&
+            !ctxCaso.parceiro_id && (
+              <p className="rounded-md border border-dashed bg-muted/40 p-2.5 text-xs text-muted-foreground">
+                Este caso não tem parceiro indicador — nenhum aviso será enviado
+                e não nascerá tarefa de aviso.
+              </p>
+            )}
+
+          {avisoAplicavel && (
+            <AvisoParceiroEvento
+              rotulo={tipo === "audiencia" ? "audiência" : "perícia"}
+              ativo={avisoAtivo}
+              onAtivoChange={setAvisoAtivo}
+              texto={avisoTexto}
+              onTextoChange={(v) => {
+                setAvisoTexto(v);
+                setAvisoEditado(true);
+              }}
+            />
+          )}
         </div>
 
         <SheetFooter className="gap-2 sm:gap-2">
