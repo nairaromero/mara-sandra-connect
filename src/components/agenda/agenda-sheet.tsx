@@ -24,7 +24,12 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { atualizarEvento, criarEvento, excluirEvento } from "@/lib/agenda/queries";
+import {
+  atualizarEvento,
+  buscarEventoMesmoDia,
+  criarEvento,
+  excluirEvento,
+} from "@/lib/agenda/queries";
 import { type AgendaEventoComJoins, type AgendaTipo, TIPO_LABEL } from "@/lib/agenda/types";
 import { calcularDueAtRelativo } from "@/lib/agenda/helpers";
 import {
@@ -377,6 +382,24 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
         });
         toast.success("Evento atualizado.");
       } else {
+        // Agendamento duplicado? (mesmo caso, mesmo tipo, mesmo dia)
+        if (casoId) {
+          const jaExiste = await buscarEventoMesmoDia(casoId, tipo, startIso);
+          if (jaExiste) {
+            const hora = new Date(jaExiste.start_at).toLocaleTimeString("pt-BR", {
+              hour: "2-digit",
+              minute: "2-digit",
+              timeZone: "America/Sao_Paulo",
+            });
+            const ok = window.confirm(
+              `Este cliente já tem ${TIPO_LABEL[tipo].toLowerCase()} neste dia (às ${hora}). Criar OUTRO agendamento mesmo assim?`,
+            );
+            if (!ok) {
+              setSalvando(false);
+              return;
+            }
+          }
+        }
         // Aviso direto marcado no evento ANTES do insert: o trigger do banco
         // só cria a tarefa "Enviar aviso ao parceiro" quando a flag falta.
         const enviaAviso = avisoAplicavel && avisoAtivo && !!avisoTexto.trim();

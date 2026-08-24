@@ -1,11 +1,37 @@
 // Queries da agenda (CRUD de eventos + listagens).
 
 import { supabase } from "@/lib/supabase";
+import { comoLocalBR, deLocalBR } from "@/lib/fuso";
 import type {
   AgendaEventoComJoins,
   AgendaEventoRow,
   AgendaTipo,
 } from "./types";
+
+/**
+ * Evento do MESMO caso e tipo no MESMO DIA (calendário de Brasília) — pega
+ * agendamento duplicado antes de criar outro (a Naira criou duas perícias
+ * idênticas testando e nada avisou).
+ */
+export async function buscarEventoMesmoDia(
+  casoId: string,
+  tipo: AgendaTipo,
+  startIso: string,
+): Promise<{ id: string; start_at: string } | null> {
+  const inicio = comoLocalBR(new Date(startIso));
+  inicio.setHours(0, 0, 0, 0);
+  const fim = new Date(inicio);
+  fim.setDate(fim.getDate() + 1);
+  const { data } = await supabase
+    .from("agenda_eventos")
+    .select("id, start_at")
+    .eq("caso_id", casoId)
+    .eq("tipo", tipo)
+    .gte("start_at", deLocalBR(inicio).toISOString())
+    .lt("start_at", deLocalBR(fim).toISOString())
+    .limit(1);
+  return (data?.[0] as { id: string; start_at: string } | undefined) ?? null;
+}
 
 // ATENCAO: esta e uma lista de colunas do PostgREST, nao SQL — nada de
 // comentario aqui dentro. E coluna nova na tabela precisa ser adicionada aqui,

@@ -52,7 +52,7 @@ import {
   type TarefaTemplateRow,
   type TarefaTipo,
 } from "@/lib/tarefas/types";
-import { criarEvento } from "@/lib/agenda/queries";
+import { buscarEventoMesmoDia, criarEvento } from "@/lib/agenda/queries";
 import type { AgendaTipo } from "@/lib/agenda/types";
 import {
   calcularDueAtRelativo,
@@ -723,6 +723,31 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           agendaStart = new Date(startIso);
           const dur = agendaItem.duracao_min ?? 60;
           const endIso = new Date(agendaStart.getTime() + dur * 60_000).toISOString();
+
+          // Agendamento duplicado? (mesmo caso, mesmo tipo, mesmo dia)
+          if (casoId) {
+            const jaExiste = await buscarEventoMesmoDia(
+              casoId,
+              ((agendaItem.tipo as AgendaTipo) || "pericia"),
+              startIso,
+            );
+            if (jaExiste) {
+              const hora = new Date(jaExiste.start_at).toLocaleTimeString("pt-BR", {
+                hour: "2-digit",
+                minute: "2-digit",
+                timeZone: "America/Sao_Paulo",
+              });
+              const rotuloEv =
+                (agendaItem.tipo as string) === "audiencia" ? "audiência" : "perícia";
+              const ok = window.confirm(
+                `Este cliente já tem ${rotuloEv} marcada neste dia (às ${hora}). Criar OUTRA mesmo assim?`,
+              );
+              if (!ok) {
+                setSalvando(false);
+                return;
+              }
+            }
+          }
           // Aviso direto marcado ANTES do insert: o trigger só cria a tarefa
           // "Enviar aviso ao parceiro" quando a flag falta.
           const enviaAviso = avisoAplicavel && avisoAtivo && !!avisoTexto.trim();
