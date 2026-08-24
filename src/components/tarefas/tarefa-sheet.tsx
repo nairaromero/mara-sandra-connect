@@ -1271,6 +1271,46 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
             </div>
           )}
 
+          {!editando &&
+            agendaTipoDoTemplate === "pericia" &&
+            !!casoId && (
+              <div className="space-y-1.5 rounded-lg border border-dashed p-3 bg-muted/30">
+                <Label htmlFor="t-comprovante">
+                  Comprovante do agendamento (PDF ou foto do Meu INSS)
+                </Label>
+                <Input
+                  id="t-comprovante"
+                  type="file"
+                  accept="application/pdf,image/*"
+                  disabled={extraindoComprovante}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) lerComprovante(f);
+                  }}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {extraindoComprovante ? (
+                    <span className="inline-flex items-center gap-1">
+                      <Loader2 className="h-3 w-3 animate-spin" /> Lendo o
+                      comprovante…
+                    </span>
+                  ) : comprovanteFile ? (
+                    <>
+                      <strong>{comprovanteFile.name}</strong> lido — data, local,
+                      protocolo e endereço preenchidos. Ao salvar, o arquivo
+                      entra nos Documentos do caso seguindo a numeração.
+                    </>
+                  ) : (
+                    <>
+                      Anexe o comprovante e a IA preenche data, local, protocolo
+                      e endereço — e o arquivo sobe pros Documentos do caso ao
+                      salvar.
+                    </>
+                  )}
+                </p>
+              </div>
+            )}
+
           <div className="space-y-1.5">
             <Label htmlFor="t-titulo">Título</Label>
             <Input
@@ -1371,46 +1411,6 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
               />
             </div>
           )}
-
-          {!editando &&
-            agendaTipoDoTemplate === "pericia" &&
-            !!casoId && (
-              <div className="space-y-1.5 rounded-lg border border-dashed p-3 bg-muted/30">
-                <Label htmlFor="t-comprovante">
-                  Comprovante do agendamento (PDF ou foto do Meu INSS)
-                </Label>
-                <Input
-                  id="t-comprovante"
-                  type="file"
-                  accept="application/pdf,image/*"
-                  disabled={extraindoComprovante}
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) lerComprovante(f);
-                  }}
-                />
-                <p className="text-xs text-muted-foreground">
-                  {extraindoComprovante ? (
-                    <span className="inline-flex items-center gap-1">
-                      <Loader2 className="h-3 w-3 animate-spin" /> Lendo o
-                      comprovante…
-                    </span>
-                  ) : comprovanteFile ? (
-                    <>
-                      <strong>{comprovanteFile.name}</strong> lido — data, local,
-                      protocolo e endereço preenchidos. Ao salvar, o arquivo
-                      entra nos Documentos do caso seguindo a numeração.
-                    </>
-                  ) : (
-                    <>
-                      Anexe o comprovante e a IA preenche data, local, protocolo
-                      e endereço — e o arquivo sobe pros Documentos do caso ao
-                      salvar.
-                    </>
-                  )}
-                </p>
-              </div>
-            )}
 
           {!editando &&
             (agendaTipoDoTemplate === "pericia" ||
