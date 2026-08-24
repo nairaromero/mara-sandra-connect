@@ -110,6 +110,17 @@ interface Props {
 
 const TIPOS: TarefaTipo[] = ["interna", "prazo", "pericia", "pos_protocolo", "contato_cliente"];
 
+// Campos extraídos do comprovante de agendamento pelo extrair-agendamento-pericia.
+interface CamposComprovante {
+  data?: string | null;
+  hora?: string | null;
+  local?: string | null;
+  endereco?: string | null;
+  protocolo?: string | null;
+  servico?: string | null;
+  requerente?: string | null;
+}
+
 // Mesma sanitização de casos.$id/casos.novo (storage não aceita acento/espaço).
 function sanitizeFileName(name: string): string {
   return name
@@ -178,9 +189,29 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   const [extraindoComprovante, setExtraindoComprovante] = useState(false);
   const [avisoProtocolo, setAvisoProtocolo] = useState<string>("");
   const [avisoEndereco, setAvisoEndereco] = useState<string>("");
+  // Comprovante de OUTRA pessoa: nada é preenchido e o salvar fica BLOQUEADO
+  // até a pessoa confirmar explicitamente que é o mesmo cliente ou anexar o
+  // arquivo certo (pedido da Naira — aviso solto passava batido).
+  const [comprovanteDivergente, setComprovanteDivergente] = useState<{
+    campos: CamposComprovante;
+    file: File;
+    requerente: string;
+  } | null>(null);
+
+  function aplicarComprovante(campos: CamposComprovante, file: File) {
+    if (campos.data) {
+      setDueDate(`${campos.data}T${campos.hora || "09:00"}`);
+    }
+    if (campos.local) setLocal(campos.local);
+    setAvisoProtocolo(campos.protocolo ?? "");
+    setAvisoEndereco(campos.endereco ?? "");
+    setAvisoEditado(false); // regenera o aviso com os dados do comprovante
+    setComprovanteFile(file);
+  }
 
   async function lerComprovante(file: File) {
     setExtraindoComprovante(true);
+    setComprovanteDivergente(null);
     try {
       const base64 = await new Promise<string>((resolve, reject) => {
         const r = new FileReader();
@@ -201,42 +232,27 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
         },
       );
       if (error) throw error;
-      const campos = (
-        data as {
-          campos?: {
-            data?: string | null;
-            hora?: string | null;
-            local?: string | null;
-            endereco?: string | null;
-            protocolo?: string | null;
-            servico?: string | null;
-            requerente?: string | null;
-          } | null;
-        } | null
-      )?.campos;
+      const campos = (data as { campos?: CamposComprovante | null } | null)?.campos;
       if (!campos) {
         toast.error("Não consegui ler o comprovante — preencha os campos na mão.");
         return;
       }
-      if (campos.data) {
-        setDueDate(`${campos.data}T${campos.hora || "09:00"}`);
-      }
-      if (campos.local) setLocal(campos.local);
-      setAvisoProtocolo(campos.protocolo ?? "");
-      setAvisoEndereco(campos.endereco ?? "");
-      setAvisoEditado(false); // regenera o aviso com os dados do comprovante
-      setComprovanteFile(file);
-      // O comprovante é do cliente certo? Nome divergente é o erro clássico
-      // de anexar o arquivo da pessoa errada.
-      const req = (campos.requerente ?? "").trim().toLowerCase();
-      const cli = (ctxCaso?.cliente_nome ?? "").trim().toLowerCase();
+      // O comprovante é do cliente certo? Nome divergente = arquivo da pessoa
+      // errada, o erro clássico. Bloqueia até resolverem.
+      const norm = (s: string) =>
+        s.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
+      const req = norm(campos.requerente ?? "");
+      const cli = norm(ctxCaso?.cliente_nome ?? "");
       if (req && cli && req !== cli) {
-        toast.warning(
-          `Atenção: o comprovante é de "${campos.requerente}", mas o caso é de "${ctxCaso?.cliente_nome}". Confira o arquivo.`,
-        );
-      } else {
-        toast.success("Comprovante lido — confira os campos preenchidos.");
+        setComprovanteDivergente({
+          campos,
+          file,
+          requerente: campos.requerente ?? "",
+        });
+        return;
       }
+      aplicarComprovante(campos, file);
+      toast.success("Comprovante lido — confira os campos preenchidos.");
     } catch (e) {
       console.error("extrair comprovante falhou:", e);
       toast.error("Falha ao ler o comprovante. Preencha os campos na mão.");
@@ -480,6 +496,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       setAvisoEditado(false);
       setComprovanteFile(null);
       setExtraindoComprovante(false);
+      setComprovanteDivergente(null);
       setAvisoProtocolo("");
       setAvisoEndereco("");
       setPericiaEvento(true);
@@ -654,6 +671,15 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
         // data — o FATAL derivaria de nada.
         if (templateTemPrazoFatalForm && !prazoFatal) {
           toast.error("Informe o prazo fatal da publicação.");
+          setSalvando(false);
+          return;
+        }
+
+        // Comprovante de outra pessoa pendente de decisão: não deixa salvar.
+        if (comprovanteDivergente) {
+          toast.error(
+            "O comprovante anexado é de outra pessoa. Confirme que é o mesmo cliente ou anexe o arquivo certo.",
+          );
           setSalvando(false);
           return;
         }
@@ -1308,6 +1334,48 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
                     </>
                   )}
                 </p>
+                {comprovanteDivergente && (
+                  <div className="space-y-2 rounded-md border border-red-300 bg-red-50/70 p-3">
+                    <p className="text-sm font-medium text-red-900">
+                      Comprovante de outra pessoa — nada foi preenchido.
+                    </p>
+                    <p className="text-xs text-red-900/80">
+                      O comprovante é de{" "}
+                      <strong>{comprovanteDivergente.requerente}</strong>, mas o
+                      caso é de <strong>{ctxCaso?.cliente_nome}</strong>. Anexe o
+                      arquivo certo — ou, se tiver certeza de que é a mesma
+                      pessoa (nome grafado diferente no cadastro), confirme
+                      abaixo. Enquanto isso, o salvar fica bloqueado.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          aplicarComprovante(
+                            comprovanteDivergente.campos,
+                            comprovanteDivergente.file,
+                          );
+                          setComprovanteDivergente(null);
+                          toast.success(
+                            "Comprovante aceito — confira os campos preenchidos.",
+                          );
+                        }}
+                      >
+                        Confirmei — é o mesmo cliente
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setComprovanteDivergente(null)}
+                      >
+                        Descartar arquivo
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

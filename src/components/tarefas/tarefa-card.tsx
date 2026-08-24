@@ -88,6 +88,13 @@ export function TarefaCard({
   const ehComparecimento =
     (tarefa.metadata as { confirmar_comparecimento?: boolean })?.confirmar_comparecimento === true;
   const ehEnviarAviso = !!(tarefa.metadata as { enviar_aviso?: object })?.enviar_aviso;
+  // Chip "Perícia · dd/mm" / "Audiência · dd/mm": a tarefa carrega a data do
+  // evento que a ancorou (pedido da Naira: dava pra saber que a tarefa era
+  // SOBRE uma perícia, mas não de quando).
+  const periciaEm = (tarefa.metadata as { pericia_em?: string })?.pericia_em ?? null;
+  const refAudiencia = String(
+    (tarefa.metadata as { template_aplicado?: string })?.template_aplicado ?? "",
+  ).includes("audiencia");
   const ehCumprimentoExigencia =
     (tarefa.metadata as { cumprimento_exigencia?: boolean })?.cumprimento_exigencia === true;
   const ehProtocoloRealizado =
@@ -227,6 +234,27 @@ export function TarefaCard({
               <Badge variant="secondary" className="font-normal">
                 {TIPO_LABEL[tarefa.tipo]}
               </Badge>
+              {periciaEm && (
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "font-normal",
+                    refAudiencia
+                      ? "border-blue-500/50 text-blue-700 dark:text-blue-300"
+                      : "border-emerald-500/50 text-emerald-700 dark:text-emerald-300",
+                  )}
+                  title={new Date(periciaEm).toLocaleString("pt-BR", {
+                    timeZone: "America/Sao_Paulo",
+                  })}
+                >
+                  {refAudiencia ? "Audiência" : "Perícia"} ·{" "}
+                  {new Date(periciaEm).toLocaleDateString("pt-BR", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    timeZone: "America/Sao_Paulo",
+                  })}
+                </Badge>
+              )}
               {tarefa.processo_judicial && (
                 <Badge
                   variant="outline"
