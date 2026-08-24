@@ -87,7 +87,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
-      { title: "Mara Sandra Advocacia" },
+      { title: "Mara Vian Advocacia" },
       { name: "description", content: "Plataforma interna do escritório Mara Sandra Advocacia previdenciária." },
       { name: "theme-color", content: "#b8862e" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
