@@ -42,6 +42,29 @@ export function proximoDiaUtil(d: Date): Date {
 }
 
 /**
+ * Due de tarefa ancorada no PRAZO FATAL informado no form (ex.: template
+ * Exigência Judicial): fatal + offset_dias (offset -1 = regra da casa,
+ * vencer um dia antes do fatal), às 09:00 de Brasília. Se cair em fim de
+ * semana, RECUA pra sexta — o par do proximoDiaUtil empurra pra frente,
+ * o que aqui seria perder o prazo.
+ */
+export function dueAtDoPrazoFatal(
+  fatalDia: string, // "aaaa-mm-dd" (input type=date)
+  offsetDias: number | undefined,
+): string | null {
+  const [y, m, d] = fatalDia.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  const local = comoLocalBR(new Date());
+  local.setFullYear(y, m - 1, d);
+  local.setHours(9, 0, 0, 0);
+  local.setDate(local.getDate() + (offsetDias ?? 0));
+  const dow = local.getDay(); // 0=dom, 6=sáb
+  if (dow === 6) local.setDate(local.getDate() - 1);
+  else if (dow === 0) local.setDate(local.getDate() - 2);
+  return deLocalBR(local).toISOString();
+}
+
+/**
  * Calcula due_at de uma tarefa-extra em template misto, dado o
  * start do agenda_evento e a configuração do item.
  */

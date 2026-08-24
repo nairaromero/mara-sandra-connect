@@ -51,7 +51,7 @@ import {
 } from "@/lib/tarefas/types";
 import { criarEvento } from "@/lib/agenda/queries";
 import type { AgendaTipo } from "@/lib/agenda/types";
-import { calcularDueAtRelativo } from "@/lib/agenda/helpers";
+import { calcularDueAtRelativo, dueAtDoPrazoFatal } from "@/lib/agenda/helpers";
 import {
   descreverAutoriaStatus,
   formatarDataHoraCurtaBR,
@@ -132,6 +132,9 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   // INSS com os documentos pedidos — vai pra descrição da solicitação,
   // substituindo o placeholder {despacho} no template.
   const [docsExigencia, setDocsExigencia] = useState<string>("");
+  // Prazo fatal informado ao aplicar template com item ancorado em
+  // due_relative_to="prazo_fatal" (Exigência Judicial): "aaaa-mm-dd".
+  const [prazoFatal, setPrazoFatal] = useState<string>("");
 
   const [casos, setCasos] = useState<Array<{ id: string; cliente_nome: string | null }>>([]);
   const [internos, setInternos] = useState<
@@ -166,6 +169,14 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
     ? templates
         .find((t) => t.nome === templateSelecionado)
         ?.itens.some((i) => i.destino === "solicitacao_documento") ?? false
+    : false;
+
+  // Template atual tem item ancorado no prazo fatal (Exigência Judicial)?
+  // Se sim, o form mostra o campo de data do fatal — obrigatório no salvar.
+  const templateTemPrazoFatalForm = templateSelecionado
+    ? templates
+        .find((t) => t.nome === templateSelecionado)
+        ?.itens.some((i) => i.due_relative_to === "prazo_fatal") ?? false
     : false;
 
   // Carrega listas auxiliares uma vez (ao abrir).
@@ -224,6 +235,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
         protocolo: ctx.protocolo,
         cpf: ctx.cliente_cpf,
         servico: ctx.servico,
+        processo: ctx.numero_processo_judicial,
       };
       setTitulo(substituirPlaceholders(main.titulo, ph));
       setDescricao(substituirPlaceholders(main.descricao ?? "", ph));
@@ -290,6 +302,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       setDueDate("");
       setLocal("");
       setDocsExigencia("");
+      setPrazoFatal("");
       setPericiaEvento(true);
       setExtrasResp([]);
       setTemplateSelecionado(modo.templateInicial ?? "");
@@ -458,6 +471,14 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
         ) ?? null;
         const mainItem = agendaItem ?? primeiroTarefa ?? tplItens[0] ?? null;
 
+        // Template ancorado no prazo fatal (Exigência Judicial) não sai sem a
+        // data — o FATAL derivaria de nada.
+        if (templateTemPrazoFatalForm && !prazoFatal) {
+          toast.error("Informe o prazo fatal da publicação.");
+          setSalvando(false);
+          return;
+        }
+
         // Contexto pra substituir placeholders e lookup de e-mail→uuid
         // (compartilhado entre main + extras).
         const ctx = casoId ? await obterContextoCaso(casoId, processoToken) : null;
@@ -475,6 +496,9 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           // (docsExigencia). No fluxo automático INSS, o edge function
           // popula despacho com o trecho extraído do e-mail.
           despacho: docsExigencia.trim(),
+          processo: ctx?.numero_processo_judicial ?? "",
+          // Formata direto da string do input (sem passar por Date — fuso).
+          prazo_fatal: prazoFatal ? prazoFatal.split("-").reverse().join("/") : "",
         };
         const emailParaId = new Map<string, string>();
         for (const u of internos) {
@@ -586,12 +610,44 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
             if (item.destino === "solicitacao_documento" && casoId) {
               const tituloSub = substituirPlaceholders(item.titulo, ph);
               const descSub = substituirPlaceholders(item.descricao ?? "", ph);
+              // Exigência judicial: a IA reescreve o trecho da publicação em
+              // linguagem simples pro parceiro (mesma ideia do fluxo automático
+              // do INSS). IA fora do ar ou sem chave → segue o texto do
+              // template — nunca bloqueia a aplicação.
+              let descricaoSolic = descSub || tituloSub;
+              if (
+                (item.meta as { mensagem_ia?: string } | undefined)?.mensagem_ia ===
+                  "exigencia_judicial" &&
+                docsExigencia.trim()
+              ) {
+                try {
+                  const { data: ia } = await supabase.functions.invoke(
+                    "mensagem-parceiro-exigencia",
+                    {
+                      body: {
+                        tipo: "judicial",
+                        despacho: docsExigencia.trim(),
+                        prazo_fatal: prazoFatal || null,
+                        nome_cliente: ctx?.cliente_nome ?? null,
+                      },
+                    },
+                  );
+                  const msg = (ia as { mensagem?: string | null } | null)?.mensagem;
+                  if (msg && msg.trim().length >= 40) {
+                    descricaoSolic = msg.trim();
+                  } else {
+                    toast.info("IA indisponível — a solicitação saiu com o texto padrão.");
+                  }
+                } catch {
+                  toast.info("IA indisponível — a solicitação saiu com o texto padrão.");
+                }
+              }
               const { data: solic, error: errSolic } = await supabase
                 .from("solicitacoes_documento")
                 .insert({
                   caso_id: casoId,
                   tipo: (item.tipo as string) || "outro",
-                  descricao: descSub || tituloSub,
+                  descricao: descricaoSolic,
                   status: "pendente",
                   solicitado_por: usuario?.id ?? null,
                   origem: `template:${tpl.nome}`,
@@ -627,9 +683,11 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
             }
             const ancora = item.due_relative_to ?? "hoje";
             const extraDueAt =
-              ancora === "agenda" || ancora === "sexta_antes_agenda"
-                ? calcularDueAtRelativo(ancora, agendaStart, item.offset_dias)
-                : calcularDueAtRelativo("hoje", null, item.offset_dias);
+              ancora === "prazo_fatal"
+                ? dueAtDoPrazoFatal(prazoFatal, item.offset_dias)
+                : ancora === "agenda" || ancora === "sexta_antes_agenda"
+                  ? calcularDueAtRelativo(ancora, agendaStart, item.offset_dias)
+                  : calcularDueAtRelativo("hoje", null, item.offset_dias);
             const tarefaExtra = await criarTarefa({
               caso_id: casoId,
               processo_admin_id: proc.processo_admin_id,
@@ -1065,17 +1123,52 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           {templateTemSolicitacao && !editando && (
             <div className="space-y-1.5 rounded-lg border border-dashed border-amber-300 bg-amber-50/40 p-3">
               <Label htmlFor="t-docs-exigencia" className="text-amber-900">
-                Documentos solicitados pelo INSS
+                {templateTemPrazoFatalForm
+                  ? "Documentos solicitados pela Justiça"
+                  : "Documentos solicitados pelo INSS"}
               </Label>
               <Textarea
                 id="t-docs-exigencia"
                 value={docsExigencia}
                 onChange={(e) => setDocsExigencia(e.target.value)}
-                placeholder="Cole aqui o trecho do despacho/exigência do INSS com a lista de documentos pedidos. Esse texto vai pra descrição da solicitação que aparece ao parceiro."
+                placeholder={
+                  templateTemPrazoFatalForm
+                    ? "Cole aqui o trecho da publicação (Legalmail) com os documentos pedidos. A IA reescreve em linguagem simples pro parceiro; se estiver indisponível, esse texto vai como está."
+                    : "Cole aqui o trecho do despacho/exigência do INSS com a lista de documentos pedidos. Esse texto vai pra descrição da solicitação que aparece ao parceiro."
+                }
                 rows={4}
               />
               <p className="text-xs text-amber-900/70">
-                Esse texto fica visível ao parceiro na aba <strong>Documentos solicitados</strong> do caso.
+                {templateTemPrazoFatalForm ? (
+                  <>
+                    A IA reescreve esse trecho em linguagem simples — é a versão
+                    reescrita que o parceiro vê na aba{" "}
+                    <strong>Documentos solicitados</strong> do caso.
+                  </>
+                ) : (
+                  <>
+                    Esse texto fica visível ao parceiro na aba{" "}
+                    <strong>Documentos solicitados</strong> do caso.
+                  </>
+                )}
+              </p>
+            </div>
+          )}
+
+          {templateTemPrazoFatalForm && !editando && (
+            <div className="space-y-1.5 rounded-lg border border-dashed border-red-300 bg-red-50/40 p-3">
+              <Label htmlFor="t-prazo-fatal" className="text-red-900">
+                Prazo fatal (fim do prazo judicial)
+              </Label>
+              <Input
+                id="t-prazo-fatal"
+                type="date"
+                value={prazoFatal}
+                onChange={(e) => setPrazoFatal(e.target.value)}
+              />
+              <p className="text-xs text-red-900/70">
+                Data-limite que consta na publicação. A tarefa FATAL é criada
+                para o dia útil anterior a essa data.
               </p>
             </div>
           )}

@@ -22,8 +22,14 @@ Os tempos entre parênteses apontam o trecho da gravação da reunião.
       imagem do logo e o domínio `noreply@marasandraconnect.com`.
 - [x] Sheet de tarefa: campo Caso virou combobox com busca de cliente
       (substring, ignorando acento e caixa).
-- [ ] Dividir exigência em dois templates: **Exigência INSS × Exigência Judicial**,
+- [x] Dividir exigência em dois templates: **Exigência INSS × Exigência Judicial**,
       renomeando as tarefas existentes; texto ao parceiro claro e com prazo (00:50)
+      — feito em 2026-08-24 (`migration_exigencia_inss_judicial.sql`): rótulos/títulos
+      novos daqui pra frente (tarefas abertas ficam como estão); no judicial quem
+      aplica informa o prazo fatal da publicação e a FATAL nasce no dia útil
+      anterior; a solicitação ao parceiro é reescrita em linguagem simples pela
+      edge `mensagem-parceiro-exigencia` (fallback = texto do template); o trigger
+      de "documento entregue" manda pro Meu INSS ou pros autos conforme a origem.
 - [ ] Template de perícia — confirmação de comparecimento; parceiro só é notificado
       após conferência interna; encaixa no fluxo `/a-enviar` já desenhado (00:46)
 - [ ] Template de audiência + modelo de registro de atendimento (00:42, 00:46)
