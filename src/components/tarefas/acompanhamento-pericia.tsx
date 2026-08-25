@@ -25,6 +25,7 @@ import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase";
 import type { TarefaComJoins } from "@/lib/tarefas/types";
 import { useDestaque } from "@/lib/destaque/destaque-context";
+import { formatarBR } from "@/lib/fuso";
 
 const DIAS_ENTRE_CHECAGENS = 10;
 
@@ -36,7 +37,7 @@ interface Props {
 }
 
 function fmt(d: Date): string {
-  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  return formatarBR(d, { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
 export function AcompanhamentoPericia({
