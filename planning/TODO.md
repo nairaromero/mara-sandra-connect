@@ -15,6 +15,13 @@ Em execução item a item, com commits direto na `staging`; a Naira valida em
 staging.marasandraconnect.com e, fechado o lote, faz um único merge `staging → main`.
 Os tempos entre parênteses apontam o trecho da gravação da reunião.
 
+> **1º lote ENVIADO À PRODUÇÃO em 2026-08-24** (merge `30dfff2` + migrations +
+> 5 edge functions). Exceção a validar: os templates **pericia_judicial** e
+> **audiencia_judicial** estão com `oculto_na_ui=true` SÓ NO BANCO DE PRODUÇÃO
+> (no staging seguem visíveis pra Naira testar). Quando ela aprovar:
+> `node scripts/msc-sql.mjs "UPDATE tarefa_templates SET oculto_na_ui=false
+> WHERE nome IN ('pericia_judicial','audiencia_judicial')"`.
+
 - [x] E-mails ao parceiro + aba do app: "Mara Sandra" → **"Mara Vian Advocacia"**
       (remetente, título em negrito e assinatura texto dos `notify-*`; título da aba).
       Ainda em aberto, decidir um a um: assuntos/corpo dos e-mails de auth

@@ -16,7 +16,7 @@ import { AgendaSheet } from "@/components/agenda/agenda-sheet";
 import { atualizarTarefa, excluirTarefa, listarTarefas } from "@/lib/tarefas/queries";
 import { STATUS_LABEL, type TarefaComJoins, type TarefaStatus } from "@/lib/tarefas/types";
 import { listarAgenda } from "@/lib/agenda/queries";
-import { type AgendaEventoComJoins, TIPO_CLASS, TIPO_LABEL } from "@/lib/agenda/types";
+import { type AgendaEventoComJoins, tipoBadge } from "@/lib/agenda/types";
 import { DESTAQUE_CLASSE_GLOBAL, useDestaqueAtivo } from "@/lib/destaque/destaque-context";
 
 const STATUS_ATIVOS: TarefaStatus[] = ["a_fazer", "fazendo"];
@@ -279,8 +279,9 @@ function EventoCard({
     >
       <div className="p-3 space-y-2">
         <div className="flex items-center gap-2 flex-wrap">
-          <Badge variant="outline" className={cn("font-normal", TIPO_CLASS[e.tipo])}>
-            {TIPO_LABEL[e.tipo]}
+          {/* Natureza-aware: perícia judicial sai violeta, igual à Agenda. */}
+          <Badge variant="outline" className={cn("font-normal", tipoBadge(e).className)}>
+            {tipoBadge(e).label}
           </Badge>
           <span className="text-xs text-muted-foreground">
             {data} · {hInicio}–{hFim}

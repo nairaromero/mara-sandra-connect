@@ -65,6 +65,18 @@ function dataBR(iso: string): string {
   return `${d}/${m}/${y}`;
 }
 
+// Provedor de IA pendurado não pode segurar a UI até o gateway estourar 504 —
+// depois do limite, cai no catch e o template segue com o texto padrão.
+const IA_TIMEOUT_MS = 45_000;
+function comTimeout<T>(p: Promise<T>): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("timeout da IA (45s)")), IA_TIMEOUT_MS)
+    ),
+  ]);
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -131,7 +143,7 @@ serve(async (req) => {
     const prazoLinha = body.prazo_fatal
       ? `PRAZO FATAL: ${dataBR(body.prazo_fatal)}`
       : "PRAZO FATAL: não informado";
-    const res = await chatWith(
+    const res = await comTimeout(chatWith(
       resIntegracao.integ.provider,
       apiKey,
       resIntegracao.integ.modelo,
@@ -148,7 +160,7 @@ serve(async (req) => {
             `Trecho da publicação/despacho judicial:\n${despacho}`,
         }],
       },
-    );
+    ));
     const texto = (res.text || "").trim();
     // Resposta vazia ou curta demais = modelo se perdeu; melhor o texto padrão.
     if (texto.length < 40) {

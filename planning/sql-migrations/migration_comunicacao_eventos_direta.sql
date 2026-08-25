@@ -232,7 +232,9 @@ on conflict (nome) do update set
   gatilho = excluded.gatilho,
   descricao = excluded.descricao,
   itens = excluded.itens,
-  oculto_na_ui = excluded.oculto_na_ui,
+  -- re-rodar em producao NAO pode desocultar template escondido de proposito
+  -- (review #7): preserva o oculto_na_ui que o ambiente ja tem.
+  oculto_na_ui = tarefa_templates.oculto_na_ui,
   updated_at = now();
 
 -- 3c. Audiência Judicial (preparação D-3, registro D+1, ata/sentença D+10;
@@ -286,7 +288,9 @@ on conflict (nome) do update set
   gatilho = excluded.gatilho,
   descricao = excluded.descricao,
   itens = excluded.itens,
-  oculto_na_ui = excluded.oculto_na_ui,
+  -- re-rodar em producao NAO pode desocultar template escondido de proposito
+  -- (review #7): preserva o oculto_na_ui que o ambiente ja tem.
+  oculto_na_ui = tarefa_templates.oculto_na_ui,
   updated_at = now();
 
 -- ---------------------------------------------------------------------------

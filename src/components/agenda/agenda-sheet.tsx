@@ -1,9 +1,27 @@
 // Sheet (slide-in) para criar/editar evento de agenda. Por enquanto a UI
 // foca em PERÍCIAS, mas o componente já suporta os outros tipos.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Trash2, Check } from "lucide-react";
+import { AlarmClock, Loader2, Trash2, Check } from "lucide-react";
+
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  extrairComprovante,
+  extrairDePublicacao,
+  mesmoNome,
+  subirComprovanteDocumento,
+  type CamposComprovante,
+} from "@/lib/agenda/comprovante";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +54,7 @@ import {
   comoLocalBR,
   deLocalBR,
   formatarBR,
+  hojeChaveBR,
   inputDateTimeBRParaIso,
   isoParaInputDateTimeBR,
 } from "@/lib/fuso";
@@ -50,7 +69,11 @@ import {
   obterContextoCaso,
   type ContextoCasoParaTemplate,
 } from "@/lib/tarefas/queries";
-import { enviarAvisoEvento, montarTextoAvisoEvento } from "@/lib/agenda/aviso";
+import {
+  criarTarefaAvisoFallback,
+  enviarAvisoEvento,
+  montarTextoAvisoEvento,
+} from "@/lib/agenda/aviso";
 import { AvisoParceiroEvento } from "@/components/agenda/aviso-parceiro-evento";
 import {
   templateTemAgenda,
@@ -125,6 +148,111 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
   const [avisoAtivo, setAvisoAtivo] = useState(true);
   const [avisoTexto, setAvisoTexto] = useState("");
   const [avisoEditado, setAvisoEditado] = useState(false);
+  // Comprovante de agendamento (mesma mecânica do TarefaSheet): IA preenche
+  // data/local/protocolo/endereço; nome divergente BLOQUEIA; o arquivo sobe
+  // pros Documentos do caso no salvar.
+  const [comprovanteFile, setComprovanteFile] = useState<File | null>(null);
+  const [extraindoComprovante, setExtraindoComprovante] = useState(false);
+  const [comprovanteDivergente, setComprovanteDivergente] = useState<{
+    campos: CamposComprovante;
+    file: File | null; // null = veio de publicação colada (nada a subir)
+    requerente: string;
+  } | null>(null);
+  const [publicacaoColada, setPublicacaoColada] = useState("");
+  const [avisoProtocolo, setAvisoProtocolo] = useState("");
+  const [avisoEndereco, setAvisoEndereco] = useState("");
+  // Guardas do agendamento (data passada / duplicado) em diálogo do app.
+  const [avisosAgenda, setAvisosAgenda] = useState<string[] | null>(null);
+  const ignorarAvisosAgenda = useRef(false);
+
+  function aplicarComprovante(campos: CamposComprovante, file: File | null) {
+    if (campos.data) {
+      const inicio = `${campos.data}T${campos.hora || "09:00"}`;
+      setStartInput(inicio);
+      const fimIso = inputDatetimeToIso(inicio);
+      if (fimIso) {
+        setEndInput(isoToInputDatetime(new Date(new Date(fimIso).getTime() + 3600_000).toISOString()));
+      }
+    }
+    if (campos.local) setLocal(campos.local);
+    setAvisoProtocolo(campos.protocolo ?? "");
+    setAvisoEndereco(campos.endereco ?? "");
+    setAvisoEditado(false);
+    if (file) setComprovanteFile(file);
+  }
+
+  function avisarSeDataPassada(campos: CamposComprovante) {
+    if (campos.data && campos.data < hojeChaveBR()) {
+      const [a, m, d] = campos.data.split("-");
+      toast.warning(
+        `Atenção: a perícia é de ${d}/${m}/${a} — data que JÁ PASSOU. Confira se é a publicação/comprovante atual.`,
+      );
+      return true;
+    }
+    return false;
+  }
+
+  async function lerPublicacaoColada() {
+    if (!publicacaoColada.trim()) {
+      toast.error("Cole o texto da publicação primeiro.");
+      return;
+    }
+    if (!ctxCaso?.cliente_nome) {
+      toast.error("Os dados do caso ainda estão carregando — tente de novo em instantes.");
+      return;
+    }
+    setExtraindoComprovante(true);
+    setComprovanteDivergente(null);
+    try {
+      const campos = await extrairDePublicacao(publicacaoColada.trim());
+      if (!campos) {
+        toast.error("Não consegui ler a publicação — preencha os campos na mão.");
+        return;
+      }
+      if (!mesmoNome(campos.requerente, ctxCaso?.cliente_nome)) {
+        setComprovanteDivergente({ campos, file: null, requerente: campos.requerente ?? "" });
+        return;
+      }
+      aplicarComprovante(campos, null);
+      if (!avisarSeDataPassada(campos)) {
+        toast.success("Publicação lida — confira os campos preenchidos.");
+      }
+    } catch (e) {
+      console.error("extrair publicação falhou:", e);
+      toast.error("Falha ao ler a publicação. Preencha os campos na mão.");
+    } finally {
+      setExtraindoComprovante(false);
+    }
+  }
+
+  async function lerComprovante(file: File) {
+    if (!ctxCaso?.cliente_nome) {
+      toast.error("Os dados do caso ainda estão carregando — tente de novo em instantes.");
+      return;
+    }
+    setExtraindoComprovante(true);
+    setComprovanteDivergente(null);
+    try {
+      const campos = await extrairComprovante(file);
+      if (!campos) {
+        toast.error("Não consegui ler o comprovante — preencha os campos na mão.");
+        return;
+      }
+      if (!mesmoNome(campos.requerente, ctxCaso?.cliente_nome)) {
+        setComprovanteDivergente({ campos, file, requerente: campos.requerente ?? "" });
+        return;
+      }
+      aplicarComprovante(campos, file);
+      if (!avisarSeDataPassada(campos)) {
+        toast.success("Comprovante lido — confira os campos preenchidos.");
+      }
+    } catch (e) {
+      console.error("extrair comprovante falhou:", e);
+      toast.error("Falha ao ler o comprovante. Preencha os campos na mão.");
+    } finally {
+      setExtraindoComprovante(false);
+    }
+  }
 
   const avisoAplicavel =
     !editando &&
@@ -164,6 +292,10 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
       servico: ctxCaso.servico || ctxCaso.tipo_beneficio,
       startIso: startInput ? inputDatetimeToIso(startInput) : null,
       local: local.trim() || null,
+      // Sem comprovante, o número vem do processo selecionado no form
+      // (judicial = nº do processo; admin = nº do requerimento).
+      protocolo: avisoProtocolo || ctxCaso.protocolo || null,
+      endereco: avisoEndereco || null,
     })
       .then((t) => {
         if (!cancelado) setAvisoTexto(t);
@@ -173,7 +305,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
       cancelado = true;
     };
      
-  }, [avisoAplicavel, avisoEditado, ctxCaso, tipo, startInput, local, templateSelecionado, processoToken]);
+  }, [avisoAplicavel, avisoEditado, ctxCaso, tipo, startInput, local, templateSelecionado, processoToken, avisoProtocolo, avisoEndereco]);
 
   // Com caso, oferece os templates de cliente; sem caso, só os que não
   // dependem de um (ausência). Assim a ausência é alcançável mesmo com
@@ -232,6 +364,14 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
       setAvisoAtivo(true);
       setAvisoTexto("");
       setAvisoEditado(false);
+      setComprovanteFile(null);
+      setExtraindoComprovante(false);
+      setComprovanteDivergente(null);
+      setPublicacaoColada("");
+      setAvisoProtocolo("");
+      setAvisoEndereco("");
+      setAvisosAgenda(null);
+      ignorarAvisosAgenda.current = false;
     } else {
       const e = modo.evento;
       setTipo(e.tipo);
@@ -382,41 +522,50 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
         });
         toast.success("Evento atualizado.");
       } else {
-        // Data no passado? Evento nasce direto em "Arquivados"/Passadas e a
-        // pessoa acha que o agendamento não funcionou.
-        if (new Date(startIso).getTime() < Date.now()) {
-          const quando = new Date(startIso).toLocaleString("pt-BR", {
-            day: "2-digit",
-            month: "2-digit",
-            year: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-            timeZone: "America/Sao_Paulo",
-          });
-          const ok = window.confirm(
-            `A data do agendamento (${quando}) JÁ PASSOU — o evento não aparece entre os próximos. Criar mesmo assim?`,
+        // Comprovante de outra pessoa pendente de decisão: não deixa salvar.
+        if (comprovanteDivergente) {
+          toast.error(
+            "O comprovante anexado é de outra pessoa. Confirme que é o mesmo cliente ou anexe o arquivo certo.",
           );
-          if (!ok) {
-            setSalvando(false);
-            return;
-          }
+          setSalvando(false);
+          return;
         }
-        // Agendamento duplicado? (mesmo caso, mesmo tipo, mesmo dia)
-        if (casoId) {
-          const jaExiste = await buscarEventoMesmoDia(casoId, tipo, startIso);
-          if (jaExiste) {
-            const hora = new Date(jaExiste.start_at).toLocaleTimeString("pt-BR", {
+        // Guardas (data passada / duplicado) num diálogo do app; "Agendar
+        // mesmo assim" rechama salvar() pulando as checagens UMA vez.
+        const pularAvisos = ignorarAvisosAgenda.current;
+        ignorarAvisosAgenda.current = false;
+        if (!pularAvisos) {
+          const avisos: string[] = [];
+          if (new Date(startIso).getTime() < Date.now()) {
+            const quando = new Date(startIso).toLocaleString("pt-BR", {
+              day: "2-digit",
+              month: "2-digit",
+              year: "numeric",
               hour: "2-digit",
               minute: "2-digit",
               timeZone: "America/Sao_Paulo",
             });
-            const ok = window.confirm(
-              `Este cliente já tem ${TIPO_LABEL[tipo].toLowerCase()} neste dia (às ${hora}). Criar OUTRO agendamento mesmo assim?`,
+            avisos.push(
+              `A data do agendamento (${quando}) JÁ PASSOU — o evento não aparece entre os próximos.`,
             );
-            if (!ok) {
-              setSalvando(false);
-              return;
+          }
+          if (casoId) {
+            const jaExiste = await buscarEventoMesmoDia(casoId, tipo, startIso);
+            if (jaExiste) {
+              const hora = new Date(jaExiste.start_at).toLocaleTimeString("pt-BR", {
+                hour: "2-digit",
+                minute: "2-digit",
+                timeZone: "America/Sao_Paulo",
+              });
+              avisos.push(
+                `Este cliente já tem ${TIPO_LABEL[tipo].toLowerCase()} neste dia (às ${hora}).`,
+              );
             }
+          }
+          if (avisos.length > 0) {
+            setAvisosAgenda(avisos);
+            setSalvando(false);
+            return;
           }
         }
         // Aviso direto marcado no evento ANTES do insert: o trigger do banco
@@ -449,8 +598,35 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
             });
           } catch (e) {
             console.error("aviso ao parceiro falhou:", e);
+            try {
+              await criarTarefaAvisoFallback({
+                casoId,
+                eventoId: novoEvento.id,
+                tipoAviso: tipo === "audiencia" ? "audiencia_aviso" : "pericia_aviso",
+                texto: avisoTexto.trim(),
+                responsavelId: usuario?.id ?? null,
+                clienteNome: ctxCaso?.cliente_nome ?? "",
+              });
+              toast.error(
+                "O envio do aviso FALHOU — criei a tarefa 'Enviar aviso ao parceiro' pra não se perder.",
+              );
+            } catch (e2) {
+              console.error("fallback do aviso também falhou:", e2);
+              toast.error(
+                "Evento criado, mas o aviso ao parceiro FALHOU — envie manualmente pelos Comentários do caso.",
+              );
+            }
+          }
+        }
+
+        // Comprovante lido sobe pros Documentos do caso (numeração seguida).
+        if (comprovanteFile && casoId) {
+          try {
+            await subirComprovanteDocumento(casoId, comprovanteFile, usuario?.id ?? null);
+          } catch (e) {
+            console.error("upload do comprovante falhou:", e);
             toast.error(
-              "Evento criado, mas o aviso ao parceiro FALHOU — envie manualmente pelos Comentários do caso.",
+              "Evento criado, mas o upload do comprovante falhou — anexe manualmente em Documentos.",
             );
           }
         }
@@ -695,6 +871,108 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
             </div>
           )}
 
+          {!editando && tipo === "pericia" && !!casoId && (
+            <div className="space-y-1.5 rounded-lg border border-dashed p-3 bg-muted/30">
+              <Label htmlFor="ag-comprovante">
+                Comprovante do agendamento (PDF/foto) ou publicação
+              </Label>
+              <Input
+                id="ag-comprovante"
+                type="file"
+                accept="application/pdf,image/*"
+                disabled={extraindoComprovante}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) lerComprovante(f);
+                }}
+              />
+              <p className="text-xs text-muted-foreground">
+                {extraindoComprovante ? (
+                  <span className="inline-flex items-center gap-1">
+                    <Loader2 className="h-3 w-3 animate-spin" /> Lendo o comprovante…
+                  </span>
+                ) : comprovanteFile ? (
+                  <>
+                    <strong>{comprovanteFile.name}</strong> lido — data, local,
+                    protocolo e endereço preenchidos. Ao salvar, o arquivo entra
+                    nos Documentos do caso seguindo a numeração.
+                  </>
+                ) : (
+                  <>
+                    Anexe o comprovante (ou a intimação judicial) e a IA
+                    preenche data, local, protocolo e endereço.
+                  </>
+                )}
+              </p>
+              <div className="space-y-1.5 border-t border-dashed pt-2">
+                <Label
+                  htmlFor="ag-publicacao-colada"
+                  className="text-xs font-normal text-muted-foreground"
+                >
+                  …ou cole o texto da publicação/intimação
+                </Label>
+                <Textarea
+                  id="ag-publicacao-colada"
+                  rows={3}
+                  value={publicacaoColada}
+                  onChange={(e) => setPublicacaoColada(e.target.value)}
+                  placeholder="Cole aqui a publicação (Legalmail/DJE) que marcou a perícia — a IA preenche os campos do mesmo jeito."
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={extraindoComprovante || !publicacaoColada.trim()}
+                  onClick={lerPublicacaoColada}
+                >
+                  {extraindoComprovante ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : null}
+                  Ler publicação
+                </Button>
+              </div>
+              {comprovanteDivergente && (
+                <div className="space-y-2 rounded-md border border-red-300 bg-red-50/70 p-3">
+                  <p className="text-sm font-medium text-red-900">
+                    Comprovante de outra pessoa — nada foi preenchido.
+                  </p>
+                  <p className="text-xs text-red-900/80">
+                    O comprovante é de{" "}
+                    <strong>{comprovanteDivergente.requerente}</strong>, mas o
+                    caso é de <strong>{ctxCaso?.cliente_nome}</strong>. Anexe o
+                    arquivo certo — ou, se tiver certeza de que é a mesma pessoa,
+                    confirme abaixo. Enquanto isso, o salvar fica bloqueado.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        aplicarComprovante(
+                          comprovanteDivergente.campos,
+                          comprovanteDivergente.file,
+                        );
+                        setComprovanteDivergente(null);
+                        toast.success("Comprovante aceito — confira os campos preenchidos.");
+                      }}
+                    >
+                      Confirmei — é o mesmo cliente
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setComprovanteDivergente(null)}
+                    >
+                      Descartar arquivo
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="space-y-1.5">
             <Label>Tipo</Label>
             <Select value={tipo} onValueChange={(v) => setTipo(v as AgendaTipo)}>
@@ -852,6 +1130,42 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
           </Button>
         </SheetFooter>
       </SheetContent>
+
+      {/* Guardas do agendamento: data passada / duplicado no dia. */}
+      <AlertDialog
+        open={!!avisosAgenda}
+        onOpenChange={(o) => {
+          if (!o) setAvisosAgenda(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlarmClock className="h-5 w-5 text-destructive" />
+              Tem certeza que quer agendar?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                {(avisosAgenda ?? []).map((a) => (
+                  <p key={a}>{a}</p>
+                ))}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar e corrigir</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                ignorarAvisosAgenda.current = true;
+                setAvisosAgenda(null);
+                void salvar();
+              }}
+            >
+              Agendar mesmo assim
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Sheet>
   );
 }
