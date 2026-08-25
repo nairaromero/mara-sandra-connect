@@ -12,8 +12,8 @@
 --     andamento e a checagem de parceiro seguram o ruído);
 --   - publicação com processo judicial vinculado carrega o Nº DO PROCESSO
 --     no texto do aviso (⚖️ Processo: …);
---   - anti-spam: se o caso já tem tarefa ABERTA de enviar o mesmo tipo de
---     aviso, republicações não criam outra.
+--   - dedup só por andamento (origem_ref) — o anti-spam por caso inteiro
+--     engolia a 2ª perícia publicada e caiu no review (#6).
 --
 -- Idempotente.
 -- =============================================================================
