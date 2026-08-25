@@ -53,6 +53,13 @@ const TRELLO_TOKEN = Deno.env.get("TRELLO_TOKEN") ?? "";
 // Lista "2.5.) NAIRA>ORGANIZAÇÃO DE DOCUMENTOS P/ REQ ADM" do board
 // 01-AÇÕES PREVIDENCIÁRIAS (o gatilho histórico do intake).
 const TRELLO_LISTA_ID = Deno.env.get("TRELLO_LISTA_ID") ?? "667f448ec6b497edbdd2eb22";
+const TRELLO_BOARD_ID = Deno.env.get("TRELLO_BOARD_ID") ?? "667f43859d983b821643cf07";
+// A lista 2.5 é de passagem: cards entram e saem dela várias vezes por dia
+// (2026-08-25: 4 num só dia). Com cron a cada 2 dias, olhar só quem ESTÁ na
+// lista perderia os que passaram entre as rodadas — por isso também olhamos as
+// AÇÕES do board (card criado na lista / movido pra ela) numa janela maior que
+// a cadência. A idempotência por card_id absorve a sobreposição.
+const JANELA_ACOES_HORAS = Number(Deno.env.get("INTAKE_JANELA_HORAS") ?? "72");
 // Usuário parceiro dono dos cards (André Alves Servan). O espelho de staging
 // preserva ids, então o mesmo default vale nos dois ambientes.
 const PARCEIRO_ID = Deno.env.get("INTAKE_PARCEIRO_ID") ?? "5d4cf10c-00b2-4e65-8dec-0416dd516d26";
@@ -149,24 +156,75 @@ interface TrelloCard {
   name: string;
   desc: string;
   shortUrl: string;
+  closed?: boolean;
   labels?: Array<{ name?: string }>;
   attachments?: Array<{ id: string; name?: string; url?: string; bytes?: number; mimeType?: string }>;
 }
 
+const CARD_FIELDS = new URLSearchParams({
+  fields: "name,desc,shortUrl,labels,closed",
+  attachments: "true",
+  attachment_fields: "name,url,bytes,mimeType",
+});
+
 async function buscarCardsDaLista(): Promise<Array<TrelloCard>> {
-  const params = new URLSearchParams({
-    key: TRELLO_API_KEY,
-    token: TRELLO_TOKEN,
-    fields: "name,desc,shortUrl,labels",
-    attachments: "true",
-    attachment_fields: "name,url,bytes,mimeType",
-  });
+  const params = new URLSearchParams(CARD_FIELDS);
+  params.set("key", TRELLO_API_KEY);
+  params.set("token", TRELLO_TOKEN);
   const resp = await fetch(`https://api.trello.com/1/lists/${TRELLO_LISTA_ID}/cards?${params}`, {
     signal: AbortSignal.timeout(30_000),
   });
   if (!resp.ok) throw new Error(`Trello: HTTP ${resp.status} ${await resp.text()}`);
   return (await resp.json()) as Array<TrelloCard>;
 }
+
+/**
+ * Ids de cards que ENTRARAM na lista-gatilho na janela recente, mesmo que já
+ * tenham saído dela: ações createCard (criado direto na lista) e
+ * updateCard:idList (movido pra ela).
+ */
+async function buscarCardIdsViaAcoes(): Promise<Array<string>> {
+  const since = new Date(Date.now() - JANELA_ACOES_HORAS * 3600_000).toISOString();
+  const params = new URLSearchParams({
+    key: TRELLO_API_KEY,
+    token: TRELLO_TOKEN,
+    filter: "createCard,updateCard:idList",
+    since,
+    limit: "1000",
+    fields: "type,data",
+  });
+  const resp = await fetch(`https://api.trello.com/1/boards/${TRELLO_BOARD_ID}/actions?${params}`, {
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!resp.ok) throw new Error(`Trello actions: HTTP ${resp.status} ${await resp.text()}`);
+  const acoes = (await resp.json()) as Array<{
+    type: string;
+    data: {
+      card?: { id?: string };
+      list?: { id?: string };
+      listAfter?: { id?: string };
+    };
+  }>;
+  const ids = new Set<string>();
+  for (const a of acoes) {
+    const listaDestino = a.type === "createCard" ? a.data.list?.id : a.data.listAfter?.id;
+    if (listaDestino === TRELLO_LISTA_ID && a.data.card?.id) ids.add(a.data.card.id);
+  }
+  return [...ids];
+}
+
+async function buscarCardPorId(cardId: string): Promise<TrelloCard | null> {
+  const params = new URLSearchParams(CARD_FIELDS);
+  params.set("key", TRELLO_API_KEY);
+  params.set("token", TRELLO_TOKEN);
+  const resp = await fetch(`https://api.trello.com/1/cards/${cardId}?${params}`, {
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (resp.status === 404) return null; // card excluído de vez
+  if (!resp.ok) throw new Error(`Trello card ${cardId}: HTTP ${resp.status}`);
+  return (await resp.json()) as TrelloCard;
+}
+
 
 /** Anexo hospedado no próprio Trello exige o header OAuth pra baixar. */
 async function baixarAnexoTrello(url: string): Promise<Uint8Array> {
@@ -586,23 +644,45 @@ serve(async (req) => {
 
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
 
-  const cards = await buscarCardsDaLista();
+  // Candidatos: quem está na lista agora + quem PASSOU por ela na janela de
+  // ações (a lista é de passagem; ver comentário em JANELA_ACOES_HORAS).
+  const naLista = (await buscarCardsDaLista()).filter((c) => !c.closed);
+  let idsAcoes: Array<string> = [];
+  try {
+    idsAcoes = await buscarCardIdsViaAcoes();
+  } catch (err) {
+    // Sem as ações a rodada ainda funciona (só com a lista); registra e segue.
+    console.error("[intake] busca de acoes falhou:", err);
+  }
+  const idsCandidatos = [...new Set([...naLista.map((c) => c.id), ...idsAcoes])];
 
-  // Filtra os que já têm run que não deve repetir.
+  // Dedup contra runs anteriores ANTES de buscar detalhe de card (o .in é
+  // limitado aos candidatos da janela — nunca esbarra no teto de 1000 linhas
+  // do PostgREST).
   const { data: runs } = await sb
     .from("intake_trello_runs")
     .select("card_id, status")
-    .in("card_id", cards.map((c) => c.id));
+    .in("card_id", idsCandidatos);
   const naoRepetir = new Set(
     (runs ?? []).filter((r) => r.status !== "erro").map((r) => r.card_id as string),
   );
-  const novos = cards.filter((c) => !naoRepetir.has(c.id));
+
+  const novos: Array<TrelloCard> = naLista.filter((c) => !naoRepetir.has(c.id));
+  const jaIncluidos = new Set(naLista.map((c) => c.id));
+  for (const id of idsAcoes) {
+    if (jaIncluidos.has(id) || naoRepetir.has(id)) continue;
+    jaIncluidos.add(id);
+    // Card que passou pela lista e seguiu adiante: busca o detalhe agora.
+    // Arquivado no Trello não entra (foi tirado de cena de propósito).
+    const card = await buscarCardPorId(id);
+    if (card && !card.closed) novos.push(card);
+  }
 
   if (body.dry_run) {
     return new Response(
       JSON.stringify({
         dry_run: true,
-        na_lista: cards.length,
+        candidatos: idsCandidatos.length,
         a_processar: novos.map((c) => {
           const p = parsearCard(c.name, c.desc, (c.attachments ?? []).map((a) => a.url ?? ""));
           return {
@@ -624,7 +704,7 @@ serve(async (req) => {
   const restantes = novos.length - lote.length;
 
   if (!lote.length && !body.sempre) {
-    return new Response(JSON.stringify({ processados: 0, na_lista: cards.length }), {
+    return new Response(JSON.stringify({ processados: 0, candidatos: idsCandidatos.length }), {
       headers: { "Content-Type": "application/json" },
     });
   }
