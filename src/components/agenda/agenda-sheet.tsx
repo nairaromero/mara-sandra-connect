@@ -54,6 +54,7 @@ import {
   comoLocalBR,
   deLocalBR,
   formatarBR,
+  hojeChaveBR,
   inputDateTimeBRParaIso,
   isoParaInputDateTimeBR,
 } from "@/lib/fuso";
@@ -68,7 +69,11 @@ import {
   obterContextoCaso,
   type ContextoCasoParaTemplate,
 } from "@/lib/tarefas/queries";
-import { enviarAvisoEvento, montarTextoAvisoEvento } from "@/lib/agenda/aviso";
+import {
+  criarTarefaAvisoFallback,
+  enviarAvisoEvento,
+  montarTextoAvisoEvento,
+} from "@/lib/agenda/aviso";
 import { AvisoParceiroEvento } from "@/components/agenda/aviso-parceiro-evento";
 import {
   templateTemAgenda,
@@ -177,7 +182,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
   }
 
   function avisarSeDataPassada(campos: CamposComprovante) {
-    if (campos.data && campos.data < new Date().toISOString().slice(0, 10)) {
+    if (campos.data && campos.data < hojeChaveBR()) {
       const [a, m, d] = campos.data.split("-");
       toast.warning(
         `Atenção: a perícia é de ${d}/${m}/${a} — data que JÁ PASSOU. Confira se é a publicação/comprovante atual.`,
@@ -190,6 +195,10 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
   async function lerPublicacaoColada() {
     if (!publicacaoColada.trim()) {
       toast.error("Cole o texto da publicação primeiro.");
+      return;
+    }
+    if (!ctxCaso?.cliente_nome) {
+      toast.error("Os dados do caso ainda estão carregando — tente de novo em instantes.");
       return;
     }
     setExtraindoComprovante(true);
@@ -217,6 +226,10 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
   }
 
   async function lerComprovante(file: File) {
+    if (!ctxCaso?.cliente_nome) {
+      toast.error("Os dados do caso ainda estão carregando — tente de novo em instantes.");
+      return;
+    }
     setExtraindoComprovante(true);
     setComprovanteDivergente(null);
     try {
@@ -585,9 +598,24 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
             });
           } catch (e) {
             console.error("aviso ao parceiro falhou:", e);
-            toast.error(
-              "Evento criado, mas o aviso ao parceiro FALHOU — envie manualmente pelos Comentários do caso.",
-            );
+            try {
+              await criarTarefaAvisoFallback({
+                casoId,
+                eventoId: novoEvento.id,
+                tipoAviso: tipo === "audiencia" ? "audiencia_aviso" : "pericia_aviso",
+                texto: avisoTexto.trim(),
+                responsavelId: usuario?.id ?? null,
+                clienteNome: ctxCaso?.cliente_nome ?? "",
+              });
+              toast.error(
+                "O envio do aviso FALHOU — criei a tarefa 'Enviar aviso ao parceiro' pra não se perder.",
+              );
+            } catch (e2) {
+              console.error("fallback do aviso também falhou:", e2);
+              toast.error(
+                "Evento criado, mas o aviso ao parceiro FALHOU — envie manualmente pelos Comentários do caso.",
+              );
+            }
           }
         }
 

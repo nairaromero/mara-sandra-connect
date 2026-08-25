@@ -64,17 +64,10 @@ begin
    where c.id = new.caso_id;
   if v_parceiro is null then return new; end if;
 
-  -- Anti-spam: caso já com tarefa aberta do mesmo tipo de aviso não ganha
-  -- outra por republicação/segundo andamento sobre o mesmo fato.
-  if exists (
-    select 1 from public.tarefas t
-     where t.caso_id = new.caso_id
-       and t.origem = 'enviar_aviso'
-       and t.status in ('a_fazer', 'fazendo')
-       and t.metadata->'enviar_aviso'->>'tipo_aviso' = v_aviso
-  ) then
-    return new;
-  end if;
+  -- Dedup APENAS por andamento (origem_ref, no insert abaixo). O anti-spam
+  -- por caso inteiro engolia uma SEGUNDA perícia publicada com a primeira
+  -- tarefa ainda aberta (review #6) — tarefa a mais é chateação; perícia
+  -- engolida é prejuízo.
 
   if new.processo_judicial_id is not null then
     select numero_processo into v_processo

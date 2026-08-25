@@ -15,13 +15,15 @@ import { Loader2, Send, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/lib/supabase";
-import { enviarAvisoEvento } from "@/lib/agenda/aviso";
+import { enviarAvisoEvento, type TipoAviso } from "@/lib/agenda/aviso";
 import { extrairDePublicacao, preencherLacunasAviso } from "@/lib/agenda/comprovante";
 import { useAuth } from "@/hooks/use-auth";
 import type { TarefaComJoins } from "@/lib/tarefas/types";
 
 export interface MetaEnviarAviso {
-  tipo_aviso: "pericia_aviso" | "audiencia_aviso";
+  // Inclui lembretes: rascunho legado migrado da fila pode carregar
+  // pericia_lembrete (review #10).
+  tipo_aviso: TipoAviso;
   evento_id: string | null;
   texto: string;
   origem_andamento_id?: string;
@@ -80,7 +82,7 @@ export function EnviarAvisoParceiro({
   if (!meta || !tarefa.caso_id) return null;
   if (tarefa.status === "feito" || tarefa.status === "cancelado") return null;
 
-  const rotulo = meta.tipo_aviso === "audiencia_aviso" ? "audiência" : "perícia";
+  const rotulo = meta.tipo_aviso.startsWith("audiencia") ? "audiência" : "perícia";
 
   async function enviar() {
     if (enviando) return;

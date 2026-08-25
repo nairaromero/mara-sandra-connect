@@ -22,7 +22,7 @@ export async function buscarEventoMesmoDia(
   inicio.setHours(0, 0, 0, 0);
   const fim = new Date(inicio);
   fim.setDate(fim.getDate() + 1);
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("agenda_eventos")
     .select("id, start_at")
     .eq("caso_id", casoId)
@@ -30,6 +30,9 @@ export async function buscarEventoMesmoDia(
     .gte("start_at", deLocalBR(inicio).toISOString())
     .lt("start_at", deLocalBR(fim).toISOString())
     .limit(1);
+  // Falha na consulta NÃO pode virar "não tem duplicado" — o guard sumiria
+  // calado (review #8). Estoura e o salvar aborta com erro visível.
+  if (error) throw error;
   return (data?.[0] as { id: string; start_at: string } | undefined) ?? null;
 }
 

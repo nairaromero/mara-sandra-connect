@@ -137,6 +137,72 @@ test("exigência judicial cria solicitação com prazo e FATAL no dia útil ante
   expect(ands![0].titulo).toContain("Exigência judicial");
 });
 
+// Ciclo de ATENDIMENTO (depende do estado do 1º teste): quando o parceiro
+// entrega o documento, o trigger _solicitacao_atendida_cria_tarefa tem que
+// produzir os 3 efeitos que o review pegou faltando (finding #1) — andamento
+// visível ao parceiro, tarefa de juntada com template_aplicado (judicial SEM
+// checklist de cumprimento) e a "Aguardando documentos" fechada.
+test("solicitação atendida: andamento + tarefa de juntada + Aguardando fechada", async () => {
+  const { data: solics } = await admin
+    .from("solicitacoes_documento")
+    .select("id")
+    .eq("caso_id", casoId)
+    .eq("status", "pendente");
+  expect(solics?.length, "solicitação pendente do 1º teste sumiu").toBe(1);
+
+  // O app do parceiro marca 'atendido' ao entregar — aqui direto no banco,
+  // porque o alvo é o trigger, não a UI do parceiro.
+  const { error } = await admin
+    .from("solicitacoes_documento")
+    .update({ status: "atendido" })
+    .eq("id", solics![0].id);
+  expect(error).toBeNull();
+
+  // 1) Andamento visível ao parceiro, variante judicial ("juntar aos autos").
+  await expect
+    .poll(
+      async () => {
+        const { data } = await admin
+          .from("andamentos")
+          .select("id")
+          .eq("caso_id", casoId)
+          .eq("metadata->>etapa", "documento_recebido");
+        return data?.length ?? 0;
+      },
+      { timeout: 15_000, message: "esperando o andamento de documento recebido" },
+    )
+    .toBe(1);
+  const { data: ands } = await admin
+    .from("andamentos")
+    .select("titulo, visivel_parceiro")
+    .eq("caso_id", casoId)
+    .eq("metadata->>etapa", "documento_recebido");
+  expect(ands![0].titulo).toBe(
+    "Documento entregue pelo Parceiro — iremos juntar aos autos",
+  );
+  expect(ands![0].visivel_parceiro).toBe(true);
+
+  // 2) Tarefa de juntada com template_aplicado; judicial NÃO leva o checklist
+  //    cumprimento_exigencia (esse é só do INSS).
+  const { data: tarefas } = await admin
+    .from("tarefas")
+    .select("titulo, status, metadata")
+    .eq("caso_id", casoId);
+  const juntada = tarefas!.find((t) =>
+    t.titulo.startsWith("Documento entregue — juntar aos autos"),
+  );
+  expect(juntada, "tarefa de juntada não criada pelo trigger").toBeTruthy();
+  const meta = juntada!.metadata as Record<string, unknown>;
+  expect(meta.template_aplicado).toBe("exigencia_judicial");
+  expect(meta.cumprimento_exigencia).toBeUndefined();
+
+  // 3) A "Aguardando documentos" do mesmo template fechou sozinha.
+  const aguardando = tarefas!.find((t) =>
+    t.titulo.includes("Aguardando documentos do parceiro (exigência judicial)"),
+  );
+  expect(aguardando!.status).toBe("feito");
+});
+
 test("calculadora de prazo: publicação + dias úteis preenche o fatal", async ({
   page,
 }) => {
