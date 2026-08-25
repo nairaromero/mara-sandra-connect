@@ -1,5 +1,6 @@
-// ATENCAO: supabase/functions/intake-trello/doc-type-inference.ts e uma copia
-// deste arquivo (edge function nao importa de src/). Mudou aqui, muda la.
+// ATENCAO: copia de src/lib/doc-type-inference.ts (edge function nao importa de src/).
+// Mudou la, muda aqui — os dois arquivos devem ser identicos do primeiro comentario
+// original em diante.
 // =============================================================================
 // Heuristica pra inferir tipo de documento a partir do nome do arquivo.
 //
