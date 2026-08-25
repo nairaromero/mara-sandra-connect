@@ -91,6 +91,46 @@ existentes. **Service role nunca vai pro browser/git.** O espelho não usa
 `SUPABASE_DB_PASSWORD` (nem local, nem no workflow — o secret de produção no
 GitHub é só o do role de leitura; `SUPABASE_DB_PASSWORD` foi removido de lá).
 
+## Backup de produção e restore (testado em 2026-08-23)
+
+O que existe de backup do banco de produção:
+
+- **Backup diário automático da Supabase (plano Pro)**: físico, ~01:45 BRT,
+  **7 últimos retidos**. Não dá pra baixar (backup físico não tem download).
+- **PITR**: desligado (add-on pago; volume atual não justifica).
+- **Storage NÃO entra em backup nenhum** — nem no diário, nem em PITR, nem no
+  clone. Os arquivos de `documentos`/`cnis-uploads`/`contratos` só existem no
+  bucket. É o buraco real de backup (item aberto no TODO).
+- O espelho semanal pro staging **não é backup** (anonimizado e sobrescrito).
+
+### Runbook de restore — validado com um clone real
+
+Caminho certo pra testar (e pra recuperar sem derrubar produção):
+**Dashboard → produção → Database → Backups → Restore to a new project.**
+Cria um projeto novo na mesma org; produção não é tocada. O "Restore" simples,
+sem "new project", **sobrescreve produção in-place** — só em incidente.
+
+Resultado do teste de 2026-08-23 (backup daquela madrugada → projeto
+`marasandra-restore-teste`, apagado depois):
+
+- **~4 minutos** do clique ao `ACTIVE_HEALTHY`; custo adicional $0 (mesmo compute).
+- Conferido idêntico à produção em 14 indicadores: 400 clientes, 400 casos,
+  4.394 andamentos, 800 tarefas, 5.126 documentos (linhas), 29 `auth.users`,
+  46 tabelas, 133 policies, 41 triggers, 96 funções, role `espelho_leitura`.
+- **Vault veio junto**: senha MEU INSS decifra no clone (testado por
+  `pgp_sym_decrypt` + `_inss_get_key()`, conferindo só o length).
+- Estado de triggers preservado (`trg_whatsapp_comentario_novo` desabilitado).
+
+Pegadinhas do clone, todas observadas no teste:
+
+- **`pg_cron` e `pg_net` NÃO vêm** (extensões exigem reconfiguração manual).
+  Bom: os jobs do clone não disparam contra as edge functions de produção.
+- A **API de query (Management) demora uns minutos** pra funcionar no clone
+  ("password authentication failed" logo após criar — é só esperar).
+- A senha do Postgres do clone é **a de produção** (roles são restaurados).
+- Não vêm: Storage, edge functions, config de Auth, API keys, settings.
+- O clone não pode ser fonte de outro clone.
+
 ## O que o staging NÃO faz
 
 - Sem cron jobs (syncs DataJud/DJEN/INSS não rodam sozinhos).

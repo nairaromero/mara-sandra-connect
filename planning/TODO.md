@@ -144,6 +144,9 @@ Coisas que estavam abertas **sem constar em nenhuma lista**. Ordenadas por risco
       a tela [auditoria.tsx](../src/routes/_authenticated/auditoria.tsx) ainda só mostra
       senha do INSS.
 - [ ] **Higiene de Storage** — limpar órfãos e arquivos de teste antigos.
+- [ ] **Backup dos buckets do Storage** — é o único dado SEM backup nenhum: o backup diário
+      da Supabase e o clone cobrem só o Postgres (testado em 23/08, ver AMBIENTES.md §Backup).
+      Cópia periódica de `documentos`/`cnis-uploads`/`contratos` pra fora da Supabase, cifrada.
 
 ---
 
