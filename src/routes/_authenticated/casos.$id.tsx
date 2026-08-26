@@ -4420,14 +4420,20 @@ function TabDocumentos(props: TabDocumentosProps) {
     atendido: 1,
     dispensado: 2,
   };
-  const solicitacoesOrdenadas = solicitacoes.slice().sort((a, b) => {
+  // Parceiro só vê solicitações EXTERNAS — interna é o escritório
+  // providenciando, não cabe "Cumprir" pra ele (Naira, 2026-08-27).
+  const solicitacoesVisiveis = isInterno
+    ? solicitacoes
+    : solicitacoes.filter((s) => s.origem === "externa");
+
+  const solicitacoesOrdenadas = solicitacoesVisiveis.slice().sort((a, b) => {
     const oa = ordemStatus[a.status] !== undefined ? ordemStatus[a.status] : 99;
     const ob = ordemStatus[b.status] !== undefined ? ordemStatus[b.status] : 99;
     if (oa !== ob) return oa - ob;
     return b.data_solicitacao.localeCompare(a.data_solicitacao);
   });
 
-  const totalPendentes = solicitacoes.filter((s) => s.status === "pendente").length;
+  const totalPendentes = solicitacoesVisiveis.filter((s) => s.status === "pendente").length;
 
   async function baixar(doc: Documento) {
     try {

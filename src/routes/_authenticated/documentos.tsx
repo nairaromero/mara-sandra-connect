@@ -193,12 +193,16 @@ function DocumentosPendentesPage() {
     }
     setErro(null);
     try {
-      const resp = await supabase
+      let q = supabase
         .from("solicitacoes_documento")
         .select(
           "id, caso_id, tipo, tipos, descricao, status, origem, comentario, documento_id, solicitado_por, data_solicitacao, data_atendimento, solicitante:usuarios!solicitacoes_documento_solicitado_por_fkey(id, nome), casos(id, tipo_beneficio, fase, status, parceiro_id, clientes(id, nome))",
         )
         .order("data_solicitacao", { ascending: false });
+      // Parceiro só vê o que é dele providenciar: solicitação INTERNA é do
+      // escritório e ficava aparecendo com botão "Cumprir" (Naira, 2026-08-27).
+      if (!isInterno) q = q.eq("origem", "externa");
+      const resp = await q;
       if (resp.error) throw resp.error;
       const dados = (resp.data || []) as unknown as Array<SolicitacaoComCaso>;
       setSolicitacoes(dados);
@@ -210,7 +214,7 @@ function DocumentosPendentesPage() {
       setLoading(false);
       jaCarregouRef.current = true;
     }
-  }, []);
+  }, [isInterno]);
 
   useEffect(() => {
     carregar();
