@@ -27,6 +27,7 @@ import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase";
 import type { TarefaComJoins } from "@/lib/tarefas/types";
 import { useDestaque } from "@/lib/destaque/destaque-context";
+import { formatarBR } from "@/lib/fuso";
 
 interface Registro {
   feito_em: string;
@@ -236,7 +237,7 @@ export function EtapaProtocoloRealizado({
             </div>
             {feito && registro && (
               <div className={compacto ? "text-[10px] text-muted-foreground" : "text-xs text-muted-foreground"}>
-                Feito em {new Date(registro.feito_em).toLocaleDateString("pt-BR")}
+                Feito em {formatarBR(registro.feito_em, { day: "2-digit", month: "2-digit", year: "numeric" })}
               </div>
             )}
           </div>

@@ -18,6 +18,7 @@ import { STATUS_LABEL, type TarefaComJoins, type TarefaStatus } from "@/lib/tare
 import { listarAgenda } from "@/lib/agenda/queries";
 import { type AgendaEventoComJoins, tipoBadge } from "@/lib/agenda/types";
 import { DESTAQUE_CLASSE_GLOBAL, useDestaqueAtivo } from "@/lib/destaque/destaque-context";
+import { formatarBR, horaBR } from "@/lib/fuso";
 
 const STATUS_ATIVOS: TarefaStatus[] = ["a_fazer", "fazendo"];
 const STATUS_ARQUIVADOS: TarefaStatus[] = ["feito", "cancelado"];
@@ -257,15 +258,13 @@ function EventoCard({
   onClick: () => void;
   dim?: boolean;
 }) {
-  const start = new Date(e.start_at);
-  const end = new Date(e.end_at);
-  const data = start.toLocaleDateString("pt-BR", {
+  const data = formatarBR(e.start_at, {
     weekday: "short",
     day: "2-digit",
     month: "short",
   });
-  const hInicio = start.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-  const hFim = end.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  const hInicio = horaBR(e.start_at);
+  const hFim = horaBR(e.end_at);
   const destacado = useDestaqueAtivo(e.id);
   return (
     <button
