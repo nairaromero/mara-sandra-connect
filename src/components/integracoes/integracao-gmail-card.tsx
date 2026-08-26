@@ -116,15 +116,13 @@ export function IntegracaoGmailCard() {
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
           <Mail className="h-4 w-4" />
-          Integração Google (Gmail INSS + Drive)
+          Integração Gmail (INSS)
         </CardTitle>
         <CardDescription>
-          Conexão Google do sistema, usada por duas rotinas: a leitura dos
-          e-mails do INSS (<code>inss-email-processor</code>) e o intake de
-          clientes do Trello, que baixa as pastas de documentos do Drive
-          (<code>intake-trello</code>). Permissões pedidas:{" "}
-          <strong>leitura</strong> de e-mail (gmail.readonly) e{" "}
-          <strong>leitura</strong> de Drive (drive.readonly).
+          Conecta a caixa de entrada que recebe os e-mails do INSS. A função{" "}
+          <code>inss-email-processor</code> usa esse vínculo para criar
+          andamentos e tarefas automaticamente. Permissão pedida:{" "}
+          <strong>leitura</strong> (gmail.readonly).
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -179,9 +177,8 @@ export function IntegracaoGmailCard() {
         ) : (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Nenhuma conta Google conectada ainda. Clique para autorizar com a
-              conta que recebe os e-mails do INSS e enxerga as pastas de
-              documentos no Drive.
+              Nenhum Gmail conectado ainda. Clique para autorizar o acesso à
+              caixa que recebe os e-mails do INSS.
             </p>
             <Button onClick={conectar} disabled={conectando}>
               {conectando ? (
@@ -189,7 +186,7 @@ export function IntegracaoGmailCard() {
               ) : (
                 <Plug className="h-4 w-4" />
               )}
-              Conectar Google
+              Conectar Gmail
             </Button>
           </div>
         )}
