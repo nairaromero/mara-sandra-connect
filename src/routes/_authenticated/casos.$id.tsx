@@ -6278,6 +6278,10 @@ function SolicitarDocBotao(props: {
   const [descricao, setDescricao] = useState("");
   const [origem, setOrigem] = useState("externa");
   const [enviando, setEnviando] = useState(false);
+  // Flash no campo que ABRIU pro próximo documento — sem ele a pessoa não
+  // percebe onde continuar (feedback da Naira, 2026-08-26).
+  const [flashNovoCampo, setFlashNovoCampo] = useState(false);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const tiposOptions = TIPOS_DOCUMENTO_OPTIONS;
 
@@ -6292,6 +6296,9 @@ function SolicitarDocBotao(props: {
     ]);
     setTipo("");
     setTipoPersonalizado("");
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    setFlashNovoCampo(true);
+    flashTimer.current = setTimeout(() => setFlashNovoCampo(false), 2200);
   }
 
   async function criar() {
@@ -6379,12 +6386,14 @@ function SolicitarDocBotao(props: {
         <div className="space-y-3">
           <div>
             <Label className="text-xs">Tipo de documento</Label>
-            <DocTypeCombobox
-              options={tiposOptions}
-              value={tipo}
-              onChange={setTipo}
-              placeholder="Selecione ou busque o tipo..."
-            />
+            <div className={"rounded-md " + (flashNovoCampo ? DESTAQUE_CLASSE : "")}>
+              <DocTypeCombobox
+                options={tiposOptions}
+                value={tipo}
+                onChange={setTipo}
+                placeholder="Selecione ou busque o tipo..."
+              />
+            </div>
           </div>
           {tipo === "outro" && (
             <div>
