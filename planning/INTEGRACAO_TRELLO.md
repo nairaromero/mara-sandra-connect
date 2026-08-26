@@ -85,50 +85,6 @@ anexados direto no Trello além do link do Drive (o robô atual ignora esses).
       cap de 20 arquivos/rodada e 8 MB/arquivo; sem IA configurada, degrada
       pra só-heurística sem falhar.
 
-## Auditoria pré-produção (2026-08-26)
-
-- **Detecção por AÇÕES do board** (além da lista): a 2.5 é lista de passagem
-  (4 cards reais transitaram num só dia); polling de 2/2 dias olhando só a
-  lista perderia cards. A função agora também consulta
-  `/boards/{id}/actions?filter=createCard,updateCard:idList` numa janela de
-  `INTAKE_JANELA_HORAS` (default 72h) e processa cards que passaram pela lista
-  mesmo que já tenham saído. Card ARQUIVADO no Trello não entra. Validado em
-  staging com listas de teste temporárias (criadas e arquivadas em 2026-08-26).
-- **Validado também**: retry de card com status `erro` (reprocessa do zero) e
-  recursão de subpasta do Drive (`pasta_relativa` preenchida).
-- **Incidente (resolvido)**: rodada manual de staging processou o card real
-  "Matheus Henrique Duarte" que entrou na lista entre checagens — 31 docs +
-  cadastro criados no staging e REMOVIDOS por completo no mesmo dia (storage +
-  linhas; card marcado não-reprocessar). Prevenção: o TRELLO_LISTA_ID do
-  staging aponta pra lista morta "DOCUMENTOS" (arquivada) — staging nunca mais
-  lê a lista real.
-- **NÃO exercitado (aceito, validar na 1ª rodada de prod)**: classificação por
-  IA (staging não tem chave utilizável; caminho protegido por try/catch e
-  degrada pra "outro").
-- **OAuth prod**: GMAIL_CLIENT_ID de produção é um cliente PRÓPRIO (≠ Drive
-  Picker; conferido por hash) e o GMAIL_REDIRECT_URI de prod está correto —
-  reconexão em prod usa o setup que já funciona desde junho, só com o escopo
-  novo pedido pelo código.
-
-## Runbook da virada (executar numa sentada, horário calmo)
-
-1. `node scripts/msc-sql.mjs --file planning/sql-migrations/migration_intake_trello.sql`
-   (cron nasce agendado; inofensivo até a função existir/ter secrets).
-2. Deploy em PRODUÇÃO (`--project-ref llugytkdsfsrciavhrfw`): `intake-trello`
-   e `gmail-oauth-start`.
-3. Secrets de produção: `TRELLO_API_KEY`, `TRELLO_TOKEN` (os mesmos do staging).
-4. Naira reconecta o Google em Configurações de PRODUÇÃO (conta real dela, que
-   enxerga as pastas do André) — card "Integração Google (Gmail INSS + Drive)".
-5. **Pré-marcar** em `intake_trello_runs` de prod (status `pendente`) todos os
-   cards atualmente na lista 2.5 E os que aparecem nas ações das últimas 72h —
-   já foram processados pelo n8n antigo, não podem ser re-importados.
-6. Desativar os workflows n8n "V2.2 - Intake STAGE 1/2" (via API do n8n).
-7. Rodada manual assistida: `dry_run` primeiro, conferir a lista de candidatos,
-   depois rodada real com card de teste fictício; conferir cliente/caso/docs/
-   senha/e-mail/sino e a classificação por IA.
-8. Conferir `cron.job` agendado e, no dia seguinte à 1ª execução automática,
-   `cron.job_run_details` + `net._http_response`.
-
 **Status implementação (2026-08-24):** migration aplicada no STAGING; functions
 `intake-trello` e `gmail-oauth-start` deployadas no STAGING; secrets TRELLO_*
 cadastrados no staging; dry_run OK (lista vazia). Validação pendente: Naira
