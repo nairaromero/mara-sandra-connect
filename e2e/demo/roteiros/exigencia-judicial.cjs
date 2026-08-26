@@ -177,7 +177,7 @@ const PDF_FAKE = Buffer.from(
     await ler(p2, 2000);
     await still(p2, "ato2-03-anexo");
     await clicar(p2, p2.getByRole("button", { name: "Confirmar" }));
-    await p2.getByText("Solicitação cumprida e documento anexado").waitFor({ timeout: 30000 });
+    await p2.getByText(/Solicitação cumprida — \d+ documento/).waitFor({ timeout: 30000 });
     await ler(p2, 3000);
     await still(p2, "ato2-04-cumprido");
     await ato2.fechar();

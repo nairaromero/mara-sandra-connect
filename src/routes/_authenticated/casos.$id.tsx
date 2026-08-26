@@ -32,6 +32,7 @@ import {
   MoreVertical,
   Copy,
   KeyRound,
+  Paperclip,
   X,
   ListTodo,
   ListOrdered,
@@ -219,6 +220,9 @@ interface Documento {
   gdrive_file_id?: string | null;
   // Caminho da subpasta no Drive (ex.: "Diversos"). Null = raiz/manual.
   pasta_relativa?: string | null;
+  // Solicitação que este documento cumpre (N:1) — um cumprimento pode ter
+  // vários arquivos (frente/verso, várias páginas).
+  solicitacao_id?: string | null;
   created_at: string;
 }
 
@@ -3861,11 +3865,11 @@ function TabDocumentos(props: TabDocumentosProps) {
   // Solicitação pendente sendo editada (só interno).
   const [solicEditando, setSolicEditando] = useState<SolicitacaoDocumento | null>(null);
   // Upload de arquivo no atendimento
-  const [arquivoUpload, setArquivoUpload] = useState<File | null>(null);
+  // Cumprimento aceita VÁRIOS arquivos (pedido dos parceiros, 2026-08-26).
+  const [arquivosUpload, setArquivosUpload] = useState<Array<{ file: File; nome: string }>>([]);
   // Nome editavel do arquivo a ser salvo. Pre-preenchido com nomearArquivo
   // (auto-renomeacao baseada no tipo da solicitacao), mas o parceiro pode
   // editar pra dar nome mais descritivo (ex.: "RG_Joao_2024.pdf").
-  const [nomeArquivoEdit, setNomeArquivoEdit] = useState<string>("");
   const [comAnexo, setComAnexo] = useState(false);
   // Estado do accordion "Solicitações cumpridas"
   const [cumpridasAberto, setCumpridasAberto] = useState(false);
@@ -4350,10 +4354,21 @@ function TabDocumentos(props: TabDocumentosProps) {
       : "pdf";
     const label = TIPOS_DOCUMENTO_LABEL[tipoSolic] || tipoSolic;
     const labelSanit = label
-      .replace(/[\/\\?*:|"<>]/g, "_")
+      .replace(/[/\\?*:|"<>]/g, "_")
       .replace(/\s+/g, "_")
       .trim();
     return labelSanit + "." + ext.toLowerCase();
+  }
+
+  // Vários arquivos do mesmo tipo: o 2º em diante ganha sufixo _(n) antes da
+  // extensão, senão os nomes (e paths no Storage) colidiriam.
+  function nomearArquivoMulti(tipoSolic: string, arquivo: File, indice: number): string {
+    const nome = nomearArquivo(tipoSolic, arquivo);
+    if (indice === 0) return nome;
+    const ponto = nome.lastIndexOf(".");
+    return ponto > 0
+      ? nome.slice(0, ponto) + "_(" + (indice + 1) + ")" + nome.slice(ponto)
+      : nome + "_(" + (indice + 1) + ")";
   }
 
   const listaFiltrada = isInterno
@@ -4921,8 +4936,7 @@ function TabDocumentos(props: TabDocumentosProps) {
   function abrirAcaoModal(s: SolicitacaoDocumento, novoStatus: string) {
     setAcaoAlvo({ solic: s, novoStatus: novoStatus });
     setComentarioModal(s.comentario || "");
-    setArquivoUpload(null);
-    setNomeArquivoEdit("");
+    setArquivosUpload([]);
     // Parceiro SEMPRE cumpre com arquivo. Interno por default sem.
     setComAnexo(!isInterno && novoStatus === "atendido");
   }
@@ -4931,99 +4945,124 @@ function TabDocumentos(props: TabDocumentosProps) {
     setAcaoAlvo(null);
     setComentarioModal("");
     setSalvandoModal(false);
-    setArquivoUpload(null);
-    setNomeArquivoEdit("");
+    setArquivosUpload([]);
     setComAnexo(false);
   }
 
   async function confirmarAcaoModal() {
     if (!acaoAlvo) return;
-    if (acaoAlvo.novoStatus === "atendido" && comAnexo && !arquivoUpload) {
-      toast.error("Selecione um arquivo para anexar");
+    if (acaoAlvo.novoStatus === "atendido" && comAnexo && arquivosUpload.length === 0) {
+      toast.error("Selecione pelo menos um arquivo para anexar");
       return;
     }
-    // Nome do arquivo obrigatorio quando ha upload
+    // Nome obrigatorio em todos os arquivos quando ha upload.
     if (
       acaoAlvo.novoStatus === "atendido" &&
       comAnexo &&
-      arquivoUpload &&
-      !nomeArquivoEdit.trim()
+      arquivosUpload.some((a) => !a.nome.trim())
     ) {
-      toast.error("Informe o nome do arquivo");
+      toast.error("Informe o nome de todos os arquivos");
       return;
     }
     // Valida tamanho antes de subir.
-    if (arquivoUpload) {
-      const erroTamanho = validateFileSize(arquivoUpload);
+    for (const a of arquivosUpload) {
+      const erroTamanho = validateFileSize(a.file);
       if (erroTamanho) {
-        toast.error(erroTamanho);
+        toast.error(a.file.name + ": " + erroTamanho);
         return;
       }
     }
     setSalvandoModal(true);
     try {
-      let documentoId: string | null = null;
+      let primeiroDocId: string | null = null;
+      let enviados = 0;
+      const falhas: Array<{ file: File; nome: string }> = [];
 
-      // Upload + criacao de documento (se houver arquivo)
-      if (acaoAlvo.novoStatus === "atendido" && comAnexo && arquivoUpload && usuarioId) {
-        // Usa nome editado pelo usuario (ou fallback pra auto-rename)
-        const nomeArq = nomeArquivoEdit.trim() || nomearArquivo(acaoAlvo.solic.tipo, arquivoUpload);
-        // Storage rejeita chave com acento ("Invalid key") — path sempre
-        // sanitizado; nome_arquivo mantém o nome com acento pra exibição.
-        // upsert só pra interno: a RLS de UPDATE em storage.objects exige
-        // is_interno(), e supabase-js com upsert=true dispara INSERT ON
-        // CONFLICT DO UPDATE — que tropeça na policy mesmo sem conflito real.
-        // Parceiro leva prefixo de timestamp no path (nome auto-gerado é fixo
-        // por tipo, então re-solicitação do mesmo tipo colidiria).
-        const path =
-          casoId +
-          "/" +
-          (isInterno ? "" : Date.now() + "_") +
-          sanitizeFileName(nomeArq);
-        const upResp = await supabase.storage
-          .from("documentos")
-          .upload(path, arquivoUpload, { upsert: isInterno });
-        if (upResp.error) throw upResp.error;
-        const docInsert = await supabase
-          .from("documentos")
-          .insert({
-            caso_id: casoId,
-            tipo: acaoAlvo.solic.tipo,
-            nome_arquivo: nomeArq,
-            storage_path: path,
-            tamanho_bytes: arquivoUpload.size,
-            uploaded_by: usuarioId,
-            visivel_parceiro: true,
-          })
-          .select("id")
-          .single();
-        if (docInsert.error) throw docInsert.error;
-        documentoId = (docInsert.data as { id: string }).id;
-
-        // Espelha no Drive se o caso tem pasta vinculada. Não bloqueia o
-        // fluxo se falhar — app é fonte de verdade, Drive é espelho.
-        // Só interno: o token OAuth é da conta Google do escritório; pro
-        // parceiro isso abriria popup de login do Google.
-        if (gdriveFolderId && isInterno) {
+      // Upload + criacao de documento, um por arquivo (frente/verso, varias
+      // paginas). Falha num arquivo NAO derruba os demais: os que subiram
+      // ficam vinculados (solicitacao_id) e os que falharam voltam pra lista.
+      if (acaoAlvo.novoStatus === "atendido" && comAnexo && usuarioId) {
+        for (const a of arquivosUpload) {
           try {
-            const gdriveId = await uploadDocumentoDriveSeNecessario(
-              arquivoUpload,
-              nomeArq,
-              gdriveFolderId,
-            );
-            if (gdriveId) {
-              await supabase
-                .from("documentos")
-                .update({ gdrive_file_id: gdriveId })
-                .eq("id", documentoId);
+            const nomeArq = a.nome.trim();
+            // Storage rejeita chave com acento ("Invalid key") — path sempre
+            // sanitizado; nome_arquivo mantém o nome com acento pra exibição.
+            // upsert só pra interno: a RLS de UPDATE em storage.objects exige
+            // is_interno(), e supabase-js com upsert=true dispara INSERT ON
+            // CONFLICT DO UPDATE — que tropeça na policy mesmo sem conflito
+            // real. Parceiro leva prefixo de timestamp no path (nome
+            // auto-gerado é fixo por tipo, então re-solicitação do mesmo tipo
+            // colidiria).
+            const path =
+              casoId +
+              "/" +
+              (isInterno ? "" : Date.now() + "_") +
+              sanitizeFileName(nomeArq);
+            const upResp = await supabase.storage
+              .from("documentos")
+              .upload(path, a.file, { upsert: isInterno });
+            if (upResp.error) throw upResp.error;
+            const docInsert = await supabase
+              .from("documentos")
+              .insert({
+                caso_id: casoId,
+                tipo: acaoAlvo.solic.tipo,
+                nome_arquivo: nomeArq,
+                storage_path: path,
+                tamanho_bytes: a.file.size,
+                uploaded_by: usuarioId,
+                visivel_parceiro: true,
+                solicitacao_id: acaoAlvo.solic.id,
+              })
+              .select("id")
+              .single();
+            if (docInsert.error) throw docInsert.error;
+            const docId = (docInsert.data as { id: string }).id;
+            if (!primeiroDocId) primeiroDocId = docId;
+            enviados++;
+
+            // Espelha no Drive se o caso tem pasta vinculada. Não bloqueia o
+            // fluxo se falhar — app é fonte de verdade, Drive é espelho.
+            // Só interno: o token OAuth é da conta Google do escritório; pro
+            // parceiro isso abriria popup de login do Google.
+            if (gdriveFolderId && isInterno) {
+              try {
+                const gdriveId = await uploadDocumentoDriveSeNecessario(
+                  a.file,
+                  nomeArq,
+                  gdriveFolderId,
+                );
+                if (gdriveId) {
+                  await supabase
+                    .from("documentos")
+                    .update({ gdrive_file_id: gdriveId })
+                    .eq("id", docId);
+                }
+              } catch (err) {
+                console.warn("[drive] falha ao espelhar no Drive:", err);
+                toast.warning(
+                  "Documento salvo no app, mas falhou ao subir no Drive: " +
+                    ((err as { message?: string })?.message ?? "erro desconhecido"),
+                );
+              }
             }
           } catch (err) {
-            console.warn("[drive] falha ao espelhar no Drive:", err);
-            toast.warning(
-              "Documento salvo no app, mas falhou ao subir no Drive: " +
-                ((err as { message?: string })?.message ?? "erro desconhecido"),
-            );
+            console.error("[solicitacao] upload falhou:", a.nome, err);
+            falhas.push(a);
           }
+        }
+
+        if (falhas.length > 0) {
+          // Não marca atendido com arquivo faltando: os que falharam ficam na
+          // lista pra nova tentativa; os enviados já estão vinculados.
+          setArquivosUpload(falhas);
+          toast.error(
+            enviados +
+              " de " +
+              (enviados + falhas.length) +
+              " arquivo(s) enviados — os que falharam continuam na lista, tente de novo.",
+          );
+          return;
         }
       }
 
@@ -5038,8 +5077,10 @@ function TabDocumentos(props: TabDocumentosProps) {
         update.data_atendimento = new Date().toISOString();
       }
       update.comentario = comentarioModal.trim() || null;
-      if (documentoId) {
-        update.documento_id = documentoId;
+      // documento_id (legado, 1:1) aponta pro primeiro arquivo; se uma
+      // tentativa anterior já gravou um, mantém.
+      if (primeiroDocId && !acaoAlvo.solic.documento_id) {
+        update.documento_id = primeiroDocId;
       }
       const resp = await supabase
         .from("solicitacoes_documento")
@@ -5051,29 +5092,38 @@ function TabDocumentos(props: TabDocumentosProps) {
       // Se quem cumpriu foi o PARCEIRO, avisa o sino da equipe (interno).
       if (usuario?.tipo === "parceiro") {
         notificarEquipe({
-          tipo: documentoId ? "documento" : "solicitacao",
-          titulo: documentoId
-            ? `Documento enviado por ${usuario.nome || "parceiro"}`
-            : `Solicitação atualizada por ${usuario.nome || "parceiro"}`,
+          tipo: enviados > 0 ? "documento" : "solicitacao",
+          titulo:
+            enviados > 1
+              ? `${enviados} documentos enviados por ${usuario.nome || "parceiro"}`
+              : enviados === 1
+                ? `Documento enviado por ${usuario.nome || "parceiro"}`
+                : `Solicitação atualizada por ${usuario.nome || "parceiro"}`,
           descricao: acaoAlvo.solic.tipo,
           caso_id: casoId,
-          foco_id: documentoId || acaoAlvo.solic.id,
+          foco_id: primeiroDocId || acaoAlvo.solic.id,
         });
       }
       toast.success(
-        documentoId ? "Solicitação cumprida e documento anexado" : "Solicitação atualizada",
+        enviados > 0
+          ? "Solicitação cumprida — " +
+              enviados +
+              " documento" +
+              (enviados > 1 ? "s" : "") +
+              " anexado" +
+              (enviados > 1 ? "s" : "")
+          : "Solicitação atualizada",
       );
       onChange();
+      fecharAcaoModal();
     } catch (err) {
+      // Erro no update da solicitação: modal fica aberto pra tentar de novo
+      // (os documentos já enviados permanecem vinculados).
       console.error(err);
       const errObj = err as { message?: string };
       toast.error(errObj.message || "Erro ao atualizar solicitação");
     } finally {
       setSalvandoModal(false);
-      setAcaoAlvo(null);
-      setComentarioModal("");
-      setArquivoUpload(null);
-      setComAnexo(false);
     }
   }
 
@@ -5622,6 +5672,23 @@ function TabDocumentos(props: TabDocumentosProps) {
                           <p className="text-sm whitespace-pre-wrap italic">{s.comentario}</p>
                         </div>
                       )}
+                      {(() => {
+                        // Arquivos que cumpriram esta solicitação (N:1 via
+                        // solicitacao_id; documento_id cobre os antigos).
+                        const anexos = documentos.filter(
+                          (d) => d.solicitacao_id === s.id || d.id === s.documento_id,
+                        );
+                        if (anexos.length === 0) return null;
+                        return (
+                          <p className="text-xs text-muted-foreground mt-1 flex items-start gap-1">
+                            <Paperclip className="h-3 w-3 mt-0.5 shrink-0" />
+                            <span>
+                              {anexos.length} arquivo{anexos.length > 1 ? "s" : ""}:{" "}
+                              {anexos.map((a) => a.nome_arquivo).join(", ")}
+                            </span>
+                          </p>
+                        );
+                      })()}
                     </div>
                     {isInterno && isPendente && (
                       <div className="flex gap-1">
@@ -5766,7 +5833,7 @@ function TabDocumentos(props: TabDocumentosProps) {
               {acaoAlvo && acaoAlvo.novoStatus === "atendido"
                 ? isInterno
                   ? "Marque sem arquivo (recebeu pessoalmente) ou anexe o documento."
-                  : "Anexe o documento solicitado. Será renomeado automaticamente."
+                  : "Anexe um ou mais arquivos do documento solicitado (ex.: frente e verso). Serão renomeados automaticamente."
                 : "Informe o motivo da dispensa (recomendado)."}
             </DialogDescription>
           </DialogHeader>
@@ -5783,7 +5850,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                       checked={!comAnexo}
                       onChange={() => {
                         setComAnexo(false);
-                        setArquivoUpload(null);
+                        setArquivosUpload([]);
                       }}
                       className="h-4 w-4 mt-0.5"
                     />
@@ -5798,49 +5865,80 @@ function TabDocumentos(props: TabDocumentosProps) {
                       className="h-4 w-4 mt-0.5"
                     />
                     <span className="text-sm">
-                      Anexar arquivo (será renomeado para o tipo solicitado)
+                      Anexar arquivo(s) (serão renomeados para o tipo solicitado)
                     </span>
                   </label>
                 </div>
               </div>
             )}
 
-            {/* File input */}
+            {/* File input — aceita VÁRIOS arquivos (frente/verso, várias páginas) */}
             {acaoAlvo && acaoAlvo.novoStatus === "atendido" && comAnexo && (
               <div>
-                <Label className="text-xs">Arquivo {!isInterno && "(obrigatório)"}</Label>
+                <Label className="text-xs">
+                  Arquivos {!isInterno && "(pelo menos um)"}
+                </Label>
                 <input
                   type="file"
+                  multiple
                   onChange={(e) => {
-                    const f = e.target.files?.[0] || null;
-                    setArquivoUpload(f);
-                    // Pre-preenche o nome com a auto-renomeacao quando o
-                    // arquivo eh selecionado. Usuario pode editar.
-                    if (f && acaoAlvo) {
-                      setNomeArquivoEdit(nomearArquivo(acaoAlvo.solic.tipo, f));
-                    } else {
-                      setNomeArquivoEdit("");
-                    }
+                    const files = Array.from(e.target.files ?? []);
+                    if (files.length === 0 || !acaoAlvo) return;
+                    // Pre-preenche cada nome com a auto-renomeacao (o 2º em
+                    // diante com sufixo). Usuario pode editar item a item.
+                    setArquivosUpload((atual) => [
+                      ...atual,
+                      ...files.map((f, i) => ({
+                        file: f,
+                        nome: nomearArquivoMulti(acaoAlvo.solic.tipo, f, atual.length + i),
+                      })),
+                    ]);
+                    // Limpa o input: permite adicionar mais arquivos depois.
+                    e.target.value = "";
                   }}
                   className="block w-full text-sm border rounded-md p-2"
                   accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
                 />
                 <p className="text-xs text-muted-foreground mt-1">
-                  Tamanho máximo: {MAX_FILE_SIZE_MB} MB por arquivo.
+                  Pode escolher vários de uma vez (ou adicionar aos poucos). Tamanho
+                  máximo: {MAX_FILE_SIZE_MB} MB por arquivo.
                 </p>
-                {arquivoUpload && (
-                  <div className="mt-2">
-                    <Label className="text-xs">Nome do arquivo (obrigatório)</Label>
-                    <Input
-                      value={nomeArquivoEdit}
-                      onChange={(e) => setNomeArquivoEdit(e.target.value)}
-                      placeholder="Ex: RG_e_CPF_Joao.pdf"
-                      className="text-sm"
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Pré-preenchido com nome padrão - você pode editar. Mantenha a extensão (.pdf,
-                      .jpg, etc.).
-                    </p>
+                {arquivosUpload.length > 0 && (
+                  <div className="mt-2 space-y-2">
+                    <Label className="text-xs">
+                      Nome dos arquivos (obrigatório) — mantenha a extensão (.pdf, .jpg, etc.)
+                    </Label>
+                    {arquivosUpload.map((a, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <div className="min-w-0 flex-1">
+                          <Input
+                            value={a.nome}
+                            onChange={(e) =>
+                              setArquivosUpload((atual) =>
+                                atual.map((x, j) => (j === i ? { ...x, nome: e.target.value } : x)),
+                              )
+                            }
+                            placeholder="Ex: RG_e_CPF_Joao.pdf"
+                            className="text-sm"
+                            aria-label={"Nome do arquivo " + (i + 1)}
+                          />
+                          <p className="text-xs text-muted-foreground truncate mt-0.5">
+                            {a.file.name}
+                          </p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() =>
+                            setArquivosUpload((atual) => atual.filter((_, j) => j !== i))
+                          }
+                          title="Remover arquivo"
+                          aria-label={"Remover arquivo " + (i + 1)}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
