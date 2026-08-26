@@ -14,8 +14,12 @@ import {
   Pencil,
   Trash2,
   User as UserIcon,
-  X,
 } from "lucide-react";
+import { ArquivosCumprimento } from "@/components/documentos/arquivos-cumprimento";
+import {
+  subirArquivosCumprimento,
+  type ArquivoCumprimento,
+} from "@/lib/documentos/cumprimento";
 
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -173,8 +177,9 @@ function DocumentosPendentesPage() {
   // Solicitação pendente sendo editada (só interno).
   const [solicEditando, setSolicEditando] = useState<SolicitacaoComCaso | null>(null);
   // Upload de arquivo no atendimento
-  // Cumprimento aceita VÁRIOS arquivos (pedido dos parceiros, 2026-08-26).
-  const [arquivosUpload, setArquivosUpload] = useState<Array<{ file: File; nome: string }>>([]);
+  // Cumprimento aceita VÁRIOS arquivos (pedido dos parceiros, 2026-08-26),
+  // cada um com o próprio tipo (Naira, 2026-08-26).
+  const [arquivosUpload, setArquivosUpload] = useState<ArquivoCumprimento[]>([]);
   const [comAnexo, setComAnexo] = useState(false);
   // Nome editavel pelo usuario (pre-preenchido com auto-rename)
 
@@ -284,22 +289,6 @@ function DocumentosPendentesPage() {
       .replace(/[^a-zA-Z0-9._-]/g, "_");
   }
 
-  // Renomeia arquivo para o nome do tipo solicitado (ex.: CNIS.pdf)
-  function nomearArquivo(tipoSolic: string, arquivoOriginal: File): string {
-    return nomeArquivoPorTipo(tipoSolic, null, arquivoOriginal.name);
-  }
-
-  // Vários arquivos do mesmo tipo: o 2º em diante ganha sufixo _(n) antes da
-  // extensão, senão os nomes (e paths no Storage) colidiriam.
-  function nomearArquivoMulti(tipoSolic: string, arquivo: File, indice: number): string {
-    const nome = nomearArquivo(tipoSolic, arquivo);
-    if (indice === 0) return nome;
-    const ponto = nome.lastIndexOf(".");
-    return ponto > 0
-      ? nome.slice(0, ponto) + "_(" + (indice + 1) + ")" + nome.slice(ponto)
-      : nome + "_(" + (indice + 1) + ")";
-  }
-
   // Excluir de vez a solicitacao. Diferente de "Dispensar", que mantem o
   // registro com status dispensado (fica no historico): aqui o pedido some.
   // Serve pra pedido criado por engano, que nao deveria ter existido.
@@ -354,53 +343,21 @@ function DocumentosPendentesPage() {
     try {
       let primeiroDocId: string | null = null;
       let enviados = 0;
-      const falhas: Array<{ file: File; nome: string }> = [];
+      let falhas: ArquivoCumprimento[] = [];
 
-      // Upload + criacao de documento, um por arquivo (frente/verso, varias
-      // paginas). Falha num arquivo NAO derruba os demais: os que subiram
-      // ficam vinculados (solicitacao_id) e os que falharam voltam pra lista.
+      // Upload + criacao de documento, um por arquivo — lógica compartilhada
+      // com a aba do caso (src/lib/documentos/cumprimento.ts).
       if (acaoAlvo.novoStatus === "atendido" && comAnexo && usuario) {
-        for (const a of arquivosUpload) {
-          try {
-            const nomeArq = a.nome.trim();
-            // Path sempre sanitizado; nome_arquivo mantém acento pra exibição.
-            // upsert só pra interno: a RLS de UPDATE em storage.objects exige
-            // is_interno(), e supabase-js com upsert=true dispara INSERT ON
-            // CONFLICT DO UPDATE — que tropeça na policy mesmo sem conflito
-            // real. Parceiro leva prefixo de timestamp no path (nome
-            // auto-gerado é fixo por tipo, então re-solicitação do mesmo tipo
-            // colidiria).
-            const path =
-              acaoAlvo.solic.caso_id +
-              "/" +
-              (isInterno ? "" : Date.now() + "_") +
-              sanitizeFileName(nomeArq);
-            const upResp = await supabase.storage
-              .from("documentos")
-              .upload(path, a.file, { upsert: isInterno });
-            if (upResp.error) throw upResp.error;
-            const docInsert = await supabase
-              .from("documentos")
-              .insert({
-                caso_id: acaoAlvo.solic.caso_id,
-                tipo: acaoAlvo.solic.tipo,
-                nome_arquivo: nomeArq,
-                storage_path: path,
-                tamanho_bytes: a.file.size,
-                uploaded_by: usuario.id,
-                visivel_parceiro: true,
-                solicitacao_id: acaoAlvo.solic.id,
-              })
-              .select("id")
-              .single();
-            if (docInsert.error) throw docInsert.error;
-            if (!primeiroDocId) primeiroDocId = (docInsert.data as { id: string }).id;
-            enviados++;
-          } catch (err) {
-            console.error("[solicitacao] upload falhou:", a.nome, err);
-            falhas.push(a);
-          }
-        }
+        const r = await subirArquivosCumprimento({
+          arquivos: arquivosUpload,
+          casoId: acaoAlvo.solic.caso_id,
+          solicitacaoId: acaoAlvo.solic.id,
+          usuarioId: usuario.id,
+          isInterno,
+        });
+        primeiroDocId = r.primeiroDocId;
+        enviados = r.enviados;
+        falhas = r.falhas;
 
         if (falhas.length > 0) {
           // Não marca atendido com arquivo faltando: os que falharam ficam na
@@ -679,79 +636,12 @@ function DocumentosPendentesPage() {
               {acaoAlvo &&
                 acaoAlvo.novoStatus === "atendido" &&
                 comAnexo && (
-                  <div>
-                    <Label className="text-xs">
-                      Arquivos {!isInterno && "(pelo menos um)"}
-                    </Label>
-                    <input
-                      type="file"
-                      multiple
-                      onChange={(e) => {
-                        const files = Array.from(e.target.files ?? []);
-                        if (files.length === 0 || !acaoAlvo) return;
-                        // Pre-preenche cada nome com a auto-renomeacao (o 2º
-                        // em diante com sufixo). Usuario edita item a item.
-                        setArquivosUpload((atual) => [
-                          ...atual,
-                          ...files.map((f, i) => ({
-                            file: f,
-                            nome: nomearArquivoMulti(acaoAlvo.solic.tipo, f, atual.length + i),
-                          })),
-                        ]);
-                        // Limpa o input: permite adicionar mais depois.
-                        e.target.value = "";
-                      }}
-                      className="block w-full text-sm border rounded-md p-2"
-                      accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Pode escolher vários de uma vez (ou adicionar aos poucos).
-                      Tamanho máximo: {MAX_FILE_SIZE_MB} MB por arquivo.
-                    </p>
-                    {arquivosUpload.length > 0 && (
-                      <div className="mt-2 space-y-2">
-                        <Label className="text-xs">
-                          Nome dos arquivos (obrigatório) — mantenha a extensão
-                          (.pdf, .jpg, etc.)
-                        </Label>
-                        {arquivosUpload.map((a, i) => (
-                          <div key={i} className="flex items-center gap-2">
-                            <div className="min-w-0 flex-1">
-                              <Input
-                                value={a.nome}
-                                onChange={(e) =>
-                                  setArquivosUpload((atual) =>
-                                    atual.map((x, j) =>
-                                      j === i ? { ...x, nome: e.target.value } : x,
-                                    ),
-                                  )
-                                }
-                                placeholder="Ex: RG_e_CPF_Joao.pdf"
-                                className="text-sm"
-                                aria-label={"Nome do arquivo " + (i + 1)}
-                              />
-                              <p className="text-xs text-muted-foreground truncate mt-0.5">
-                                {a.file.name}
-                              </p>
-                            </div>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() =>
-                                setArquivosUpload((atual) =>
-                                  atual.filter((_, j) => j !== i),
-                                )
-                              }
-                              title="Remover arquivo"
-                              aria-label={"Remover arquivo " + (i + 1)}
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                  <ArquivosCumprimento
+                    tipoSolicitacao={acaoAlvo.solic.tipo}
+                    arquivos={arquivosUpload}
+                    onChange={setArquivosUpload}
+                    obrigatorio={!isInterno}
+                  />
                 )}
 
               <div>
