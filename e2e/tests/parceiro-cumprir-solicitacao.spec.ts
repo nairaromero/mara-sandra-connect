@@ -99,4 +99,6 @@ test("parceiro cumpre solicitação com 2 anexos; tarefa de análise nasce via t
     (t) => (t.metadata as { analise_solicitacao?: boolean })?.analise_solicitacao,
   );
   expect(analise, "tarefa de análise não foi criada pelo trigger").toBeTruthy();
+  // Título leva o NOME DO CLIENTE (pedido da Naira, 2026-08-26).
+  expect(analise!.titulo).toBe(`Analisar documento recebido - ${nomeCliente}`);
 });

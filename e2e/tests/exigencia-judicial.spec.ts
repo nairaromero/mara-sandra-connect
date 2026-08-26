@@ -189,8 +189,9 @@ test("solicitação atendida: andamento + tarefa de juntada + Aguardando fechada
     .select("titulo, status, metadata")
     .eq("caso_id", casoId);
   const juntada = tarefas!.find((t) =>
-    t.titulo.startsWith("Documento entregue — juntar aos autos"),
+    t.titulo.startsWith("Cumprir Exigência Judicial - "),
   );
+  expect(juntada?.titulo).toContain(nomeCliente);
   expect(juntada, "tarefa de juntada não criada pelo trigger").toBeTruthy();
   const meta = juntada!.metadata as Record<string, unknown>;
   expect(meta.template_aplicado).toBe("exigencia_judicial");
