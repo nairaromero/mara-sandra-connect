@@ -98,6 +98,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CasoTarefasTab } from "@/components/tarefas/caso-tarefas-tab";
 import { EtiquetasCliente } from "@/components/etiquetas-cliente";
 import { Markdown } from "@/components/markdown";
+import { listarInternosAtivos } from "@/lib/tarefas/queries";
 import { ArquivosCumprimento } from "@/components/documentos/arquivos-cumprimento";
 import {
   rotuloSolicitacao,
@@ -6282,11 +6283,26 @@ function SolicitarDocBotao(props: {
   // percebe onde continuar (feedback da Naira, 2026-08-26).
   const [flashNovoCampo, setFlashNovoCampo] = useState(false);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Interna: quem da equipe vai providenciar — o banco abre a tarefa pra
+  // essa pessoa (Naira, 2026-08-26).
+  const [responsavelId, setResponsavelId] = useState("");
+  const [internos, setInternos] = useState<
+    Array<{ id: string; nome: string | null; email: string | null }>
+  >([]);
+
+  useEffect(() => {
+    if (!aberto || origem !== "interna" || internos.length > 0) return;
+    listarInternosAtivos()
+      .then(setInternos)
+      .catch((e) => console.error("listarInternosAtivos:", e));
+  }, [aberto, origem, internos.length]);
 
   const tiposOptions = TIPOS_DOCUMENTO_OPTIONS;
 
   const atualValido = !!tipo && (tipo !== "outro" || tipoPersonalizado.trim().length > 0);
-  const valido = atualValido || adicionados.length > 0;
+  const valido =
+    (atualValido || adicionados.length > 0) &&
+    (origem !== "interna" || !!responsavelId);
 
   function adicionarAtual() {
     if (!atualValido) return;
@@ -6331,6 +6347,7 @@ function SolicitarDocBotao(props: {
           status: "pendente",
           origem: origem,
           solicitado_por: usuarioId,
+          responsavel_id: origem === "interna" ? responsavelId : null,
         })
         .select("id")
         .single();
@@ -6338,9 +6355,10 @@ function SolicitarDocBotao(props: {
       // Nova pendente: sobe o badge da sidebar sem esperar o poll.
       window.dispatchEvent(new Event("msc:solicitacoes-mudou"));
       toast.success(
-        itens.length > 1
+        (itens.length > 1
           ? "Solicitação criada (" + itens.length + " documentos)"
-          : "Solicitação criada",
+          : "Solicitação criada") +
+          (origem === "interna" ? " — tarefa aberta pro responsável" : ""),
       );
 
       // Notifica parceiro por email (fire-and-forget; nao bloqueia UI).
@@ -6360,6 +6378,7 @@ function SolicitarDocBotao(props: {
       setAdicionados([]);
       setDescricao("");
       setOrigem("externa");
+      setResponsavelId("");
       setAberto(false);
       onChange();
     } catch (err) {
@@ -6453,6 +6472,27 @@ function SolicitarDocBotao(props: {
               </SelectContent>
             </Select>
           </div>
+          {origem === "interna" && (
+            <div>
+              <Label className="text-xs">Responsável na equipe (obrigatório)</Label>
+              <Select value={responsavelId} onValueChange={setResponsavelId}>
+                <SelectTrigger aria-label="Responsável na equipe">
+                  <SelectValue placeholder="Quem vai providenciar" />
+                </SelectTrigger>
+                <SelectContent>
+                  {internos.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.nome || u.email || u.id}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">
+                A tarefa "Providenciar documentos" abre no nome dessa pessoa e se
+                conclui sozinha quando a solicitação for atendida.
+              </p>
+            </div>
+          )}
           <div>
             <Label className="text-xs">Observação</Label>
             <Textarea
