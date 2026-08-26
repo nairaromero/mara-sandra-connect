@@ -101,4 +101,11 @@ test("parceiro cumpre solicitação com 2 anexos; tarefa de análise nasce via t
   expect(analise, "tarefa de análise não foi criada pelo trigger").toBeTruthy();
   // Título leva o NOME DO CLIENTE (pedido da Naira, 2026-08-26).
   expect(analise!.titulo).toBe(`Analisar documento recebido - ${nomeCliente}`);
+
+  // E a tarefa genérica de upload NÃO pode duplicar: documento de cumprimento
+  // (solicitacao_id) é pulado pelo trigger de documentos (feedback 2026-08-26).
+  const dupla = (tarefas ?? []).find(
+    (t) => (t.metadata as { analise_documento_parceiro?: boolean })?.analise_documento_parceiro,
+  );
+  expect(dupla, "tarefa 'Analisar documentos juntados' duplicada").toBeFalsy();
 });
