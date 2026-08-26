@@ -100,8 +100,11 @@ import { EtiquetasCliente } from "@/components/etiquetas-cliente";
 import { Markdown } from "@/components/markdown";
 import { ArquivosCumprimento } from "@/components/documentos/arquivos-cumprimento";
 import {
+  rotuloSolicitacao,
   subirArquivosCumprimento,
+  tiposDaSolicitacao,
   type ArquivoCumprimento,
+  type ItemSolicitacao,
 } from "@/lib/documentos/cumprimento";
 import {
   Select,
@@ -239,6 +242,9 @@ interface SolicitacaoDocumento {
   status: string;
   origem: string;
   comentario: string | null;
+  // Um pedido pode ter varios documentos (lista [{tipo, label}]); null =
+  // pedido antigo de um documento so (le a coluna `tipo`).
+  tipos?: ItemSolicitacao[] | null;
   documento_id: string | null;
   solicitado_por: string | null;
   solicitante?: { id: string; nome: string | null } | null;
@@ -5571,7 +5577,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="text-sm font-medium">
-                          {TIPOS_DOCUMENTO_LABEL[s.tipo] || s.tipo}
+                          {rotuloSolicitacao(s.tipo, s.tipos)}
                         </p>
                         {isPendente && (
                           <Badge className="bg-warning hover:bg-warning text-warning-foreground">
@@ -5826,7 +5832,7 @@ function TabDocumentos(props: TabDocumentosProps) {
             {/* Arquivos do cumprimento — componente compartilhado com o hub */}
             {acaoAlvo && acaoAlvo.novoStatus === "atendido" && comAnexo && (
               <ArquivosCumprimento
-                tipoSolicitacao={acaoAlvo.solic.tipo}
+                tiposSolicitacao={tiposDaSolicitacao(acaoAlvo.solic.tipo, acaoAlvo.solic.tipos)}
                 arquivos={arquivosUpload}
                 onChange={setArquivosUpload}
                 obrigatorio={!isInterno}
@@ -6297,46 +6303,47 @@ function SolicitarDocBotao(props: {
     }
     setEnviando(true);
     try {
-      let primeiraId: string | null = null;
-      for (const pedido of pedidos) {
-        // Se tipo=outro, usa o nome customizado como prefixo da descricao
-        // (a tabela solicitacoes_documento nao tem coluna tipo_personalizado).
-        const descricaoFinal =
-          pedido.tipo === "outro" && pedido.tipoPersonalizado
-            ? "[" + pedido.tipoPersonalizado + "] " + (descricao.trim() || "")
-            : descricao.trim() || null;
-        const resp = await supabase
-          .from("solicitacoes_documento")
-          .insert({
-            caso_id: casoId,
-            tipo: pedido.tipo,
-            descricao: descricaoFinal || null,
-            status: "pendente",
-            origem: origem,
-            solicitado_por: usuarioId,
-          })
-          .select("id")
-          .single();
-        if (resp.error) throw resp.error;
-        if (!primeiraId && resp.data) primeiraId = (resp.data as { id: string }).id;
-      }
-      // Nova(s) pendente(s): sobe o badge da sidebar sem esperar o poll.
+      // UMA solicitação com a lista de documentos (Naira, 2026-08-26).
+      // `tipo` legado = primeiro da lista (compat com triggers/exports);
+      // `tipos` = [{tipo, label}] com o label já resolvido (o "outro"
+      // carrega o nome customizado).
+      const itens = pedidos.map((p) => ({
+        tipo: p.tipo,
+        label:
+          p.tipo === "outro"
+            ? p.tipoPersonalizado
+            : TIPOS_DOCUMENTO_LABEL[p.tipo] || p.tipo,
+      }));
+      const resp = await supabase
+        .from("solicitacoes_documento")
+        .insert({
+          caso_id: casoId,
+          tipo: itens[0].tipo,
+          tipos: itens,
+          descricao: descricao.trim() || null,
+          status: "pendente",
+          origem: origem,
+          solicitado_por: usuarioId,
+        })
+        .select("id")
+        .single();
+      if (resp.error) throw resp.error;
+      // Nova pendente: sobe o badge da sidebar sem esperar o poll.
       window.dispatchEvent(new Event("msc:solicitacoes-mudou"));
       toast.success(
-        pedidos.length > 1
-          ? pedidos.length + " solicitações criadas"
+        itens.length > 1
+          ? "Solicitação criada (" + itens.length + " documentos)"
           : "Solicitação criada",
       );
 
       // Notifica parceiro por email (fire-and-forget; nao bloqueia UI).
       // A edge function checa as regras (origem=externa, caso com parceiro)
-      // e silenciosamente nao envia se nao se aplicam. Com vários pedidos,
-      // UM e-mail só (o do primeiro) — o parceiro vê todos no portal; N
-      // e-mails de uma vez seria spam.
-      if (primeiraId) {
+      // e silenciosamente nao envia se nao se aplicam.
+      if (resp.data) {
+        const solicId = (resp.data as { id: string }).id;
         supabase.functions
           .invoke("notify-solicitacao-doc", {
-            body: { solicitacao_id: primeiraId },
+            body: { solicitacao_id: solicId },
           })
           .catch((err) => console.error("notify-solicitacao-doc falhou", err));
       }
@@ -6454,7 +6461,7 @@ function SolicitarDocBotao(props: {
           <Button onClick={criar} disabled={enviando || !valido}>
             {enviando && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
             {adicionados.length + (atualValido ? 1 : 0) > 1
-              ? "Criar solicitações (" + (adicionados.length + (atualValido ? 1 : 0)) + ")"
+              ? "Criar solicitação (" + (adicionados.length + (atualValido ? 1 : 0)) + " documentos)"
               : "Criar solicitação"}
           </Button>
         </DialogFooter>

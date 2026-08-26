@@ -17,8 +17,11 @@ import {
 } from "lucide-react";
 import { ArquivosCumprimento } from "@/components/documentos/arquivos-cumprimento";
 import {
+  rotuloSolicitacao,
   subirArquivosCumprimento,
+  tiposDaSolicitacao,
   type ArquivoCumprimento,
+  type ItemSolicitacao,
 } from "@/lib/documentos/cumprimento";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -87,6 +90,7 @@ interface SolicitacaoComCaso {
   id: string;
   caso_id: string;
   tipo: string;
+  tipos?: ItemSolicitacao[] | null;
   descricao: string | null;
   status: string;
   origem: string;
@@ -192,7 +196,7 @@ function DocumentosPendentesPage() {
       const resp = await supabase
         .from("solicitacoes_documento")
         .select(
-          "id, caso_id, tipo, descricao, status, origem, comentario, documento_id, solicitado_por, data_solicitacao, data_atendimento, solicitante:usuarios!solicitacoes_documento_solicitado_por_fkey(id, nome), casos(id, tipo_beneficio, fase, status, parceiro_id, clientes(id, nome))",
+          "id, caso_id, tipo, tipos, descricao, status, origem, comentario, documento_id, solicitado_por, data_solicitacao, data_atendimento, solicitante:usuarios!solicitacoes_documento_solicitado_por_fkey(id, nome), casos(id, tipo_beneficio, fase, status, parceiro_id, clientes(id, nome))",
         )
         .order("data_solicitacao", { ascending: false });
       if (resp.error) throw resp.error;
@@ -229,7 +233,7 @@ function DocumentosPendentesPage() {
       if (buscaLower) {
         const nomeCliente =
           s.casos && s.casos.clientes ? s.casos.clientes.nome.toLowerCase() : "";
-        const tipoLabel = (TIPOS_DOCUMENTO_LABEL[s.tipo] || s.tipo).toLowerCase();
+        const tipoLabel = rotuloSolicitacao(s.tipo, s.tipos).toLowerCase();
         const tipoBeneficio = s.casos
           ? s.casos.tipo_beneficio.toLowerCase()
           : "";
@@ -637,7 +641,7 @@ function DocumentosPendentesPage() {
                 acaoAlvo.novoStatus === "atendido" &&
                 comAnexo && (
                   <ArquivosCumprimento
-                    tipoSolicitacao={acaoAlvo.solic.tipo}
+                    tiposSolicitacao={tiposDaSolicitacao(acaoAlvo.solic.tipo, acaoAlvo.solic.tipos)}
                     arquivos={arquivosUpload}
                     onChange={setArquivosUpload}
                     obrigatorio={!isInterno}
@@ -834,7 +838,7 @@ function SolicitacaoItem(props: SolicitacaoItemProps) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="text-sm font-medium">
-              {TIPOS_DOCUMENTO_LABEL[s.tipo] || s.tipo}
+              {rotuloSolicitacao(s.tipo, s.tipos)}
             </p>
             {isPendente && (
               <Badge className="bg-warning hover:bg-warning text-warning-foreground">

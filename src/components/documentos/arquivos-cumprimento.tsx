@@ -18,15 +18,16 @@ import {
 } from "@/lib/documentos/cumprimento";
 
 interface Props {
-  /** Tipo pedido na solicitação — vira o default de cada arquivo novo. */
-  tipoSolicitacao: string;
+  /** Tipos pedidos na solicitação, na ordem — viram o default de cada
+   * arquivo novo (1º arquivo = 1º documento pedido, e assim por diante). */
+  tiposSolicitacao: string[];
   arquivos: ArquivoCumprimento[];
   onChange: (arquivos: ArquivoCumprimento[]) => void;
   obrigatorio?: boolean;
 }
 
 export function ArquivosCumprimento({
-  tipoSolicitacao,
+  tiposSolicitacao,
   arquivos,
   onChange,
   obrigatorio = false,
@@ -34,10 +35,13 @@ export function ArquivosCumprimento({
   function adicionar(files: File[]) {
     const novos = [...arquivos];
     for (const f of files) {
+      const tipoDefault =
+        tiposSolicitacao[Math.min(novos.length, tiposSolicitacao.length - 1)] ??
+        "outro";
       novos.push({
         file: f,
-        tipo: tipoSolicitacao,
-        nome: nomePadraoUnico(tipoSolicitacao, f, novos.map((x) => x.nome)),
+        tipo: tipoDefault,
+        nome: nomePadraoUnico(tipoDefault, f, novos.map((x) => x.nome)),
       });
     }
     onChange(novos);

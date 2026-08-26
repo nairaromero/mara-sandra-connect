@@ -5,7 +5,38 @@
 // agora o dropdown de tipos aparece por arquivo, como no upload da aba).
 
 import { supabase } from "@/lib/supabase";
-import { nomeArquivoPorTipo } from "@/lib/documentos/tipos";
+import {
+  nomeArquivoPorTipo,
+  TIPOS_DOCUMENTO_LABEL,
+} from "@/lib/documentos/tipos";
+
+// Um pedido pode ter VÁRIOS documentos (Naira, 2026-08-26): a lista vive em
+// solicitacoes_documento.tipos = [{tipo, label}]; null = pedido antigo de um
+// documento só (lê a coluna `tipo`).
+export interface ItemSolicitacao {
+  tipo: string;
+  label: string;
+}
+
+/** Rótulo da solicitação pra listagens/busca: "CNIS, CTPS, CNH" ou o tipo único. */
+export function rotuloSolicitacao(
+  tipo: string,
+  tipos?: ItemSolicitacao[] | null,
+): string {
+  if (tipos && tipos.length > 0) {
+    return tipos.map((t) => t.label || t.tipo).join(", ");
+  }
+  return TIPOS_DOCUMENTO_LABEL[tipo] || tipo;
+}
+
+/** Tipos pedidos, na ordem — defaults do cumprimento arquivo a arquivo. */
+export function tiposDaSolicitacao(
+  tipo: string,
+  tipos?: ItemSolicitacao[] | null,
+): string[] {
+  if (tipos && tipos.length > 0) return tipos.map((t) => t.tipo);
+  return [tipo];
+}
 
 export interface ArquivoCumprimento {
   file: File;
