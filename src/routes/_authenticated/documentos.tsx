@@ -15,6 +15,14 @@ import {
   Trash2,
   User as UserIcon,
 } from "lucide-react";
+import { ArquivosCumprimento } from "@/components/documentos/arquivos-cumprimento";
+import {
+  rotuloSolicitacao,
+  subirArquivosCumprimento,
+  tiposDaSolicitacao,
+  type ArquivoCumprimento,
+  type ItemSolicitacao,
+} from "@/lib/documentos/cumprimento";
 
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -82,6 +90,7 @@ interface SolicitacaoComCaso {
   id: string;
   caso_id: string;
   tipo: string;
+  tipos?: ItemSolicitacao[] | null;
   descricao: string | null;
   status: string;
   origem: string;
@@ -172,10 +181,11 @@ function DocumentosPendentesPage() {
   // Solicitação pendente sendo editada (só interno).
   const [solicEditando, setSolicEditando] = useState<SolicitacaoComCaso | null>(null);
   // Upload de arquivo no atendimento
-  const [arquivoUpload, setArquivoUpload] = useState<File | null>(null);
+  // Cumprimento aceita VÁRIOS arquivos (pedido dos parceiros, 2026-08-26),
+  // cada um com o próprio tipo (Naira, 2026-08-26).
+  const [arquivosUpload, setArquivosUpload] = useState<ArquivoCumprimento[]>([]);
   const [comAnexo, setComAnexo] = useState(false);
   // Nome editavel pelo usuario (pre-preenchido com auto-rename)
-  const [nomeArquivoEdit, setNomeArquivoEdit] = useState("");
 
   const carregar = useCallback(async () => {
     if (!jaCarregouRef.current) {
@@ -186,7 +196,7 @@ function DocumentosPendentesPage() {
       const resp = await supabase
         .from("solicitacoes_documento")
         .select(
-          "id, caso_id, tipo, descricao, status, origem, comentario, documento_id, solicitado_por, data_solicitacao, data_atendimento, solicitante:usuarios!solicitacoes_documento_solicitado_por_fkey(id, nome), casos(id, tipo_beneficio, fase, status, parceiro_id, clientes(id, nome))",
+          "id, caso_id, tipo, tipos, descricao, status, origem, comentario, documento_id, solicitado_por, data_solicitacao, data_atendimento, solicitante:usuarios!solicitacoes_documento_solicitado_por_fkey(id, nome), casos(id, tipo_beneficio, fase, status, parceiro_id, clientes(id, nome))",
         )
         .order("data_solicitacao", { ascending: false });
       if (resp.error) throw resp.error;
@@ -223,7 +233,7 @@ function DocumentosPendentesPage() {
       if (buscaLower) {
         const nomeCliente =
           s.casos && s.casos.clientes ? s.casos.clientes.nome.toLowerCase() : "";
-        const tipoLabel = (TIPOS_DOCUMENTO_LABEL[s.tipo] || s.tipo).toLowerCase();
+        const tipoLabel = rotuloSolicitacao(s.tipo, s.tipos).toLowerCase();
         const tipoBeneficio = s.casos
           ? s.casos.tipo_beneficio.toLowerCase()
           : "";
@@ -261,8 +271,7 @@ function DocumentosPendentesPage() {
   function abrirAcaoModal(s: SolicitacaoComCaso, novoStatus: string) {
     setAcaoAlvo({ solic: s, novoStatus: novoStatus });
     setComentarioModal(s.comentario || "");
-    setArquivoUpload(null);
-    setNomeArquivoEdit("");
+    setArquivosUpload([]);
     // Parceiro SEMPRE cumpre com arquivo. Interno por default sem arquivo.
     setComAnexo(!isInterno && novoStatus === "atendido");
   }
@@ -271,8 +280,7 @@ function DocumentosPendentesPage() {
     setAcaoAlvo(null);
     setComentarioModal("");
     setSalvandoModal(false);
-    setArquivoUpload(null);
-    setNomeArquivoEdit("");
+    setArquivosUpload([]);
     setComAnexo(false);
   }
 
@@ -283,11 +291,6 @@ function DocumentosPendentesPage() {
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
       .replace(/[^a-zA-Z0-9._-]/g, "_");
-  }
-
-  // Renomeia arquivo para o nome do tipo solicitado (ex.: CNIS.pdf)
-  function nomearArquivo(tipoSolic: string, arquivoOriginal: File): string {
-    return nomeArquivoPorTipo(tipoSolic, null, arquivoOriginal.name);
   }
 
   // Excluir de vez a solicitacao. Diferente de "Dispensar", que mantem o
@@ -319,73 +322,59 @@ function DocumentosPendentesPage() {
 
   async function confirmarAcaoModal() {
     if (!acaoAlvo) return;
-    // Se for atendido com anexo, valida arquivo
-    if (acaoAlvo.novoStatus === "atendido" && comAnexo && !arquivoUpload) {
-      toast.error("Selecione um arquivo para anexar");
+    if (acaoAlvo.novoStatus === "atendido" && comAnexo && arquivosUpload.length === 0) {
+      toast.error("Selecione pelo menos um arquivo para anexar");
       return;
     }
-    // Nome do arquivo obrigatorio quando ha upload
+    // Nome obrigatorio em todos os arquivos quando ha upload.
     if (
       acaoAlvo.novoStatus === "atendido" &&
       comAnexo &&
-      arquivoUpload &&
-      !nomeArquivoEdit.trim()
+      arquivosUpload.some((a) => !a.nome.trim())
     ) {
-      toast.error("Informe o nome do arquivo");
+      toast.error("Informe o nome de todos os arquivos");
       return;
     }
     // Valida tamanho antes de subir pra evitar erro generico do Storage.
-    if (arquivoUpload) {
-      const erroTamanho = validateFileSize(arquivoUpload);
+    for (const a of arquivosUpload) {
+      const erroTamanho = validateFileSize(a.file);
       if (erroTamanho) {
-        toast.error(erroTamanho);
+        toast.error(a.file.name + ": " + erroTamanho);
         return;
       }
     }
     setSalvandoModal(true);
     try {
-      let documentoId: string | null = null;
+      let primeiroDocId: string | null = null;
+      let enviados = 0;
+      let falhas: ArquivoCumprimento[] = [];
 
-      // Upload + criacao de documento (se houver arquivo)
-      if (
-        acaoAlvo.novoStatus === "atendido" &&
-        comAnexo &&
-        arquivoUpload &&
-        usuario
-      ) {
-        // Usa nome editado (ou fallback pra auto-rename)
-        const nomeArq = nomeArquivoEdit.trim() ||
-          nomearArquivo(acaoAlvo.solic.tipo, arquivoUpload);
-        // Path sempre sanitizado; nome_arquivo mantém acento pra exibição.
-        // upsert só pra interno: a RLS de UPDATE em storage.objects exige
-        // is_interno(), e supabase-js com upsert=true dispara INSERT ON
-        // CONFLICT DO UPDATE — que tropeça na policy mesmo sem conflito real.
-        // Parceiro leva prefixo de timestamp no path (nome auto-gerado é fixo
-        // por tipo, então re-solicitação do mesmo tipo colidiria).
-        const path =
-          acaoAlvo.solic.caso_id +
-          "/" +
-          (isInterno ? "" : Date.now() + "_") +
-          sanitizeFileName(nomeArq);
-        const upResp = await supabase.storage
-          .from("documentos")
-          .upload(path, arquivoUpload, { upsert: isInterno });
-        if (upResp.error) throw upResp.error;
-        const docInsert = await supabase
-          .from("documentos")
-          .insert({
-            caso_id: acaoAlvo.solic.caso_id,
-            tipo: acaoAlvo.solic.tipo,
-            nome_arquivo: nomeArq,
-            storage_path: path,
-            tamanho_bytes: arquivoUpload.size,
-            uploaded_by: usuario.id,
-            visivel_parceiro: true,
-          })
-          .select("id")
-          .single();
-        if (docInsert.error) throw docInsert.error;
-        documentoId = (docInsert.data as { id: string }).id;
+      // Upload + criacao de documento, um por arquivo — lógica compartilhada
+      // com a aba do caso (src/lib/documentos/cumprimento.ts).
+      if (acaoAlvo.novoStatus === "atendido" && comAnexo && usuario) {
+        const r = await subirArquivosCumprimento({
+          arquivos: arquivosUpload,
+          casoId: acaoAlvo.solic.caso_id,
+          solicitacaoId: acaoAlvo.solic.id,
+          usuarioId: usuario.id,
+          isInterno,
+        });
+        primeiroDocId = r.primeiroDocId;
+        enviados = r.enviados;
+        falhas = r.falhas;
+
+        if (falhas.length > 0) {
+          // Não marca atendido com arquivo faltando: os que falharam ficam na
+          // lista pra nova tentativa; os enviados já estão vinculados.
+          setArquivosUpload(falhas);
+          toast.error(
+            enviados +
+              " de " +
+              (enviados + falhas.length) +
+              " arquivo(s) enviados — os que falharam continuam na lista, tente de novo.",
+          );
+          return;
+        }
       }
 
       // Atualiza a solicitacao
@@ -399,8 +388,10 @@ function DocumentosPendentesPage() {
         update.data_atendimento = new Date().toISOString();
       }
       update.comentario = comentarioModal.trim() || null;
-      if (documentoId) {
-        update.documento_id = documentoId;
+      // documento_id (legado, 1:1) aponta pro primeiro arquivo; se uma
+      // tentativa anterior já gravou um, mantém.
+      if (primeiroDocId && !acaoAlvo.solic.documento_id) {
+        update.documento_id = primeiroDocId;
       }
       const resp = await supabase
         .from("solicitacoes_documento")
@@ -413,31 +404,38 @@ function DocumentosPendentesPage() {
       // mesmo padrão da tela do caso (casos.$id.tsx).
       if (usuario?.tipo === "parceiro") {
         notificarEquipe({
-          tipo: documentoId ? "documento" : "solicitacao",
-          titulo: documentoId
-            ? `Documento enviado por ${usuario.nome || "parceiro"}`
-            : `Solicitação atualizada por ${usuario.nome || "parceiro"}`,
+          tipo: enviados > 0 ? "documento" : "solicitacao",
+          titulo:
+            enviados > 1
+              ? `${enviados} documentos enviados por ${usuario.nome || "parceiro"}`
+              : enviados === 1
+                ? `Documento enviado por ${usuario.nome || "parceiro"}`
+                : `Solicitação atualizada por ${usuario.nome || "parceiro"}`,
           descricao: acaoAlvo.solic.tipo,
           caso_id: acaoAlvo.solic.caso_id,
-          foco_id: documentoId || acaoAlvo.solic.id,
+          foco_id: primeiroDocId || acaoAlvo.solic.id,
         });
       }
       toast.success(
-        documentoId
-          ? "Solicitação cumprida e documento anexado"
+        enviados > 0
+          ? "Solicitação cumprida — " +
+              enviados +
+              " documento" +
+              (enviados > 1 ? "s" : "") +
+              " anexado" +
+              (enviados > 1 ? "s" : "")
           : "Solicitação atualizada",
       );
       await carregar();
+      fecharAcaoModal();
     } catch (err) {
+      // Erro no update da solicitação: modal fica aberto pra tentar de novo
+      // (os documentos já enviados permanecem vinculados).
       console.error(err);
       const errObj = err as { message?: string };
       toast.error(errObj.message || "Erro ao atualizar solicitação");
     } finally {
       setSalvandoModal(false);
-      setAcaoAlvo(null);
-      setComentarioModal("");
-      setArquivoUpload(null);
-      setComAnexo(false);
     }
   }
 
@@ -594,7 +592,7 @@ function DocumentosPendentesPage() {
                 {acaoAlvo && acaoAlvo.novoStatus === "atendido"
                   ? isInterno
                     ? "Marque sem arquivo (recebeu pessoalmente) ou anexe o documento."
-                    : "Anexe o documento solicitado. Será renomeado automaticamente."
+                    : "Anexe um ou mais arquivos do documento solicitado (ex.: frente e verso). Serão renomeados automaticamente."
                   : "Informe o motivo da dispensa (recomendado)."}
               </DialogDescription>
             </DialogHeader>
@@ -613,7 +611,7 @@ function DocumentosPendentesPage() {
                           checked={!comAnexo}
                           onChange={() => {
                             setComAnexo(false);
-                            setArquivoUpload(null);
+                            setArquivosUpload([]);
                           }}
                           className="h-4 w-4 mt-0.5"
                         />
@@ -630,7 +628,7 @@ function DocumentosPendentesPage() {
                           className="h-4 w-4 mt-0.5"
                         />
                         <span className="text-sm">
-                          Anexar arquivo (será renomeado para o tipo
+                          Anexar arquivo(s) (serão renomeados para o tipo
                           solicitado)
                         </span>
                       </label>
@@ -642,48 +640,12 @@ function DocumentosPendentesPage() {
               {acaoAlvo &&
                 acaoAlvo.novoStatus === "atendido" &&
                 comAnexo && (
-                  <div>
-                    <Label className="text-xs">
-                      Arquivo {!isInterno && "(obrigatório)"}
-                    </Label>
-                    <input
-                      type="file"
-                      onChange={(e) => {
-                        const f = e.target.files?.[0] || null;
-                        setArquivoUpload(f);
-                        // Pre-preenche nome editavel com auto-rename
-                        if (f && acaoAlvo) {
-                          setNomeArquivoEdit(
-                            nomearArquivo(acaoAlvo.solic.tipo, f),
-                          );
-                        } else {
-                          setNomeArquivoEdit("");
-                        }
-                      }}
-                      className="block w-full text-sm border rounded-md p-2"
-                      accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Tamanho máximo: {MAX_FILE_SIZE_MB} MB por arquivo.
-                    </p>
-                    {arquivoUpload && (
-                      <div className="mt-2">
-                        <Label className="text-xs">
-                          Nome do arquivo (obrigatório)
-                        </Label>
-                        <Input
-                          value={nomeArquivoEdit}
-                          onChange={(e) => setNomeArquivoEdit(e.target.value)}
-                          placeholder="Ex: RG_e_CPF_Joao.pdf"
-                          className="text-sm"
-                        />
-                        <p className="text-xs text-muted-foreground mt-1">
-                          Pré-preenchido com nome padrão - você pode editar.
-                          Mantenha a extensão (.pdf, .jpg, etc.).
-                        </p>
-                      </div>
-                    )}
-                  </div>
+                  <ArquivosCumprimento
+                    tiposSolicitacao={tiposDaSolicitacao(acaoAlvo.solic.tipo, acaoAlvo.solic.tipos)}
+                    arquivos={arquivosUpload}
+                    onChange={setArquivosUpload}
+                    obrigatorio={!isInterno}
+                  />
                 )}
 
               <div>
@@ -876,7 +838,7 @@ function SolicitacaoItem(props: SolicitacaoItemProps) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="text-sm font-medium">
-              {TIPOS_DOCUMENTO_LABEL[s.tipo] || s.tipo}
+              {rotuloSolicitacao(s.tipo, s.tipos)}
             </p>
             {isPendente && (
               <Badge className="bg-warning hover:bg-warning text-warning-foreground">

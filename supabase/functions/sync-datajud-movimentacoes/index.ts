@@ -48,6 +48,8 @@ const DELAY_MS = 150;
 // O gateway derruba a request em 150s sem resposta (IDLE_TIMEOUT); paramos
 // antes e reportamos `interrompido` — o chamador roda de novo (ultima_sync
 // nulls-first garante que a fila continua de onde parou).
+// ultima_sync = última TENTATIVA (carimbada mesmo sem resultado/erro, fora
+// dry_run) — não "último sucesso". Ver comentário no loop.
 const BUDGET_MS = 110_000;
 
 const corsHeaders = {
@@ -232,8 +234,26 @@ serve(async (req) => {
       interrompido = true;
       break;
     }
+    // Carimbo de TENTATIVA (não de sucesso): sem ele, processo que o DataJud
+    // não tem (novo ainda não indexado, dataset sem o tribunal, número de
+    // 2012) ficava com ultima_sync nula PRA SEMPRE e — como a fila é
+    // nulls-first — preso no topo, queimando 10 dos 60 slots do cron todo
+    // dia com os mesmos processos. Carimbado, ele entra no rodízio normal e
+    // é re-tentado a cada volta (~1-2 dias). Achado da auditoria de 15/08
+    // ("9 processos nunca sincronizaram"), causa raiz corrigida em 25/08.
+    const carimbarTentativa = async () => {
+      if (dryRun) return;
+      await supabase
+        .from("processos_judiciais")
+        .update({ ultima_sync: new Date().toISOString() })
+        .eq("id", proc.id);
+    };
     const cfg = endpointPara(proc.cnj);
-    if (!cfg) continue; // segmento não suportado (ex.: trabalhista antigo)
+    if (!cfg) {
+      // segmento não suportado (ex.: trabalhista antigo)
+      await carimbarTentativa();
+      continue;
+    }
     if (consultados > 0) await sleep(DELAY_MS);
     consultados++;
 
@@ -259,6 +279,7 @@ serve(async (req) => {
           numero: proc.numero,
           motivo: `datajud ${resp.status}: ${(await resp.text()).slice(0, 120)}`,
         });
+        await carimbarTentativa();
         continue;
       }
       const j = (await resp.json()) as {
@@ -267,9 +288,14 @@ serve(async (req) => {
       sources = (j.hits?.hits || []).map((h) => h._source).filter(Boolean);
     } catch (err) {
       erros.push({ numero: proc.numero, motivo: String(err).slice(0, 160) });
+      await carimbarTentativa();
       continue;
     }
-    if (sources.length === 0) continue;
+    if (sources.length === 0) {
+      // O DataJud (ainda) não tem esse processo — tentado, vai pro rodízio.
+      await carimbarTentativa();
+      continue;
+    }
     encontrados++;
 
     // Chaves já gravadas pra esse processo (dedup).

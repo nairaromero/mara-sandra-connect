@@ -32,6 +32,7 @@ import {
   MoreVertical,
   Copy,
   KeyRound,
+  Paperclip,
   X,
   ListTodo,
   ListOrdered,
@@ -97,6 +98,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CasoTarefasTab } from "@/components/tarefas/caso-tarefas-tab";
 import { EtiquetasCliente } from "@/components/etiquetas-cliente";
 import { Markdown } from "@/components/markdown";
+import { listarInternosAtivos } from "@/lib/tarefas/queries";
+import { ArquivosCumprimento } from "@/components/documentos/arquivos-cumprimento";
+import {
+  rotuloSolicitacao,
+  subirArquivosCumprimento,
+  tiposDaSolicitacao,
+  type ArquivoCumprimento,
+  type ItemSolicitacao,
+} from "@/lib/documentos/cumprimento";
 import {
   Select,
   SelectContent,
@@ -219,6 +229,9 @@ interface Documento {
   gdrive_file_id?: string | null;
   // Caminho da subpasta no Drive (ex.: "Diversos"). Null = raiz/manual.
   pasta_relativa?: string | null;
+  // Solicitação que este documento cumpre (N:1) — um cumprimento pode ter
+  // vários arquivos (frente/verso, várias páginas).
+  solicitacao_id?: string | null;
   created_at: string;
 }
 
@@ -230,6 +243,9 @@ interface SolicitacaoDocumento {
   status: string;
   origem: string;
   comentario: string | null;
+  // Um pedido pode ter varios documentos (lista [{tipo, label}]); null =
+  // pedido antigo de um documento so (le a coluna `tipo`).
+  tipos?: ItemSolicitacao[] | null;
   documento_id: string | null;
   solicitado_por: string | null;
   solicitante?: { id: string; nome: string | null } | null;
@@ -3861,11 +3877,12 @@ function TabDocumentos(props: TabDocumentosProps) {
   // Solicitação pendente sendo editada (só interno).
   const [solicEditando, setSolicEditando] = useState<SolicitacaoDocumento | null>(null);
   // Upload de arquivo no atendimento
-  const [arquivoUpload, setArquivoUpload] = useState<File | null>(null);
+  // Cumprimento aceita VÁRIOS arquivos (pedido dos parceiros, 2026-08-26),
+  // cada um com o próprio tipo (Naira, 2026-08-26).
+  const [arquivosUpload, setArquivosUpload] = useState<ArquivoCumprimento[]>([]);
   // Nome editavel do arquivo a ser salvo. Pre-preenchido com nomearArquivo
   // (auto-renomeacao baseada no tipo da solicitacao), mas o parceiro pode
   // editar pra dar nome mais descritivo (ex.: "RG_Joao_2024.pdf").
-  const [nomeArquivoEdit, setNomeArquivoEdit] = useState<string>("");
   const [comAnexo, setComAnexo] = useState(false);
   // Estado do accordion "Solicitações cumpridas"
   const [cumpridasAberto, setCumpridasAberto] = useState(false);
@@ -4344,18 +4361,6 @@ function TabDocumentos(props: TabDocumentosProps) {
   }
 
   // Renomeia arquivo para o nome do tipo solicitado (ex.: CNIS.pdf)
-  function nomearArquivo(tipoSolic: string, arquivoOriginal: File): string {
-    const ext = arquivoOriginal.name.includes(".")
-      ? arquivoOriginal.name.split(".").pop() || "pdf"
-      : "pdf";
-    const label = TIPOS_DOCUMENTO_LABEL[tipoSolic] || tipoSolic;
-    const labelSanit = label
-      .replace(/[\/\\?*:|"<>]/g, "_")
-      .replace(/\s+/g, "_")
-      .trim();
-    return labelSanit + "." + ext.toLowerCase();
-  }
-
   const listaFiltrada = isInterno
     ? documentos
     : documentos.filter((d) => d.visivel_parceiro === true);
@@ -4921,8 +4926,7 @@ function TabDocumentos(props: TabDocumentosProps) {
   function abrirAcaoModal(s: SolicitacaoDocumento, novoStatus: string) {
     setAcaoAlvo({ solic: s, novoStatus: novoStatus });
     setComentarioModal(s.comentario || "");
-    setArquivoUpload(null);
-    setNomeArquivoEdit("");
+    setArquivosUpload([]);
     // Parceiro SEMPRE cumpre com arquivo. Interno por default sem.
     setComAnexo(!isInterno && novoStatus === "atendido");
   }
@@ -4931,99 +4935,92 @@ function TabDocumentos(props: TabDocumentosProps) {
     setAcaoAlvo(null);
     setComentarioModal("");
     setSalvandoModal(false);
-    setArquivoUpload(null);
-    setNomeArquivoEdit("");
+    setArquivosUpload([]);
     setComAnexo(false);
   }
 
   async function confirmarAcaoModal() {
     if (!acaoAlvo) return;
-    if (acaoAlvo.novoStatus === "atendido" && comAnexo && !arquivoUpload) {
-      toast.error("Selecione um arquivo para anexar");
+    if (acaoAlvo.novoStatus === "atendido" && comAnexo && arquivosUpload.length === 0) {
+      toast.error("Selecione pelo menos um arquivo para anexar");
       return;
     }
-    // Nome do arquivo obrigatorio quando ha upload
+    // Nome obrigatorio em todos os arquivos quando ha upload.
     if (
       acaoAlvo.novoStatus === "atendido" &&
       comAnexo &&
-      arquivoUpload &&
-      !nomeArquivoEdit.trim()
+      arquivosUpload.some((a) => !a.nome.trim())
     ) {
-      toast.error("Informe o nome do arquivo");
+      toast.error("Informe o nome de todos os arquivos");
       return;
     }
     // Valida tamanho antes de subir.
-    if (arquivoUpload) {
-      const erroTamanho = validateFileSize(arquivoUpload);
+    for (const a of arquivosUpload) {
+      const erroTamanho = validateFileSize(a.file);
       if (erroTamanho) {
-        toast.error(erroTamanho);
+        toast.error(a.file.name + ": " + erroTamanho);
         return;
       }
     }
     setSalvandoModal(true);
     try {
-      let documentoId: string | null = null;
+      let primeiroDocId: string | null = null;
+      let enviados = 0;
+      let falhas: ArquivoCumprimento[] = [];
 
-      // Upload + criacao de documento (se houver arquivo)
-      if (acaoAlvo.novoStatus === "atendido" && comAnexo && arquivoUpload && usuarioId) {
-        // Usa nome editado pelo usuario (ou fallback pra auto-rename)
-        const nomeArq = nomeArquivoEdit.trim() || nomearArquivo(acaoAlvo.solic.tipo, arquivoUpload);
-        // Storage rejeita chave com acento ("Invalid key") — path sempre
-        // sanitizado; nome_arquivo mantém o nome com acento pra exibição.
-        // upsert só pra interno: a RLS de UPDATE em storage.objects exige
-        // is_interno(), e supabase-js com upsert=true dispara INSERT ON
-        // CONFLICT DO UPDATE — que tropeça na policy mesmo sem conflito real.
-        // Parceiro leva prefixo de timestamp no path (nome auto-gerado é fixo
-        // por tipo, então re-solicitação do mesmo tipo colidiria).
-        const path =
-          casoId +
-          "/" +
-          (isInterno ? "" : Date.now() + "_") +
-          sanitizeFileName(nomeArq);
-        const upResp = await supabase.storage
-          .from("documentos")
-          .upload(path, arquivoUpload, { upsert: isInterno });
-        if (upResp.error) throw upResp.error;
-        const docInsert = await supabase
-          .from("documentos")
-          .insert({
-            caso_id: casoId,
-            tipo: acaoAlvo.solic.tipo,
-            nome_arquivo: nomeArq,
-            storage_path: path,
-            tamanho_bytes: arquivoUpload.size,
-            uploaded_by: usuarioId,
-            visivel_parceiro: true,
-          })
-          .select("id")
-          .single();
-        if (docInsert.error) throw docInsert.error;
-        documentoId = (docInsert.data as { id: string }).id;
+      // Upload + criacao de documento, um por arquivo — lógica compartilhada
+      // com o hub /documentos (src/lib/documentos/cumprimento.ts).
+      if (acaoAlvo.novoStatus === "atendido" && comAnexo && usuarioId) {
+        const r = await subirArquivosCumprimento({
+          arquivos: arquivosUpload,
+          casoId,
+          solicitacaoId: acaoAlvo.solic.id,
+          usuarioId,
+          isInterno,
+        });
+        primeiroDocId = r.primeiroDocId;
+        enviados = r.enviados;
+        falhas = r.falhas;
 
         // Espelha no Drive se o caso tem pasta vinculada. Não bloqueia o
         // fluxo se falhar — app é fonte de verdade, Drive é espelho.
         // Só interno: o token OAuth é da conta Google do escritório; pro
         // parceiro isso abriria popup de login do Google.
         if (gdriveFolderId && isInterno) {
-          try {
-            const gdriveId = await uploadDocumentoDriveSeNecessario(
-              arquivoUpload,
-              nomeArq,
-              gdriveFolderId,
-            );
-            if (gdriveId) {
-              await supabase
-                .from("documentos")
-                .update({ gdrive_file_id: gdriveId })
-                .eq("id", documentoId);
+          for (const criado of r.criados) {
+            try {
+              const gdriveId = await uploadDocumentoDriveSeNecessario(
+                criado.file,
+                criado.nome,
+                gdriveFolderId,
+              );
+              if (gdriveId) {
+                await supabase
+                  .from("documentos")
+                  .update({ gdrive_file_id: gdriveId })
+                  .eq("id", criado.docId);
+              }
+            } catch (err) {
+              console.warn("[drive] falha ao espelhar no Drive:", err);
+              toast.warning(
+                "Documento salvo no app, mas falhou ao subir no Drive: " +
+                  ((err as { message?: string })?.message ?? "erro desconhecido"),
+              );
             }
-          } catch (err) {
-            console.warn("[drive] falha ao espelhar no Drive:", err);
-            toast.warning(
-              "Documento salvo no app, mas falhou ao subir no Drive: " +
-                ((err as { message?: string })?.message ?? "erro desconhecido"),
-            );
           }
+        }
+
+        if (falhas.length > 0) {
+          // Não marca atendido com arquivo faltando: os que falharam ficam na
+          // lista pra nova tentativa; os enviados já estão vinculados.
+          setArquivosUpload(falhas);
+          toast.error(
+            enviados +
+              " de " +
+              (enviados + falhas.length) +
+              " arquivo(s) enviados — os que falharam continuam na lista, tente de novo.",
+          );
+          return;
         }
       }
 
@@ -5038,8 +5035,10 @@ function TabDocumentos(props: TabDocumentosProps) {
         update.data_atendimento = new Date().toISOString();
       }
       update.comentario = comentarioModal.trim() || null;
-      if (documentoId) {
-        update.documento_id = documentoId;
+      // documento_id (legado, 1:1) aponta pro primeiro arquivo; se uma
+      // tentativa anterior já gravou um, mantém.
+      if (primeiroDocId && !acaoAlvo.solic.documento_id) {
+        update.documento_id = primeiroDocId;
       }
       const resp = await supabase
         .from("solicitacoes_documento")
@@ -5051,29 +5050,38 @@ function TabDocumentos(props: TabDocumentosProps) {
       // Se quem cumpriu foi o PARCEIRO, avisa o sino da equipe (interno).
       if (usuario?.tipo === "parceiro") {
         notificarEquipe({
-          tipo: documentoId ? "documento" : "solicitacao",
-          titulo: documentoId
-            ? `Documento enviado por ${usuario.nome || "parceiro"}`
-            : `Solicitação atualizada por ${usuario.nome || "parceiro"}`,
+          tipo: enviados > 0 ? "documento" : "solicitacao",
+          titulo:
+            enviados > 1
+              ? `${enviados} documentos enviados por ${usuario.nome || "parceiro"}`
+              : enviados === 1
+                ? `Documento enviado por ${usuario.nome || "parceiro"}`
+                : `Solicitação atualizada por ${usuario.nome || "parceiro"}`,
           descricao: acaoAlvo.solic.tipo,
           caso_id: casoId,
-          foco_id: documentoId || acaoAlvo.solic.id,
+          foco_id: primeiroDocId || acaoAlvo.solic.id,
         });
       }
       toast.success(
-        documentoId ? "Solicitação cumprida e documento anexado" : "Solicitação atualizada",
+        enviados > 0
+          ? "Solicitação cumprida — " +
+              enviados +
+              " documento" +
+              (enviados > 1 ? "s" : "") +
+              " anexado" +
+              (enviados > 1 ? "s" : "")
+          : "Solicitação atualizada",
       );
       onChange();
+      fecharAcaoModal();
     } catch (err) {
+      // Erro no update da solicitação: modal fica aberto pra tentar de novo
+      // (os documentos já enviados permanecem vinculados).
       console.error(err);
       const errObj = err as { message?: string };
       toast.error(errObj.message || "Erro ao atualizar solicitação");
     } finally {
       setSalvandoModal(false);
-      setAcaoAlvo(null);
-      setComentarioModal("");
-      setArquivoUpload(null);
-      setComAnexo(false);
     }
   }
 
@@ -5570,7 +5578,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="text-sm font-medium">
-                          {TIPOS_DOCUMENTO_LABEL[s.tipo] || s.tipo}
+                          {rotuloSolicitacao(s.tipo, s.tipos)}
                         </p>
                         {isPendente && (
                           <Badge className="bg-warning hover:bg-warning text-warning-foreground">
@@ -5622,6 +5630,23 @@ function TabDocumentos(props: TabDocumentosProps) {
                           <p className="text-sm whitespace-pre-wrap italic">{s.comentario}</p>
                         </div>
                       )}
+                      {(() => {
+                        // Arquivos que cumpriram esta solicitação (N:1 via
+                        // solicitacao_id; documento_id cobre os antigos).
+                        const anexos = documentos.filter(
+                          (d) => d.solicitacao_id === s.id || d.id === s.documento_id,
+                        );
+                        if (anexos.length === 0) return null;
+                        return (
+                          <p className="text-xs text-muted-foreground mt-1 flex items-start gap-1">
+                            <Paperclip className="h-3 w-3 mt-0.5 shrink-0" />
+                            <span>
+                              {anexos.length} arquivo{anexos.length > 1 ? "s" : ""}:{" "}
+                              {anexos.map((a) => a.nome_arquivo).join(", ")}
+                            </span>
+                          </p>
+                        );
+                      })()}
                     </div>
                     {isInterno && isPendente && (
                       <div className="flex gap-1">
@@ -5766,7 +5791,7 @@ function TabDocumentos(props: TabDocumentosProps) {
               {acaoAlvo && acaoAlvo.novoStatus === "atendido"
                 ? isInterno
                   ? "Marque sem arquivo (recebeu pessoalmente) ou anexe o documento."
-                  : "Anexe o documento solicitado. Será renomeado automaticamente."
+                  : "Anexe um ou mais arquivos do documento solicitado (ex.: frente e verso). Serão renomeados automaticamente."
                 : "Informe o motivo da dispensa (recomendado)."}
             </DialogDescription>
           </DialogHeader>
@@ -5783,7 +5808,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                       checked={!comAnexo}
                       onChange={() => {
                         setComAnexo(false);
-                        setArquivoUpload(null);
+                        setArquivosUpload([]);
                       }}
                       className="h-4 w-4 mt-0.5"
                     />
@@ -5798,52 +5823,21 @@ function TabDocumentos(props: TabDocumentosProps) {
                       className="h-4 w-4 mt-0.5"
                     />
                     <span className="text-sm">
-                      Anexar arquivo (será renomeado para o tipo solicitado)
+                      Anexar arquivo(s) (serão renomeados para o tipo solicitado)
                     </span>
                   </label>
                 </div>
               </div>
             )}
 
-            {/* File input */}
+            {/* Arquivos do cumprimento — componente compartilhado com o hub */}
             {acaoAlvo && acaoAlvo.novoStatus === "atendido" && comAnexo && (
-              <div>
-                <Label className="text-xs">Arquivo {!isInterno && "(obrigatório)"}</Label>
-                <input
-                  type="file"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0] || null;
-                    setArquivoUpload(f);
-                    // Pre-preenche o nome com a auto-renomeacao quando o
-                    // arquivo eh selecionado. Usuario pode editar.
-                    if (f && acaoAlvo) {
-                      setNomeArquivoEdit(nomearArquivo(acaoAlvo.solic.tipo, f));
-                    } else {
-                      setNomeArquivoEdit("");
-                    }
-                  }}
-                  className="block w-full text-sm border rounded-md p-2"
-                  accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Tamanho máximo: {MAX_FILE_SIZE_MB} MB por arquivo.
-                </p>
-                {arquivoUpload && (
-                  <div className="mt-2">
-                    <Label className="text-xs">Nome do arquivo (obrigatório)</Label>
-                    <Input
-                      value={nomeArquivoEdit}
-                      onChange={(e) => setNomeArquivoEdit(e.target.value)}
-                      placeholder="Ex: RG_e_CPF_Joao.pdf"
-                      className="text-sm"
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Pré-preenchido com nome padrão - você pode editar. Mantenha a extensão (.pdf,
-                      .jpg, etc.).
-                    </p>
-                  </div>
-                )}
-              </div>
+              <ArquivosCumprimento
+                tiposSolicitacao={tiposDaSolicitacao(acaoAlvo.solic.tipo, acaoAlvo.solic.tipos)}
+                arquivos={arquivosUpload}
+                onChange={setArquivosUpload}
+                obrigatorio={!isInterno}
+              />
             )}
 
             <div>
@@ -6276,40 +6270,96 @@ function SolicitarDocBotao(props: {
   const [aberto, setAberto] = useState(false);
   const [tipo, setTipo] = useState("");
   const [tipoPersonalizado, setTipoPersonalizado] = useState("");
+  // Dá pra pedir VÁRIOS documentos de uma vez (Naira, 2026-08-26): cada tipo
+  // "adicionado" vira uma solicitação própria — o cumprimento, os avisos e o
+  // histórico continuam por documento.
+  const [adicionados, setAdicionados] = useState<
+    Array<{ tipo: string; tipoPersonalizado: string }>
+  >([]);
   const [descricao, setDescricao] = useState("");
   const [origem, setOrigem] = useState("externa");
   const [enviando, setEnviando] = useState(false);
+  // Flash no campo que ABRIU pro próximo documento — sem ele a pessoa não
+  // percebe onde continuar (feedback da Naira, 2026-08-26).
+  const [flashNovoCampo, setFlashNovoCampo] = useState(false);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Interna: quem da equipe vai providenciar — o banco abre a tarefa pra
+  // essa pessoa (Naira, 2026-08-26).
+  const [responsavelId, setResponsavelId] = useState("");
+  const [internos, setInternos] = useState<
+    Array<{ id: string; nome: string | null; email: string | null }>
+  >([]);
+
+  useEffect(() => {
+    if (!aberto || origem !== "interna" || internos.length > 0) return;
+    listarInternosAtivos()
+      .then(setInternos)
+      .catch((e) => console.error("listarInternosAtivos:", e));
+  }, [aberto, origem, internos.length]);
 
   const tiposOptions = TIPOS_DOCUMENTO_OPTIONS;
 
-  const valido = !!tipo && (tipo !== "outro" || tipoPersonalizado.trim().length > 0);
+  const atualValido = !!tipo && (tipo !== "outro" || tipoPersonalizado.trim().length > 0);
+  const valido =
+    (atualValido || adicionados.length > 0) &&
+    (origem !== "interna" || !!responsavelId);
+
+  function adicionarAtual() {
+    if (!atualValido) return;
+    setAdicionados((lista) => [
+      ...lista,
+      { tipo, tipoPersonalizado: tipoPersonalizado.trim() },
+    ]);
+    setTipo("");
+    setTipoPersonalizado("");
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    setFlashNovoCampo(true);
+    flashTimer.current = setTimeout(() => setFlashNovoCampo(false), 2200);
+  }
 
   async function criar() {
     if (!usuarioId || !valido) return;
+    // O que estiver preenchido no form entra junto com os já adicionados.
+    const pedidos = [...adicionados];
+    if (atualValido) {
+      pedidos.push({ tipo, tipoPersonalizado: tipoPersonalizado.trim() });
+    }
     setEnviando(true);
     try {
-      // Se tipo=outro, usa o nome customizado como prefixo da descricao
-      // (a tabela solicitacoes_documento nao tem coluna tipo_personalizado).
-      const descricaoFinal =
-        tipo === "outro" && tipoPersonalizado.trim()
-          ? "[" + tipoPersonalizado.trim() + "] " + (descricao.trim() || "")
-          : descricao.trim() || null;
+      // UMA solicitação com a lista de documentos (Naira, 2026-08-26).
+      // `tipo` legado = primeiro da lista (compat com triggers/exports);
+      // `tipos` = [{tipo, label}] com o label já resolvido (o "outro"
+      // carrega o nome customizado).
+      const itens = pedidos.map((p) => ({
+        tipo: p.tipo,
+        label:
+          p.tipo === "outro"
+            ? p.tipoPersonalizado
+            : TIPOS_DOCUMENTO_LABEL[p.tipo] || p.tipo,
+      }));
       const resp = await supabase
         .from("solicitacoes_documento")
         .insert({
           caso_id: casoId,
-          tipo: tipo,
-          descricao: descricaoFinal || null,
+          tipo: itens[0].tipo,
+          tipos: itens,
+          descricao: descricao.trim() || null,
           status: "pendente",
           origem: origem,
           solicitado_por: usuarioId,
+          responsavel_id: origem === "interna" ? responsavelId : null,
         })
         .select("id")
         .single();
       if (resp.error) throw resp.error;
       // Nova pendente: sobe o badge da sidebar sem esperar o poll.
       window.dispatchEvent(new Event("msc:solicitacoes-mudou"));
-      toast.success("Solicitação criada");
+      toast.success(
+        (itens.length > 1
+          ? "Solicitação criada (" + itens.length + " documentos)"
+          : "Solicitação criada") +
+          (origem === "interna" ? " — tarefa aberta pro responsável" : ""),
+      );
 
       // Notifica parceiro por email (fire-and-forget; nao bloqueia UI).
       // A edge function checa as regras (origem=externa, caso com parceiro)
@@ -6325,8 +6375,10 @@ function SolicitarDocBotao(props: {
 
       setTipo("");
       setTipoPersonalizado("");
+      setAdicionados([]);
       setDescricao("");
       setOrigem("externa");
+      setResponsavelId("");
       setAberto(false);
       onChange();
     } catch (err) {
@@ -6353,12 +6405,14 @@ function SolicitarDocBotao(props: {
         <div className="space-y-3">
           <div>
             <Label className="text-xs">Tipo de documento</Label>
-            <DocTypeCombobox
-              options={tiposOptions}
-              value={tipo}
-              onChange={setTipo}
-              placeholder="Selecione ou busque o tipo..."
-            />
+            <div className={"rounded-md " + (flashNovoCampo ? DESTAQUE_CLASSE : "")}>
+              <DocTypeCombobox
+                options={tiposOptions}
+                value={tipo}
+                onChange={setTipo}
+                placeholder="Selecione ou busque o tipo..."
+              />
+            </div>
           </div>
           {tipo === "outro" && (
             <div>
@@ -6370,6 +6424,42 @@ function SolicitarDocBotao(props: {
               />
             </div>
           )}
+          {adicionados.length > 0 && (
+            <ul className="space-y-1">
+              {adicionados.map((a, i) => (
+                <li
+                  key={i}
+                  className="flex items-center justify-between gap-2 rounded-md border px-2 py-1"
+                >
+                  <span className="text-sm truncate">
+                    {a.tipo === "outro"
+                      ? a.tipoPersonalizado
+                      : TIPOS_DOCUMENTO_LABEL[a.tipo] || a.tipo}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() =>
+                      setAdicionados((lista) => lista.filter((_, j) => j !== i))
+                    }
+                    title="Remover da lista"
+                    aria-label={"Remover documento " + (i + 1)}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={adicionarAtual}
+            disabled={!atualValido}
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            Adicionar outro documento
+          </Button>
           <div>
             <Label className="text-xs">Quem vai providenciar?</Label>
             <Select value={origem} onValueChange={setOrigem}>
@@ -6382,6 +6472,27 @@ function SolicitarDocBotao(props: {
               </SelectContent>
             </Select>
           </div>
+          {origem === "interna" && (
+            <div>
+              <Label className="text-xs">Responsável na equipe (obrigatório)</Label>
+              <Select value={responsavelId} onValueChange={setResponsavelId}>
+                <SelectTrigger aria-label="Responsável na equipe">
+                  <SelectValue placeholder="Quem vai providenciar" />
+                </SelectTrigger>
+                <SelectContent>
+                  {internos.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.nome || u.email || u.id}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">
+                A tarefa "Providenciar documentos" abre no nome dessa pessoa e se
+                conclui sozinha quando a solicitação for atendida.
+              </p>
+            </div>
+          )}
           <div>
             <Label className="text-xs">Observação</Label>
             <Textarea
@@ -6398,7 +6509,9 @@ function SolicitarDocBotao(props: {
           </Button>
           <Button onClick={criar} disabled={enviando || !valido}>
             {enviando && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
-            Criar solicitação
+            {adicionados.length + (atualValido ? 1 : 0) > 1
+              ? "Criar solicitação (" + (adicionados.length + (atualValido ? 1 : 0)) + " documentos)"
+              : "Criar solicitação"}
           </Button>
         </DialogFooter>
       </DialogContent>

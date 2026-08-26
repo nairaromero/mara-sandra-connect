@@ -1,5 +1,6 @@
-// E2E: parceiro cumpre solicitação de documento com anexo (regressão dos
-// bugs de acento/upsert + trigger da tarefa de análise).
+// E2E: parceiro cumpre solicitação de documento com anexos (regressão dos
+// bugs de acento/upsert + trigger da tarefa de análise + múltiplos arquivos
+// no mesmo cumprimento, pedido dos parceiros em 2026-08-26).
 
 import { test, expect } from "@playwright/test";
 import { STORAGE_PARCEIRO } from "../auth.setup";
@@ -41,7 +42,7 @@ test.afterAll(async () => {
   await cleanupE2E(admin);
 });
 
-test("parceiro cumpre solicitação com anexo; tarefa de análise nasce via trigger", async ({
+test("parceiro cumpre solicitação com 2 anexos; tarefa de análise nasce via trigger", async ({
   page,
 }) => {
   await page.goto("/documentos");
@@ -55,22 +56,22 @@ test("parceiro cumpre solicitação com anexo; tarefa de análise nasce via trig
     .first()
     .click();
 
-  // Modal: anexo obrigatório pro parceiro; nome vem pré-preenchido com acento
-  // ("Comprovante_de_residência.pdf") — o upload sanitiza o path (regressão).
-  await page.locator('input[type="file"]').setInputFiles({
-    name: "doc-e2e.pdf",
-    mimeType: "application/pdf",
-    buffer: PDF_FAKE,
-  });
-  // Label do campo não tem htmlFor — localiza pelo placeholder.
-  await expect(page.getByPlaceholder("Ex: RG_e_CPF_Joao.pdf")).toHaveValue(/Comprovante/);
+  // Modal: anexo obrigatório pro parceiro; DOIS arquivos de uma vez (frente e
+  // verso). Nomes pré-preenchidos com acento ("Comprovante_de_residência.pdf",
+  // o 2º com sufixo) — o upload sanitiza o path (regressão).
+  await page.locator('input[type="file"]').setInputFiles([
+    { name: "frente-e2e.pdf", mimeType: "application/pdf", buffer: PDF_FAKE },
+    { name: "verso-e2e.pdf", mimeType: "application/pdf", buffer: PDF_FAKE },
+  ]);
+  await expect(page.getByLabel("Nome do arquivo 1")).toHaveValue(/Comprovante/);
+  await expect(page.getByLabel("Nome do arquivo 2")).toHaveValue(/_\(2\)/);
   await page.getByRole("button", { name: "Confirmar" }).click();
 
   await expect(
-    page.getByText("Solicitação cumprida e documento anexado"),
+    page.getByText("Solicitação cumprida — 2 documentos anexados"),
   ).toBeVisible({ timeout: 20_000 });
 
-  // Banco: solicitação atendida e vinculada ao documento…
+  // Banco: solicitação atendida, documento_id (legado) apontando pro 1º…
   const { data: solic } = await admin
     .from("solicitacoes_documento")
     .select("status, documento_id")
@@ -78,6 +79,16 @@ test("parceiro cumpre solicitação com anexo; tarefa de análise nasce via trig
     .single();
   expect(solic!.status).toBe("atendido");
   expect(solic!.documento_id).toBeTruthy();
+
+  // …os DOIS documentos vinculados à solicitação (N:1 novo)…
+  const { data: docs } = await admin
+    .from("documentos")
+    .select("id, nome_arquivo")
+    .eq("solicitacao_id", solicId)
+    .order("created_at");
+  expect(docs?.length).toBe(2);
+  expect(docs![0].id).toBe(solic!.documento_id);
+  expect(docs![1].nome_arquivo).toMatch(/_\(2\)/);
 
   // …e o trigger criou a tarefa de análise pro interno.
   const { data: tarefas } = await admin
@@ -88,4 +99,13 @@ test("parceiro cumpre solicitação com anexo; tarefa de análise nasce via trig
     (t) => (t.metadata as { analise_solicitacao?: boolean })?.analise_solicitacao,
   );
   expect(analise, "tarefa de análise não foi criada pelo trigger").toBeTruthy();
+  // Título leva o NOME DO CLIENTE (pedido da Naira, 2026-08-26).
+  expect(analise!.titulo).toBe(`Analisar documento recebido - ${nomeCliente}`);
+
+  // E a tarefa genérica de upload NÃO pode duplicar: documento de cumprimento
+  // (solicitacao_id) é pulado pelo trigger de documentos (feedback 2026-08-26).
+  const dupla = (tarefas ?? []).find(
+    (t) => (t.metadata as { analise_documento_parceiro?: boolean })?.analise_documento_parceiro,
+  );
+  expect(dupla, "tarefa 'Analisar documentos juntados' duplicada").toBeFalsy();
 });

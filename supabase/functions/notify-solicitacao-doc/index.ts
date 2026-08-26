@@ -207,7 +207,7 @@ serve(async (req) => {
   const { data, error } = await supabase
     .from("solicitacoes_documento")
     .select(
-      "id, tipo, descricao, origem, casos:caso_id(id, parceiro_id, clientes:cliente_id(nome), usuarios_parceiro:parceiro_id(id, nome, email))",
+      "id, tipo, tipos, descricao, origem, casos:caso_id(id, parceiro_id, clientes:cliente_id(nome), usuarios_parceiro:parceiro_id(id, nome, email))",
     )
     .eq("id", solicitacaoId)
     .maybeSingle();
@@ -226,6 +226,8 @@ serve(async (req) => {
   const solic = data as unknown as {
     id: string;
     tipo: string;
+    // Pedido de varios documentos ([{tipo, label}]); null = pedido antigo.
+    tipos: Array<{ tipo: string; label: string }> | null;
     descricao: string | null;
     origem: string;
     casos: {
@@ -262,7 +264,11 @@ serve(async (req) => {
   const clienteNome = solic.casos.clientes
     ? solic.casos.clientes.nome
     : "(cliente sem nome)";
-  const tipoLabel = TIPOS_DOC_LABEL[solic.tipo] || solic.tipo;
+  // Um pedido pode listar varios documentos (Naira, 2026-08-26).
+  const tipoLabel =
+    solic.tipos && solic.tipos.length > 0
+      ? solic.tipos.map((t) => t.label || t.tipo).join(", ")
+      : TIPOS_DOC_LABEL[solic.tipo] || solic.tipo;
   const linkCaso = `${APP_BASE_URL}/casos/${solic.casos.id}`;
 
   const { html, text } = renderEmail({
