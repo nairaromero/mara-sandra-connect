@@ -69,6 +69,7 @@ import {
   calcularDueAtRelativo,
   dueAtDoPrazoFatal,
   fatalPorDiasUteis,
+  prazoParceiroDoFatal,
 } from "@/lib/agenda/helpers";
 import {
   descreverAutoriaStatus,
@@ -991,6 +992,10 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
                   solicitado_por: usuario?.id ?? null,
                   origem: `template:${tpl.nome}`,
                   data_solicitacao: new Date().toISOString(),
+                  // "Enviar até" do parceiro = fatal digitado no form − 3
+                  // (nunca o fatal cru): alimenta o kanban dele, o e-mail e
+                  // os lembretes automáticos.
+                  prazo_at: prazoFatal ? prazoParceiroDoFatal(prazoFatal) : null,
                 })
                 .select("id")
                 .single();

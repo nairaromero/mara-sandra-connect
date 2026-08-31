@@ -58,6 +58,20 @@ const INSS_INBOX_EMAIL = Deno.env.get("INSS_INBOX_EMAIL") ?? "nairaromerovian@gm
 const DEFAULT_LABEL = Deno.env.get("GMAIL_LABEL") ?? "inss-agent";
 const NAIRA_EMAIL_DEFAULT = "nairaromerovian@gmail.com";
 
+// Fim do dia de Brasília (23:59:59), N dias corridos à frente, como ISO.
+// Brasília é -03:00 fixo desde 2019 (sem horário de verão), então dá pra
+// montar o instante direto com o offset em vez de arrastar Intl pra cá.
+function fimDoDiaBrasiliaISO(diasAFrente: number): string {
+  const alvo = new Date(Date.now() + diasAFrente * 86400_000);
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  return new Date(`${fmt.format(alvo)}T23:59:59-03:00`).toISOString();
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -944,6 +958,10 @@ async function processarMensagem(
       // Texto simples pra quem vai ler (parceiro leigo). Cai no template se a
       // IA não responder.
       const mensagemIA = await redigirMensagemParceiro(sb, lookups, campos);
+      // "Enviar até" do parceiro: fatal da exigência INSS é 30 dias corridos
+      // (o item FATAL do template usa offset 30); o parceiro vê fatal − 3 =
+      // hoje + 27, no fim do dia de Brasília. Alimenta o kanban dele, o
+      // badge de prazo e os lembretes automáticos 7d/3d/0d.
       const { error: errSolic } = await sb
         .from("solicitacoes_documento")
         .insert({
@@ -953,6 +971,7 @@ async function processarMensagem(
           status: "pendente",
           origem: `template:${templateFinal}`,
           data_solicitacao: new Date().toISOString(),
+          prazo_at: fimDoDiaBrasiliaISO(27),
         });
       if (errSolic) {
         res.erros.push(`solicitacao[${i}] insert: ${errSolic.message}`);
