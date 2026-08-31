@@ -44,6 +44,7 @@ import {
 import { TarefaCard } from "@/components/tarefas/tarefa-card";
 import { TarefaSheet } from "@/components/tarefas/tarefa-sheet";
 import { TarefasExcluidas } from "@/components/tarefas/tarefas-excluidas";
+import { RadarCasosOrfaos } from "@/components/tarefas/radar-casos-orfaos";
 import {
   atualizarTarefa,
   contarTarefas,
@@ -380,6 +381,9 @@ function TarefasPage() {
           </Button>
         </div>
 
+        {/* Radar: casos sem tarefa aberta nem evento futuro — ninguém é
+            lembrado deles. Some sozinho quando não há órfãos. */}
+        <RadarCasosOrfaos />
 
         {/* Filtros */}
         <div className="flex flex-wrap items-center gap-2 rounded-md border p-3 bg-card">
