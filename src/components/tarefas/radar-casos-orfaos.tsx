@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { ExternalLink, Loader2, RadioTower } from "lucide-react";
+import { ExternalLink, RadioTower } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,10 @@ interface CasoOrfao {
   tipo_beneficio: string | null;
   parado_desde: string;
   dias_parado: number;
+  em_acompanhamento_judicial: boolean;
+  dias_sem_movimento: number;
+  // 'sem_proximo_passo' | 'judicial_mudo' | 'acompanhamento_judicial'
+  motivo: string;
 }
 
 export function RadarCasosOrfaos() {
@@ -48,86 +52,137 @@ export function RadarCasosOrfaos() {
     carregar();
   }, [carregar]);
 
-  if (!casos || casos.length === 0) return null;
+  if (!casos) return null;
+
+  // Dois níveis (Naira, 2026-08-31): judicial com processo cadastrado e
+  // movimento recente é acompanhamento PASSIVO (neutro, sem alarme) — o
+  // controle dele é por publicação acionável. Alarme âmbar só pro resto.
+  const acionaveis = casos.filter((c) => c.motivo !== "acompanhamento_judicial");
+  const passivos = casos.filter((c) => c.motivo === "acompanhamento_judicial");
+
+  if (acionaveis.length === 0 && passivos.length === 0) return null;
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => {
-          setAberto(true);
-          carregar();
-        }}
-        className="flex w-full items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-left text-sm text-amber-900 hover:bg-amber-100 transition-colors dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200"
-        aria-label={"Radar: " + casos.length + " casos sem próximo passo"}
-      >
-        <RadioTower className="h-4 w-4 shrink-0" />
-        <span className="font-medium">
-          Radar: {casos.length} {casos.length === 1 ? "caso" : "casos"} sem próximo passo
-        </span>
-        <span className="text-xs text-amber-800/80 dark:text-amber-300/80">
-          — sem tarefa aberta nem evento futuro. Clique pra ver e destravar.
-        </span>
-      </button>
+      {acionaveis.length > 0 ? (
+        <button
+          type="button"
+          onClick={() => {
+            setAberto(true);
+            carregar();
+          }}
+          className="flex w-full items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-left text-sm text-amber-900 hover:bg-amber-100 transition-colors dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200"
+          aria-label={"Radar: " + acionaveis.length + " casos precisando de atenção"}
+        >
+          <RadioTower className="h-4 w-4 shrink-0" />
+          <span className="font-medium">
+            Radar: {acionaveis.length} {acionaveis.length === 1 ? "caso precisa" : "casos precisam"} de atenção
+          </span>
+          <span className="text-xs text-amber-800/80 dark:text-amber-300/80">
+            — sem próximo passo ou processo mudo. {passivos.length > 0 &&
+              passivos.length + " em acompanhamento judicial (ok)."}
+          </span>
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => {
+            setAberto(true);
+            carregar();
+          }}
+          className="flex w-full items-center gap-2 rounded-md border px-3 py-2 text-left text-sm text-muted-foreground hover:bg-muted/50 transition-colors"
+          aria-label="Radar: nenhum caso precisando de atenção"
+        >
+          <RadioTower className="h-4 w-4 shrink-0" />
+          <span>
+            ✓ Nenhum caso sem próximo passo · {passivos.length} em acompanhamento
+            judicial (vigiados por DataJud/DJEN)
+          </span>
+        </button>
+      )}
 
       <Dialog open={aberto} onOpenChange={setAberto}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Casos sem próximo passo</DialogTitle>
+            <DialogTitle>Radar de casos</DialogTitle>
             <DialogDescription>
-              Nenhuma tarefa aberta e nenhum evento futuro — ninguém será
-              lembrado destes casos. Abra e crie a próxima tarefa (ou arquive o
-              que já terminou).
+              Sem tarefa aberta e sem evento futuro. Os que precisam de atenção
+              vêm primeiro; os em acompanhamento judicial são vigiados por
+              DataJud/DJEN e só alarmam se uma publicação exigir ação ou o
+              processo ficar mudo por 90 dias.
             </DialogDescription>
           </DialogHeader>
-          {casos === null ? (
-            <div className="flex justify-center p-6">
-              <Loader2 className="h-5 w-5 animate-spin" />
-            </div>
-          ) : (
-            <ul className="max-h-[60vh] space-y-1 overflow-y-auto pr-1">
-              {casos.map((c) => (
-                <li
-                  key={c.caso_id}
-                  className="flex items-center justify-between gap-2 rounded-md border px-3 py-2"
+          <ul className="max-h-[60vh] space-y-1 overflow-y-auto pr-1">
+            {acionaveis.map((c) => (
+              <li
+                key={c.caso_id}
+                className="flex items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50/40 px-3 py-2 dark:border-amber-800 dark:bg-amber-950/40"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">
+                    {c.cliente_nome ?? "(sem nome)"}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {c.tipo_beneficio ?? "benefício não definido"}
+                    {c.motivo === "judicial_mudo" &&
+                      " · processo MUDO há " + c.dias_sem_movimento + " dias"}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Badge
+                    variant="outline"
+                    className={
+                      c.dias_parado >= 30
+                        ? "border-red-300 text-red-700 dark:text-red-400"
+                        : "border-amber-300 text-amber-700 dark:text-amber-400"
+                    }
+                  >
+                    parado há {c.dias_parado} {c.dias_parado === 1 ? "dia" : "dias"}
+                  </Badge>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setAberto(false);
+                      navigate({ to: "/casos/$id", params: { id: c.caso_id } });
+                    }}
+                  >
+                    <ExternalLink className="h-3.5 w-3.5 mr-1" />
+                    Abrir
+                  </Button>
+                </div>
+              </li>
+            ))}
+            {passivos.length > 0 && (
+              <li className="pt-2 pb-1 text-xs font-medium text-muted-foreground">
+                Em acompanhamento judicial ({passivos.length}) — sem alarme
+              </li>
+            )}
+            {passivos.map((c) => (
+              <li
+                key={c.caso_id}
+                className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 opacity-80"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm">{c.cliente_nome ?? "(sem nome)"}</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {c.tipo_beneficio ?? "benefício não definido"} · último movimento
+                    há {c.dias_sem_movimento} {c.dias_sem_movimento === 1 ? "dia" : "dias"}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setAberto(false);
+                    navigate({ to: "/casos/$id", params: { id: c.caso_id } });
+                  }}
                 >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">
-                      {c.cliente_nome ?? "(sem nome)"}
-                    </p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {c.tipo_beneficio ?? "benefício não definido"}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <Badge
-                      variant="outline"
-                      className={
-                        c.dias_parado >= 30
-                          ? "border-red-300 text-red-700 dark:text-red-400"
-                          : c.dias_parado >= 7
-                            ? "border-amber-300 text-amber-700 dark:text-amber-400"
-                            : ""
-                      }
-                    >
-                      parado há {c.dias_parado} {c.dias_parado === 1 ? "dia" : "dias"}
-                    </Badge>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setAberto(false);
-                        navigate({ to: "/casos/$id", params: { id: c.caso_id } });
-                      }}
-                    >
-                      <ExternalLink className="h-3.5 w-3.5 mr-1" />
-                      Abrir
-                    </Button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </Button>
+              </li>
+            ))}
+          </ul>
         </DialogContent>
       </Dialog>
     </>
