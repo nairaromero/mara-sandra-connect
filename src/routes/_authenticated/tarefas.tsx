@@ -42,6 +42,7 @@ import {
 } from "@/components/ui/select";
 
 import { TarefaCard } from "@/components/tarefas/tarefa-card";
+import { TarefasParceiro } from "@/components/parceiro/tarefas-parceiro";
 import { TarefaSheet } from "@/components/tarefas/tarefa-sheet";
 import { TarefasExcluidas } from "@/components/tarefas/tarefas-excluidas";
 import { RadarCasosOrfaos } from "@/components/tarefas/radar-casos-orfaos";
@@ -62,8 +63,25 @@ import {
 } from "@/lib/tarefas/types";
 
 export const Route = createFileRoute("/_authenticated/tarefas")({
-  component: TarefasPage,
+  component: TarefasRoute,
 });
+
+// Parceiro vê a versão restrita: kanban das pendências DELE por fase do caso
+// (a RLS de tarefas é só-interno; o board dele nem consulta essa tabela).
+// Componentes separados pra não violar a ordem de hooks — mesmo padrão da
+// /agenda.
+function TarefasRoute() {
+  const { usuario } = useAuth();
+  if (!usuario) {
+    return (
+      <div className="flex h-96 items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (usuario.tipo === "parceiro") return <TarefasParceiro />;
+  return <TarefasPage />;
+}
 
 const TIPOS: TarefaTipo[] = ["interna", "prazo", "pericia", "pos_protocolo", "contato_cliente"];
 

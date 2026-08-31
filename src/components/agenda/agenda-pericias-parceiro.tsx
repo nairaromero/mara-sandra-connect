@@ -1,8 +1,9 @@
-// Agenda do PARCEIRO — só leitura, só PERÍCIAS dos casos dele, no MESMO
-// calendário mensal da equipe (AgendaMes). Antes era uma lista de próximas/
-// passadas; agora é o calendário, mostrando todas as perícias.
+// Agenda do PARCEIRO — só leitura, perícias E audiências dos casos dele, no
+// MESMO calendário mensal da equipe (AgendaMes). Era "Perícias" (só perícias)
+// até 2026-08-31; virou "Agenda" quando as audiências passaram a ser expostas
+// de forma estruturada (kanban de tarefas do parceiro).
 //
-// Os dados vêm da RPC pericias_do_parceiro() (SECURITY DEFINER): a RLS de
+// Os dados vêm da RPC agenda_do_parceiro() (SECURITY DEFINER): a RLS de
 // agenda_eventos e tarefas é só-interno, então a função devolve a união
 // sanitizada (eventos de agenda + tarefas de perícia) já filtrada por
 // casos.parceiro_id = auth.uid(). Aqui só mapeamos pro formato do calendário.
@@ -16,10 +17,11 @@ import { supabase } from "@/lib/supabase";
 import { AgendaMes } from "@/components/agenda/agenda-mes";
 import type { AgendaEventoComJoins } from "@/lib/agenda/types";
 
-interface PericiaParceiro {
+interface CompromissoParceiro {
   fonte: "evento" | "tarefa";
   id: string;
   caso_id: string | null;
+  tipo: "pericia" | "audiencia";
   cliente_nome: string | null;
   titulo: string;
   start_at: string;
@@ -28,17 +30,17 @@ interface PericiaParceiro {
   natureza: "admin" | "judicial" | null;
 }
 
-// Mapeia a perícia do parceiro pro formato que o calendário (AgendaMes)
+// Mapeia o compromisso do parceiro pro formato que o calendário (AgendaMes)
 // consome. natureza -> processo_*_id só pra o badge sair com a cor certa
 // (naturezaPericia checa judicial, depois admin).
-function paraEvento(p: PericiaParceiro): AgendaEventoComJoins {
+function paraEvento(p: CompromissoParceiro): AgendaEventoComJoins {
   return {
     id: `${p.fonte}:${p.id}`,
     caso_id: p.caso_id,
     processo_admin_id: p.natureza === "admin" ? p.caso_id : null,
     processo_judicial_id: p.natureza === "judicial" ? p.caso_id : null,
     responsavel_id: null,
-    tipo: "pericia",
+    tipo: p.tipo,
     titulo: p.titulo,
     descricao: null,
     start_at: p.start_at,
@@ -62,17 +64,17 @@ function paraEvento(p: PericiaParceiro): AgendaEventoComJoins {
 export function AgendaPericiasParceiro() {
   const navigate = useNavigate();
   const [carregando, setCarregando] = useState(true);
-  const [pericias, setPericias] = useState<PericiaParceiro[]>([]);
+  const [compromissos, setCompromissos] = useState<CompromissoParceiro[]>([]);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
     try {
-      const { data, error } = await supabase.rpc("pericias_do_parceiro");
+      const { data, error } = await supabase.rpc("agenda_do_parceiro");
       if (error) throw error;
-      setPericias((data ?? []) as PericiaParceiro[]);
+      setCompromissos((data ?? []) as CompromissoParceiro[]);
     } catch (e) {
       console.error(e);
-      toast.error("Falha ao carregar as perícias.");
+      toast.error("Falha ao carregar a agenda.");
     } finally {
       setCarregando(false);
     }
@@ -82,15 +84,15 @@ export function AgendaPericiasParceiro() {
     carregar();
   }, [carregar]);
 
-  const eventos = useMemo(() => pericias.map(paraEvento), [pericias]);
+  const eventos = useMemo(() => compromissos.map(paraEvento), [compromissos]);
   // Lookup id do evento -> caso, pra abrir o caso ao clicar.
   const casoPorEvento = useMemo(() => {
     const m = new Map<string, string>();
-    for (const p of pericias) {
+    for (const p of compromissos) {
       if (p.caso_id) m.set(`${p.fonte}:${p.id}`, p.caso_id);
     }
     return m;
-  }, [pericias]);
+  }, [compromissos]);
 
   function aoClicarEvento(id: string) {
     const casoId = casoPorEvento.get(id);
@@ -110,11 +112,11 @@ export function AgendaPericiasParceiro() {
       <div>
         <h1 className="flex items-center gap-2 text-2xl font-semibold">
           <CalendarDays className="h-6 w-6" />
-          Perícias
+          Agenda
         </h1>
         <p className="text-sm text-muted-foreground">
-          Calendário das perícias agendadas dos seus clientes. Clique numa perícia para abrir o
-          caso.
+          Calendário das perícias e audiências dos seus clientes. Clique num compromisso para
+          abrir o caso.
         </p>
       </div>
 
