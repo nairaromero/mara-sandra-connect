@@ -179,7 +179,13 @@ test("parceiro cumpre solicitação direto do kanban", async ({ page }) => {
     .eq("id", solicAvulsaId)
     .single();
   expect(solic!.status).toBe("atendido");
-  await expect(page.getByText(nomeAnalise)).not.toBeVisible({ timeout: 10_000 });
+
+  // O card sai das colunas, mas NÃO some no vazio: aparece em "Cumpridas
+  // recentemente" (fechamento pro parceiro).
+  const cumpridas = page.getByRole("button", { name: /Cumpridas recentemente/ });
+  await expect(cumpridas).toBeVisible({ timeout: 10_000 });
+  await cumpridas.click();
+  await expect(page.getByText(nomeAnalise)).toBeVisible();
 });
 
 test("agenda do parceiro mostra a audiência no calendário", async ({ page }) => {
