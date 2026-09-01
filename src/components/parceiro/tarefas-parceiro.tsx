@@ -90,6 +90,7 @@ interface EventoParceiro {
   id: string;
   caso_id: string | null;
   tipo: "pericia" | "audiencia";
+  fase: string | null;
   cliente_nome: string | null;
   titulo: string;
   start_at: string;
@@ -102,11 +103,28 @@ type CardKanban =
   | { kind: "solicitacao"; key: string; casoId: string; quando: string | null; s: SolicPendente }
   | { kind: "evento"; key: string; casoId: string; quando: string; e: EventoParceiro };
 
-const FASES: Array<{ fase: string; titulo: string }> = [
-  { fase: "analise", titulo: "Em análise" },
-  { fase: "admin", titulo: "Administrativo" },
-  { fase: "judicial", titulo: "Judiciais" },
+// As 3 colunas do feedback + "Outros" pra fase finalizado/desconhecida. A
+// coluna Outros só aparece quando tem card: senão pendência de caso
+// finalizado sumia do board (mas seguia contada no menu) — o mesmo trap que
+// já mordeu em 2026-08-27.
+const FASE_ANALISE = "analise";
+const FASE_ADMIN = "admin";
+const FASE_JUDICIAL = "judicial";
+const FASE_OUTROS = "__outros__";
+
+const FASES_FIXAS: Array<{ fase: string; titulo: string }> = [
+  { fase: FASE_ANALISE, titulo: "Em análise" },
+  { fase: FASE_ADMIN, titulo: "Administrativo" },
+  { fase: FASE_JUDICIAL, titulo: "Judiciais" },
 ];
+const FASE_OUTROS_TITULO = "Outros";
+
+// Fase do caso -> chave de coluna. Qualquer coisa fora das 3 conhecidas
+// (finalizado, nulo, valor novo) cai em "Outros" em vez de desaparecer.
+function colunaDaFase(fase: string | null | undefined): string {
+  if (fase === FASE_ANALISE || fase === FASE_ADMIN || fase === FASE_JUDICIAL) return fase;
+  return FASE_OUTROS;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers de apresentação
@@ -179,7 +197,6 @@ export function TarefasParceiro() {
   const [carregando, setCarregando] = useState(true);
   const [solicitacoes, setSolicitacoes] = useState<SolicPendente[]>([]);
   const [eventos, setEventos] = useState<EventoParceiro[]>([]);
-  const [fasePorCaso, setFasePorCaso] = useState<Map<string, string>>(new Map());
 
   // Modal "Cumprir" — mesmo fluxo do hub /documentos, versão só-parceiro
   // (anexo sempre obrigatório).
@@ -191,7 +208,10 @@ export function TarefasParceiro() {
   const carregar = useCallback(async () => {
     setCarregando(true);
     try {
-      const [solics, casos, evs] = await Promise.all([
+      // Corte de data pro board: só o futuro (compromisso de hoje conta o dia
+      // inteiro). A RPC já corta no banco, o -1 dia dá folga de fuso.
+      const desde = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const [solics, evs] = await Promise.all([
         // Pendências do parceiro: tudo que não é interna (externa + exigências
         // de template). Ordem estável pro paginado.
         buscarPaginado<SolicPendente>((ini, fim) =>
@@ -209,22 +229,14 @@ export function TarefasParceiro() {
             error: { message: string } | null;
           }>,
         ),
-        // Fase de todos os casos do parceiro (pra posicionar os eventos, que
-        // vêm da RPC sem a fase).
-        buscarPaginado<{ id: string; fase: string }>((ini, fim) =>
-          supabase.from("casos").select("id, fase").order("id").range(ini, fim),
-        ),
-        supabase.rpc("agenda_do_parceiro"),
+        // Perícias/audiências já com a fase do caso e cortadas por data no
+        // banco (agenda_do_parceiro(p_desde)) — não precisa mais varrer todos
+        // os casos do parceiro só pra mapear fase.
+        supabase.rpc("agenda_do_parceiro", { p_desde: desde }),
       ]);
       if (evs.error) throw evs.error;
       setSolicitacoes(solics);
-      setFasePorCaso(new Map(casos.map((c) => [c.id, c.fase])));
-      // Só o futuro entra no board (compromisso de hoje conta o dia inteiro).
-      setEventos(
-        ((evs.data ?? []) as EventoParceiro[]).filter(
-          (e) => diasCorridosBR(e.end_at || e.start_at) >= 0,
-        ),
-      );
+      setEventos((evs.data ?? []) as EventoParceiro[]);
     } catch (e) {
       console.error(e);
       toast.error("Falha ao carregar suas tarefas.");
@@ -239,20 +251,23 @@ export function TarefasParceiro() {
 
   // Monta as colunas: card de solicitação + card de evento, na coluna da FASE
   // do caso, ordenados pelo prazo/data mais próximo (sem prazo vai pro fim).
+  // Nada é descartado: fase desconhecida/finalizado cai em "Outros".
   const colunas = useMemo(() => {
-    const porFase = new Map<string, CardKanban[]>(FASES.map((f) => [f.fase, []]));
+    const porFase = new Map<string, CardKanban[]>(
+      [...FASES_FIXAS.map((f) => f.fase), FASE_OUTROS].map((f) => [f, []]),
+    );
     for (const s of solicitacoes) {
-      const fase = s.casos?.fase;
-      const alvo = fase ? porFase.get(fase) : undefined;
-      if (!alvo) continue; // finalizado (ou fase desconhecida) fica fora
-      alvo.push({ kind: "solicitacao", key: `s:${s.id}`, casoId: s.caso_id, quando: s.prazo_at, s });
+      porFase.get(colunaDaFase(s.casos?.fase))!.push({
+        kind: "solicitacao",
+        key: `s:${s.id}`,
+        casoId: s.caso_id,
+        quando: s.prazo_at,
+        s,
+      });
     }
     for (const e of eventos) {
       if (!e.caso_id) continue;
-      const fase = fasePorCaso.get(e.caso_id);
-      const alvo = fase ? porFase.get(fase) : undefined;
-      if (!alvo) continue;
-      alvo.push({
+      porFase.get(colunaDaFase(e.fase))!.push({
         kind: "evento",
         key: `e:${e.fonte}:${e.id}`,
         casoId: e.caso_id,
@@ -269,7 +284,16 @@ export function TarefasParceiro() {
       });
     }
     return porFase;
-  }, [solicitacoes, eventos, fasePorCaso]);
+  }, [solicitacoes, eventos]);
+
+  // Colunas a renderizar: as 3 fixas sempre; "Outros" só quando tem card.
+  const colunasVisiveis = useMemo(() => {
+    const fixas = FASES_FIXAS.map((f) => ({ fase: f.fase, titulo: f.titulo }));
+    if ((colunas.get(FASE_OUTROS)?.length ?? 0) > 0) {
+      fixas.push({ fase: FASE_OUTROS, titulo: FASE_OUTROS_TITULO });
+    }
+    return fixas;
+  }, [colunas]);
 
   const totalCards = useMemo(
     () => Array.from(colunas.values()).reduce((n, c) => n + c.length, 0),
@@ -316,6 +340,21 @@ export function TarefasParceiro() {
     }
     setSalvando(true);
     try {
+      // Pré-checagem: se a solicitação já foi cumprida noutra aba/dispositivo,
+      // não sobe arquivo duplicado no storage (o card aqui pode estar velho).
+      // O guard do banco ainda barra o UPDATE, mas isto evita o upload à toa.
+      const atual = await supabase
+        .from("solicitacoes_documento")
+        .select("status")
+        .eq("id", cumprindo.id)
+        .maybeSingle();
+      if (atual.error) throw atual.error;
+      if (!atual.data || atual.data.status !== "pendente") {
+        toast.info("Esta solicitação já foi cumprida. Atualizando o quadro.");
+        fecharCumprir();
+        await carregar();
+        return;
+      }
       const r = await subirArquivosCumprimento({
         arquivos,
         casoId: cumprindo.caso_id,
@@ -444,8 +483,10 @@ export function TarefasParceiro() {
             </p>
           </div>
         ) : (
+          // 3 colunas no desktop; "Outros" (quando existe) quebra pra 2ª
+          // linha. No mobile tudo empilha.
           <div className="grid gap-3 md:grid-cols-3">
-            {FASES.map((f) => {
+            {colunasVisiveis.map((f) => {
               const cards = colunas.get(f.fase) ?? [];
               return (
                 <div key={f.fase} className="rounded-lg bg-muted/40 p-2 min-w-0">

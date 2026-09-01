@@ -11,6 +11,7 @@
 //  - menu do parceiro: "Tarefas" e "Agenda" (ex-"Perícias").
 
 import { test, expect } from "@playwright/test";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { STORAGE_PARCEIRO } from "../auth.setup";
 import { ENV } from "../env";
 import {
@@ -19,6 +20,30 @@ import {
   seedClienteCaso,
   seedSolicitacao,
 } from "../supabase-admin";
+
+// id do parceiro de teste (uma vez).
+let _parceiraId: string | null = null;
+async function parceiraId(): Promise<string> {
+  if (_parceiraId) return _parceiraId;
+  const { data } = await admin.from("usuarios").select("id").eq("email", ENV.parceiroEmail).single();
+  if (!data) throw new Error(`parceira de teste não encontrada: ${ENV.parceiroEmail}`);
+  _parceiraId = data.id as string;
+  return _parceiraId;
+}
+
+// Cliente supabase autenticado COMO o parceiro (RLS ligada) — pra provar o
+// guard de escrita (HIGH-2) do lado do banco, não só da UI.
+async function clienteComoParceiro(): Promise<SupabaseClient> {
+  const c = createClient(ENV.supabaseUrl, ENV.anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { error } = await c.auth.signInWithPassword({
+    email: ENV.parceiroEmail,
+    password: ENV.parceiroPassword,
+  });
+  if (error) throw new Error(`login do parceiro no teste do guard: ${error.message}`);
+  return c;
+}
 
 test.use({ storageState: STORAGE_PARCEIRO });
 
@@ -98,22 +123,30 @@ test("kanban mostra as 3 colunas com solicitações, exigência e audiência", a
   await expect(page.getByText("Administrativo", { exact: false })).toBeVisible();
   await expect(page.getByText("Judiciais", { exact: false })).toBeVisible();
 
+  // Cards escopados pelo nome único do cliente seedado (a tela pode ter
+  // outros dados — de demo etc. — com os mesmos rótulos).
+  const cardAnalise = page.getByRole("button", { name: `Abrir caso de ${nomeAnalise}` });
+  const cardAdmin = page.getByRole("button", { name: `Abrir caso de ${nomeAdmin}` });
+
   // Card da solicitação avulsa: cliente + "Enviar até" (prazo em 2 dias).
-  await expect(page.getByText(nomeAnalise)).toBeVisible();
-  await expect(page.getByText(/Enviar até .* em 2 dias/)).toBeVisible();
+  await expect(cardAnalise).toBeVisible();
+  await expect(cardAnalise.getByText(/Enviar até .* em 2 dias/)).toBeVisible();
+  await expect(cardAnalise.getByText("Novo")).toBeVisible();
 
   // Card da exigência (origem template) VISÍVEL pro parceiro — regressão do
   // filtro === 'externa'.
-  await expect(page.getByText(nomeAdmin)).toBeVisible();
-  await expect(page.getByText("Exigência INSS")).toBeVisible();
+  await expect(cardAdmin).toBeVisible();
+  await expect(cardAdmin.getByText("Exigência INSS")).toBeVisible();
 
   // Audiência: card informativo (rotulado), com local, SEM botão Cumprir.
+  // O card de evento é um link, não button (não tem "Cumprir").
   await expect(page.getByText(nomeJudicial)).toBeVisible();
-  await expect(page.getByText("Audiência", { exact: true })).toBeVisible();
   await expect(page.getByText("2ª Vara Federal (E2E)")).toBeVisible();
-
-  // Selo "Novo" (tudo foi criado agora).
-  await expect(page.getByText("Novo").first()).toBeVisible();
+  const cardAudiencia = page
+    .locator("a")
+    .filter({ hasText: "2ª Vara Federal (E2E)" });
+  await expect(cardAudiencia.getByText("Audiência")).toBeVisible();
+  await expect(cardAudiencia.getByRole("button", { name: "Cumprir" })).toHaveCount(0);
 
   // Menu do parceiro: "Tarefas" e "Agenda" (ex-"Perícias").
   await expect(page.getByRole("link", { name: /Tarefas/ })).toBeVisible();
@@ -153,4 +186,50 @@ test("agenda do parceiro mostra a audiência no calendário", async ({ page }) =
   await page.goto("/agenda");
   await expect(page.getByRole("heading", { name: "Agenda" })).toBeVisible();
   await expect(page.getByText(/perícias e audiências/)).toBeVisible();
+});
+
+// HIGH-1 (regressão): pendência em caso FINALIZADO não pode sumir do board —
+// vai pra coluna "Outros", senão o contador do menu diverge do que aparece.
+test("pendência em caso finalizado aparece em Outros (não some do board)", async ({ page }) => {
+  const sufixo = `Kanban Finalizado ${Date.now()}`;
+  const nome = `[E2E] ${sufixo}`;
+  const { casoId } = await seedClienteCaso(admin, { sufixo, parceiroId: await parceiraId() });
+  await admin.from("casos").update({ fase: "finalizado" }).eq("id", casoId);
+  await seedSolicitacao(admin, casoId, "cnis", { prazoAt: diasAFrenteISO(5) });
+
+  await page.goto("/tarefas");
+  await expect(page.getByText("Outros")).toBeVisible();
+  await expect(page.getByText(nome)).toBeVisible();
+});
+
+// HIGH-2 (regressão): a RLS + guard deixam o parceiro CUMPRIR (pendente->
+// atendido), mas NÃO mexer em prazo_at / origem / status->dispensado.
+test("parceiro não consegue burlar prazo/origem/status via API (guard)", async () => {
+  test.skip(!ENV.parceiroPassword, "sem senha do parceiro (alvo != staging)");
+  const sufixo = `Guard ${Date.now()}`;
+  const { casoId } = await seedClienteCaso(admin, { sufixo, parceiroId: await parceiraId() });
+  const solicId = await seedSolicitacao(admin, casoId, "cnis", { prazoAt: diasAFrenteISO(10) });
+
+  const asParceiro = await clienteComoParceiro();
+
+  // Ataque 1: estender prazo + auto-dispensar → deve falhar (guard raise).
+  const ataque = await asParceiro
+    .from("solicitacoes_documento")
+    .update({ prazo_at: diasAFrenteISO(3650), status: "dispensado" })
+    .eq("id", solicId);
+  expect(ataque.error, "guard deveria barrar o ataque").toBeTruthy();
+
+  const depois = await admin
+    .from("solicitacoes_documento")
+    .select("status, prazo_at")
+    .eq("id", solicId)
+    .single();
+  expect(depois.data!.status).toBe("pendente");
+
+  // Ação legítima: cumprir (pendente -> atendido) deve passar.
+  const ok = await asParceiro
+    .from("solicitacoes_documento")
+    .update({ status: "atendido", data_atendimento: new Date().toISOString() })
+    .eq("id", solicId);
+  expect(ok.error, "cumprir legítimo não deveria falhar").toBeFalsy();
 });
