@@ -1,5 +1,9 @@
 -- Tarefas do PARCEIRO (kanban) + prazo estruturado nas solicitações.
 --
+-- >>> SÓ STAGING até a Naira validar o lote. Rodar na PRODUÇÃO (junto com as
+-- >>> outras 4 do lote — ver planning/DEPLOY_LOTE_KANBAN_RADAR.md) ANTES do
+-- >>> merge staging→main: o front novo depende de prazo_at e das RPCs daqui.
+--
 -- Feedback de parceiro (2026-08-31): quer ver as pendências dele em kanban
 -- por fase do caso (Em análise / Administrativo / Judiciais), ordenadas por
 -- prazo. Hoje NENHUM prazo chega estruturado ao parceiro: o fatal da
@@ -39,9 +43,20 @@ comment on column public.solicitacoes_documento.lembretes_enviados is
 -- Exigência judicial NÃO tem backfill: o fatal ficou só em texto/tarefa e
 -- qualquer matching seria chute (padrão que já mordeu — "matching amplo
 -- demais"); a equipe ajusta pelo botão Editar da solicitação.
+-- Recuo de fim de semana (mesma regra do front, prazoParceiroDoFatal):
+-- caindo em sáb/dom, volta pra sexta — senão a mesma exigência ganha prazo
+-- de domingo por aqui e de sexta pelo formulário (code review 2026-09-01).
 update public.solicitacoes_documento s
    set prazo_at = (
-     (((s.data_solicitacao at time zone 'America/Sao_Paulo')::date + 27)
+     (
+       (
+         ((s.data_solicitacao at time zone 'America/Sao_Paulo')::date + 27)
+         - case extract(dow from ((s.data_solicitacao at time zone 'America/Sao_Paulo')::date + 27))
+             when 6 then 1  -- sábado → sexta
+             when 0 then 2  -- domingo → sexta
+             else 0
+           end
+       )
        + time '23:59:59') at time zone 'America/Sao_Paulo'
    )
  where s.origem = 'template:exigencia'
@@ -49,84 +64,15 @@ update public.solicitacoes_documento s
    and s.prazo_at is null;
 
 -- ---------------------------------------------------------------------------
--- 2. agenda_do_parceiro(): perícias + AUDIÊNCIAS, sanitizada
+-- 2. agenda_do_parceiro()
 -- ---------------------------------------------------------------------------
--- Generalização da pericias_do_parceiro() (que fica no ar até o front migrar
--- por completo): mesma união eventos ∪ tarefas-de-perícia, mesmo filtro
--- casos.parceiro_id = auth.uid(), mas eventos incluem tipo='audiencia' e a
--- função devolve a coluna `tipo` pro front distinguir o card/badge.
--- Baseada na definição de PRODUÇÃO de pericias_do_parceiro (hash conferido
--- staging×prod em 2026-08-31: ea82c6d813b3c3e0686bd0a814c297f3).
+-- (removida em 2026-09-01, code review) A versão zero-arg que vivia aqui foi
+-- superada por agenda_do_parceiro(p_desde timestamptz default null), criada
+-- em migration_tarefas_parceiro_correcoes.sql — que DROPA a zero-arg.
+-- Recriá-la aqui num re-run pós-correcoes deixava DUAS overloads no banco e
+-- a chamada sem argumento do front virava ambiguidade PGRST203 (Agenda do
+-- parceiro quebrada). Rodar este arquivo é seguro em qualquer ordem agora.
 
-create or replace function public.agenda_do_parceiro()
-returns table (
-  fonte text,
-  id uuid,
-  caso_id uuid,
-  tipo text,        -- 'pericia' | 'audiencia'
-  cliente_nome text,
-  titulo text,
-  start_at timestamptz,
-  end_at timestamptz,
-  local text,
-  natureza text     -- 'judicial' | 'admin' | null (não identificada)
-)
-language sql
-stable
-security definer
-set search_path to 'public', 'pg_temp'
-as $$
-  select
-    'evento'::text as fonte,
-    e.id, e.caso_id, e.tipo, cl.nome, e.titulo, e.start_at, e.end_at, e.local,
-    case
-      when e.tipo = 'audiencia' then 'judicial'
-      when e.processo_judicial_id is not null then 'judicial'
-      when e.processo_admin_id is not null then 'admin'
-      when e.titulo ~* 'judicial' then 'judicial'
-      when e.titulo ~* 'inss' then 'admin'
-      else null
-    end as natureza
-  from public.agenda_eventos e
-  join public.casos c on c.id = e.caso_id and c.parceiro_id = auth.uid()
-  left join public.clientes cl on cl.id = c.cliente_id
-  where e.tipo in ('pericia', 'audiencia')
-    and e.restrito_a is null
-  union all
-  select
-    'tarefa'::text as fonte,
-    t.id, t.caso_id, 'pericia'::text as tipo, cl.nome, t.titulo,
-    t.due_at as start_at,
-    t.due_at as end_at,     -- tarefa não tem hora de fim; front trata por dia
-    null::text as local,
-    case
-      when t.processo_judicial_id is not null then 'judicial'
-      when t.processo_admin_id is not null then 'admin'
-      when t.titulo ~* 'judicial' then 'judicial'
-      when t.titulo ~* 'inss' then 'admin'
-      else null
-    end as natureza
-  from public.tarefas t
-  join public.casos c on c.id = t.caso_id and c.parceiro_id = auth.uid()
-  left join public.clientes cl on cl.id = c.cliente_id
-  where t.tipo = 'pericia'
-    and t.status in ('a_fazer', 'fazendo')
-    and t.due_at is not null
-    and (
-      (t.metadata->>'pericia_evento')::boolean is true
-      or (
-        t.metadata->>'pericia_evento' is null
-        and t.titulo !~* '(acompanh|contatar|resultado|ligar|compareceu|agendamento de)'
-      )
-    )
-  order by 7
-$$;
-
-revoke all on function public.agenda_do_parceiro() from public, anon;
-grant execute on function public.agenda_do_parceiro() to authenticated;
-
-comment on function public.agenda_do_parceiro() is
-  'Agenda sanitizada do parceiro: perícias E audiências dos casos dele (eventos + tarefas de perícia). Substitui pericias_do_parceiro() no front.';
 
 -- ---------------------------------------------------------------------------
 -- 3. Lembretes de solicitação com prazo (7d / 3d / no dia)

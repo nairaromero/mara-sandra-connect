@@ -17,6 +17,7 @@ interface ItemTemplate {
   prioridade?: number;
   offset_dias?: number;
   visivel_parceiro?: boolean;
+  executor_email?: string | null;
   meta?: Record<string, unknown>;
 }
 
@@ -54,8 +55,44 @@ export async function aplicarTemplateProgramatico(input: {
   const itens = ((tpl.itens as ItemTemplate[]) ?? []).filter(
     (i) => !i.destino || i.destino === "tarefa" || i.destino === "andamento",
   );
+
+  // Dedup cruzado: o mesmo template pode chegar por DOIS caminhos (botão de
+  // desfecho aqui × inss-email-processor quando o e-mail da decisão chega).
+  // Se o caso já tem tarefa aberta desta corrente — de qualquer origem —,
+  // não abre de novo. O processor grava metadata.template; nós,
+  // metadata.template_aplicado.
+  const { data: correnteJa } = await supabase
+    .from("tarefas")
+    .select("id")
+    .eq("caso_id", input.casoId)
+    .in("status", ["a_fazer", "fazendo"])
+    .or(
+      `metadata->>template_aplicado.eq.${input.nomeTemplate},metadata->>template.eq.${input.nomeTemplate}`,
+    )
+    .limit(1);
+  if (correnteJa && correnteJa.length > 0) {
+    throw new Error(
+      `A corrente do template "${input.nomeTemplate}" já está aberta neste caso — não vou duplicar.`,
+    );
+  }
+
   const ph = { nome_cliente: input.clienteNome };
   const r: ResultadoAplicacao = { tarefas: 0, andamentos: 0, primeiraTarefaId: null };
+
+  // O executor_email de cada item roteia a tarefa (mesma regra do fluxo
+  // manual do TarefaSheet); sem executor — ou sem match entre os internos
+  // ativos — herda o responsável passado pelo widget.
+  const emailParaId = new Map<string, string>();
+  if (itens.some((i) => i.executor_email)) {
+    const { data: internos } = await supabase
+      .from("usuarios")
+      .select("id, email")
+      .eq("tipo", "interno")
+      .eq("ativo", true);
+    for (const u of internos ?? []) {
+      if (u.email) emailParaId.set(u.email.toLowerCase(), u.id);
+    }
+  }
 
   for (let i = 0; i < itens.length; i++) {
     const item = itens[i];
@@ -97,7 +134,9 @@ export async function aplicarTemplateProgramatico(input: {
         caso_id: input.casoId,
         processo_admin_id: input.processoAdminId ?? null,
         processo_judicial_id: input.processoJudicialId ?? null,
-        responsavel_id: input.responsavelId,
+        responsavel_id: item.executor_email
+          ? (emailParaId.get(item.executor_email.toLowerCase()) ?? input.responsavelId)
+          : input.responsavelId,
         tipo: item.tipo ?? "interna",
         prioridade: item.prioridade ?? 2,
         status: "a_fazer",
