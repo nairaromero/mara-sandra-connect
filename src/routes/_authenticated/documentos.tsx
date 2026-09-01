@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, Navigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -67,8 +67,25 @@ import {
 } from "@/components/ui/dialog";
 
 export const Route = createFileRoute("/_authenticated/documentos")({
-  component: DocumentosPendentesPage,
+  component: DocumentosRoute,
 });
+
+// A tela "Documentos pendentes" (hub) é só do interno desde 2026-09-01: o
+// parceiro usa o kanban de Tarefas. Link/bookmark antigo do parceiro cai
+// em /tarefas. Wrapper separado pra não misturar hooks (mesmo padrão de
+// /tarefas e /agenda).
+function DocumentosRoute() {
+  const { usuario } = useAuth();
+  if (!usuario) {
+    return (
+      <div className="flex h-96 items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (usuario.tipo === "parceiro") return <Navigate to="/tarefas" replace />;
+  return <DocumentosPendentesPage />;
+}
 
 // ===========================================================================
 // Tipos

@@ -45,15 +45,15 @@ test.afterAll(async () => {
 test("parceiro cumpre solicitação com 2 anexos; tarefa de análise nasce via trigger", async ({
   page,
 }) => {
-  await page.goto("/documentos");
+  // O hub /documentos foi aposentado pro parceiro (2026-09-01): ele cumpre
+  // pelo kanban de Tarefas. Mesmo modal/lib de cumprimento.
+  await page.goto("/tarefas");
 
-  // Card do cliente seedado com a pendência.
+  // Card do cliente seedado com a pendência (caso fase 'analise').
   await expect(page.getByText(nomeCliente)).toBeVisible();
   await page
-    .locator("div")
-    .filter({ hasText: nomeCliente })
-    .getByRole("button", { name: "Cumprir" })
-    .first()
+    .getByRole("button", { name: `Abrir caso de ${nomeCliente}` })
+    .getByRole("button", { name: "Cumprir", exact: true })
     .click();
 
   // Modal: anexo obrigatório pro parceiro; DOIS arquivos de uma vez (frente e
