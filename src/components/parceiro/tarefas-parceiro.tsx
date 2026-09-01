@@ -24,6 +24,8 @@ import {
   AlertTriangle,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Clock,
   FileText,
   Gavel,
@@ -83,6 +85,14 @@ interface SolicPendente {
     fase: string;
     clientes: { id: string; nome: string } | null;
   } | null;
+}
+
+interface SolicCumprida {
+  id: string;
+  tipo: string;
+  tipos: ItemSolicitacao[] | null;
+  data_atendimento: string | null;
+  casos: { id: string; clientes: { nome: string } | null } | null;
 }
 
 interface EventoParceiro {
@@ -197,6 +207,8 @@ export function TarefasParceiro() {
   const [carregando, setCarregando] = useState(true);
   const [solicitacoes, setSolicitacoes] = useState<SolicPendente[]>([]);
   const [eventos, setEventos] = useState<EventoParceiro[]>([]);
+  const [cumpridas, setCumpridas] = useState<SolicCumprida[]>([]);
+  const [verCumpridas, setVerCumpridas] = useState(false);
 
   // Modal "Cumprir" — mesmo fluxo do hub /documentos, versão só-parceiro
   // (anexo sempre obrigatório).
@@ -211,7 +223,7 @@ export function TarefasParceiro() {
       // Corte de data pro board: só o futuro (compromisso de hoje conta o dia
       // inteiro). A RPC já corta no banco, o -1 dia dá folga de fuso.
       const desde = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-      const [solics, evs] = await Promise.all([
+      const [solics, evs, feitas] = await Promise.all([
         // Pendências do parceiro: tudo que não é interna (externa + exigências
         // de template). Ordem estável pro paginado.
         buscarPaginado<SolicPendente>((ini, fim) =>
@@ -233,10 +245,21 @@ export function TarefasParceiro() {
         // banco (agenda_do_parceiro(p_desde)) — não precisa mais varrer todos
         // os casos do parceiro só pra mapear fase.
         supabase.rpc("agenda_do_parceiro", { p_desde: desde }),
+        // Cumpridas recentes: fechamento pro parceiro ("cadê o que enviei?").
+        // As 40 últimas bastam — histórico completo fica na aba do caso.
+        supabase
+          .from("solicitacoes_documento")
+          .select("id, tipo, tipos, data_atendimento, casos(id, clientes(nome))")
+          .eq("status", "atendido")
+          .neq("origem", "interna")
+          .order("data_atendimento", { ascending: false })
+          .limit(40),
       ]);
       if (evs.error) throw evs.error;
+      if (feitas.error) throw feitas.error;
       setSolicitacoes(solics);
       setEventos((evs.data ?? []) as EventoParceiro[]);
+      setCumpridas((feitas.data ?? []) as unknown as SolicCumprida[]);
     } catch (e) {
       console.error(e);
       toast.error("Falha ao carregar suas tarefas.");
@@ -496,7 +519,10 @@ export function TarefasParceiro() {
                       {cards.length}
                     </span>
                   </p>
-                  <div className="space-y-2">
+                  {/* Mostra ~5 cards e rola o resto dentro da própria coluna:
+                      com muitas exigências a coluna não empurra a página toda
+                      pra baixo. */}
+                  <div className="space-y-2 max-h-[38rem] overflow-y-auto pr-1">
                     {cards.length === 0 && (
                       <p className="text-xs text-muted-foreground/70 text-center py-6">
                         Nada por aqui.
@@ -524,6 +550,61 @@ export function TarefasParceiro() {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Cumpridas recentemente: fechamento pro parceiro — o que ele já
+            enviou não some no vazio. Recolhido por padrão. */}
+        {cumpridas.length > 0 && (
+          <div className="rounded-lg border border-dashed">
+            <button
+              type="button"
+              onClick={() => setVerCumpridas((v) => !v)}
+              className="w-full flex items-center justify-between p-3 hover:bg-muted/40 transition-colors text-left"
+            >
+              <span className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                {verCumpridas ? (
+                  <ChevronDown className="h-4 w-4" />
+                ) : (
+                  <ChevronRight className="h-4 w-4" />
+                )}
+                <CheckCircle2 className="h-4 w-4 text-success" />
+                Cumpridas recentemente
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {cumpridas.length}
+                {cumpridas.length === 40 ? "+" : ""}
+              </span>
+            </button>
+            {verCumpridas && (
+              <ul className="divide-y border-t">
+                {cumpridas.map((c) => (
+                  <li key={c.id}>
+                    <Link
+                      to="/casos/$id"
+                      params={{ id: c.casos?.id ?? "" }}
+                      search={{ tab: "documentos" }}
+                      className="flex items-center justify-between gap-3 px-3 py-2 hover:bg-muted/40 transition-colors"
+                    >
+                      <span className="min-w-0">
+                        <span className="text-sm font-medium block truncate">
+                          {c.casos?.clientes?.nome ?? "(cliente sem nome)"}
+                        </span>
+                        <span className="text-xs text-muted-foreground block truncate">
+                          {rotuloSolicitacao(c.tipo, c.tipos)}
+                        </span>
+                      </span>
+                      <span className="text-xs text-muted-foreground shrink-0 flex items-center gap-1">
+                        <CheckCircle2 className="h-3 w-3 text-success" />
+                        {c.data_atendimento
+                          ? "enviado " + formatarBR(c.data_atendimento, { day: "2-digit", month: "2-digit" })
+                          : "enviado"}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
 

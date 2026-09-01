@@ -96,7 +96,14 @@ export function AppSidebar() {
         ...(isAdmin ? itemsAdmin : []),
         ...itemsFooter,
       ]
-    : [...itemsParceiroTopo, ...itemsBase, ...itemsFooter];
+    : // Parceiro não tem mais "Documentos pendentes": o kanban de Tarefas
+      // cobre as pendências dele (Naira, 2026-09-01). A rota /documentos
+      // redireciona o parceiro pra /tarefas.
+      [
+        ...itemsParceiroTopo,
+        ...itemsBase.filter((i) => i.url !== "/documentos"),
+        ...itemsFooter,
+      ];
 
   // Badge de publicacoes novas (DJEN) desde a ultima visita. RLS escopa por
   // usuario (interno ve todas; parceiro so as dos casos dele).
