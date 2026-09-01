@@ -25,6 +25,7 @@ import {
   nomeAmigavel,
   URGENCIA_BADGE_CLASS,
   urgenciaDoDueAt,
+  checklistPendente,
 } from "@/lib/tarefas/helpers";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -338,6 +339,18 @@ function TarefasPage() {
   }, [tarefas, usuario?.id]);
 
   async function mudarStatus(id: string, status: TarefaStatus) {
+    // Concluir por fora (kanban/lista) não pode pular o widget da tarefa —
+    // a corrente morreria calada (auditoria 2026-09-01).
+    if (status === "feito") {
+      const alvo = tarefas.find((t) => t.id === id);
+      const pendente = alvo ? checklistPendente(alvo) : null;
+      if (pendente) {
+        toast.error("Esta tarefa se conclui pelo próprio botão dela", {
+          description: "Abra a tarefa e use " + pendente + " — é ele que dispara o andamento e o próximo passo.",
+        });
+        return;
+      }
+    }
     // Optimistic update
     const original = tarefas.find((t) => t.id === id);
     setTarefas((arr) => arr.map((t) => (t.id === id ? { ...t, status } : t)));

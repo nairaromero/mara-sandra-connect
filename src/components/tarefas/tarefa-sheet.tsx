@@ -78,6 +78,7 @@ import {
   inputDateTimeValueFromIso,
   isoFromInputDateTime,
   nomeAmigavel,
+  checklistPendente,
   substituirPlaceholders,
 } from "@/lib/tarefas/helpers";
 import {
@@ -94,6 +95,8 @@ import { EtapasAcompanhamento } from "@/components/tarefas/etapas-acompanhamento
 import { AcompanhamentoPericia } from "@/components/tarefas/acompanhamento-pericia";
 import { AcompanhamentoImplementacao } from "@/components/tarefas/acompanhamento-implementacao";
 import { MontagemInicial } from "@/components/tarefas/montagem-inicial";
+import { AnaliseCasoNovo } from "@/components/tarefas/analise-caso-novo";
+import { AnaliseIndeferimento } from "@/components/tarefas/analise-indeferimento";
 import { ComparecimentoPericia } from "@/components/tarefas/comparecimento-pericia";
 import { EnviarAvisoParceiro } from "@/components/tarefas/enviar-aviso-parceiro";
 import { EtapaCumprimentoExigencia } from "@/components/tarefas/etapa-cumprimento-exigencia";
@@ -620,6 +623,16 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       const due_at = dueCalculado;
       const proc = parseProcesso();
       if (editando && tarefa) {
+        if (status === "feito" && tarefa.status !== "feito") {
+          const pendente = checklistPendente(tarefa);
+          if (pendente) {
+            toast.error("Esta tarefa se conclui pelo próprio botão dela", {
+              description: "Use " + pendente + " — é ele que dispara o andamento e o próximo passo.",
+            });
+            setSalvando(false);
+            return;
+          }
+        }
         await atualizarTarefa({
           id: tarefa.id,
           patch: {
@@ -698,7 +711,15 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
         const primeiroTarefa = tpl?.itens.find(
           (i) => !i.destino || i.destino === "tarefa",
         ) ?? null;
-        const mainItem = agendaItem ?? primeiroTarefa ?? tplItens[0] ?? null;
+        // Template SÓ de andamentos (ex.: Em Análise): não existe tarefa
+        // principal — salvar cria apenas os andamentos (bug da auditoria
+        // 2026-09-01: o form virava uma tarefa com tipo vazio e travava).
+        const soAndamentos =
+          !!tpl && tplItens.length > 0 &&
+          tplItens.every((i) => i.destino === "andamento");
+        const mainItem = soAndamentos
+          ? null
+          : agendaItem ?? primeiroTarefa ?? tplItens[0] ?? null;
 
         // Template ancorado no prazo fatal (Exigência Judicial) não sai sem a
         // data — o FATAL derivaria de nada.
@@ -871,7 +892,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
               );
             }
           }
-        } else {
+        } else if (!soAndamentos) {
           // Comportamento clássico: form cria tarefa principal.
           const firstMeta = (mainItem?.meta ?? {}) as Record<string, unknown>;
           const metaCriacao: Record<string, unknown> = tpl
@@ -1158,8 +1179,19 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
             )}
 
           {editando && tarefa &&
-            (tarefa.metadata as { montagem_inicial?: boolean })?.montagem_inicial === true && (
+            ((tarefa.metadata as { montagem_inicial?: boolean })?.montagem_inicial === true ||
+              (tarefa.metadata as { montagem_requerimento?: boolean })?.montagem_requerimento === true) && (
               <MontagemInicial tarefa={tarefa} onUpdated={onSaved} />
+            )}
+
+          {editando && tarefa &&
+            (tarefa.metadata as { etapa?: string })?.etapa === "analise_inicial_parceiro" && (
+              <AnaliseCasoNovo tarefa={tarefa} onUpdated={onSaved} />
+            )}
+
+          {editando && tarefa &&
+            (tarefa.metadata as { analise_indeferimento?: boolean })?.analise_indeferimento === true && (
+              <AnaliseIndeferimento tarefa={tarefa} onUpdated={onSaved} />
             )}
 
           {editando && tarefa &&

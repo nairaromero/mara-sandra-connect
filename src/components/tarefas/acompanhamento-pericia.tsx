@@ -25,6 +25,8 @@ import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase";
 import type { TarefaComJoins } from "@/lib/tarefas/types";
 import { useDestaque } from "@/lib/destaque/destaque-context";
+import { useAuth } from "@/hooks/use-auth";
+import { aplicarTemplateProgramatico } from "@/lib/tarefas/aplicador";
 
 const DIAS_ENTRE_CHECAGENS = 10;
 
@@ -55,7 +57,8 @@ export function AcompanhamentoPericia({
     ? Math.floor((Date.now() - periciaEm.getTime()) / 86400_000)
     : null;
 
-  const [agindo, setAgindo] = useState<"sem" | "saiu" | null>(null);
+  const [agindo, setAgindo] = useState<"sem" | "deferido" | "indeferido" | null>(null);
+  const { usuario } = useAuth();
   const { marcar: marcarDestaque } = useDestaque();
 
   // Tarefa migrada do Tramitação Inteligente chega sem processo vinculado, e o
@@ -91,9 +94,12 @@ export function AcompanhamentoPericia({
     return { processo_admin_id: null, processo_judicial_id: null };
   }
 
-  async function registrar(saiu: boolean) {
+  // saiu=true SEMPRE vem com o desfecho: deferido aplica o template Concedido,
+  // indeferido aplica o Indeferido — o resultado emenda na próxima corrente
+  // (pedido da Naira, 2026-09-01).
+  async function registrar(saiu: boolean, desfecho?: "deferido" | "indeferido") {
     if (agindo) return;
-    setAgindo(saiu ? "saiu" : "sem");
+    setAgindo(saiu ? (desfecho ?? "deferido") : "sem");
     try {
       const agora = new Date();
       let semVinculo = false;
@@ -109,7 +115,7 @@ export function AcompanhamentoPericia({
             processo_judicial_id: vinculo.processo_judicial_id,
             origem: "interno",
             titulo: saiu
-              ? `Resultado da perícia disponível — ${fmt(agora)}`
+              ? `Resultado da perícia — ${desfecho === "indeferido" ? "INDEFERIDO" : "DEFERIDO"} (${fmt(agora)})`
               : `Conferência: resultado da perícia ainda não saiu — ${fmt(agora)}`,
             descricao: saiu
               ? "Resultado da perícia saiu; acompanhamento encerrado."
@@ -154,9 +160,32 @@ export function AcompanhamentoPericia({
         .eq("id", tarefa.id);
       if (errT) throw errT;
 
+      // Desfecho emenda no template certo (Concedido / Indeferido).
+      if (saiu && desfecho && tarefa.caso_id) {
+        try {
+          await aplicarTemplateProgramatico({
+            nomeTemplate: desfecho === "indeferido" ? "indeferido" : "concedido",
+            casoId: tarefa.caso_id,
+            clienteNome: tarefa.caso?.cliente?.nome ?? "cliente",
+            responsavelId: tarefa.responsavel_id,
+            autorId: usuario?.id ?? null,
+          });
+        } catch (e) {
+          toast.warning("Resultado registrado, mas o template de sequência falhou", {
+            description:
+              ((e as { message?: string }).message ?? "") +
+              " — aplique o template " +
+              (desfecho === "indeferido" ? "Indeferido" : "Concedido") +
+              " à mão.",
+          });
+        }
+      }
+
       toast.success(
         saiu
-          ? "Resultado registrado. Acompanhamento encerrado."
+          ? desfecho === "indeferido"
+            ? "Indeferido registrado — análise do indeferimento aberta."
+            : "Deferimento registrado — análise e implantação abertas."
           : `Conferência registrada. Próxima em ${DIAS_ENTRE_CHECAGENS} dias.`,
         // Sem vínculo, o andamento não entra no card do processo — dizer onde
         // ele foi parar evita a leitura de que o clique não fez nada.
@@ -225,14 +254,27 @@ export function AcompanhamentoPericia({
             <Button
               size="sm"
               disabled={agindo !== null}
-              onClick={() => registrar(true)}
+              onClick={() => registrar(true, "deferido")}
             >
-              {agindo === "saiu" ? (
+              {agindo === "deferido" ? (
                 <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
               ) : (
                 <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
               )}
-              Resultado saiu
+              Saiu — deferido
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={agindo !== null}
+              onClick={() => registrar(true, "indeferido")}
+            >
+              {agindo === "indeferido" ? (
+                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+              ) : (
+                <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+              )}
+              Saiu — indeferido
             </Button>
           </div>
           {!compacto && (
