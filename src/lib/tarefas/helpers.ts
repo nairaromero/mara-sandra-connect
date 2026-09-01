@@ -261,3 +261,15 @@ export function checklistPendente(t: {
   }
   return null;
 }
+
+
+/**
+ * Benefício por INCAPACIDADE passa por perícia médica; os demais não
+ * (Naira, 2026-09-01: auxílio-doença, auxílio-acidente, BPC/LOAS e
+ * invalidez/incapacidade permanente — aposentadoria por idade/tempo,
+ * pensão etc. seguem direto pra análise).
+ */
+export function beneficioTemPericia(tipoBeneficio: string | null | undefined): boolean {
+  if (!tipoBeneficio) return false;
+  return /acidente|doen[çc]a|incapacidad|invalidez|bpc|loas/i.test(tipoBeneficio);
+}

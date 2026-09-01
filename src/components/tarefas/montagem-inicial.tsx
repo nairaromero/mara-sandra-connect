@@ -30,6 +30,7 @@ import { Label } from "@/components/ui/label";
 import { supabase } from "@/lib/supabase";
 import type { TarefaComJoins } from "@/lib/tarefas/types";
 import { useDestaque } from "@/lib/destaque/destaque-context";
+import { beneficioTemPericia } from "@/lib/tarefas/helpers";
 
 const EMAIL_BIA = "advocacia.beatrizsan@outlook.com";
 const EMAIL_MARA = "marasandra.adv@gmail.com";
@@ -275,6 +276,17 @@ export function MontagemInicial({
           .invoke("notify-novo-andamento", { body: { andamento_id: andAdm.id } })
           .catch(() => {});
 
+        // Perícia só existe em benefício por incapacidade — o acompanhamento
+        // não pode prometer perícia numa aposentadoria por idade (Naira,
+        // 2026-09-01).
+        const { data: casoInfo } = await supabase
+          .from("casos")
+          .select("tipo_beneficio")
+          .eq("id", tarefa.caso_id)
+          .maybeSingle();
+        const temPericia = beneficioTemPericia(
+          (casoInfo as { tipo_beneficio?: string | null } | null)?.tipo_beneficio,
+        );
         const { data: acomp, error: errAcomp } = await supabase
           .from("tarefas")
           .insert({
@@ -284,9 +296,12 @@ export function MontagemInicial({
             tipo: "interna",
             prioridade: 2,
             status: "a_fazer",
-            titulo: "Acompanhamento Processual",
-            descricao:
-              "Acompanhar o requerimento protocolado. Escalonamento: 30d ouvidoria → 60d peticionamento de mora → 120d ajuizamento.",
+            titulo: temPericia
+              ? "Acompanhamento — aguardando agendamento da perícia"
+              : "Acompanhamento — aguardando análise do INSS",
+            descricao: temPericia
+              ? "Benefício por incapacidade: o INSS deve agendar a perícia. Vigie o Meu INSS e os e-mails; quando o comprovante chegar, aplique o template Perícia INSS (agenda + aviso ao parceiro). Se nada acontecer: 30d ouvidoria → 60d peticionamento de mora → 120d ajuizamento."
+              : "Aguardando a análise do requerimento. O resultado costuma chegar pelo robô de e-mails do INSS (aplica Concedido/Indeferido sozinho) — se souber antes, registre pelos botões aqui na tarefa. Se nada acontecer: 30d ouvidoria → 60d peticionamento de mora → 120d ajuizamento.",
             due_at: venceEm(30),
             origem: "manual",
             metadata: {
