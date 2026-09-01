@@ -386,6 +386,23 @@ function DocumentosPendentesPage() {
     }
     setSalvandoModal(true);
     try {
+      // Pré-checagem pro parceiro: se a solicitação já foi cumprida (outra aba/
+      // dispositivo), não sobe arquivo duplicado. O guard do banco barra o
+      // UPDATE de qualquer forma; isto evita o upload à toa.
+      if (!isInterno && acaoAlvo.novoStatus === "atendido") {
+        const atual = await supabase
+          .from("solicitacoes_documento")
+          .select("status")
+          .eq("id", acaoAlvo.solic.id)
+          .maybeSingle();
+        if (atual.error) throw atual.error;
+        if (!atual.data || atual.data.status !== "pendente") {
+          toast.info("Esta solicitação já foi cumprida. Atualizando a lista.");
+          fecharAcaoModal();
+          await carregar();
+          return;
+        }
+      }
       let primeiroDocId: string | null = null;
       let enviados = 0;
       let falhas: ArquivoCumprimento[] = [];
