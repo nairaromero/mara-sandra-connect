@@ -1,5 +1,9 @@
 -- Correções da validação agressiva do kanban do parceiro (2026-09-01).
 --
+-- >>> SÓ STAGING até a Naira validar o lote. Rodar na PRODUÇÃO (junto com as
+-- >>> outras 4 do lote — ver planning/DEPLOY_LOTE_KANBAN_RADAR.md) ANTES do
+-- >>> merge staging→main, SEMPRE DEPOIS de migration_tarefas_parceiro_prazo.
+--
 -- HIGH-2  : trava a escrita do parceiro em solicitacoes_documento a
 --           pendente->atendido (+ comentario/anexo). Sem isto ele podia, via
 --           API, estender o proprio prazo_at, silenciar lembretes e se

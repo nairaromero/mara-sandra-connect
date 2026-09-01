@@ -252,7 +252,10 @@ export function TarefasParceiro() {
           .select("id, tipo, tipos, data_atendimento, casos(id, clientes(nome))")
           .eq("status", "atendido")
           .neq("origem", "interna")
-          .order("data_atendimento", { ascending: false })
+          // nullsFirst:false — DESC no Postgres põe NULL primeiro, e as
+          // atendidas legadas sem data_atendimento tomariam as 40 vagas na
+          // frente do que o parceiro acabou de enviar.
+          .order("data_atendimento", { ascending: false, nullsFirst: false })
           .limit(40),
       ]);
       if (evs.error) throw evs.error;

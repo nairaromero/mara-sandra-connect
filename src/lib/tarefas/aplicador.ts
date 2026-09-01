@@ -55,6 +55,27 @@ export async function aplicarTemplateProgramatico(input: {
   const itens = ((tpl.itens as ItemTemplate[]) ?? []).filter(
     (i) => !i.destino || i.destino === "tarefa" || i.destino === "andamento",
   );
+
+  // Dedup cruzado: o mesmo template pode chegar por DOIS caminhos (botão de
+  // desfecho aqui × inss-email-processor quando o e-mail da decisão chega).
+  // Se o caso já tem tarefa aberta desta corrente — de qualquer origem —,
+  // não abre de novo. O processor grava metadata.template; nós,
+  // metadata.template_aplicado.
+  const { data: correnteJa } = await supabase
+    .from("tarefas")
+    .select("id")
+    .eq("caso_id", input.casoId)
+    .in("status", ["a_fazer", "fazendo"])
+    .or(
+      `metadata->>template_aplicado.eq.${input.nomeTemplate},metadata->>template.eq.${input.nomeTemplate}`,
+    )
+    .limit(1);
+  if (correnteJa && correnteJa.length > 0) {
+    throw new Error(
+      `A corrente do template "${input.nomeTemplate}" já está aberta neste caso — não vou duplicar.`,
+    );
+  }
+
   const ph = { nome_cliente: input.clienteNome };
   const r: ResultadoAplicacao = { tarefas: 0, andamentos: 0, primeiraTarefaId: null };
 
