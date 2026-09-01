@@ -17,6 +17,7 @@ interface ItemTemplate {
   prioridade?: number;
   offset_dias?: number;
   visivel_parceiro?: boolean;
+  executor_email?: string | null;
   meta?: Record<string, unknown>;
 }
 
@@ -56,6 +57,21 @@ export async function aplicarTemplateProgramatico(input: {
   );
   const ph = { nome_cliente: input.clienteNome };
   const r: ResultadoAplicacao = { tarefas: 0, andamentos: 0, primeiraTarefaId: null };
+
+  // O executor_email de cada item roteia a tarefa (mesma regra do fluxo
+  // manual do TarefaSheet); sem executor — ou sem match entre os internos
+  // ativos — herda o responsável passado pelo widget.
+  const emailParaId = new Map<string, string>();
+  if (itens.some((i) => i.executor_email)) {
+    const { data: internos } = await supabase
+      .from("usuarios")
+      .select("id, email")
+      .eq("tipo", "interno")
+      .eq("ativo", true);
+    for (const u of internos ?? []) {
+      if (u.email) emailParaId.set(u.email.toLowerCase(), u.id);
+    }
+  }
 
   for (let i = 0; i < itens.length; i++) {
     const item = itens[i];
@@ -97,7 +113,9 @@ export async function aplicarTemplateProgramatico(input: {
         caso_id: input.casoId,
         processo_admin_id: input.processoAdminId ?? null,
         processo_judicial_id: input.processoJudicialId ?? null,
-        responsavel_id: input.responsavelId,
+        responsavel_id: item.executor_email
+          ? (emailParaId.get(item.executor_email.toLowerCase()) ?? input.responsavelId)
+          : input.responsavelId,
         tipo: item.tipo ?? "interna",
         prioridade: item.prioridade ?? 2,
         status: "a_fazer",

@@ -73,10 +73,20 @@ export function AnaliseCasoNovo({
   const clienteNome = tarefa.caso?.cliente?.nome ?? "cliente";
 
   async function concluirAnalise() {
-    await supabase
+    // Roda DEPOIS dos efeitos do desfecho (template/tarefa/andamento). Se o
+    // update falhar, o erro tem que subir: toast de sucesso com a tarefa ainda
+    // aberta convida um segundo clique — que duplica a corrente inteira.
+    const { error } = await supabase
       .from("tarefas")
       .update({ status: "feito", completed_at: new Date().toISOString() })
       .eq("id", tarefa.id);
+    if (error) {
+      throw new Error(
+        "O desfecho já foi aplicado, mas a tarefa de análise não concluiu (" +
+          error.message +
+          "). NÃO clique no desfecho de novo — recarregue a página.",
+      );
+    }
   }
 
   async function fazerRequerimento() {

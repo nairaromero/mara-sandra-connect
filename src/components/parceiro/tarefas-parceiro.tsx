@@ -434,8 +434,22 @@ export function TarefasParceiro() {
           " anexado" +
           (r.enviados > 1 ? "s" : ""),
       );
+      // Atualização local: sumir com o card e entrar nas cumpridas, sem
+      // refazer o board inteiro (3 queries + flash de spinner a cada
+      // cumprimento). O carregar() completo fica só pro caso do card velho
+      // acima, onde o estado local é sabidamente errado.
+      const cumprida: SolicCumprida = {
+        id: cumprindo.id,
+        tipo: cumprindo.tipo,
+        tipos: cumprindo.tipos,
+        data_atendimento: update.data_atendimento,
+        casos: cumprindo.casos
+          ? { id: cumprindo.casos.id, clientes: cumprindo.casos.clientes }
+          : null,
+      };
+      setSolicitacoes((prev) => prev.filter((s) => s.id !== cumprindo.id));
+      setCumpridas((prev) => [cumprida, ...prev].slice(0, 40));
       fecharCumprir();
-      await carregar();
     } catch (err) {
       console.error(err);
       toast.error((err as { message?: string })?.message || "Erro ao cumprir a solicitação");

@@ -50,10 +50,19 @@ export function AnaliseIndeferimento({
   const clienteNome = tarefa.caso?.cliente?.nome ?? "cliente";
 
   async function concluir() {
-    await supabase
+    // Roda DEPOIS dos efeitos do desfecho. Erro tem que subir: sucesso falso
+    // com a tarefa aberta convida um segundo clique — que duplica a corrente.
+    const { error } = await supabase
       .from("tarefas")
       .update({ status: "feito", completed_at: new Date().toISOString() })
       .eq("id", tarefa.id);
+    if (error) {
+      throw new Error(
+        "O desfecho já foi aplicado, mas a tarefa não concluiu (" +
+          error.message +
+          "). NÃO clique no desfecho de novo — recarregue a página.",
+      );
+    }
   }
 
   async function ajuizar() {
