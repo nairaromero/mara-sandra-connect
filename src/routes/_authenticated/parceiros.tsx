@@ -18,6 +18,7 @@ import {
   Clock,
   UserX,
   UserCheck,
+  HardDrive,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -184,11 +185,46 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
+// Formata bytes pra leitura humana (base 1024, como o dashboard do Supabase).
+function formatarBytes(n: number): string {
+  if (n >= 1024 ** 3) return (n / 1024 ** 3).toFixed(2) + " GB";
+  if (n >= 1024 ** 2) return (n / 1024 ** 2).toFixed(1) + " MB";
+  if (n >= 1024) return (n / 1024).toFixed(0) + " kB";
+  return n + " B";
+}
+
+interface UsoStorageRow {
+  parceiro_id: string | null;
+  nome: string | null;
+  arquivos: number;
+  bytes: number;
+}
+
 function ParceirosPage() {
   const { usuario } = useAuth();
   const navigate = useNavigate();
   const [parceiros, setParceiros] = useState<ParceiroRow[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // ---- Uso de armazenamento por parceiro ----
+  // Degrau 1 (so medir e mostrar — ver migration_uso_storage_parceiro.sql).
+  // null = carregando; erro fica separado pra NAO virar "0 MB" silencioso.
+  const [usoStorage, setUsoStorage] = useState<UsoStorageRow[] | null>(null);
+  const [usoStorageErro, setUsoStorageErro] = useState<string | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    supabase.rpc("uso_storage_parceiro").then(({ data, error }) => {
+      if (!vivo) return;
+      if (error) {
+        setUsoStorageErro(error.message);
+        return;
+      }
+      setUsoStorage((data as UsoStorageRow[]) ?? []);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, []);
   const [submitting, setSubmitting] = useState(false);
   const [reenviandoId, setReenviandoId] = useState<string | null>(null);
 
@@ -1014,6 +1050,62 @@ function ParceirosPage() {
                   </Table>
                 </div>
               </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Uso de armazenamento por parceiro (degrau 1: medir e mostrar) */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <HardDrive className="h-4 w-4" />
+              Uso de armazenamento
+            </CardTitle>
+            <CardDescription>
+              {usoStorage && usoStorage.length > 0
+                ? `${formatarBytes(usoStorage.reduce((s, r) => s + r.bytes, 0))} em documentos, por parceiro indicador do caso.`
+                : "Espaço ocupado pelos documentos, por parceiro indicador do caso."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {usoStorageErro ? (
+              <p className="text-sm text-destructive py-4 text-center">
+                Não foi possível carregar o uso de armazenamento: {usoStorageErro}
+              </p>
+            ) : usoStorage === null ? (
+              <div className="flex h-20 items-center justify-center">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : usoStorage.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">
+                Nenhum documento no armazenamento ainda.
+              </p>
+            ) : (
+              <ul className="space-y-3">
+                {usoStorage.map((r) => {
+                  const total = usoStorage.reduce((s, x) => s + x.bytes, 0);
+                  const pct = total > 0 ? Math.round((100 * r.bytes) / total) : 0;
+                  return (
+                    <li key={r.parceiro_id ?? "sem-parceiro"}>
+                      <div className="flex items-baseline justify-between gap-2 text-sm">
+                        <span className="min-w-0 truncate font-medium">
+                          {r.nome ?? "(sem parceiro)"}
+                        </span>
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {formatarBytes(r.bytes)} · {r.arquivos}{" "}
+                          {r.arquivos === 1 ? "arquivo" : "arquivos"} · {pct}%
+                        </span>
+                      </div>
+                      <div className="mt-1 h-1.5 w-full rounded-full bg-muted">
+                        <div
+                          className="h-1.5 rounded-full bg-primary"
+                          style={{ width: `${Math.max(pct, 1)}%` }}
+                        />
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
             )}
           </CardContent>
         </Card>
