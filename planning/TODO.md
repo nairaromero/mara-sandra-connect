@@ -157,6 +157,11 @@ Coisas que estavam abertas **sem constar em nenhuma lista**. Ordenadas por risco
 - [ ] **Onboarding dedicado do parceiro**, além do aceite de termos.
 - [ ] **Cliente final no WhatsApp** — a fronteira ficou pronta num ponto só (resolvedor de
       contato), a fase nunca começou.
+- [ ] **Storage por parceiro, degraus 2 e 3** — quota com aviso (quando houver plano/preço)
+      e enforcement (só no SaaS multi-tenant). O degrau 1 (medir + card em `/parceiros`)
+      está no ar desde 2026-08-23. Critérios de subida: DECISOES.md D22.
+- [ ] **Multi-tenant pra vender a outros escritórios** — decisão em aberto; o raciocínio
+      (projeto-por-escritório vs. `escritorio_id` + RLS) está registrado em DECISOES.md §8.
 
 ---
 
