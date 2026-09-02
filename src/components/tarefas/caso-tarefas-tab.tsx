@@ -255,7 +255,11 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
       <ConcluirTarefaDialog
         tarefa={concluindo}
         onClose={() => setConcluindo(null)}
-        onConcluida={() => carregar()}
+        onConcluidaEAdicionar={() => {
+          carregar();
+          // Abre a criação da próxima tarefa deste caso.
+          setSheetModo({ kind: "criar", casoIdInicial: casoId });
+        }}
         onExcluida={() => carregar()}
         onEditar={(t) => setSheetModo({ kind: "editar", tarefa: t })}
       />

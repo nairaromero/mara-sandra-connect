@@ -34,14 +34,14 @@ import {
 export function ConcluirTarefaDialog(props: {
   tarefa: TarefaComJoins | null;
   onClose: () => void;
-  /** concluída de verdade (status -> feito) */
-  onConcluida: (id: string) => void;
+  /** concluída (status -> feito) e já abrir a criação da próxima tarefa */
+  onConcluidaEAdicionar: (t: TarefaComJoins) => void;
   /** excluída com motivo */
   onExcluida: (id: string) => void;
   /** abrir a tarefa pra editar */
   onEditar: (t: TarefaComJoins) => void;
 }) {
-  const { tarefa, onClose, onConcluida, onExcluida, onEditar } = props;
+  const { tarefa, onClose, onConcluidaEAdicionar, onExcluida, onEditar } = props;
   const [motivo, setMotivo] = useState("");
   const [modoExcluir, setModoExcluir] = useState(false);
   const [erroMotivo, setErroMotivo] = useState(false);
@@ -58,14 +58,16 @@ export function ConcluirTarefaDialog(props: {
     onClose();
   }
 
-  async function concluir() {
+  async function concluirEAdicionar() {
     if (!tarefa) return;
     setSalvando("concluir");
     try {
       await atualizarTarefa({ id: tarefa.id, patch: { status: "feito" } });
-      toast.success("Tarefa concluída.");
-      onConcluida(tarefa.id);
+      toast.success("Tarefa concluída. Crie a próxima do caso.");
+      const t = tarefa;
       fechar();
+      // Abre a criação da próxima tarefa (pode cancelar se não houver).
+      onConcluidaEAdicionar(t);
     } catch (e) {
       console.error(e);
       toast.error("Falha ao concluir.");
@@ -115,19 +117,19 @@ export function ConcluirTarefaDialog(props: {
           <div className="space-y-2">
             {!pendente && (
               <p className="text-sm text-muted-foreground">
-                Confirme a conclusão. Se a tarefa não deveria existir (não se aplica ao caso),
-                exclua com um motivo em vez de concluir — assim o caso não fica parado sem razão.
+                Ao concluir, você já cria a próxima tarefa do caso — pra ele não ficar parado. Se a
+                tarefa não deveria existir (não se aplica ao caso), exclua com um motivo.
               </p>
             )}
             <div className="flex flex-col gap-2 pt-1">
               {!pendente && (
-                <Button onClick={concluir} disabled={salvando !== null}>
+                <Button onClick={concluirEAdicionar} disabled={salvando !== null}>
                   {salvando === "concluir" ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   ) : (
                     <CheckCircle2 className="h-4 w-4 mr-2" />
                   )}
-                  Concluir tarefa
+                  Concluir tarefa e adicionar outra
                 </Button>
               )}
               <Button
@@ -165,6 +167,9 @@ export function ConcluirTarefaDialog(props: {
                 if (erroMotivo && e.target.value.trim()) setErroMotivo(false);
               }}
             />
+            <p className="text-xs text-muted-foreground">
+              O motivo fica registrado nos andamentos do processo ligado à tarefa.
+            </p>
             {erroMotivo && (
               <p className="text-xs text-destructive">Escreva o motivo antes de excluir.</p>
             )}
