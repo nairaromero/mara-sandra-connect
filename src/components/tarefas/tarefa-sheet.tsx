@@ -30,7 +30,7 @@ import {
 import {
   atualizarTarefa,
   criarTarefa,
-  excluirTarefa,
+  excluirTarefaComMotivo,
   listarCasosResumo,
   listarInternosAtivos,
   listarProcessosDoCaso,
@@ -122,12 +122,15 @@ interface Props {
   modo: Modo | null;                 // null = fechado
   onClose: () => void;
   onSaved: () => void;               // recarregar lista
+  // Chamado quando a tarefa foi CONCLUÍDA aqui (status -> feito): o pai abre a
+  // criação da próxima ("concluir e adicionar outra"). Opcional.
+  onConcluida?: (casoId: string | null) => void;
 }
 
 const TIPOS: TarefaTipo[] = ["interna", "prazo", "pericia", "pos_protocolo", "contato_cliente"];
 
 
-export function TarefaSheet({ modo, onClose, onSaved }: Props) {
+export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   const aberto = modo !== null;
   const { marcar: marcarDestaque } = useDestaque();
   const { usuario } = useAuth();
@@ -315,6 +318,10 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   const ignorarAvisosAgenda = useRef(false);
   const [justificativa, setJustificativa] = useState("");
   const [excluindo, setExcluindo] = useState(false);
+  // Exclusão com motivo (o motivo vira andamento no processo ligado).
+  const [excluirAberto, setExcluirAberto] = useState(false);
+  const [motivoExclusao, setMotivoExclusao] = useState("");
+  const [erroMotivoExclusao, setErroMotivoExclusao] = useState(false);
 
   // Template atual selecionado tem item destino=agenda? Se sim, o save
   // cria evento na agenda + tarefas extras com prazos relativos. UI
@@ -1109,8 +1116,14 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
             : `Tarefa criada + ${trechoExtras}.`,
         );
       }
+      // Concluiu aqui (status -> feito): avisa o pai pra abrir a criação da
+      // próxima tarefa do caso ("concluir e adicionar outra"). Gated já saiu
+      // antes (bloqueio); então aqui é conclusão legítima.
+      const concluiuAgora =
+        editando && !!tarefa && status === "feito" && tarefa.status !== "feito";
       onSaved();
       onClose();
+      if (concluiuAgora) onConcluida?.(casoId);
     } catch (e) {
       console.error("[tarefa-sheet] salvar falhou:", e);
       const anyErr = e as { message?: string; details?: string; hint?: string };
@@ -1129,13 +1142,25 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
     }
   }
 
-  async function excluir() {
+  function abrirExcluir() {
     if (!editando || !tarefa) return;
-    if (!window.confirm("Excluir esta tarefa?")) return;
+    setMotivoExclusao("");
+    setErroMotivoExclusao(false);
+    setExcluirAberto(true);
+  }
+
+  async function confirmarExclusao() {
+    if (!editando || !tarefa) return;
+    if (!motivoExclusao.trim()) {
+      setErroMotivoExclusao(true);
+      return;
+    }
     setExcluindo(true);
     try {
-      await excluirTarefa(tarefa.id);
+      // Exclui registrando o motivo — que vira andamento no processo ligado.
+      await excluirTarefaComMotivo(tarefa.id, motivoExclusao.trim());
       toast.success("Tarefa excluída.");
+      setExcluirAberto(false);
       onSaved();
       onClose();
     } catch (e) {
@@ -1578,7 +1603,12 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
               <Select value={status} onValueChange={(v) => setStatus(v as TarefaStatus)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {STATUS_ORDEM.map((s) => (
+                  {/* "Cancelado" saiu das opções; se a tarefa já é cancelada
+                      (histórico), mantém a opção só pra ela não sumir do select. */}
+                  {(STATUS_ORDEM.includes(status)
+                    ? STATUS_ORDEM
+                    : [...STATUS_ORDEM, status]
+                  ).map((s) => (
                     <SelectItem key={s} value={s}>{STATUS_LABEL[s]}</SelectItem>
                   ))}
                 </SelectContent>
@@ -1816,7 +1846,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           {editando && (
             <Button
               variant="ghost"
-              onClick={excluir}
+              onClick={abrirExcluir}
               disabled={excluindo || salvando}
               className="mr-auto text-destructive hover:text-destructive"
             >
@@ -1934,6 +1964,50 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
               }}
             >
               Agendar mesmo assim
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Excluir com motivo — o motivo vira andamento no processo ligado. */}
+      <AlertDialog open={excluirAberto} onOpenChange={setExcluirAberto}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-destructive" />
+              Excluir tarefa
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Informe o motivo. Ele fica registrado nos andamentos do processo ligado à tarefa.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-1.5">
+            <Textarea
+              rows={3}
+              autoFocus
+              placeholder="Ex.: caso é judicial, a análise do Legalmail não se aplica"
+              value={motivoExclusao}
+              onChange={(e) => {
+                setMotivoExclusao(e.target.value);
+                if (erroMotivoExclusao && e.target.value.trim()) setErroMotivoExclusao(false);
+              }}
+            />
+            {erroMotivoExclusao && (
+              <p className="text-xs text-destructive">Escreva o motivo antes de excluir.</p>
+            )}
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={excluindo}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault(); // não fecha antes de validar o motivo
+                void confirmarExclusao();
+              }}
+              disabled={excluindo}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {excluindo && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Excluir tarefa
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

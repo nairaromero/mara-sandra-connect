@@ -251,7 +251,12 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
         </div>
       )}
 
-      <TarefaSheet modo={sheetModo} onClose={() => setSheetModo(null)} onSaved={carregar} />
+      <TarefaSheet
+        modo={sheetModo}
+        onClose={() => setSheetModo(null)}
+        onSaved={carregar}
+        onConcluida={() => setSheetModo({ kind: "criar", casoIdInicial: casoId })}
+      />
       <ConcluirTarefaDialog
         tarefa={concluindo}
         onClose={() => setConcluindo(null)}

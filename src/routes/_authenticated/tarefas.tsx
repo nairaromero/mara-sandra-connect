@@ -786,6 +786,7 @@ function TarefasPage() {
           modo={sheetModo}
           onClose={() => setSheetModo(null)}
           onSaved={carregar}
+          onConcluida={(casoId) => setSheetModo({ kind: "criar", casoIdInicial: casoId })}
         />
         <ConcluirTarefaDialog
           tarefa={concluindo}
