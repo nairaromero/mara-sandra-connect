@@ -25,7 +25,6 @@ import {
   nomeAmigavel,
   URGENCIA_BADGE_CLASS,
   urgenciaDoDueAt,
-  checklistPendente,
 } from "@/lib/tarefas/helpers";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -46,6 +45,7 @@ import { TarefaCard } from "@/components/tarefas/tarefa-card";
 import { TarefasParceiro } from "@/components/parceiro/tarefas-parceiro";
 import { useVerComoParceiro } from "@/hooks/use-ver-como-parceiro";
 import { TarefaSheet } from "@/components/tarefas/tarefa-sheet";
+import { ConcluirTarefaDialog } from "@/components/tarefas/concluir-tarefa-dialog";
 import { TarefasExcluidas } from "@/components/tarefas/tarefas-excluidas";
 import { RadarCasosOrfaos } from "@/components/tarefas/radar-casos-orfaos";
 import {
@@ -169,6 +169,8 @@ function TarefasPage() {
   const [somenteMinhas, setSomenteMinhas] = useState(false);
 
   const [sheetModo, setSheetModo] = useState<Modo | null>(null);
+  // Tarefa cujo "Feito" abriu o popup Concluir/Editar/Excluir.
+  const [concluindo, setConcluindo] = useState<TarefaComJoins | null>(null);
   const [aba, setAba] = useState<"ativos" | "arquivados">("ativos");
   // Bump pra seção "Excluídas" (aba Arquivados) re-buscar após exclusão.
   const [versaoExcluidas, setVersaoExcluidas] = useState(0);
@@ -342,17 +344,14 @@ function TarefasPage() {
   }, [tarefas, usuario?.id]);
 
   async function mudarStatus(id: string, status: TarefaStatus) {
-    // Concluir por fora (kanban/lista) não pode pular o widget da tarefa —
-    // a corrente morreria calada (auditoria 2026-09-01).
+    // Concluir pelo "Feito" (kanban/lista) sempre passa pelo popup: Concluir /
+    // Editar / Excluir com motivo — pra nenhuma tarefa (nem o caso) ficar
+    // parada sem razão (Naira, 2026-09-02). O popup também é quem barra a
+    // conclusão direta das tarefas de desfecho (antes um toast solto).
     if (status === "feito") {
-      const alvo = tarefas.find((t) => t.id === id);
-      const pendente = alvo ? checklistPendente(alvo) : null;
-      if (pendente) {
-        toast.error("Esta tarefa se conclui pelo próprio botão dela", {
-          description: "Abra a tarefa e use " + pendente + " — é ele que dispara o andamento e o próximo passo.",
-        });
-        return;
-      }
+      const alvo = tarefas.find((t) => t.id === id) ?? null;
+      setConcluindo(alvo);
+      return;
     }
     // Optimistic update
     const original = tarefas.find((t) => t.id === id);
@@ -787,6 +786,16 @@ function TarefasPage() {
           modo={sheetModo}
           onClose={() => setSheetModo(null)}
           onSaved={carregar}
+        />
+        <ConcluirTarefaDialog
+          tarefa={concluindo}
+          onClose={() => setConcluindo(null)}
+          onConcluida={() => carregar()}
+          onExcluida={() => {
+            setVersaoExcluidas((v) => v + 1);
+            carregar();
+          }}
+          onEditar={(t) => setSheetModo({ kind: "editar", tarefa: t })}
         />
       </div>
     </ClientOnly>

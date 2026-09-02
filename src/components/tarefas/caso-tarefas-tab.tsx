@@ -11,10 +11,10 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { TarefaCard } from "@/components/tarefas/tarefa-card";
 import { TarefaSheet } from "@/components/tarefas/tarefa-sheet";
+import { ConcluirTarefaDialog } from "@/components/tarefas/concluir-tarefa-dialog";
 import { TarefasExcluidas } from "@/components/tarefas/tarefas-excluidas";
 import { AgendaSheet } from "@/components/agenda/agenda-sheet";
 import { atualizarTarefa, excluirTarefa, listarTarefas } from "@/lib/tarefas/queries";
-import { checklistPendente } from "@/lib/tarefas/helpers";
 import { STATUS_LABEL, type TarefaComJoins, type TarefaStatus } from "@/lib/tarefas/types";
 import { listarAgenda } from "@/lib/agenda/queries";
 import { type AgendaEventoComJoins, tipoBadge } from "@/lib/agenda/types";
@@ -37,6 +37,7 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
   const [tarefas, setTarefas] = useState<TarefaComJoins[]>([]);
   const [eventos, setEventos] = useState<AgendaEventoComJoins[]>([]);
   const [sheetModo, setSheetModo] = useState<Modo | null>(null);
+  const [concluindo, setConcluindo] = useState<TarefaComJoins | null>(null);
   const [agendaSheet, setAgendaSheet] = useState<{
     kind: "editar";
     evento: AgendaEventoComJoins;
@@ -91,19 +92,13 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
   }, [tarefas]);
 
   async function mudarStatus(id: string, status: TarefaStatus) {
-    // Concluir por fora não pode pular o widget da tarefa — mesma regra do
-    // kanban /tarefas e do TarefaSheet (auditoria 2026-09-01); sem isto a
-    // corrente morre calada por este terceiro caminho.
+    // "Feito" sempre abre o popup Concluir/Editar/Excluir com motivo (Naira,
+    // 2026-09-02) — mesma regra do kanban /tarefas. É o popup que barra a
+    // conclusão direta das tarefas de desfecho e evita caso parado sem razão.
     if (status === "feito") {
-      const alvo = tarefas.find((t) => t.id === id);
-      const pendente = alvo ? checklistPendente(alvo) : null;
-      if (pendente) {
-        toast.error("Esta tarefa se conclui pelo próprio botão dela", {
-          description:
-            "Abra a tarefa e use " + pendente + " — é ele que dispara o andamento e o próximo passo.",
-        });
-        return;
-      }
+      const alvo = tarefas.find((t) => t.id === id) ?? null;
+      setConcluindo(alvo);
+      return;
     }
     const original = tarefas.find((t) => t.id === id);
     setTarefas((arr) => arr.map((t) => (t.id === id ? { ...t, status } : t)));
@@ -257,6 +252,13 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
       )}
 
       <TarefaSheet modo={sheetModo} onClose={() => setSheetModo(null)} onSaved={carregar} />
+      <ConcluirTarefaDialog
+        tarefa={concluindo}
+        onClose={() => setConcluindo(null)}
+        onConcluida={() => carregar()}
+        onExcluida={() => carregar()}
+        onEditar={(t) => setSheetModo({ kind: "editar", tarefa: t })}
+      />
 
       <AgendaSheet modo={agendaSheet} onClose={() => setAgendaSheet(null)} onSaved={carregar} />
     </div>
