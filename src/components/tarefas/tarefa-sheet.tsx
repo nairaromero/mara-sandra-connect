@@ -81,6 +81,7 @@ import {
   checklistPendente,
   substituirPlaceholders,
 } from "@/lib/tarefas/helpers";
+import { ConcluirTarefaDialog } from "@/components/tarefas/concluir-tarefa-dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -322,6 +323,10 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   const [excluirAberto, setExcluirAberto] = useState(false);
   const [motivoExclusao, setMotivoExclusao] = useState("");
   const [erroMotivoExclusao, setErroMotivoExclusao] = useState(false);
+  // Popup de conclusão: pôr Status em "Feito" aqui abre o MESMO popup do card
+  // (Concluir e adicionar outra / Editar / Excluir com motivo) — inclusive nas
+  // tarefas de desfecho, onde ele oferece só editar/excluir.
+  const [concluindoNoSheet, setConcluindoNoSheet] = useState<TarefaComJoins | null>(null);
 
   // Template atual selecionado tem item destino=agenda? Se sim, o save
   // cria evento na agenda + tarefas extras com prazos relativos. UI
@@ -1116,14 +1121,8 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
             : `Tarefa criada + ${trechoExtras}.`,
         );
       }
-      // Concluiu aqui (status -> feito): avisa o pai pra abrir a criação da
-      // próxima tarefa do caso ("concluir e adicionar outra"). Gated já saiu
-      // antes (bloqueio); então aqui é conclusão legítima.
-      const concluiuAgora =
-        editando && !!tarefa && status === "feito" && tarefa.status !== "feito";
       onSaved();
       onClose();
-      if (concluiuAgora) onConcluida?.(casoId);
     } catch (e) {
       console.error("[tarefa-sheet] salvar falhou:", e);
       const anyErr = e as { message?: string; details?: string; hint?: string };
@@ -1600,7 +1599,18 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
           {editando && (
             <div className="space-y-1.5">
               <Label>Status</Label>
-              <Select value={status} onValueChange={(v) => setStatus(v as TarefaStatus)}>
+              <Select
+                value={status}
+                onValueChange={(v) => {
+                  // "Feito" abre o popup de conclusão (não muda o status direto):
+                  // Concluir e adicionar outra / Editar / Excluir com motivo.
+                  if (v === "feito" && tarefa && tarefa.status !== "feito") {
+                    setConcluindoNoSheet(tarefa);
+                    return;
+                  }
+                  setStatus(v as TarefaStatus);
+                }}
+              >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {/* "Cancelado" saiu das opções; se a tarefa já é cancelada
@@ -2012,6 +2022,25 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Popup de conclusão disparado ao pôr Status="Feito" no painel. */}
+      <ConcluirTarefaDialog
+        tarefa={concluindoNoSheet}
+        onClose={() => setConcluindoNoSheet(null)}
+        onConcluidaEAdicionar={(t) => {
+          setConcluindoNoSheet(null);
+          onSaved();
+          onClose();
+          onConcluida?.(t.caso_id);
+        }}
+        onExcluida={() => {
+          setConcluindoNoSheet(null);
+          onSaved();
+          onClose();
+        }}
+        // "Editar" não faz sentido aqui (já está no painel): só fecha o popup.
+        onEditar={() => setConcluindoNoSheet(null)}
+      />
     </Sheet>
   );
 }

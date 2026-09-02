@@ -65,12 +65,12 @@ test("concluir tarefa grava quem concluiu e o card mostra", async ({ page }) => 
   await page.getByRole("tab", { name: /Atividades|Tarefas/ }).click();
 
   await page.getByText("[E2E] tarefa pra concluir", { exact: true }).click();
-  // Sheet de edição: Status → Feito → Salvar.
+  // Sheet de edição: Status → Feito abre o POPUP de conclusão.
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByText("Editar tarefa")).toBeVisible();
   await dialog.getByRole("combobox").filter({ hasText: "A fazer" }).click();
   await page.getByRole("option", { name: "Feito", exact: true }).click();
-  await dialog.getByRole("button", { name: "Salvar" }).click();
+  await page.getByRole("button", { name: /Concluir tarefa e adicionar outra/ }).click();
 
   await expect
     .poll(
