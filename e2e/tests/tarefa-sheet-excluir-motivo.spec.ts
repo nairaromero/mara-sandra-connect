@@ -48,8 +48,9 @@ test('"Cancelado" saiu do menu; sheet exclui com motivo (vira andamento)', async
   await expect(page.getByRole("heading", { name: "Editar tarefa" })).toBeVisible({ timeout: 10000 });
   await page.getByRole("button", { name: "Excluir", exact: true }).click();
 
-  // AlertDialog de motivo: sem motivo é barrado.
-  await expect(page.getByRole("alertdialog")).toBeVisible();
+  // Popup de exclusão (mesmo dialog do Concluir, já no modo de motivo):
+  // sem motivo é barrado.
+  await expect(page.getByRole("heading", { name: "Excluir tarefa" })).toBeVisible();
   await page.getByRole("button", { name: "Excluir tarefa" }).click();
   await expect(page.getByText("Escreva o motivo antes de excluir.")).toBeVisible();
 
@@ -57,15 +58,22 @@ test('"Cancelado" saiu do menu; sheet exclui com motivo (vira andamento)', async
   await page.getByRole("button", { name: "Excluir tarefa" }).click();
   await expect(page.getByText("Tarefa excluída.", { exact: true })).toBeVisible({ timeout: 15000 });
 
-  // Banco: tarefa apagada + andamento com o motivo.
-  const { data: viva } = await admin.from("tarefas").select("id").eq("id", tarefaId).maybeSingle();
+  // Banco: tarefa apagada + andamento com o motivo. Checar `error` antes do
+  // `data` — falha de query engolida viraria "tarefa apagada" falso.
+  const { data: viva, error: erroViva } = await admin
+    .from("tarefas")
+    .select("id")
+    .eq("id", tarefaId)
+    .maybeSingle();
+  expect(erroViva).toBeNull();
   expect(viva).toBeNull();
-  const { data: and } = await admin
+  const { data: and, error: erroAnd } = await admin
     .from("andamentos")
     .select("descricao, visivel_parceiro")
     .eq("caso_id", casoId)
     .eq("metadata->>tarefa_id", tarefaId)
     .maybeSingle();
+  expect(erroAnd).toBeNull();
   expect(and, "andamento do motivo não foi criado").toBeTruthy();
   expect(and!.visivel_parceiro).toBe(false);
 });

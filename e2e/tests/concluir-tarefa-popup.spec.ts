@@ -75,20 +75,29 @@ test("clicar Feito abre popup; excluir exige motivo e registra no log", async ({
   await expect(page.getByText("Tarefa excluída.", { exact: true })).toBeVisible({ timeout: 15000 });
 
   // Banco: tarefa apagada, log com o motivo, e ANDAMENTO no caso com o motivo.
-  const { data: viva } = await admin.from("tarefas").select("id").eq("id", tarefaId).maybeSingle();
+  // Sempre checar `error` antes do `data`: falha de query engolida viraria
+  // "tarefa apagada" falso (error ignorado ≠ resultado vazio).
+  const { data: viva, error: erroViva } = await admin
+    .from("tarefas")
+    .select("id")
+    .eq("id", tarefaId)
+    .maybeSingle();
+  expect(erroViva).toBeNull();
   expect(viva).toBeNull();
-  const { data: log } = await admin
+  const { data: log, error: erroLog } = await admin
     .from("tarefas_excluidas")
     .select("motivo")
     .eq("tarefa_id", tarefaId)
     .maybeSingle();
+  expect(erroLog).toBeNull();
   expect(log?.motivo).toContain("Legalmail");
-  const { data: and } = await admin
+  const { data: and, error: erroAnd } = await admin
     .from("andamentos")
     .select("titulo, descricao, visivel_parceiro")
     .eq("caso_id", casoId)
     .eq("metadata->>tarefa_id", tarefaId)
     .maybeSingle();
+  expect(erroAnd).toBeNull();
   expect(and, "andamento do motivo não foi criado").toBeTruthy();
   expect(and!.descricao).toContain("Legalmail");
   expect(and!.visivel_parceiro).toBe(false);
@@ -97,11 +106,12 @@ test("clicar Feito abre popup; excluir exige motivo e registra no log", async ({
 test("Concluir tarefa e adicionar outra abre a criação da próxima", async ({ page }) => {
   // Segunda tarefa dedicada (a do outro teste é excluída).
   const titulo2 = `[E2E] Proxima ${Date.now()}`;
-  const { data: t2 } = await admin
+  const { data: t2, error: erroT2 } = await admin
     .from("tarefas")
     .insert({ caso_id: casoId, tipo: "interna", status: "a_fazer", titulo: titulo2, origem: "manual" })
     .select("id")
     .single();
+  if (erroT2) throw new Error(`seed tarefa 2: ${erroT2.message}`);
 
   await page.goto(`/casos/${casoId}`);
   await page.getByText("Atividades", { exact: true }).first().click();
@@ -118,7 +128,12 @@ test("Concluir tarefa e adicionar outra abre a criação da próxima", async ({ 
   await expect(page.getByRole("heading", { name: "Nova tarefa" })).toBeVisible({ timeout: 10000 });
 
   // Banco: a primeira ficou concluída.
-  const { data: feita } = await admin.from("tarefas").select("status").eq("id", t2!.id).single();
+  const { data: feita, error: erroFeita } = await admin
+    .from("tarefas")
+    .select("status")
+    .eq("id", t2!.id)
+    .single();
+  expect(erroFeita).toBeNull();
   expect(feita!.status).toBe("feito");
   await admin.from("tarefas").delete().eq("id", t2!.id);
 });

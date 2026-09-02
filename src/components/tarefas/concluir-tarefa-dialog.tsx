@@ -1,18 +1,23 @@
-// Popup de conclusão de tarefa (Naira, 2026-09-02).
+// Popup de conclusão/exclusão de tarefa (Naira, 2026-09-02; revisão 2026-09-02).
 //
-// Regra: toda tarefa concluída pelo "Feito" (não pelos botões de desfecho
-// dentro dela) passa por aqui — pra nenhuma tarefa, nem o caso, ficar
-// parado sem razão registrada. Ex.: análise criada por importação do
-// Legalmail num caso judicial precisa ser EXCLUÍDA (com motivo), não
-// concluída.
+// Regra: toda tarefa concluída pelo "Feito" E toda exclusão (card, painel)
+// passam por aqui — pra nenhuma tarefa, nem o caso, ficar parado sem razão
+// registrada. Ex.: análise criada por importação do Legalmail num caso
+// judicial precisa ser EXCLUÍDA (com motivo), não concluída.
 //
 // Três saídas:
 //   • Concluir  — marca 'feito' (some pra tarefa de desfecho pendente: ela se
-//                 conclui pelo próprio widget).
+//                 conclui pelo próprio widget). O caller pode trocar a
+//                 persistência via `concluir` (o sheet salva TODAS as edições
+//                 pendentes junto, não só o status).
 //   • Editar    — abre a tarefa pra ajustar.
-//   • Excluir   — pede um motivo (obrigatório) e apaga, registrando no log.
+//   • Excluir   — pede um motivo (obrigatório, validado também no servidor)
+//                 e apaga registrando no log; com caso ligado, vira andamento.
+//
+// `modoInicial="excluir"` abre direto no modo de motivo (menu do card e botão
+// Excluir do painel usam isso — não existe mais exclusão sem motivo na UI).
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, CheckCircle2, Pencil, Trash2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
@@ -33,7 +38,15 @@ import {
 
 export function ConcluirTarefaDialog(props: {
   tarefa: TarefaComJoins | null;
+  /** abrir ja no modo de exclusao com motivo (default: "concluir") */
+  modoInicial?: "concluir" | "excluir";
   onClose: () => void;
+  /**
+   * Persistencia customizada do Concluir (o sheet salva todas as edicoes
+   * pendentes junto). Deve LANCAR quando nao persistir. Sem ela, o default e
+   * gravar so { status: 'feito' }.
+   */
+  concluir?: () => Promise<void>;
   /** concluída (status -> feito) e já abrir a criação da próxima tarefa */
   onConcluidaEAdicionar: (t: TarefaComJoins) => void;
   /** excluída com motivo */
@@ -41,13 +54,23 @@ export function ConcluirTarefaDialog(props: {
   /** abrir a tarefa pra editar */
   onEditar: (t: TarefaComJoins) => void;
 }) {
-  const { tarefa, onClose, onConcluidaEAdicionar, onExcluida, onEditar } = props;
+  const { tarefa, modoInicial, onClose, concluir, onConcluidaEAdicionar, onExcluida, onEditar } =
+    props;
   const [motivo, setMotivo] = useState("");
   const [modoExcluir, setModoExcluir] = useState(false);
   const [erroMotivo, setErroMotivo] = useState(false);
   const [salvando, setSalvando] = useState<"concluir" | "excluir" | null>(null);
 
-  // Reseta ao trocar de tarefa (o dialog é reusado).
+  // Reset REAL ao abrir/trocar de tarefa (o dialog e reusado): sem isto, o
+  // motivo da tarefa anterior vazaria pra proxima confirmacao.
+  useEffect(() => {
+    if (!tarefa) return;
+    setModoExcluir(modoInicial === "excluir");
+    setMotivo("");
+    setErroMotivo(false);
+    setSalvando(null);
+  }, [tarefa, modoInicial]);
+
   const pendente = tarefa ? checklistPendente(tarefa) : null;
 
   function fechar() {
@@ -62,7 +85,11 @@ export function ConcluirTarefaDialog(props: {
     if (!tarefa) return;
     setSalvando("concluir");
     try {
-      await atualizarTarefa({ id: tarefa.id, patch: { status: "feito" } });
+      if (concluir) {
+        await concluir(); // caller persiste (sheet: salva todas as edicoes)
+      } else {
+        await atualizarTarefa({ id: tarefa.id, patch: { status: "feito" } });
+      }
       toast.success("Tarefa concluída. Crie a próxima do caso.");
       const t = tarefa;
       fechar();
@@ -70,7 +97,8 @@ export function ConcluirTarefaDialog(props: {
       onConcluidaEAdicionar(t);
     } catch (e) {
       console.error(e);
-      toast.error("Falha ao concluir.");
+      const msg = (e as { message?: string })?.message;
+      toast.error(msg || "Falha ao concluir.");
       setSalvando(null);
     }
   }
@@ -89,7 +117,14 @@ export function ConcluirTarefaDialog(props: {
       fechar();
     } catch (e) {
       console.error(e);
-      toast.error("Falha ao excluir.");
+      // O RPC valida no servidor (tarefa inexistente/ja excluida, motivo
+      // vazio) e devolve mensagem legivel — mostra ela, nao um erro generico.
+      const msg = (e as { message?: string })?.message ?? "";
+      toast.error(
+        msg.includes("Tarefa não encontrada") || msg.includes("Motivo")
+          ? msg
+          : "Falha ao excluir.",
+      );
       setSalvando(null);
     }
   }
@@ -98,7 +133,7 @@ export function ConcluirTarefaDialog(props: {
     <Dialog open={tarefa !== null} onOpenChange={(o) => !o && fechar()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Concluir tarefa</DialogTitle>
+          <DialogTitle>{modoExcluir ? "Excluir tarefa" : "Concluir tarefa"}</DialogTitle>
           <DialogDescription>{tarefa?.titulo}</DialogDescription>
         </DialogHeader>
 
@@ -168,7 +203,8 @@ export function ConcluirTarefaDialog(props: {
               }}
             />
             <p className="text-xs text-muted-foreground">
-              O motivo fica registrado nos andamentos do processo ligado à tarefa.
+              O motivo fica no registro de exclusões e, quando a tarefa tem caso ligado, também nos
+              andamentos do processo.
             </p>
             {erroMotivo && (
               <p className="text-xs text-destructive">Escreva o motivo antes de excluir.</p>
@@ -179,14 +215,14 @@ export function ConcluirTarefaDialog(props: {
         <DialogFooter>
           {modoExcluir ? (
             <>
-              <Button variant="ghost" onClick={() => setModoExcluir(false)} disabled={salvando !== null}>
-                Voltar
-              </Button>
               <Button
-                variant="destructive"
-                onClick={excluir}
+                variant="ghost"
+                onClick={() => (modoInicial === "excluir" ? fechar() : setModoExcluir(false))}
                 disabled={salvando !== null}
               >
+                {modoInicial === "excluir" ? "Cancelar" : "Voltar"}
+              </Button>
+              <Button variant="destructive" onClick={excluir} disabled={salvando !== null}>
                 {salvando === "excluir" && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 Excluir tarefa
               </Button>

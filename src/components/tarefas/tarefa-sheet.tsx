@@ -318,15 +318,11 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   const [avisosAgenda, setAvisosAgenda] = useState<string[] | null>(null);
   const ignorarAvisosAgenda = useRef(false);
   const [justificativa, setJustificativa] = useState("");
-  const [excluindo, setExcluindo] = useState(false);
-  // Exclusão com motivo (o motivo vira andamento no processo ligado).
-  const [excluirAberto, setExcluirAberto] = useState(false);
-  const [motivoExclusao, setMotivoExclusao] = useState("");
-  const [erroMotivoExclusao, setErroMotivoExclusao] = useState(false);
-  // Popup de conclusão: pôr Status em "Feito" aqui abre o MESMO popup do card
-  // (Concluir e adicionar outra / Editar / Excluir com motivo) — inclusive nas
-  // tarefas de desfecho, onde ele oferece só editar/excluir.
+  // Popup de conclusão/exclusão: pôr Status em "Feito" (modo concluir) ou o
+  // botão Excluir do rodapé (modo excluir) abrem o MESMO popup do card —
+  // inclusive nas tarefas de desfecho, onde ele oferece só editar/excluir.
   const [concluindoNoSheet, setConcluindoNoSheet] = useState<TarefaComJoins | null>(null);
+  const [modoPopupSheet, setModoPopupSheet] = useState<"concluir" | "excluir">("concluir");
 
   // Template atual selecionado tem item destino=agenda? Se sim, o save
   // cria evento na agenda + tarefas extras com prazos relativos. UI
@@ -584,9 +580,9 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   }, [modo]);
 
   const fechar = useCallback(() => {
-    if (salvando || excluindo) return;
+    if (salvando) return;
     onClose();
-  }, [salvando, excluindo, onClose]);
+  }, [salvando, onClose]);
 
   function parseProcesso(): {
     processo_admin_id: string | null;
@@ -620,29 +616,36 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
     return new Date(novoDueAt).getTime() > new Date(tarefa.due_at).getTime();
   }
 
-  async function salvar(justificativa?: string) {
+  // Retorna true quando persistiu (e fechou o sheet); false nas validações
+  // que interrompem. statusForcado: o popup de conclusão usa pra salvar TODAS
+  // as edições pendentes junto com o status=feito (nada digitado se perde).
+  async function salvar(
+    justificativa?: string,
+    statusForcado?: TarefaStatus,
+  ): Promise<boolean> {
+    const statusEfetivo = statusForcado ?? status;
     if (!titulo.trim()) {
       toast.error("Título é obrigatório.");
-      return;
+      return false;
     }
     const dueCalculado = isoFromInputDateTime(dueDate);
     if (justificativa === undefined && adiandoPrazoFatal(dueCalculado)) {
       setConfirmandoAdiamento(true);
-      return;
+      return false;
     }
     setSalvando(true);
     try {
       const due_at = dueCalculado;
       const proc = parseProcesso();
       if (editando && tarefa) {
-        if (status === "feito" && tarefa.status !== "feito") {
+        if (statusEfetivo === "feito" && tarefa.status !== "feito") {
           const pendente = checklistPendente(tarefa);
           if (pendente) {
             toast.error("Esta tarefa se conclui pelo próprio botão dela", {
               description: "Use " + pendente + " — é ele que dispara o andamento e o próximo passo.",
             });
             setSalvando(false);
-            return;
+            return false;
           }
         }
         await atualizarTarefa({
@@ -652,7 +655,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
             descricao: descricao.trim() || null,
             tipo,
             prioridade,
-            status,
+            status: statusEfetivo,
             caso_id: casoId,
             responsavel_id: responsavelId,
             due_at,
@@ -738,7 +741,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
         if (templateTemPrazoFatalForm && !prazoFatal) {
           toast.error("Informe o prazo fatal da publicação.");
           setSalvando(false);
-          return;
+          return false;
         }
 
         // Comprovante de outra pessoa pendente de decisão: não deixa salvar.
@@ -747,7 +750,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
             "O comprovante anexado é de outra pessoa. Confirme que é o mesmo cliente ou anexe o arquivo certo.",
           );
           setSalvando(false);
-          return;
+          return false;
         }
 
         // Contexto pra substituir placeholders e lookup de e-mail→uuid
@@ -783,7 +786,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
           if (!dueDate) {
             toast.error("Data e hora da perícia são obrigatórias.");
             setSalvando(false);
-            return;
+            return false;
           }
           const startIso = isoFromInputDateTime(dueDate)!;
           agendaStart = new Date(startIso);
@@ -833,7 +836,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
             if (avisos.length > 0) {
               setAvisosAgenda(avisos);
               setSalvando(false);
-              return;
+              return false;
             }
           }
           // Aviso direto marcado ANTES do insert: o trigger só cria a tarefa
@@ -1109,7 +1112,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
           );
           onSaved();
           onClose();
-          return;
+          return true;
         }
 
         const totalTarefas = 1 + extras;
@@ -1123,6 +1126,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
       }
       onSaved();
       onClose();
+      return true;
     } catch (e) {
       console.error("[tarefa-sheet] salvar falhou:", e);
       const anyErr = e as { message?: string; details?: string; hint?: string };
@@ -1136,39 +1140,20 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
         }
       }
       toast.error(`Falha: ${msg}`);
+      return false;
     } finally {
       setSalvando(false);
     }
   }
 
+  // Excluir com motivo: abre o MESMO popup do card, ja no modo excluir —
+  // um unico dialog de motivo em toda a feature (revisao 2026-09-02).
   function abrirExcluir() {
     if (!editando || !tarefa) return;
-    setMotivoExclusao("");
-    setErroMotivoExclusao(false);
-    setExcluirAberto(true);
+    setModoPopupSheet("excluir");
+    setConcluindoNoSheet(tarefa);
   }
 
-  async function confirmarExclusao() {
-    if (!editando || !tarefa) return;
-    if (!motivoExclusao.trim()) {
-      setErroMotivoExclusao(true);
-      return;
-    }
-    setExcluindo(true);
-    try {
-      // Exclui registrando o motivo — que vira andamento no processo ligado.
-      await excluirTarefaComMotivo(tarefa.id, motivoExclusao.trim());
-      toast.success("Tarefa excluída.");
-      setExcluirAberto(false);
-      onSaved();
-      onClose();
-    } catch (e) {
-      console.error(e);
-      toast.error("Falha ao excluir.");
-    } finally {
-      setExcluindo(false);
-    }
-  }
 
   return (
     <Sheet open={aberto} onOpenChange={(o) => !o && fechar()}>
@@ -1605,6 +1590,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                   // "Feito" abre o popup de conclusão (não muda o status direto):
                   // Concluir e adicionar outra / Editar / Excluir com motivo.
                   if (v === "feito" && tarefa && tarefa.status !== "feito") {
+                    setModoPopupSheet("concluir");
                     setConcluindoNoSheet(tarefa);
                     return;
                   }
@@ -1857,10 +1843,10 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
             <Button
               variant="ghost"
               onClick={abrirExcluir}
-              disabled={excluindo || salvando}
+              disabled={salvando}
               className="mr-auto text-destructive hover:text-destructive"
             >
-              {excluindo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              <Trash2 className="h-4 w-4" />
               Excluir
             </Button>
           )}
@@ -1979,58 +1965,23 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Excluir com motivo — o motivo vira andamento no processo ligado. */}
-      <AlertDialog open={excluirAberto} onOpenChange={setExcluirAberto}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <Trash2 className="h-5 w-5 text-destructive" />
-              Excluir tarefa
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              Informe o motivo. Ele fica registrado nos andamentos do processo ligado à tarefa.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="space-y-1.5">
-            <Textarea
-              rows={3}
-              autoFocus
-              placeholder="Ex.: caso é judicial, a análise do Legalmail não se aplica"
-              value={motivoExclusao}
-              onChange={(e) => {
-                setMotivoExclusao(e.target.value);
-                if (erroMotivoExclusao && e.target.value.trim()) setErroMotivoExclusao(false);
-              }}
-            />
-            {erroMotivoExclusao && (
-              <p className="text-xs text-destructive">Escreva o motivo antes de excluir.</p>
-            )}
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={excluindo}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => {
-                e.preventDefault(); // não fecha antes de validar o motivo
-                void confirmarExclusao();
-              }}
-              disabled={excluindo}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {excluindo && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Excluir tarefa
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Popup de conclusão disparado ao pôr Status="Feito" no painel. */}
+      {/* Popup de conclusão/exclusão: Status="Feito" ou o botão Excluir. */}
       <ConcluirTarefaDialog
         tarefa={concluindoNoSheet}
+        modoInicial={modoPopupSheet}
         onClose={() => setConcluindoNoSheet(null)}
+        // Concluir daqui salva TODAS as edições pendentes do painel junto com
+        // o status (revisão 2026-09-02: antes só o status ia pro banco e o que
+        // estava digitado se perdia). salvar() fecha o sheet quando persiste.
+        concluir={async () => {
+          setStatus("feito");
+          const ok = await salvar(undefined, "feito");
+          if (!ok) {
+            throw new Error("A tarefa não foi salva — revise o painel.");
+          }
+        }}
         onConcluidaEAdicionar={(t) => {
           setConcluindoNoSheet(null);
-          onSaved();
-          onClose();
           onConcluida?.(t.caso_id);
         }}
         onExcluida={() => {

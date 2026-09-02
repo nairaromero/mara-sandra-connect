@@ -169,13 +169,6 @@ export async function atualizarTarefa(input: AtualizarTarefaInput): Promise<Tare
   return data as TarefaRow;
 }
 
-export async function excluirTarefa(id: string): Promise<void> {
-  // O trigger AFTER DELETE copia a linha pra `tarefas_excluidas` com quem
-  // excluiu (auth.uid()) — ver migration_tarefas_autoria.sql.
-  const { error } = await supabase.from("tarefas").delete().eq("id", id);
-  if (error) throw error;
-}
-
 /**
  * Exclui a tarefa registrando o MOTIVO (popup de conclusão). O RPC carimba o
  * motivo no metadata e deleta na mesma transação; o trigger de log grava em
