@@ -6,9 +6,13 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 import { useEffect } from "react";
-import { Loader2, LogOut, Plus } from "lucide-react";
+import { Eye, Loader2, LogOut, Plus, X } from "lucide-react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { DestaqueProvider } from "@/lib/destaque/destaque-context";
+import {
+  VerComoParceiroProvider,
+  useVerComoParceiro,
+} from "@/hooks/use-ver-como-parceiro";
 import { AppSidebar } from "@/components/app-sidebar";
 import { NotificacoesBell } from "@/components/notificacoes-bell";
 import { MovimentacoesParceiroBell } from "@/components/movimentacoes-parceiro-bell";
@@ -76,9 +80,54 @@ function AuthenticatedLayout() {
 
   return (
     <DestaqueProvider>
-      <SessionTimeoutGuard />
-      <SidebarProvider>
-        <div className="flex min-h-screen w-full bg-muted/20">
+      <VerComoParceiroProvider>
+        <SessionTimeoutGuard />
+        <SidebarProvider>
+          <ConteudoAutenticado
+            displayName={displayName}
+            initials={initials}
+            signOut={signOut}
+            onSignOut={() => navigate({ to: "/login" })}
+          />
+        </SidebarProvider>
+      </VerComoParceiroProvider>
+    </DestaqueProvider>
+  );
+}
+
+// Conteúdo separado pra poder usar useVerComoParceiro() dentro do provider.
+function ConteudoAutenticado(props: {
+  displayName: string;
+  initials: string;
+  signOut: () => Promise<void>;
+  onSignOut: () => void;
+}) {
+  const { displayName, initials, signOut, onSignOut } = props;
+  const { usuario } = useAuth();
+  const { verComo, sairVerComo } = useVerComoParceiro();
+
+  return (
+    <>
+      {/* Faixa do modo "Ver como parceiro" — deixa explícito que é leitura e
+          que não é a conta do parceiro. */}
+      {verComo && (
+        <div className="fixed inset-x-0 top-0 z-30 flex items-center justify-center gap-3 bg-[var(--gold)]/90 px-4 py-1.5 text-sm text-[#3d2f00]">
+          <Eye className="h-4 w-4 shrink-0" />
+          <span className="truncate">
+            Vendo como <strong>{verComo.parceiroNome}</strong> — somente leitura
+          </span>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-2 text-[#3d2f00] hover:bg-black/10"
+            onClick={sairVerComo}
+          >
+            <X className="h-3 w-3 mr-1" />
+            Sair
+          </Button>
+        </div>
+      )}
+      <div className={"flex min-h-screen w-full bg-muted/20" + (verComo ? " pt-9" : "")}>
         <AppSidebar />
         {/* min-w-0 permite o conteudo encolher abaixo da largura intrinseca
             (senao tabs/tabelas largas forcam scroll horizontal da pagina toda
@@ -139,7 +188,7 @@ function AuthenticatedLayout() {
                   {displayName}
                 </span>
               </Link>
-              <Button variant="ghost" size="sm" onClick={async () => { await signOut(); navigate({ to: "/login" }); }}>
+              <Button variant="ghost" size="sm" onClick={async () => { await signOut(); onSignOut(); }}>
                 <LogOut className="h-4 w-4 sm:mr-2" />
                 <span className="hidden sm:inline">Sair</span>
               </Button>
@@ -149,9 +198,8 @@ function AuthenticatedLayout() {
             <Outlet />
           </main>
         </div>
-        {usuario?.tipo === "interno" && <IaLauncher />}
+        {usuario?.tipo === "interno" && !verComo && <IaLauncher />}
       </div>
-    </SidebarProvider>
-    </DestaqueProvider>
+    </>
   );
 }
