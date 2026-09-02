@@ -58,6 +58,28 @@ const INSS_INBOX_EMAIL = Deno.env.get("INSS_INBOX_EMAIL") ?? "nairaromerovian@gm
 const DEFAULT_LABEL = Deno.env.get("GMAIL_LABEL") ?? "inss-agent";
 const NAIRA_EMAIL_DEFAULT = "nairaromerovian@gmail.com";
 
+// Prazo do parceiro (regra da casa: fatal − 3, fim do dia BRT) com o MESMO
+// tratamento de fim de semana do front (prazoParceiroDoFatal em
+// src/lib/agenda/helpers.ts): caindo em sáb/dom, RECUA pra sexta — empurrar
+// pra frente comeria a folga que o −3 existe pra garantir. Sem isto, a mesma
+// exigência ganhava prazo de domingo por aqui e de sexta pelo formulário.
+function prazoParceiroBrasiliaISO(diasAFrente: number): string {
+  const alvo = new Date(Date.now() + diasAFrente * 86400_000);
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  // Meio-dia -03:00 pra ler o dia-da-semana do calendário de Brasília sem
+  // risco de borda de fuso.
+  const d = new Date(`${fmt.format(alvo)}T12:00:00-03:00`);
+  const dow = d.getUTCDay(); // 12h BRT = 15h UTC — mesmo dia nos dois fusos
+  if (dow === 6) d.setUTCDate(d.getUTCDate() - 1);
+  else if (dow === 0) d.setUTCDate(d.getUTCDate() - 2);
+  return new Date(`${fmt.format(d)}T23:59:59-03:00`).toISOString();
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -882,6 +904,34 @@ async function processarMensagem(
     }
   }
 
+  // Dedup cruzado com o botão de desfecho da UI (AcompanhamentoPericia):
+  // concedido/indeferido também são aplicados programaticamente quando a
+  // equipe vê o resultado no Meu INSS antes do e-mail chegar. Se o caso já
+  // tem tarefa desta corrente (de qualquer origem, não cancelada), o e-mail
+  // é notícia velha: fica só o andamento acima como registro — sem abrir a
+  // corrente de novo. O botão faz a checagem espelhada (aplicador.ts).
+  if (
+    match.caso_id &&
+    (templateFinal === "concedido" || templateFinal === "indeferido")
+  ) {
+    const { data: correnteJa } = await sb
+      .from("tarefas")
+      .select("id")
+      .eq("caso_id", match.caso_id)
+      .neq("status", "cancelado")
+      .or(
+        `metadata->>template_aplicado.eq.${templateFinal},metadata->>template.eq.${templateFinal}`,
+      )
+      .limit(1);
+    if (correnteJa && correnteJa.length > 0) {
+      res.pulado_por_dedup = true;
+      res.tarefas_criadas.push(
+        `dedup:corrente '${templateFinal}' já aberta pelo desfecho da UI`,
+      );
+      return res;
+    }
+  }
+
   // Cria tarefas (1+ por template).
   for (let i = 0; i < template.itens.length; i++) {
     const item = template.itens[i];
@@ -944,6 +994,10 @@ async function processarMensagem(
       // Texto simples pra quem vai ler (parceiro leigo). Cai no template se a
       // IA não responder.
       const mensagemIA = await redigirMensagemParceiro(sb, lookups, campos);
+      // "Enviar até" do parceiro: fatal da exigência INSS é 30 dias corridos
+      // (o item FATAL do template usa offset 30); o parceiro vê fatal − 3 =
+      // hoje + 27, no fim do dia de Brasília. Alimenta o kanban dele, o
+      // badge de prazo e os lembretes automáticos 7d/3d/0d.
       const { error: errSolic } = await sb
         .from("solicitacoes_documento")
         .insert({
@@ -953,6 +1007,7 @@ async function processarMensagem(
           status: "pendente",
           origem: `template:${templateFinal}`,
           data_solicitacao: new Date().toISOString(),
+          prazo_at: prazoParceiroBrasiliaISO(27),
         });
       if (errSolic) {
         res.erros.push(`solicitacao[${i}] insert: ${errSolic.message}`);

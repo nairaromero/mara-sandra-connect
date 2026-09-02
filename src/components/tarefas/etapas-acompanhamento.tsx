@@ -17,6 +17,8 @@ import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase";
 import type { TarefaComJoins } from "@/lib/tarefas/types";
 import { useDestaque } from "@/lib/destaque/destaque-context";
+import { useAuth } from "@/hooks/use-auth";
+import { aplicarTemplateProgramatico } from "@/lib/tarefas/aplicador";
 
 interface EtapaConfig {
   key: "ouvidoria" | "peticionamento_mora" | "ajuizamento";
@@ -100,6 +102,46 @@ export function EtapasAcompanhamento({
   const [marcando, setMarcando] = useState<string | null>(null);
   const { marcar: marcarDestaque } = useDestaque();
   const criadoEm = new Date(tarefa.created_at).getTime();
+
+  const { usuario } = useAuth();
+  const [registrandoResultado, setRegistrandoResultado] = useState<
+    "deferido" | "indeferido" | null
+  >(null);
+
+  // Caminho MANUAL do resultado (Naira, 2026-09-01): o robô do INSS aplica
+  // Concedido/Indeferido sozinho quando o despacho chega por e-mail, mas quem
+  // souber antes (Meu INSS, telefone) registra por aqui — aplica o template e
+  // encerra o acompanhamento.
+  async function resultadoManual(desfecho: "deferido" | "indeferido") {
+    if (registrandoResultado || marcando) return;
+    setRegistrandoResultado(desfecho);
+    try {
+      if (tarefa.caso_id) {
+        await aplicarTemplateProgramatico({
+          nomeTemplate: desfecho === "indeferido" ? "indeferido" : "concedido",
+          casoId: tarefa.caso_id,
+          clienteNome: tarefa.caso?.cliente?.nome ?? "cliente",
+          responsavelId: tarefa.responsavel_id,
+          autorId: usuario?.id ?? null,
+          processoAdminId: tarefa.processo_admin_id,
+        });
+      }
+      await supabase
+        .from("tarefas")
+        .update({ status: "feito", completed_at: new Date().toISOString() })
+        .eq("id", tarefa.id);
+      toast.success(
+        desfecho === "indeferido"
+          ? "Indeferimento registrado — análise do indeferimento aberta."
+          : "Deferimento registrado — análise e implantação abertas.",
+      );
+      onUpdated();
+    } catch (e) {
+      toast.error((e as { message?: string }).message || "Não consegui registrar o resultado.");
+    } finally {
+      setRegistrandoResultado(null);
+    }
+  }
 
   async function marcarEtapa(etapa: EtapaConfig) {
     if (marcando) return;
@@ -286,6 +328,53 @@ export function EtapasAcompanhamento({
           );
         })}
       </div>
+
+      {tarefa.status !== "feito" && (
+        <div className={compacto ? "space-y-1 pt-1" : "space-y-1.5 pt-2 border-t"}>
+          {!compacto && (
+            <p className="text-xs text-muted-foreground">
+              Resultado saiu? O robô do INSS registra sozinho quando chega por
+              e-mail — mas dá pra registrar na mão:
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className={compacto ? "h-6 px-2 text-xs" : ""}
+              disabled={registrandoResultado !== null || marcando !== null}
+              onClick={(e) => {
+                if (stopPropagation) e.stopPropagation();
+                resultadoManual("deferido");
+              }}
+            >
+              {registrandoResultado === "deferido" ? (
+                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+              ) : (
+                <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+              )}
+              Saiu — deferido
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className={compacto ? "h-6 px-2 text-xs" : ""}
+              disabled={registrandoResultado !== null || marcando !== null}
+              onClick={(e) => {
+                if (stopPropagation) e.stopPropagation();
+                resultadoManual("indeferido");
+              }}
+            >
+              {registrandoResultado === "indeferido" ? (
+                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+              ) : (
+                <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+              )}
+              Saiu — indeferido
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -23,6 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase";
 import type { TarefaComJoins } from "@/lib/tarefas/types";
 import { useDestaque } from "@/lib/destaque/destaque-context";
+import { beneficioTemPericia } from "@/lib/tarefas/helpers";
 
 interface Registro {
   feito_em: string;
@@ -123,6 +124,15 @@ export function EtapaCumprimentoExigencia({
         const dueAt = new Date(
           agora.getTime() + DIAS_PRIMEIRA_ETAPA_ACOMPANHAMENTO * 86400_000,
         ).toISOString();
+        // Perícia só em benefício por incapacidade (Naira, 2026-09-01).
+        const { data: casoInfo } = await supabase
+          .from("casos")
+          .select("tipo_beneficio")
+          .eq("id", tarefa.caso_id)
+          .maybeSingle();
+        const temPericia = beneficioTemPericia(
+          (casoInfo as { tipo_beneficio?: string | null } | null)?.tipo_beneficio,
+        );
         const { data: novaT, error: errT } = await supabase
           .from("tarefas")
           .insert({
@@ -132,10 +142,12 @@ export function EtapaCumprimentoExigencia({
             tipo: "interna",
             prioridade: 2,
             status: "a_fazer",
-            titulo:
-              "Acompanhamento Processual — aguardando agendamento de perícia",
-            descricao:
-              "Verificar se o INSS agendou perícia após o cumprimento da exigência. Escalonamento: 30d ouvidoria → 60d peticionamento de mora → 120d ajuizamento.",
+            titulo: temPericia
+              ? "Acompanhamento — aguardando agendamento da perícia"
+              : "Acompanhamento — aguardando análise do INSS",
+            descricao: temPericia
+              ? "Verificar se o INSS agendou a perícia após o cumprimento da exigência — quando o comprovante chegar, aplique o template Perícia INSS. Escalonamento: 30d ouvidoria → 60d peticionamento de mora → 120d ajuizamento."
+              : "Aguardando a análise após o cumprimento da exigência. O resultado costuma chegar pelo robô de e-mails do INSS — se souber antes, registre pelos botões aqui na tarefa. Escalonamento: 30d ouvidoria → 60d peticionamento de mora → 120d ajuizamento.",
             due_at: dueAt,
             origem: "manual",
             metadata: {

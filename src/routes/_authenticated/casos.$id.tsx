@@ -38,12 +38,14 @@ import {
   ListOrdered,
   Lock,
   Unlock,
+  Clock,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useTiposBeneficio } from "@/hooks/use-tipos-beneficio";
 import { DESTAQUE_CLASSE, useFocoItem } from "@/hooks/use-foco-item";
 import { notificarEquipe } from "@/lib/notificar";
+import { diasCorridosBR, fimDoDiaBR, inputDateBRParaIso } from "@/lib/fuso";
 import { descreverSolicitante } from "@/lib/documentos/solicitante";
 import { iaAnalise } from "@/lib/ia/client";
 import { supabase } from "@/lib/supabase";
@@ -242,6 +244,8 @@ interface SolicitacaoDocumento {
   descricao: string | null;
   status: string;
   origem: string;
+  // "Enviar até" do parceiro (fatal − 3, fim do dia BRT); null = sem prazo.
+  prazo_at: string | null;
   comentario: string | null;
   // Um pedido pode ter varios documentos (lista [{tipo, label}]); null =
   // pedido antigo de um documento so (le a coluna `tipo`).
@@ -568,6 +572,10 @@ const STATUS_SOLICITACAO_LABEL: Record<string, string> = {
 const ORIGEM_SOLICITACAO_LABEL: Record<string, string> = {
   interna: "Interna (escritório)",
   externa: "Externa (parceiro/cliente)",
+  // Origens de template agora aparecem pro parceiro — sem o rótulo, o badge
+  // mostrava o valor cru "template:exigencia".
+  "template:exigencia": "Exigência INSS",
+  "template:exigencia_judicial": "Exigência Judicial",
 };
 
 // ===========================================================================
@@ -4420,11 +4428,13 @@ function TabDocumentos(props: TabDocumentosProps) {
     atendido: 1,
     dispensado: 2,
   };
-  // Parceiro só vê solicitações EXTERNAS — interna é o escritório
-  // providenciando, não cabe "Cumprir" pra ele (Naira, 2026-08-27).
+  // Parceiro não vê solicitação INTERNA — é o escritório providenciando, não
+  // cabe "Cumprir" pra ele (Naira, 2026-08-27). O corte é "não-interna", não
+  // "externa": as de exigência (origem template:...) também são dele — o
+  // filtro === 'externa' original as escondia sem querer.
   const solicitacoesVisiveis = isInterno
     ? solicitacoes
-    : solicitacoes.filter((s) => s.origem === "externa");
+    : solicitacoes.filter((s) => s.origem !== "interna");
 
   const solicitacoesOrdenadas = solicitacoesVisiveis.slice().sort((a, b) => {
     const oa = ordemStatus[a.status] !== undefined ? ordemStatus[a.status] : 99;
@@ -5606,6 +5616,23 @@ function TabDocumentos(props: TabDocumentosProps) {
                         <Badge variant="outline" className="font-normal">
                           {ORIGEM_SOLICITACAO_LABEL[s.origem] || s.origem}
                         </Badge>
+                        {isPendente && s.prazo_at && (
+                          <Badge
+                            variant="outline"
+                            className={
+                              diasCorridosBR(s.prazo_at) <= 3
+                                ? "border-destructive text-destructive"
+                                : diasCorridosBR(s.prazo_at) <= 7
+                                  ? "border-amber-400/70 text-amber-700 dark:text-amber-400"
+                                  : ""
+                            }
+                          >
+                            <Clock className="h-3 w-3 mr-1" />
+                            {diasCorridosBR(s.prazo_at) < 0
+                              ? "Prazo venceu " + formatDate(s.prazo_at)
+                              : "Enviar até " + formatDate(s.prazo_at)}
+                          </Badge>
+                        )}
                       </div>
                       {s.descricao && (
                         <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap">{s.descricao}</p>
@@ -6284,6 +6311,9 @@ function SolicitarDocBotao(props: {
   >([]);
   const [descricao, setDescricao] = useState("");
   const [origem, setOrigem] = useState("externa");
+  // Prazo do parceiro ("enviar até", opcional). Vira prazo_at no fim do dia
+  // BRT: aparece no kanban/e-mail e liga os lembretes 7d/3d/0d.
+  const [prazo, setPrazo] = useState("");
   const [enviando, setEnviando] = useState(false);
   // Flash no campo que ABRIU pro próximo documento — sem ele a pessoa não
   // percebe onde continuar (feedback da Naira, 2026-08-26).
@@ -6343,6 +6373,7 @@ function SolicitarDocBotao(props: {
             ? p.tipoPersonalizado
             : TIPOS_DOCUMENTO_LABEL[p.tipo] || p.tipo,
       }));
+      const prazoIsoBase = origem === "externa" && prazo ? inputDateBRParaIso(prazo) : null;
       const resp = await supabase
         .from("solicitacoes_documento")
         .insert({
@@ -6354,6 +6385,7 @@ function SolicitarDocBotao(props: {
           origem: origem,
           solicitado_por: usuarioId,
           responsavel_id: origem === "interna" ? responsavelId : null,
+          prazo_at: prazoIsoBase ? fimDoDiaBR(prazoIsoBase).toISOString() : null,
         })
         .select("id")
         .single();
@@ -6384,6 +6416,7 @@ function SolicitarDocBotao(props: {
       setAdicionados([]);
       setDescricao("");
       setOrigem("externa");
+      setPrazo("");
       setResponsavelId("");
       setAberto(false);
       onChange();
@@ -6496,6 +6529,21 @@ function SolicitarDocBotao(props: {
               <p className="text-xs text-muted-foreground mt-1">
                 A tarefa "Providenciar documentos" abre no nome dessa pessoa e se
                 conclui sozinha quando a solicitação for atendida.
+              </p>
+            </div>
+          )}
+          {origem === "externa" && (
+            <div>
+              <Label className="text-xs">Prazo para envio (opcional)</Label>
+              <Input
+                type="date"
+                value={prazo}
+                onChange={(e) => setPrazo(e.target.value)}
+                aria-label="Prazo para envio"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Aparece pro parceiro como "enviar até" no kanban e no e-mail, com lembretes
+                automáticos 7 e 3 dias antes e no dia.
               </p>
             </div>
           )}

@@ -1,17 +1,22 @@
 // supabase/functions/notify-solicitacao-doc/index.ts
 //
-// Envia email ao parceiro quando o interno cria uma solicitacao de documento.
-// Disparada do frontend (fire-and-forget) apos INSERT bem-sucedido em
-// public.solicitacoes_documento.
+// Envia email ao parceiro quando o interno cria uma solicitacao de documento
+// — e tambem os LEMBRETES de prazo (7d/3d/no dia do "enviar até"), disparados
+// pelo job diario enviar_lembretes_solicitacao() via pg_net.
 //
 // Regras:
-//   - Envia apenas se origem='externa' (solicitacao destinada ao parceiro/cliente)
-//   - Envia apenas se o caso tiver parceiro_id (sem parceiro, nao tem destinatario)
+//   - Criacao: envia apenas se origem='externa' (as de template avisam o
+//     parceiro pelo andamento visivel -> notify-novo-andamento).
+//   - Lembrete: envia para origem != 'interna' (externa E template de
+//     exigencia — justamente as com prazo fatal).
+//   - Sempre: apenas se o caso tiver parceiro_id com email.
 //
-// Chamada do frontend:
+// Chamada do frontend (criacao, fire-and-forget):
 //   await supabase.functions.invoke("notify-solicitacao-doc", {
 //     body: { solicitacao_id: "<uuid>" }
 //   });
+// Chamada do job (lembrete):
+//   body: { solicitacao_id: "<uuid>", lembrete: "7d" | "3d" | "0d" }
 //
 // Secrets necessarios no Supabase Edge Functions:
 //   - RESEND_API_KEY  (api key do Resend, formato "re_...")
@@ -70,6 +75,22 @@ const TIPOS_DOC_LABEL: Record<string, string> = {
   outro: "Outro",
 };
 
+// "dd/mm/aaaa" do prazo, no calendario de Brasilia.
+function prazoBR(iso: string): string {
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(new Date(iso));
+}
+
+const LEMBRETE_FRASE: Record<string, string> = {
+  "7d": "O prazo para envio esta chegando: faltam menos de 7 dias.",
+  "3d": "Atencao: faltam 3 dias ou menos para o prazo de envio.",
+  "0d": "O prazo de envio e HOJE. Se ja enviou, desconsidere esta mensagem.",
+};
+
 // Sanitiza texto para HTML (evita XSS basico no template)
 function escapeHtml(s: string): string {
   return s
@@ -86,9 +107,17 @@ function renderEmail(opts: {
   tipoLabel: string;
   descricao: string | null;
   linkCaso: string;
+  prazoLabel: string | null;
+  lembrete: string | null;
 }): { html: string; text: string } {
-  const { parceiroNome, clienteNome, tipoLabel, descricao, linkCaso } = opts;
+  const { parceiroNome, clienteNome, tipoLabel, descricao, linkCaso, prazoLabel, lembrete } = opts;
   const desc = descricao ? escapeHtml(descricao) : null;
+  const intro = lembrete
+    ? `${LEMBRETE_FRASE[lembrete] ?? "O prazo de envio esta proximo."} Ainda ha uma solicitacao de documento aberta no caso de <strong>${escapeHtml(clienteNome)}</strong>.`
+    : `Voce tem uma nova solicitacao de documento para o caso de <strong>${escapeHtml(clienteNome)}</strong>.`;
+  const introText = lembrete
+    ? `${LEMBRETE_FRASE[lembrete] ?? "O prazo de envio esta proximo."} Ainda ha uma solicitacao de documento aberta no caso de ${clienteNome}.`
+    : `Voce tem uma nova solicitacao de documento para o caso de ${clienteNome}.`;
 
   const html = `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -111,7 +140,7 @@ function renderEmail(opts: {
           <tr>
             <td style="padding:0 24px;">
               <p style="margin:0 0 12px 0;font-size:15px;">Ola, <strong>${escapeHtml(parceiroNome)}</strong>.</p>
-              <p style="margin:0 0 16px 0;font-size:15px;line-height:1.5;">Voce tem uma nova solicitacao de documento para o caso de <strong>${escapeHtml(clienteNome)}</strong>.</p>
+              <p style="margin:0 0 16px 0;font-size:15px;line-height:1.5;">${intro}</p>
               <table role="presentation" cellpadding="0" cellspacing="0" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:12px;margin:0 0 20px 0;width:100%;">
                 <tr>
                   <td style="padding:8px 12px;font-size:13px;color:#6b7280;width:140px;">Documento solicitado:</td>
@@ -122,6 +151,14 @@ function renderEmail(opts: {
       ? `<tr>
                   <td style="padding:8px 12px;font-size:13px;color:#6b7280;vertical-align:top;">Observacao:</td>
                   <td style="padding:8px 12px;font-size:14px;white-space:pre-wrap;">${desc}</td>
+                </tr>`
+      : ""
+  }
+                ${
+    prazoLabel
+      ? `<tr>
+                  <td style="padding:8px 12px;font-size:13px;color:#6b7280;">Prazo para envio:</td>
+                  <td style="padding:8px 12px;font-size:14px;font-weight:600;color:#b91c1c;">${escapeHtml(prazoLabel)}</td>
                 </tr>`
       : ""
   }
@@ -160,10 +197,11 @@ function renderEmail(opts: {
   const text = [
     `Ola, ${parceiroNome}.`,
     "",
-    `Voce tem uma nova solicitacao de documento para o caso de ${clienteNome}.`,
+    introText,
     "",
     `Documento solicitado: ${tipoLabel}`,
     desc ? `Observacao: ${descricao}` : "",
+    prazoLabel ? `Prazo para envio: ${prazoLabel}` : "",
     `Cliente: ${clienteNome}`,
     "",
     "Para enviar o documento, acesse o caso na plataforma:",
@@ -191,14 +229,19 @@ serve(async (req) => {
   }
 
   let solicitacaoId: string;
+  let lembrete: string | null;
   try {
     const body = await req.json();
     solicitacaoId = String(body.solicitacao_id || "");
+    lembrete = body.lembrete ? String(body.lembrete) : null;
   } catch {
     return jsonResponse({ error: "body json invalido" }, 400);
   }
   if (!solicitacaoId) {
     return jsonResponse({ error: "solicitacao_id obrigatorio" }, 400);
+  }
+  if (lembrete && !(lembrete in LEMBRETE_FRASE)) {
+    return jsonResponse({ error: "lembrete invalido (7d|3d|0d)" }, 400);
   }
 
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE);
@@ -207,7 +250,7 @@ serve(async (req) => {
   const { data, error } = await supabase
     .from("solicitacoes_documento")
     .select(
-      "id, tipo, tipos, descricao, origem, casos:caso_id(id, parceiro_id, clientes:cliente_id(nome), usuarios_parceiro:parceiro_id(id, nome, email))",
+      "id, tipo, tipos, descricao, origem, status, prazo_at, casos:caso_id(id, parceiro_id, clientes:cliente_id(nome), usuarios_parceiro:parceiro_id(id, nome, email))",
     )
     .eq("id", solicitacaoId)
     .maybeSingle();
@@ -230,6 +273,8 @@ serve(async (req) => {
     tipos: Array<{ tipo: string; label: string }> | null;
     descricao: string | null;
     origem: string;
+    status: string;
+    prazo_at: string | null;
     casos: {
       id: string;
       parceiro_id: string | null;
@@ -238,8 +283,17 @@ serve(async (req) => {
     } | null;
   };
 
-  // Regras de envio
-  if (solic.origem !== "externa") {
+  // Regras de envio. Criacao: so origem externa (template avisa pelo
+  // andamento visivel). Lembrete: qualquer origem que nao seja interna —
+  // as de exigencia sao justamente as com prazo fatal.
+  if (lembrete) {
+    if (solic.origem === "interna") {
+      return jsonResponse({ enviado: false, motivo: "origem interna (sem lembrete)" });
+    }
+    if (solic.status !== "pendente") {
+      return jsonResponse({ enviado: false, motivo: "solicitacao ja resolvida (sem lembrete)" });
+    }
+  } else if (solic.origem !== "externa") {
     return jsonResponse({
       enviado: false,
       motivo: "origem nao e externa (sem envio)",
@@ -270,6 +324,7 @@ serve(async (req) => {
       ? solic.tipos.map((t) => t.label || t.tipo).join(", ")
       : TIPOS_DOC_LABEL[solic.tipo] || solic.tipo;
   const linkCaso = `${APP_BASE_URL}/casos/${solic.casos.id}`;
+  const prazoLabel = solic.prazo_at ? prazoBR(solic.prazo_at) : null;
 
   const { html, text } = renderEmail({
     parceiroNome,
@@ -277,6 +332,8 @@ serve(async (req) => {
     tipoLabel,
     descricao: solic.descricao,
     linkCaso,
+    prazoLabel,
+    lembrete,
   });
 
   // Envia via Resend API REST
@@ -289,7 +346,9 @@ serve(async (req) => {
     body: JSON.stringify({
       from: FROM_EMAIL,
       to: parceiroEmail,
-      subject: `Nova solicitacao de documento - ${tipoLabel} - ${clienteNome}`,
+      subject: lembrete
+        ? `Lembrete de prazo${prazoLabel ? " " + prazoLabel : ""} - documentos pendentes - ${clienteNome}`
+        : `Nova solicitacao de documento - ${tipoLabel} - ${clienteNome}`,
       html,
       text,
     }),

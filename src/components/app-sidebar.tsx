@@ -48,8 +48,13 @@ const itemsInternosTopo = [
   { title: "Agenda", url: "/agenda", icon: Calendar },
 ];
 
-// Parceiro: /agenda renderiza a visao restrita (so pericias dos casos dele).
-const itemParceiroPericias = { title: "Perícias", url: "/agenda", icon: Calendar };
+// Parceiro: /tarefas e /agenda renderizam visões restritas aos casos dele.
+// "Tarefas" = kanban de pendências por fase (feedback de parceiro, 2026-08-31);
+// "Agenda" (ex-"Perícias") = calendário de perícias E audiências.
+const itemsParceiroTopo = [
+  { title: "Tarefas", url: "/tarefas", icon: ListTodo },
+  { title: "Agenda", url: "/agenda", icon: Calendar },
+];
 
 const itemsInternos = [
   { title: "Comercial", url: "/comercial", icon: Handshake },
@@ -91,7 +96,14 @@ export function AppSidebar() {
         ...(isAdmin ? itemsAdmin : []),
         ...itemsFooter,
       ]
-    : [itemsBase[0], itemParceiroPericias, ...itemsBase.slice(1), ...itemsFooter];
+    : // Parceiro não tem mais "Documentos pendentes": o kanban de Tarefas
+      // cobre as pendências dele (Naira, 2026-09-01). A rota /documentos
+      // redireciona o parceiro pra /tarefas.
+      [
+        ...itemsParceiroTopo,
+        ...itemsBase.filter((i) => i.url !== "/documentos"),
+        ...itemsFooter,
+      ];
 
   // Badge de publicacoes novas (DJEN) desde a ultima visita. RLS escopa por
   // usuario (interno ve todas; parceiro so as dos casos dele).
@@ -139,6 +151,10 @@ export function AppSidebar() {
         .select("id", { count: "exact", head: true })
         .eq("status", "pendente");
       if (isInterno && usuario?.id) q = q.eq("solicitado_por", usuario.id);
+      // Parceiro conta o MESMO que as telas dele mostram: tudo que não é
+      // interna (externa + template de exigência) — antes o badge contava
+      // as internas e divergia da lista.
+      if (!isInterno) q = q.neq("origem", "interna");
       const { count } = await q;
       if (vivo) setDocBadge(count || 0);
     }
@@ -265,7 +281,11 @@ export function AppSidebar() {
                       ? docBadge
                       : item.url === "/conversas"
                         ? conversasBadge
-                        : 0;
+                        : // Kanban do parceiro: mesmas pendências do hub de
+                          // documentos, então o mesmo contador.
+                          item.url === "/tarefas" && !isInterno
+                          ? docBadge
+                          : 0;
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>

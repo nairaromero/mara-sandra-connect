@@ -25,6 +25,7 @@ import {
   nomeAmigavel,
   URGENCIA_BADGE_CLASS,
   urgenciaDoDueAt,
+  checklistPendente,
 } from "@/lib/tarefas/helpers";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -42,8 +43,10 @@ import {
 } from "@/components/ui/select";
 
 import { TarefaCard } from "@/components/tarefas/tarefa-card";
+import { TarefasParceiro } from "@/components/parceiro/tarefas-parceiro";
 import { TarefaSheet } from "@/components/tarefas/tarefa-sheet";
 import { TarefasExcluidas } from "@/components/tarefas/tarefas-excluidas";
+import { RadarCasosOrfaos } from "@/components/tarefas/radar-casos-orfaos";
 import {
   atualizarTarefa,
   contarTarefas,
@@ -61,8 +64,25 @@ import {
 } from "@/lib/tarefas/types";
 
 export const Route = createFileRoute("/_authenticated/tarefas")({
-  component: TarefasPage,
+  component: TarefasRoute,
 });
+
+// Parceiro vê a versão restrita: kanban das pendências DELE por fase do caso
+// (a RLS de tarefas é só-interno; o board dele nem consulta essa tabela).
+// Componentes separados pra não violar a ordem de hooks — mesmo padrão da
+// /agenda.
+function TarefasRoute() {
+  const { usuario } = useAuth();
+  if (!usuario) {
+    return (
+      <div className="flex h-96 items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (usuario.tipo === "parceiro") return <TarefasParceiro />;
+  return <TarefasPage />;
+}
 
 const TIPOS: TarefaTipo[] = ["interna", "prazo", "pericia", "pos_protocolo", "contato_cliente"];
 
@@ -319,6 +339,18 @@ function TarefasPage() {
   }, [tarefas, usuario?.id]);
 
   async function mudarStatus(id: string, status: TarefaStatus) {
+    // Concluir por fora (kanban/lista) não pode pular o widget da tarefa —
+    // a corrente morreria calada (auditoria 2026-09-01).
+    if (status === "feito") {
+      const alvo = tarefas.find((t) => t.id === id);
+      const pendente = alvo ? checklistPendente(alvo) : null;
+      if (pendente) {
+        toast.error("Esta tarefa se conclui pelo próprio botão dela", {
+          description: "Abra a tarefa e use " + pendente + " — é ele que dispara o andamento e o próximo passo.",
+        });
+        return;
+      }
+    }
     // Optimistic update
     const original = tarefas.find((t) => t.id === id);
     setTarefas((arr) => arr.map((t) => (t.id === id ? { ...t, status } : t)));
@@ -380,6 +412,9 @@ function TarefasPage() {
           </Button>
         </div>
 
+        {/* Radar: casos sem tarefa aberta nem evento futuro — ninguém é
+            lembrado deles. Some sozinho quando não há órfãos. */}
+        <RadarCasosOrfaos />
 
         {/* Filtros */}
         <div className="flex flex-wrap items-center gap-2 rounded-md border p-3 bg-card">

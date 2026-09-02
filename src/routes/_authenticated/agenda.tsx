@@ -92,7 +92,8 @@ export const Route = createFileRoute("/_authenticated/agenda")({
   component: AgendaRoute,
 });
 
-// Parceiro vê a agenda restrita: só perícias dos casos dele, sem criar/editar.
+// Parceiro vê a agenda restrita: perícias e audiências dos casos dele, sem
+// criar/editar.
 // Componentes separados (não early-return dentro de AgendaPage) pra não
 // violar a ordem de hooks quando o tipo do usuário resolve.
 function AgendaRoute() {

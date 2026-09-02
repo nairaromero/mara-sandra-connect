@@ -224,3 +224,52 @@ export function descreverAutoriaStatus(t: {
       : "";
   return `${verbo}${quem} em ${formatarDataHoraCurtaBR(quando)}`;
 }
+
+
+/**
+ * Tarefa cujo desfecho mora num WIDGET (checklist/corrente/decisão): concluir
+ * por fora (kanban, select de status) pula andamento ao parceiro e a próxima
+ * tarefa — a corrente morre calada (auditoria 2026-09-01). Retorna o rótulo
+ * do que está pendente, ou null quando pode concluir normalmente.
+ */
+export function checklistPendente(t: {
+  status: string;
+  metadata: unknown;
+}): string | null {
+  if (t.status === "feito" || t.status === "cancelado") return null;
+  const m = (t.metadata ?? {}) as Record<string, unknown>;
+  if (m.montagem_inicial === true || m.montagem_requerimento === true) {
+    return "a corrente de montagem (Enviar para revisão/protocolo)";
+  }
+  if (m.cumprimento_exigencia === true && !m.exigencia_cumprida) {
+    return 'o checklist "Exigência cumprida"';
+  }
+  if (m.protocolo_realizado === true && !m.protocolo_realizado_registro) {
+    return 'o checklist "Protocolo realizado"';
+  }
+  if (m.confirmar_comparecimento === true) {
+    return "a confirmação de comparecimento (Compareceu / Não compareceu)";
+  }
+  if (m.etapa === "analise_inicial_parceiro") {
+    return "o desfecho da análise (requerimento / aguardar docs / sem direito)";
+  }
+  if (m.analise_indeferimento === true) {
+    return "o desfecho do indeferimento (ajuizar / recurso / não prosseguir)";
+  }
+  if (m.enviar_aviso) {
+    return "o envio do aviso ao parceiro (botão Enviar na tarefa)";
+  }
+  return null;
+}
+
+
+/**
+ * Benefício por INCAPACIDADE passa por perícia médica; os demais não
+ * (Naira, 2026-09-01: auxílio-doença, auxílio-acidente, BPC/LOAS e
+ * invalidez/incapacidade permanente — aposentadoria por idade/tempo,
+ * pensão etc. seguem direto pra análise).
+ */
+export function beneficioTemPericia(tipoBeneficio: string | null | undefined): boolean {
+  if (!tipoBeneficio) return false;
+  return /acidente|doen[çc]a|incapacidad|invalidez|bpc|loas/i.test(tipoBeneficio);
+}

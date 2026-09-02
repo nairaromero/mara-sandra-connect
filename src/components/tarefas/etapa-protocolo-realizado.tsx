@@ -10,11 +10,14 @@
 //       - senão (protocolo / protocolo_requerimento): "Protocolo
 //         realizado." (com o título da tarefa como contexto).
 //  2. Marca tarefa atual como feita.
-//  3. Cria tarefa "Acompanhamento Processual" com
-//     metadata.acompanhamento_processual=true (escalonamento
-//     30d ouvidoria / 60d peticionamento de mora / 120d ajuizamento).
-//     PULA esse passo quando via_judicial=true — o acompanhamento da
-//     fase judicial ainda não é gerenciado pelo sistema.
+//  3. Cria a tarefa de seguimento — a corrente NUNCA termina no vazio
+//     (piloto anti-perda-de-prazo, Naira 2026-08-28):
+//       - via administrativa: "Acompanhamento Processual"
+//         (escalonamento 30d ouvidoria / 60d mora / 120d ajuizamento);
+//       - via_judicial=true: "Confirmar distribuição e cadastrar o nº do
+//         processo" (D+5 úteis, 09:00 de Brasília) — com o número
+//         cadastrado na aba Processos, DataJud e DJEN passam a vigiar o
+//         caso sozinhos.
 //
 // Espelha EtapaCumprimentoExigencia.
 
@@ -25,6 +28,8 @@ import { CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase";
+import { dueAtDoPrazoFatal, fatalPorDiasUteis } from "@/lib/agenda/helpers";
+import { hojeChaveBR } from "@/lib/fuso";
 import type { TarefaComJoins } from "@/lib/tarefas/types";
 import { useDestaque } from "@/lib/destaque/destaque-context";
 
@@ -115,11 +120,46 @@ export function EtapaProtocoloRealizado({
           .catch(() => {});
       }
 
-      // 2) Cria tarefa "Acompanhamento Processual" com escalonamento 30/60/120.
-      // Pula no caso via_judicial=true (protocolo_inicial): o acompanhamento
-      // judicial não é gerenciado pelo sistema ainda — só baixa a tarefa
-      // atual e gera o andamento.
+      // 2) Seguimento: a corrente nunca termina no vazio.
+      //    Judicial → confirmar distribuição (D+5 úteis, 09:00 BR).
       let tarefaAcompId: string | null = null;
+      if (tarefa.caso_id && viaJudicial) {
+        const clienteNome = tarefa.caso?.cliente?.nome ?? "cliente";
+        const diaUtil = fatalPorDiasUteis(hojeChaveBR(), 5);
+        const dueAt = diaUtil ? dueAtDoPrazoFatal(diaUtil, 0) : null;
+        const { data: novaT, error: errT } = await supabase
+          .from("tarefas")
+          .insert({
+            caso_id: tarefa.caso_id,
+            processo_admin_id: tarefa.processo_admin_id,
+            processo_judicial_id: tarefa.processo_judicial_id,
+            responsavel_id: tarefa.responsavel_id,
+            tipo: "interna",
+            prioridade: 2,
+            status: "a_fazer",
+            titulo: "Confirmar distribuição e cadastrar o nº do processo - " + clienteNome,
+            descricao:
+              "A inicial foi protocolada. Confira se o processo foi distribuído " +
+              "e CADASTRE O NÚMERO na aba Processos do caso — com o número no " +
+              "sistema, DataJud e DJEN passam a acompanhar as movimentações e " +
+              "publicações sozinhos. Se em 5 dias úteis não houver distribuição, " +
+              "verificar o protocolo.",
+            due_at: dueAt ?? agora.toISOString(),
+            origem: "manual",
+            metadata: {
+              origem_tarefa_id: tarefa.id,
+              template_aplicado: template,
+              confirmar_distribuicao: true,
+            },
+          })
+          .select("id")
+          .single();
+        if (errT) throw errT;
+        tarefaAcompId = (novaT as { id: string }).id;
+        marcarDestaque(tarefaAcompId);
+      }
+
+      //    Administrativa → "Acompanhamento Processual" (30/60/120).
       if (tarefa.caso_id && !viaJudicial) {
         const dueAt = new Date(
           agora.getTime() + DIAS_PRIMEIRA_ETAPA_ACOMPANHAMENTO * 86400_000,
@@ -172,7 +212,7 @@ export function EtapaProtocoloRealizado({
       setRegistro(novoRegistro);
       toast.success(
         viaJudicial
-          ? "Petição inicial protocolada. Andamento criado."
+          ? "Inicial protocolada — criei a tarefa de confirmar a distribuição (5 dias úteis)."
           : "Protocolo registrado. Acompanhamento processual criado.",
       );
       onUpdated();
@@ -205,7 +245,7 @@ export function EtapaProtocoloRealizado({
           {!compacto && (
             <div className="text-xs text-muted-foreground">
               {viaJudicial
-                ? "Marque ao protocolar a petição inicial — avisa parceiro e dá baixa na tarefa."
+                ? "Marque ao protocolar a inicial — avisa o parceiro e abre a tarefa de confirmar a distribuição."
                 : "Marque ao concluir o protocolo — avisa parceiro e cria acompanhamento processual (30/60/120)."}
             </div>
           )}

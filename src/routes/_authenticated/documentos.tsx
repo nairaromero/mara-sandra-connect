@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, Navigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -11,6 +11,7 @@ import {
   AlertCircle,
   ChevronDown,
   ChevronRight,
+  Clock,
   Pencil,
   Trash2,
   User as UserIcon,
@@ -32,6 +33,7 @@ import {
 import { descreverSolicitante } from "@/lib/documentos/solicitante";
 import { listarInternosAtivos } from "@/lib/tarefas/queries";
 import { supabase } from "@/lib/supabase";
+import { diasCorridosBR } from "@/lib/fuso";
 import { notificarEquipe } from "@/lib/notificar";
 import { MAX_FILE_SIZE_MB, validateFileSize } from "@/lib/upload-limits";
 import { ClientOnly } from "@/components/client-only";
@@ -65,8 +67,25 @@ import {
 } from "@/components/ui/dialog";
 
 export const Route = createFileRoute("/_authenticated/documentos")({
-  component: DocumentosPendentesPage,
+  component: DocumentosRoute,
 });
+
+// A tela "Documentos pendentes" (hub) é só do interno desde 2026-09-01: o
+// parceiro usa o kanban de Tarefas. Link/bookmark antigo do parceiro cai
+// em /tarefas. Wrapper separado pra não misturar hooks (mesmo padrão de
+// /tarefas e /agenda).
+function DocumentosRoute() {
+  const { usuario } = useAuth();
+  if (!usuario) {
+    return (
+      <div className="flex h-96 items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (usuario.tipo === "parceiro") return <Navigate to="/tarefas" replace />;
+  return <DocumentosPendentesPage />;
+}
 
 // ===========================================================================
 // Tipos
@@ -94,6 +113,7 @@ interface SolicitacaoComCaso {
   descricao: string | null;
   status: string;
   origem: string;
+  prazo_at: string | null;
   comentario: string | null;
   documento_id: string | null;
   solicitado_por: string | null;
@@ -111,6 +131,10 @@ interface SolicitacaoComCaso {
 const ORIGEM_SOLICITACAO_LABEL: Record<string, string> = {
   interna: "Interna (escritório)",
   externa: "Externa (parceiro/cliente)",
+  // Origens de template agora aparecem pro parceiro — sem o rótulo, o badge
+  // mostrava o valor cru "template:exigencia".
+  "template:exigencia": "Exigência INSS",
+  "template:exigencia_judicial": "Exigência Judicial",
 };
 
 const STATUS_FASE_CASO_LABEL: Record<string, string> = {
@@ -137,6 +161,34 @@ function diasDesde(iso: string | null): number | null {
   if (isNaN(d.getTime())) return null;
   const ms = Date.now() - d.getTime();
   return Math.floor(ms / (1000 * 60 * 60 * 24));
+}
+
+// Badge do "Enviar até" (prazo_at = prazo do parceiro, fatal − 3): vermelho
+// vencido/até 3 dias, âmbar até 7, neutro no resto — mesma régua do kanban
+// do parceiro (tarefas-parceiro.tsx).
+function PrazoBadge({ prazoAt }: { prazoAt: string | null }) {
+  if (!prazoAt) return null;
+  const dias = diasCorridosBR(prazoAt);
+  const classe =
+    dias <= 3
+      ? "border-destructive text-destructive"
+      : dias <= 7
+        ? "border-amber-400/70 text-amber-700 dark:text-amber-400"
+        : "";
+  const rotulo =
+    dias < 0
+      ? `Prazo venceu ${formatDate(prazoAt)}`
+      : dias === 0
+        ? "Enviar até hoje"
+        : dias === 1
+          ? "Enviar até amanhã"
+          : `Enviar até ${formatDate(prazoAt)}`;
+  return (
+    <Badge variant="outline" className={classe}>
+      <Clock className="h-3 w-3 mr-1" />
+      {rotulo}
+    </Badge>
+  );
 }
 
 // ===========================================================================
@@ -196,12 +248,14 @@ function DocumentosPendentesPage() {
       let q = supabase
         .from("solicitacoes_documento")
         .select(
-          "id, caso_id, tipo, tipos, descricao, status, origem, comentario, documento_id, solicitado_por, data_solicitacao, data_atendimento, solicitante:usuarios!solicitacoes_documento_solicitado_por_fkey(id, nome), casos(id, tipo_beneficio, fase, status, parceiro_id, clientes(id, nome))",
+          "id, caso_id, tipo, tipos, descricao, status, origem, prazo_at, comentario, documento_id, solicitado_por, data_solicitacao, data_atendimento, solicitante:usuarios!solicitacoes_documento_solicitado_por_fkey(id, nome), casos(id, tipo_beneficio, fase, status, parceiro_id, clientes(id, nome))",
         )
         .order("data_solicitacao", { ascending: false });
       // Parceiro só vê o que é dele providenciar: solicitação INTERNA é do
-      // escritório e ficava aparecendo com botão "Cumprir" (Naira, 2026-08-27).
-      if (!isInterno) q = q.eq("origem", "externa");
+      // escritório (Naira, 2026-08-27). O corte é "não-interna" e não
+      // "externa": as de exigência (origem template:...) também são dele —
+      // o eq('externa') original as escondia sem querer.
+      if (!isInterno) q = q.neq("origem", "interna");
       const resp = await q;
       if (resp.error) throw resp.error;
       const dados = (resp.data || []) as unknown as Array<SolicitacaoComCaso>;
@@ -349,6 +403,23 @@ function DocumentosPendentesPage() {
     }
     setSalvandoModal(true);
     try {
+      // Pré-checagem pro parceiro: se a solicitação já foi cumprida (outra aba/
+      // dispositivo), não sobe arquivo duplicado. O guard do banco barra o
+      // UPDATE de qualquer forma; isto evita o upload à toa.
+      if (!isInterno && acaoAlvo.novoStatus === "atendido") {
+        const atual = await supabase
+          .from("solicitacoes_documento")
+          .select("status")
+          .eq("id", acaoAlvo.solic.id)
+          .maybeSingle();
+        if (atual.error) throw atual.error;
+        if (!atual.data || atual.data.status !== "pendente") {
+          toast.info("Esta solicitação já foi cumprida. Atualizando a lista.");
+          fecharAcaoModal();
+          await carregar();
+          return;
+        }
+      }
       let primeiroDocId: string | null = null;
       let enviados = 0;
       let falhas: ArquivoCumprimento[] = [];
@@ -864,7 +935,8 @@ function SolicitacaoItem(props: SolicitacaoItemProps) {
             <Badge variant="outline" className="font-normal">
               {ORIGEM_SOLICITACAO_LABEL[s.origem] || s.origem}
             </Badge>
-            {isPendente && dias !== null && dias > 7 && (
+            {isPendente && <PrazoBadge prazoAt={s.prazo_at} />}
+            {isPendente && !s.prazo_at && dias !== null && dias > 7 && (
               <Badge
                 variant="outline"
                 className="border-destructive text-destructive"

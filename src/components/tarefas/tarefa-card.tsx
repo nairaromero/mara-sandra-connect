@@ -23,6 +23,8 @@ import { AcompanhamentoPericia } from "@/components/tarefas/acompanhamento-peric
 import { AcompanhamentoImplementacao } from "@/components/tarefas/acompanhamento-implementacao";
 import { MontagemInicial } from "@/components/tarefas/montagem-inicial";
 import { ComparecimentoPericia } from "@/components/tarefas/comparecimento-pericia";
+import { AnaliseCasoNovo } from "@/components/tarefas/analise-caso-novo";
+import { AnaliseIndeferimento } from "@/components/tarefas/analise-indeferimento";
 import { EnviarAvisoParceiro } from "@/components/tarefas/enviar-aviso-parceiro";
 import { EtapaCumprimentoExigencia } from "@/components/tarefas/etapa-cumprimento-exigencia";
 import { EtapaProtocoloRealizado } from "@/components/tarefas/etapa-protocolo-realizado";
@@ -81,7 +83,12 @@ export function TarefaCard({
   const ehAcompPericia =
     (tarefa.metadata as { acompanhamento_pericia?: boolean })?.acompanhamento_pericia === true;
   const ehMontagemInicial =
-    (tarefa.metadata as { montagem_inicial?: boolean })?.montagem_inicial === true;
+    (tarefa.metadata as { montagem_inicial?: boolean })?.montagem_inicial === true ||
+    (tarefa.metadata as { montagem_requerimento?: boolean })?.montagem_requerimento === true;
+  const ehAnaliseCasoNovo =
+    (tarefa.metadata as { etapa?: string })?.etapa === "analise_inicial_parceiro";
+  const ehAnaliseIndeferimento =
+    (tarefa.metadata as { analise_indeferimento?: boolean })?.analise_indeferimento === true;
   const ehAcompImplementacao =
     (tarefa.metadata as { acompanhamento_implementacao?: boolean })
       ?.acompanhamento_implementacao === true;
@@ -342,6 +349,22 @@ export function TarefaCard({
           />
         )}
 
+        {ehAnaliseCasoNovo && (
+          <AnaliseCasoNovo
+            tarefa={tarefa}
+            onUpdated={onChanged ?? (() => {})}
+            compacto
+            stopPropagation
+          />
+        )}
+        {ehAnaliseIndeferimento && (
+          <AnaliseIndeferimento
+            tarefa={tarefa}
+            onUpdated={onChanged ?? (() => {})}
+            compacto
+            stopPropagation
+          />
+        )}
         {ehMontagemInicial && (
           <MontagemInicial
             tarefa={tarefa}
