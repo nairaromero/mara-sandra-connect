@@ -15,6 +15,7 @@ import { CalendarDays, Loader2 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
 import { AgendaMes } from "@/components/agenda/agenda-mes";
+import { useVerComoParceiro } from "@/hooks/use-ver-como-parceiro";
 import type { AgendaEventoComJoins } from "@/lib/agenda/types";
 
 interface CompromissoParceiro {
@@ -66,10 +67,16 @@ export function AgendaPericiasParceiro() {
   const [carregando, setCarregando] = useState(true);
   const [compromissos, setCompromissos] = useState<CompromissoParceiro[]>([]);
 
+  const { verComo } = useVerComoParceiro();
   const carregar = useCallback(async () => {
     setCarregando(true);
     try {
-      const { data, error } = await supabase.rpc("agenda_do_parceiro");
+      // Admin em "ver como": passa o parceiro alvo (a RPC só aceita de admin).
+      // Sem corte de data — o calendário mostra passado e futuro.
+      const { data, error } = await supabase.rpc("agenda_do_parceiro", {
+        p_desde: null,
+        p_parceiro_id: verComo?.parceiroId ?? null,
+      });
       if (error) throw error;
       setCompromissos((data ?? []) as CompromissoParceiro[]);
     } catch (e) {
@@ -78,7 +85,7 @@ export function AgendaPericiasParceiro() {
     } finally {
       setCarregando(false);
     }
-  }, []);
+  }, [verComo?.parceiroId]);
 
   useEffect(() => {
     carregar();

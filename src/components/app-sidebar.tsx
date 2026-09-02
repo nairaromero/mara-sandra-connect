@@ -30,6 +30,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/use-auth";
+import { useVerComoParceiro } from "@/hooks/use-ver-como-parceiro";
 
 // "/" e o site publico (landing). Ninguem tem "Inicio": /casos redireciona
 // interno pra /tarefas e parceiro pra /clientes (home de cada um).
@@ -76,7 +77,11 @@ const itemsFooter = [{ title: "Configurações", url: "/configuracoes", icon: Se
 export function AppSidebar() {
   const { state, isMobile, setOpenMobile } = useSidebar();
   const { usuario, isAdmin } = useAuth();
-  const isInterno = usuario?.tipo === "interno";
+  const { verComo } = useVerComoParceiro();
+  const emVerComo = !!verComo;
+  // Em "ver como", o admin enxerga a visão do parceiro — então NÃO é interno
+  // pra fins de menu.
+  const isInterno = usuario?.tipo === "interno" && !emVerComo;
   const collapsed = state === "collapsed";
   // No modo estreito o sidebar e um painel (Sheet) que cobre o conteudo;
   // sem isso ele fica aberto depois do clique e a pessoa precisa clicar
@@ -88,7 +93,12 @@ export function AppSidebar() {
   const isActive = (path: string) =>
     path === "/" ? currentPath === "/" : currentPath.startsWith(path);
 
-  const items = isInterno
+  // "Ver como parceiro" (admin, leitura): só as telas escopadas — Tarefas e
+  // Agenda. As demais mostrariam dado do admin (não escopado), então ficam de
+  // fora do modo.
+  const items = emVerComo
+    ? itemsParceiroTopo
+    : isInterno
     ? [
         ...itemsInternosTopo,
         ...itemsBase,
@@ -282,8 +292,10 @@ export function AppSidebar() {
                       : item.url === "/conversas"
                         ? conversasBadge
                         : // Kanban do parceiro: mesmas pendências do hub de
-                          // documentos, então o mesmo contador.
-                          item.url === "/tarefas" && !isInterno
+                          // documentos, então o mesmo contador. (Suprimido em
+                          // "ver como" — o docBadge do admin conta o escritório
+                          // todo, não o parceiro visto.)
+                          item.url === "/tarefas" && !isInterno && !emVerComo
                           ? docBadge
                           : 0;
                 return (
