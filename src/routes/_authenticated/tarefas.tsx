@@ -44,6 +44,7 @@ import {
 
 import { TarefaCard } from "@/components/tarefas/tarefa-card";
 import { TarefasParceiro } from "@/components/parceiro/tarefas-parceiro";
+import { useVerComoParceiro } from "@/hooks/use-ver-como-parceiro";
 import { TarefaSheet } from "@/components/tarefas/tarefa-sheet";
 import { TarefasExcluidas } from "@/components/tarefas/tarefas-excluidas";
 import { RadarCasosOrfaos } from "@/components/tarefas/radar-casos-orfaos";
@@ -73,6 +74,7 @@ export const Route = createFileRoute("/_authenticated/tarefas")({
 // /agenda.
 function TarefasRoute() {
   const { usuario } = useAuth();
+  const { verComo } = useVerComoParceiro();
   if (!usuario) {
     return (
       <div className="flex h-96 items-center justify-center">
@@ -80,7 +82,8 @@ function TarefasRoute() {
       </div>
     );
   }
-  if (usuario.tipo === "parceiro") return <TarefasParceiro />;
+  // Parceiro real, ou admin em "ver como": kanban do parceiro (escopado).
+  if (usuario.tipo === "parceiro" || verComo) return <TarefasParceiro />;
   return <TarefasPage />;
 }
 

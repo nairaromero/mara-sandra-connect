@@ -40,6 +40,7 @@ import { supabase } from "@/lib/supabase";
 import { buscarPaginado } from "@/lib/supabase-paginado";
 import { notificarEquipe } from "@/lib/notificar";
 import { useAuth } from "@/hooks/use-auth";
+import { useVerComoParceiro } from "@/hooks/use-ver-como-parceiro";
 import { ClientOnly } from "@/components/client-only";
 import { cn } from "@/lib/utils";
 import { diasCorridosBR, formatarBR, horaBR } from "@/lib/fuso";
@@ -203,6 +204,10 @@ function ehNovo(dataSolicitacao: string): boolean {
 export function TarefasParceiro() {
   const { usuario } = useAuth();
   const navigate = useNavigate();
+  const { verComo } = useVerComoParceiro();
+  // Admin em "ver como" é SOMENTE LEITURA: nada de cumprir/anexar em nome do
+  // parceiro. O dado já vem escopado pelo parceiro alvo.
+  const readOnly = !!verComo;
 
   const [carregando, setCarregando] = useState(true);
   const [solicitacoes, setSolicitacoes] = useState<SolicPendente[]>([]);
@@ -223,40 +228,50 @@ export function TarefasParceiro() {
       // Corte de data pro board: só o futuro (compromisso de hoje conta o dia
       // inteiro). A RPC já corta no banco, o -1 dia dá folga de fuso.
       const desde = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      // "Ver como parceiro" (admin, leitura): o admin vê TODOS os casos por
+      // RLS, então filtra explicitamente pelo parceiro alvo (casos!inner +
+      // parceiro_id). Parceiro real: o filtro é nulo e a RLS já escopa.
+      const parceiroAlvo = verComo?.parceiroId ?? null;
       const [solics, evs, feitas] = await Promise.all([
         // Pendências do parceiro: tudo que não é interna (externa + exigências
         // de template). Ordem estável pro paginado.
-        buscarPaginado<SolicPendente>((ini, fim) =>
-          supabase
+        buscarPaginado<SolicPendente>((ini, fim) => {
+          let q = supabase
             .from("solicitacoes_documento")
             .select(
-              "id, caso_id, tipo, tipos, descricao, origem, prazo_at, data_solicitacao, documento_id, casos(id, fase, clientes(id, nome))",
+              "id, caso_id, tipo, tipos, descricao, origem, prazo_at, data_solicitacao, documento_id, casos!inner(id, fase, parceiro_id, clientes(id, nome))",
             )
             .eq("status", "pendente")
-            .neq("origem", "interna")
+            .neq("origem", "interna");
+          if (parceiroAlvo) q = q.eq("casos.parceiro_id", parceiroAlvo);
+          return q
             .order("data_solicitacao", { ascending: false })
             .order("id")
             .range(ini, fim) as unknown as PromiseLike<{
             data: SolicPendente[] | null;
             error: { message: string } | null;
-          }>,
-        ),
+          }>;
+        }),
         // Perícias/audiências já com a fase do caso e cortadas por data no
         // banco (agenda_do_parceiro(p_desde)) — não precisa mais varrer todos
-        // os casos do parceiro só pra mapear fase.
-        supabase.rpc("agenda_do_parceiro", { p_desde: desde }),
+        // os casos do parceiro só pra mapear fase. p_parceiro_id só vale p/ admin.
+        supabase.rpc("agenda_do_parceiro", { p_desde: desde, p_parceiro_id: parceiroAlvo }),
         // Cumpridas recentes: fechamento pro parceiro ("cadê o que enviei?").
         // As 40 últimas bastam — histórico completo fica na aba do caso.
-        supabase
-          .from("solicitacoes_documento")
-          .select("id, tipo, tipos, data_atendimento, casos(id, clientes(nome))")
-          .eq("status", "atendido")
-          .neq("origem", "interna")
+        (() => {
+          let fq = supabase
+            .from("solicitacoes_documento")
+            .select("id, tipo, tipos, data_atendimento, casos!inner(id, parceiro_id, clientes(nome))")
+            .eq("status", "atendido")
+            .neq("origem", "interna");
+          if (parceiroAlvo) fq = fq.eq("casos.parceiro_id", parceiroAlvo);
           // nullsFirst:false — DESC no Postgres põe NULL primeiro, e as
           // atendidas legadas sem data_atendimento tomariam as 40 vagas na
           // frente do que o parceiro acabou de enviar.
-          .order("data_atendimento", { ascending: false, nullsFirst: false })
-          .limit(40),
+          return fq
+            .order("data_atendimento", { ascending: false, nullsFirst: false })
+            .limit(40);
+        })(),
       ]);
       if (evs.error) throw evs.error;
       if (feitas.error) throw feitas.error;
@@ -269,7 +284,7 @@ export function TarefasParceiro() {
     } finally {
       setCarregando(false);
     }
-  }, []);
+  }, [verComo?.parceiroId]);
 
   useEffect(() => {
     carregar();
@@ -335,6 +350,7 @@ export function TarefasParceiro() {
   );
 
   function abrirCumprir(s: SolicPendente) {
+    if (readOnly) return; // admin em "ver como" não cumpre pelo parceiro
     setCumprindo(s);
     setArquivos([]);
     setComentario("");
@@ -550,6 +566,7 @@ export function TarefasParceiro() {
                         <CardSolicitacao
                           key={c.key}
                           s={c.s}
+                          readOnly={readOnly}
                           onCumprir={() => abrirCumprir(c.s)}
                           onAbrirCaso={() =>
                             navigate({
@@ -684,10 +701,11 @@ export function TarefasParceiro() {
 
 function CardSolicitacao(props: {
   s: SolicPendente;
+  readOnly?: boolean;
   onCumprir: () => void;
   onAbrirCaso: () => void;
 }) {
-  const { s, onCumprir, onAbrirCaso } = props;
+  const { s, readOnly, onCumprir, onAbrirCaso } = props;
   const cat = categoriaSolic(s.origem);
   const urg = urgenciaDoPrazo(s.prazo_at);
   const cliente = s.casos?.clientes?.nome ?? "(cliente sem nome)";
@@ -738,18 +756,21 @@ function CardSolicitacao(props: {
         <Clock className="h-3 w-3 shrink-0" />
         {s.prazo_at ? textoPrazo(s.prazo_at) : "Sem prazo definido — quanto antes"}
       </p>
-      <Button
-        size="sm"
-        variant="outline"
-        className="w-full mt-2"
-        onClick={(ev) => {
-          ev.stopPropagation();
-          onCumprir();
-        }}
-      >
-        <CheckCircle2 className="h-3 w-3 mr-1" />
-        Cumprir
-      </Button>
+      {/* Em "ver como" (admin, leitura) não há ação em nome do parceiro. */}
+      {!readOnly && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-full mt-2"
+          onClick={(ev) => {
+            ev.stopPropagation();
+            onCumprir();
+          }}
+        >
+          <CheckCircle2 className="h-3 w-3 mr-1" />
+          Cumprir
+        </Button>
+      )}
     </div>
   );
 }

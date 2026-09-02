@@ -18,9 +18,11 @@ import {
   Clock,
   UserX,
   UserCheck,
+  Eye,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
+import { useVerComoParceiro } from "@/hooks/use-ver-como-parceiro";
 import { supabase } from "@/lib/supabase";
 import { formatarTelefone } from "@/lib/telefone";
 import { ClientOnly } from "@/components/client-only";
@@ -185,8 +187,14 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>;
 
 function ParceirosPage() {
-  const { usuario } = useAuth();
+  const { usuario, isAdmin } = useAuth();
   const navigate = useNavigate();
+  const { entrarVerComo } = useVerComoParceiro();
+  // "Ver como parceiro" (só admin, leitura): entra no modo e vai pro kanban.
+  function verComoParceiro(p: ParceiroRow) {
+    entrarVerComo({ parceiroId: p.id, parceiroNome: p.nome ?? "Parceiro" });
+    navigate({ to: "/tarefas" });
+  }
   const [parceiros, setParceiros] = useState<ParceiroRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -838,6 +846,18 @@ function ParceirosPage() {
                           <span>Tel: {formatarTelefone(p.telefone) || "—"}</span>
                         </div>
                         <div className="flex justify-end gap-0.5 border-t border-border pt-1.5">
+                          {isAdmin && p.ativo && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => verComoParceiro(p)}
+                              aria-label={"Ver como " + (p.nome ?? "parceiro")}
+                              title="Ver o painel do parceiro (somente leitura)"
+                              className="text-muted-foreground hover:text-[var(--gold)]"
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
                           <Button
                             size="sm"
                             variant="ghost"
@@ -944,6 +964,18 @@ function ParceirosPage() {
                             </TableCell>
                             <TableCell className="text-right">
                               <div className="flex justify-end gap-0.5">
+                                {isAdmin && p.ativo && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => verComoParceiro(p)}
+                                    aria-label={"Ver como " + (p.nome ?? "parceiro")}
+                                    title="Ver o painel do parceiro (somente leitura)"
+                                    className="text-muted-foreground hover:text-[var(--gold)]"
+                                  >
+                                    <Eye className="h-3.5 w-3.5" />
+                                  </Button>
+                                )}
                                 <Button
                                   size="sm"
                                   variant="ghost"
