@@ -177,6 +177,19 @@ export async function excluirTarefa(id: string): Promise<void> {
 }
 
 /**
+ * Exclui a tarefa registrando o MOTIVO (popup de conclusão). O RPC carimba o
+ * motivo no metadata e deleta na mesma transação; o trigger de log grava em
+ * tarefas_excluidas.motivo — ver migration_tarefa_exclusao_motivo.sql.
+ */
+export async function excluirTarefaComMotivo(id: string, motivo: string): Promise<void> {
+  const { error } = await supabase.rpc("excluir_tarefa_com_motivo", {
+    p_id: id,
+    p_motivo: motivo,
+  });
+  if (error) throw error;
+}
+
+/**
  * Log de tarefas excluídas (quem/quando). Por caso ou geral (últimas N).
  * `caso_id` não tem FK (o caso pode já ter sumido), então o cliente vem
  * numa 2ª consulta em vez de embed.
