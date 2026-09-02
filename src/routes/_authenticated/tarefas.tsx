@@ -790,7 +790,11 @@ function TarefasPage() {
         <ConcluirTarefaDialog
           tarefa={concluindo}
           onClose={() => setConcluindo(null)}
-          onConcluida={() => carregar()}
+          onConcluidaEAdicionar={(t) => {
+            carregar();
+            // Abre a criação da próxima tarefa, já no caso da que foi concluída.
+            setSheetModo({ kind: "criar", casoIdInicial: t.caso_id });
+          }}
           onExcluida={() => {
             setVersaoExcluidas((v) => v + 1);
             carregar();

@@ -55,9 +55,11 @@ test("clicar Feito abre popup; excluir exige motivo e registra no log", async ({
   await cardTarefa.getByRole("button", { name: "Ações da tarefa" }).click();
   await page.getByRole("menuitem", { name: "Feito", exact: true }).click();
 
-  // Popup de conclusão.
+  // Popup de conclusão — botão de concluir já leva "e adicionar outra".
   await expect(page.getByRole("heading", { name: "Concluir tarefa" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Concluir tarefa/ })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /Concluir tarefa e adicionar outra/ }),
+  ).toBeVisible();
 
   // Excluir sem motivo: bloqueado.
   await page.getByRole("button", { name: /Excluir com motivo/ }).click();
@@ -69,9 +71,10 @@ test("clicar Feito abre popup; excluir exige motivo e registra no log", async ({
     .getByPlaceholder(/caso é judicial/)
     .fill("caso judicial — análise do Legalmail não se aplica");
   await page.getByRole("button", { name: "Excluir tarefa" }).click();
-  await expect(page.getByText(/Tarefa excluída/)).toBeVisible({ timeout: 15000 });
+  // Toast exato (o andamento novo "Tarefa excluída: ..." também casaria o regex).
+  await expect(page.getByText("Tarefa excluída.", { exact: true })).toBeVisible({ timeout: 15000 });
 
-  // Banco: tarefa apagada e log com o motivo.
+  // Banco: tarefa apagada, log com o motivo, e ANDAMENTO no caso com o motivo.
   const { data: viva } = await admin.from("tarefas").select("id").eq("id", tarefaId).maybeSingle();
   expect(viva).toBeNull();
   const { data: log } = await admin
@@ -80,4 +83,42 @@ test("clicar Feito abre popup; excluir exige motivo e registra no log", async ({
     .eq("tarefa_id", tarefaId)
     .maybeSingle();
   expect(log?.motivo).toContain("Legalmail");
+  const { data: and } = await admin
+    .from("andamentos")
+    .select("titulo, descricao, visivel_parceiro")
+    .eq("caso_id", casoId)
+    .eq("metadata->>tarefa_id", tarefaId)
+    .maybeSingle();
+  expect(and, "andamento do motivo não foi criado").toBeTruthy();
+  expect(and!.descricao).toContain("Legalmail");
+  expect(and!.visivel_parceiro).toBe(false);
+});
+
+test("Concluir tarefa e adicionar outra abre a criação da próxima", async ({ page }) => {
+  // Segunda tarefa dedicada (a do outro teste é excluída).
+  const titulo2 = `[E2E] Proxima ${Date.now()}`;
+  const { data: t2 } = await admin
+    .from("tarefas")
+    .insert({ caso_id: casoId, tipo: "interna", status: "a_fazer", titulo: titulo2, origem: "manual" })
+    .select("id")
+    .single();
+
+  await page.goto(`/casos/${casoId}`);
+  await page.getByText("Atividades", { exact: true }).first().click();
+  await expect(page.getByText(titulo2)).toBeVisible({ timeout: 20000 });
+
+  const card = page.locator("div.group").filter({ hasText: titulo2 }).first();
+  await card.hover();
+  await card.getByRole("button", { name: "Ações da tarefa" }).click();
+  await page.getByRole("menuitem", { name: "Feito", exact: true }).click();
+  await page.getByRole("button", { name: /Concluir tarefa e adicionar outra/ }).click();
+
+  // Abriu o sheet de criação da próxima tarefa (SheetTitle "Nova tarefa" — o
+  // heading, não o botão da toolbar).
+  await expect(page.getByRole("heading", { name: "Nova tarefa" })).toBeVisible({ timeout: 10000 });
+
+  // Banco: a primeira ficou concluída.
+  const { data: feita } = await admin.from("tarefas").select("status").eq("id", t2!.id).single();
+  expect(feita!.status).toBe("feito");
+  await admin.from("tarefas").delete().eq("id", t2!.id);
 });
