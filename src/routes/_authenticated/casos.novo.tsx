@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -198,8 +198,29 @@ function NovoCasoPage() {
 
   const isInterno = usuario?.tipo === "interno";
 
+  // Nao da pra gravar sem dizer de onde veio o cliente: ou marca "cliente
+  // interno", ou escolhe o parceiro indicador. Antes os dois vazios salvavam
+  // um caso sem parceiro (= interno) calado. Parceiro logado nao escolhe (o
+  // caso ja fica no nome dele), entao a regra so vale pro interno. useForm
+  // reaplica _options a cada render, entao o resolver novo passa a valer
+  // quando o usuario termina de carregar.
+  const schemaComParceiro = useMemo(
+    () =>
+      schema.superRefine((v, ctx) => {
+        if (!isInterno) return;
+        if (!v.cliente_interno && !v.parceiro_id) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["parceiro_id"],
+            message: 'Selecione o parceiro indicador ou marque "Cliente interno do escritório"',
+          });
+        }
+      }),
+    [isInterno],
+  );
+
   const form = useForm<FormValues>({
-    resolver: zodResolver(schema),
+    resolver: zodResolver(schemaComParceiro),
     defaultValues: {
       nome: "",
       cpf: "",
@@ -415,6 +436,15 @@ function NovoCasoPage() {
 
   async function onSubmit(values: FormValues) {
     if (!usuario) return;
+
+    // Trava dura, alem do schema: sem parceiro e sem "cliente interno" o caso
+    // nao grava. Antes caia no else e virava caso sem parceiro (interno).
+    if (isInterno && !values.cliente_interno && !values.parceiro_id) {
+      const msg = 'Selecione o parceiro indicador ou marque "Cliente interno do escritório"';
+      form.setError("parceiro_id", { type: "manual", message: msg });
+      toast.error(msg);
+      return;
+    }
 
     // Validacao de tamanho dos arquivos antes de qualquer insert.
     // Falha cedo evita criar cliente+caso e travar no upload depois.
@@ -976,6 +1006,7 @@ function NovoCasoPage() {
                               field.onChange(e.target.checked);
                               if (e.target.checked) {
                                 form.setValue("parceiro_id", "");
+                                form.clearErrors("parceiro_id");
                               }
                             }}
                             className="h-4 w-4"
@@ -1002,7 +1033,7 @@ function NovoCasoPage() {
                     render={({ field }) => (
                       <FormItem>
                         <div className="flex items-center justify-between gap-2">
-                          <FormLabel>Parceiro indicador</FormLabel>
+                          <FormLabel>Parceiro indicador *</FormLabel>
                           <NovoParceiroDialog
                             onCriado={(p) => {
                               setParceiros((prev) => {
