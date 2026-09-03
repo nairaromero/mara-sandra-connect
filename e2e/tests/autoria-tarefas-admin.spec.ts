@@ -65,12 +65,12 @@ test("concluir tarefa grava quem concluiu e o card mostra", async ({ page }) => 
   await page.getByRole("tab", { name: /Atividades|Tarefas/ }).click();
 
   await page.getByText("[E2E] tarefa pra concluir", { exact: true }).click();
-  // Sheet de edição: Status → Feito → Salvar.
+  // Sheet de edição: Status → Feito abre o POPUP de conclusão.
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByText("Editar tarefa")).toBeVisible();
   await dialog.getByRole("combobox").filter({ hasText: "A fazer" }).click();
   await page.getByRole("option", { name: "Feito", exact: true }).click();
-  await dialog.getByRole("button", { name: "Salvar" }).click();
+  await page.getByRole("button", { name: /Concluir tarefa e adicionar outra/ }).click();
 
   await expect
     .poll(
@@ -88,6 +88,11 @@ test("concluir tarefa grava quem concluiu e o card mostra", async ({ page }) => 
     )
     .toBe("ok");
 
+  // Concluir agora já abre a criação da PRÓXIMA tarefa ("e adicionar outra").
+  // Como aqui não vamos criar outra, cancela esse sheet.
+  await expect(page.getByRole("heading", { name: "Nova tarefa" })).toBeVisible({ timeout: 10_000 });
+  await page.getByRole("button", { name: "Cancelar" }).click();
+
   // Aba Arquivados mostra "Concluída por <nome do e2e>".
   await page.getByRole("tab", { name: /Arquivados/ }).click();
   const { data: me } = await admin.from("usuarios").select("nome").eq("id", internoId).single();
@@ -99,10 +104,12 @@ test("excluir tarefa deixa rastro com quem excluiu", async ({ page }) => {
   await page.goto(`/casos/${casoId}`);
   await page.getByRole("tab", { name: /Atividades|Tarefas/ }).click();
 
-  page.once("dialog", (d) => d.accept());
   await page.getByText("[E2E] tarefa pra excluir", { exact: true }).click();
   const dialog = page.getByRole("dialog");
-  await dialog.getByRole("button", { name: "Excluir" }).click();
+  // Excluir agora pede MOTIVO (vira andamento) — não é mais window.confirm.
+  await dialog.getByRole("button", { name: "Excluir", exact: true }).click();
+  await page.getByPlaceholder(/caso é judicial/).fill("removida no teste de autoria");
+  await page.getByRole("button", { name: "Excluir tarefa" }).click();
 
   await expect
     .poll(

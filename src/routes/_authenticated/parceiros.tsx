@@ -18,6 +18,7 @@ import {
   Clock,
   UserX,
   UserCheck,
+  HardDrive,
   Eye,
 } from "lucide-react";
 
@@ -31,6 +32,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -70,6 +72,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { mensagemDeErroEdge } from "@/lib/edge-function-error";
 
 export const Route = createFileRoute("/_authenticated/parceiros")({
+  // Aba ativa na URL (?tab=convites|armazenamento) pra deep-link e
+  // voltar/avancar — mesmo padrao do ?caso= em /conversas.
+  validateSearch: (s: Record<string, unknown>): { tab?: string } => ({
+    tab: typeof s.tab === "string" ? s.tab : undefined,
+  }),
   component: ParceirosPage,
 });
 
@@ -186,6 +193,21 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
+// Formata bytes pra leitura humana (base 1024, como o dashboard do Supabase).
+function formatarBytes(n: number): string {
+  if (n >= 1024 ** 3) return (n / 1024 ** 3).toFixed(2) + " GB";
+  if (n >= 1024 ** 2) return (n / 1024 ** 2).toFixed(1) + " MB";
+  if (n >= 1024) return (n / 1024).toFixed(0) + " kB";
+  return n + " B";
+}
+
+interface UsoStorageRow {
+  parceiro_id: string | null;
+  nome: string | null;
+  arquivos: number;
+  bytes: number;
+}
+
 function ParceirosPage() {
   const { usuario, isAdmin } = useAuth();
   const navigate = useNavigate();
@@ -197,6 +219,44 @@ function ParceirosPage() {
   }
   const [parceiros, setParceiros] = useState<ParceiroRow[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // ---- Abas ----
+  // A aba vem da URL; valor desconhecido cai em "ativos" (a lista principal).
+  const search = Route.useSearch();
+  const tab = search.tab === "convites" || search.tab === "armazenamento" ? search.tab : "ativos";
+  function irParaAba(v: string) {
+    navigate({
+      to: "/parceiros",
+      search: v === "ativos" ? {} : { tab: v },
+      replace: true,
+    });
+  }
+
+  // Dialog do convite: acao rara saiu do topo da pagina (era um form
+  // permanentemente aberto de ~130 linhas).
+  const [convidarAberto, setConvidarAberto] = useState(false);
+
+  // ---- Uso de armazenamento por parceiro ----
+  // Degrau 1 (so medir e mostrar — ver migration_uso_storage_parceiro.sql).
+  // null = carregando; erro fica separado pra NAO virar "0 MB" silencioso.
+  // Carrega SO quando a aba abre (lazy) — a RPC varre storage.objects.
+  const [usoStorage, setUsoStorage] = useState<UsoStorageRow[] | null>(null);
+  const [usoStorageErro, setUsoStorageErro] = useState<string | null>(null);
+  useEffect(() => {
+    if (tab !== "armazenamento" || usoStorage !== null || usoStorageErro !== null) return;
+    let vivo = true;
+    supabase.rpc("uso_storage_parceiro").then(({ data, error }) => {
+      if (!vivo) return;
+      if (error) {
+        setUsoStorageErro(error.message);
+        return;
+      }
+      setUsoStorage((data as UsoStorageRow[]) ?? []);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [tab, usoStorage, usoStorageErro]);
   const [submitting, setSubmitting] = useState(false);
   const [reenviandoId, setReenviandoId] = useState<string | null>(null);
 
@@ -497,6 +557,7 @@ function ParceirosPage() {
         );
       }
       form.reset();
+      setConvidarAberto(false);
       await loadParceiros();
     } catch (err) {
       console.error(err);
@@ -562,11 +623,17 @@ function ParceirosPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
-      <div>
-        <h1 className="font-serif text-3xl font-semibold tracking-tight">Parceiros</h1>
-        <p className="text-sm text-muted-foreground">
-          Advogados captadores que indicam casos ao escritório.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="font-serif text-3xl font-semibold tracking-tight">Parceiros</h1>
+          <p className="text-sm text-muted-foreground">
+            Advogados captadores que indicam casos ao escritório.
+          </p>
+        </div>
+        <Button onClick={() => setConvidarAberto(true)}>
+          <UserPlus className="h-4 w-4 mr-2" />
+          Convidar parceiro
+        </Button>
       </div>
 
       <ClientOnly
@@ -576,17 +643,18 @@ function ParceirosPage() {
           </div>
         }
       >
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <UserPlus className="h-4 w-4" />
-              Convidar novo parceiro
-            </CardTitle>
-            <CardDescription>
-              O parceiro receberá um e-mail com link para definir a senha e acessar o sistema.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+        {/* Convite em dialog: quem convida clica no botao do cabecalho */}
+        <Dialog open={convidarAberto} onOpenChange={setConvidarAberto}>
+          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <UserPlus className="h-4 w-4" />
+                Convidar novo parceiro
+              </DialogTitle>
+              <DialogDescription>
+                O parceiro receberá um e-mail com link para definir a senha e acessar o sistema.
+              </DialogDescription>
+            </DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4 sm:grid-cols-2">
                 <FormField
@@ -699,258 +767,173 @@ function ParceirosPage() {
                 </div>
               </form>
             </Form>
-          </CardContent>
-        </Card>
+          </DialogContent>
+        </Dialog>
 
-        {/* Parceiros aguardando aceite (sem onboarded_em) */}
-        {!loading && parceiros.some((p) => !p.onboarded_em) && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Clock className="h-4 w-4 text-amber-600" />
-                Aguardando aceite do convite
-              </CardTitle>
-              <CardDescription>
-                Convite enviado por e-mail. O parceiro ainda não acessou pela primeira vez nem
-                aceitou os termos. Você pode reenviar o link ou ajustar os dados.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ul className="divide-y">
-                {parceiros
-                  .filter((p) => !p.onboarded_em)
-                  .map((p) => (
-                    <li
-                      key={p.id}
-                      className="flex flex-wrap items-center justify-between gap-3 py-3"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium">
-                          {p.nome ?? "(sem nome)"}
-                          <Badge
-                            variant="outline"
-                            className="ml-2 text-[10px] font-normal border-amber-500/50 text-amber-700 bg-amber-50"
-                          >
-                            convite pendente
-                          </Badge>
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {p.email ?? "(sem e-mail)"}
-                          {p.oab && <> · OAB {p.oab}</>}
-                          {p.percentual_parceiro != null && <> · {p.percentual_parceiro}%</>}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => reenviarConvite(p)}
-                          disabled={reenviandoId === p.id}
-                        >
-                          {reenviandoId === p.id ? (
-                            <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-                          ) : (
-                            <Send className="h-3.5 w-3.5 mr-1" />
-                          )}
-                          Reenviar
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => abrirEditar(p)}
-                          aria-label="Editar dados do convite"
-                          title="Editar dados antes de reenviar"
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setExcluirAlvo(p)}
-                          aria-label="Cancelar convite"
-                          title="Cancelar convite (apaga o parceiro)"
-                          className="text-muted-foreground hover:text-destructive"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </li>
-                  ))}
-              </ul>
-            </CardContent>
-          </Card>
-        )}
+        <Tabs value={tab} onValueChange={irParaAba}>
+          {/* Tabs numa linha unica com scroll horizontal em telas estreitas
+              (mesmo padrao de casos.$id). */}
+          <TabsList className="w-full flex justify-start overflow-x-auto">
+            <TabsTrigger value="ativos" className="flex items-center gap-1.5 shrink-0">
+              <UserCheck className="h-4 w-4" />
+              <span>Ativos</span>
+              <Badge variant="secondary" className="px-1.5 text-[10px]">
+                {parceiros.filter((p) => p.onboarded_em).length}
+              </Badge>
+            </TabsTrigger>
+            <TabsTrigger value="convites" className="flex items-center gap-1.5 shrink-0">
+              <Clock className="h-4 w-4" />
+              <span>Convites</span>
+              {parceiros.filter((p) => !p.onboarded_em).length > 0 && (
+                <Badge
+                  variant="outline"
+                  className="px-1.5 text-[10px] border-amber-500/50 text-amber-700 bg-amber-50"
+                >
+                  {parceiros.filter((p) => !p.onboarded_em).length}
+                </Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="armazenamento" className="flex items-center gap-1.5 shrink-0">
+              <HardDrive className="h-4 w-4" />
+              <span>Armazenamento</span>
+            </TabsTrigger>
+          </TabsList>
 
-        {/* Parceiros ativos */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Parceiros ativos</CardTitle>
-            <CardDescription>
-              {(() => {
-                const ativos = parceiros.filter((p) => p.onboarded_em).length;
-                return `${ativos} ${ativos === 1 ? "parceiro" : "parceiros"} já fizeram o primeiro acesso.`;
-              })()}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="flex h-32 items-center justify-center">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              </div>
-            ) : parceiros.filter((p) => p.onboarded_em).length === 0 ? (
-              <p className="text-sm text-muted-foreground py-8 text-center">
-                {parceiros.length === 0
-                  ? "Nenhum parceiro cadastrado ainda. Use o formulário acima para convidar o primeiro."
-                  : "Nenhum parceiro fez o primeiro acesso ainda."}
-              </p>
-            ) : (
-              <>
-                {/* Mobile: cards */}
-                <div className="md:hidden space-y-3">
-                  {parceiros
-                    .filter((p) => p.onboarded_em)
-                    .map((p) => (
-                      <div
-                        key={p.id}
-                        className="rounded-lg border border-border bg-card p-3 space-y-2"
-                      >
-                        <div className="flex items-start justify-between gap-2">
+          {/* Parceiros aguardando aceite (sem onboarded_em) */}
+          <TabsContent value="convites">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Clock className="h-4 w-4 text-amber-600" />
+                  Aguardando aceite do convite
+                </CardTitle>
+                <CardDescription>
+                  Convite enviado por e-mail. O parceiro ainda não acessou pela primeira vez nem
+                  aceitou os termos. Você pode reenviar o link ou ajustar os dados.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <div className="flex h-24 items-center justify-center">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : parceiros.filter((p) => !p.onboarded_em).length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-6 text-center">
+                    Nenhum convite pendente.
+                  </p>
+                ) : (
+                  <ul className="divide-y">
+                    {parceiros
+                      .filter((p) => !p.onboarded_em)
+                      .map((p) => (
+                        <li
+                          key={p.id}
+                          className="flex flex-wrap items-center justify-between gap-3 py-3"
+                        >
                           <div className="min-w-0">
-                            <div className="font-medium text-sm">{p.nome ?? "—"}</div>
-                            <div className="text-xs text-muted-foreground truncate">
-                              {p.email ?? "—"}
-                            </div>
-                          </div>
-                          <div className="flex shrink-0 items-center gap-1">
-                            {ehDaEquipe(p) && (
+                            <p className="text-sm font-medium">
+                              {p.nome ?? "(sem nome)"}
                               <Badge
                                 variant="outline"
-                                className="border-[var(--gold)] text-[var(--gold)]"
+                                className="ml-2 text-[10px] font-normal border-amber-500/50 text-amber-700 bg-amber-50"
                               >
-                                Equipe
+                                convite pendente
                               </Badge>
-                            )}
-                            {p.ativo ? (
-                              <Badge variant="secondary">Ativo</Badge>
-                            ) : (
-                              <Badge variant="outline">{p.desligado_em ? "Desligado" : "Inativo"}</Badge>
-                            )}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {p.email ?? "(sem e-mail)"}
+                              {p.oab && <> · OAB {p.oab}</>}
+                              {p.percentual_parceiro != null && <> · {p.percentual_parceiro}%</>}
+                            </p>
                           </div>
-                        </div>
-                        <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-0.5">
-                          <span>OAB: {p.oab ?? "—"}</span>
-                          <span>
-                            Repasse:{" "}
-                            {p.percentual_parceiro != null ? `${p.percentual_parceiro}%` : "—"}
-                          </span>
-                          <span>Tel: {formatarTelefone(p.telefone) || "—"}</span>
-                        </div>
-                        <div className="flex justify-end gap-0.5 border-t border-border pt-1.5">
-                          {isAdmin && p.ativo && (
+                          <div className="flex items-center gap-1">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => reenviarConvite(p)}
+                              disabled={reenviandoId === p.id}
+                            >
+                              {reenviandoId === p.id ? (
+                                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                              ) : (
+                                <Send className="h-3.5 w-3.5 mr-1" />
+                              )}
+                              Reenviar
+                            </Button>
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => verComoParceiro(p)}
-                              aria-label={"Ver como " + (p.nome ?? "parceiro")}
-                              title="Ver o painel do parceiro (somente leitura)"
-                              className="text-muted-foreground hover:text-[var(--gold)]"
+                              onClick={() => abrirEditar(p)}
+                              aria-label="Editar dados do convite"
+                              title="Editar dados antes de reenviar"
                             >
-                              <Eye className="h-3.5 w-3.5" />
+                              <Pencil className="h-3.5 w-3.5" />
                             </Button>
-                          )}
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setAtivarAlvo(p)}
-                            disabled={!p.telefone}
-                            aria-label="Ativar WhatsApp"
-                            className="text-muted-foreground hover:text-green-600"
-                          >
-                            <MessageCircle className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setAceiteAlvo(p)}
-                            aria-label="Ver aceite de termos"
-                            className="text-muted-foreground hover:text-[var(--gold)]"
-                          >
-                            <FileSignature className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => abrirEditar(p)}
-                            aria-label="Editar parceiro"
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </Button>
-                          {!ehDaEquipe(p) &&
-                            (p.ativo ? (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setDesligarAlvo(p)}
-                                aria-label="Desligar parceiro"
-                                className="text-muted-foreground hover:text-destructive"
-                              >
-                                <UserX className="h-3.5 w-3.5" />
-                              </Button>
-                            ) : (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => reativarParceiro(p)}
-                                disabled={reativando === p.id}
-                                aria-label="Reativar parceiro"
-                                className="text-muted-foreground hover:text-green-600"
-                              >
-                                {reativando === p.id ? (
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                ) : (
-                                  <UserCheck className="h-3.5 w-3.5" />
-                                )}
-                              </Button>
-                            ))}
-                        </div>
-                      </div>
-                    ))}
-                </div>
-                {/* Desktop: tabela */}
-                <div className="hidden md:block overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Nome</TableHead>
-                        <TableHead>E-mail</TableHead>
-                        <TableHead>OAB</TableHead>
-                        <TableHead className="w-16">Repasse</TableHead>
-                        <TableHead>Telefone</TableHead>
-                        <TableHead className="w-24">Status</TableHead>
-                        <TableHead className="w-36 text-right">Ações</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setExcluirAlvo(p)}
+                              aria-label="Cancelar convite"
+                              title="Cancelar convite (apaga o parceiro)"
+                              className="text-muted-foreground hover:text-destructive"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </li>
+                      ))}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Parceiros ativos */}
+          <TabsContent value="ativos">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Parceiros ativos</CardTitle>
+                <CardDescription>
+                  {(() => {
+                    const ativos = parceiros.filter((p) => p.onboarded_em).length;
+                    return `${ativos} ${ativos === 1 ? "parceiro" : "parceiros"} já fizeram o primeiro acesso.`;
+                  })()}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <div className="flex h-32 items-center justify-center">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : parceiros.filter((p) => p.onboarded_em).length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-8 text-center">
+                    {parceiros.length === 0
+                      ? "Nenhum parceiro cadastrado ainda. Use o formulário acima para convidar o primeiro."
+                      : "Nenhum parceiro fez o primeiro acesso ainda."}
+                  </p>
+                ) : (
+                  <>
+                    {/* Mobile: cards */}
+                    <div className="md:hidden space-y-3">
                       {parceiros
                         .filter((p) => p.onboarded_em)
                         .map((p) => (
-                          <TableRow key={p.id}>
-                            <TableCell className="font-medium">{p.nome ?? "—"}</TableCell>
-                            <TableCell className="text-muted-foreground">
-                              {p.email ?? "—"}
-                            </TableCell>
-                            <TableCell>{p.oab ?? "—"}</TableCell>
-                            <TableCell>
-                              {p.percentual_parceiro != null ? `${p.percentual_parceiro}%` : "—"}
-                            </TableCell>
-                            <TableCell>{formatarTelefone(p.telefone) || "—"}</TableCell>
-                            <TableCell>
-                              <div className="flex items-center gap-1">
+                          <div
+                            key={p.id}
+                            className="rounded-lg border border-border bg-card p-3 space-y-2"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="font-medium text-sm">{p.nome ?? "—"}</div>
+                                <div className="text-xs text-muted-foreground truncate">
+                                  {p.email ?? "—"}
+                                </div>
+                              </div>
+                              <div className="flex shrink-0 items-center gap-1">
                                 {ehDaEquipe(p) && (
                                   <Badge
                                     variant="outline"
                                     className="border-[var(--gold)] text-[var(--gold)]"
-                                    title="Também é da equipe interna — a conta dela se gerencia em Equipe"
                                   >
                                     Equipe
                                   </Badge>
@@ -958,97 +941,288 @@ function ParceirosPage() {
                                 {p.ativo ? (
                                   <Badge variant="secondary">Ativo</Badge>
                                 ) : (
-                                  <Badge variant="outline">{p.desligado_em ? "Desligado" : "Inativo"}</Badge>
+                                  <Badge variant="outline">
+                                    {p.desligado_em ? "Desligado" : "Inativo"}
+                                  </Badge>
                                 )}
                               </div>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex justify-end gap-0.5">
-                                {isAdmin && p.ativo && (
+                            </div>
+                            <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-0.5">
+                              <span>OAB: {p.oab ?? "—"}</span>
+                              <span>
+                                Repasse:{" "}
+                                {p.percentual_parceiro != null ? `${p.percentual_parceiro}%` : "—"}
+                              </span>
+                              <span>Tel: {formatarTelefone(p.telefone) || "—"}</span>
+                            </div>
+                            <div className="flex justify-end gap-0.5 border-t border-border pt-1.5">
+                              {isAdmin && p.ativo && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => verComoParceiro(p)}
+                                  aria-label={"Ver como " + (p.nome ?? "parceiro")}
+                                  title="Ver o painel do parceiro (somente leitura)"
+                                  className="text-muted-foreground hover:text-[var(--gold)]"
+                                >
+                                  <Eye className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setAtivarAlvo(p)}
+                                disabled={!p.telefone}
+                                aria-label="Ativar WhatsApp"
+                                className="text-muted-foreground hover:text-green-600"
+                              >
+                                <MessageCircle className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setAceiteAlvo(p)}
+                                aria-label="Ver aceite de termos"
+                                className="text-muted-foreground hover:text-[var(--gold)]"
+                              >
+                                <FileSignature className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => abrirEditar(p)}
+                                aria-label="Editar parceiro"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                              {!ehDaEquipe(p) &&
+                                (p.ativo ? (
                                   <Button
                                     size="sm"
                                     variant="ghost"
-                                    onClick={() => verComoParceiro(p)}
-                                    aria-label={"Ver como " + (p.nome ?? "parceiro")}
-                                    title="Ver o painel do parceiro (somente leitura)"
-                                    className="text-muted-foreground hover:text-[var(--gold)]"
+                                    onClick={() => setDesligarAlvo(p)}
+                                    aria-label="Desligar parceiro"
+                                    className="text-muted-foreground hover:text-destructive"
                                   >
-                                    <Eye className="h-3.5 w-3.5" />
+                                    <UserX className="h-3.5 w-3.5" />
                                   </Button>
-                                )}
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => setAtivarAlvo(p)}
-                                  disabled={!p.telefone}
-                                  aria-label="Ativar WhatsApp"
-                                  title={
-                                    p.telefone
-                                      ? "Ativar WhatsApp (envia código ao parceiro)"
-                                      : "Parceiro sem telefone cadastrado"
-                                  }
-                                  className="text-muted-foreground hover:text-green-600"
-                                >
-                                  <MessageCircle className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => setAceiteAlvo(p)}
-                                  aria-label="Ver aceite de termos"
-                                  title="Ver/baixar aceite de termos"
-                                  className="text-muted-foreground hover:text-[var(--gold)]"
-                                >
-                                  <FileSignature className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => abrirEditar(p)}
-                                  aria-label="Editar parceiro"
-                                >
-                                  <Pencil className="h-3.5 w-3.5" />
-                                </Button>
-                                {!ehDaEquipe(p) &&
-                                  (p.ativo ? (
+                                ) : (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => reativarParceiro(p)}
+                                    disabled={reativando === p.id}
+                                    aria-label="Reativar parceiro"
+                                    className="text-muted-foreground hover:text-green-600"
+                                  >
+                                    {reativando === p.id ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <UserCheck className="h-3.5 w-3.5" />
+                                    )}
+                                  </Button>
+                                ))}
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                    {/* Desktop: tabela */}
+                    <div className="hidden md:block overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Nome</TableHead>
+                            <TableHead>E-mail</TableHead>
+                            <TableHead>OAB</TableHead>
+                            <TableHead className="w-16">Repasse</TableHead>
+                            <TableHead>Telefone</TableHead>
+                            <TableHead className="w-24">Status</TableHead>
+                            <TableHead className="w-36 text-right">Ações</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {parceiros
+                            .filter((p) => p.onboarded_em)
+                            .map((p) => (
+                              <TableRow key={p.id}>
+                                <TableCell className="font-medium">{p.nome ?? "—"}</TableCell>
+                                <TableCell className="text-muted-foreground">
+                                  {p.email ?? "—"}
+                                </TableCell>
+                                <TableCell>{p.oab ?? "—"}</TableCell>
+                                <TableCell>
+                                  {p.percentual_parceiro != null
+                                    ? `${p.percentual_parceiro}%`
+                                    : "—"}
+                                </TableCell>
+                                <TableCell>{formatarTelefone(p.telefone) || "—"}</TableCell>
+                                <TableCell>
+                                  <div className="flex items-center gap-1">
+                                    {ehDaEquipe(p) && (
+                                      <Badge
+                                        variant="outline"
+                                        className="border-[var(--gold)] text-[var(--gold)]"
+                                        title="Também é da equipe interna — a conta dela se gerencia em Equipe"
+                                      >
+                                        Equipe
+                                      </Badge>
+                                    )}
+                                    {p.ativo ? (
+                                      <Badge variant="secondary">Ativo</Badge>
+                                    ) : (
+                                      <Badge variant="outline">
+                                        {p.desligado_em ? "Desligado" : "Inativo"}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <div className="flex justify-end gap-0.5">
+                                    {isAdmin && p.ativo && (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => verComoParceiro(p)}
+                                        aria-label={"Ver como " + (p.nome ?? "parceiro")}
+                                        title="Ver o painel do parceiro (somente leitura)"
+                                        className="text-muted-foreground hover:text-[var(--gold)]"
+                                      >
+                                        <Eye className="h-3.5 w-3.5" />
+                                      </Button>
+                                    )}
                                     <Button
                                       size="sm"
                                       variant="ghost"
-                                      onClick={() => setDesligarAlvo(p)}
-                                      aria-label="Desligar parceiro"
-                                      title="Desligar (bloqueia o acesso; histórico fica)"
-                                      className="text-muted-foreground hover:text-destructive"
-                                    >
-                                      <UserX className="h-3.5 w-3.5" />
-                                    </Button>
-                                  ) : (
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      onClick={() => reativarParceiro(p)}
-                                      disabled={reativando === p.id}
-                                      aria-label="Reativar parceiro"
-                                      title="Reativar (volta a entrar e a ver os casos dele)"
+                                      onClick={() => setAtivarAlvo(p)}
+                                      disabled={!p.telefone}
+                                      aria-label="Ativar WhatsApp"
+                                      title={
+                                        p.telefone
+                                          ? "Ativar WhatsApp (envia código ao parceiro)"
+                                          : "Parceiro sem telefone cadastrado"
+                                      }
                                       className="text-muted-foreground hover:text-green-600"
                                     >
-                                      {reativando === p.id ? (
-                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                      ) : (
-                                        <UserCheck className="h-3.5 w-3.5" />
-                                      )}
+                                      <MessageCircle className="h-3.5 w-3.5" />
                                     </Button>
-                                  ))}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => setAceiteAlvo(p)}
+                                      aria-label="Ver aceite de termos"
+                                      title="Ver/baixar aceite de termos"
+                                      className="text-muted-foreground hover:text-[var(--gold)]"
+                                    >
+                                      <FileSignature className="h-3.5 w-3.5" />
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => abrirEditar(p)}
+                                      aria-label="Editar parceiro"
+                                    >
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    </Button>
+                                    {!ehDaEquipe(p) &&
+                                      (p.ativo ? (
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          onClick={() => setDesligarAlvo(p)}
+                                          aria-label="Desligar parceiro"
+                                          title="Desligar (bloqueia o acesso; histórico fica)"
+                                          className="text-muted-foreground hover:text-destructive"
+                                        >
+                                          <UserX className="h-3.5 w-3.5" />
+                                        </Button>
+                                      ) : (
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          onClick={() => reativarParceiro(p)}
+                                          disabled={reativando === p.id}
+                                          aria-label="Reativar parceiro"
+                                          title="Reativar (volta a entrar e a ver os casos dele)"
+                                          className="text-muted-foreground hover:text-green-600"
+                                        >
+                                          {reativando === p.id ? (
+                                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                          ) : (
+                                            <UserCheck className="h-3.5 w-3.5" />
+                                          )}
+                                        </Button>
+                                      ))}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Uso de armazenamento por parceiro (degrau 1: medir e mostrar) */}
+          <TabsContent value="armazenamento">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <HardDrive className="h-4 w-4" />
+                  Uso de armazenamento
+                </CardTitle>
+                <CardDescription>
+                  {usoStorage && usoStorage.length > 0
+                    ? `${formatarBytes(usoStorage.reduce((s, r) => s + r.bytes, 0))} em documentos, por parceiro indicador do caso.`
+                    : "Espaço ocupado pelos documentos, por parceiro indicador do caso."}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {usoStorageErro ? (
+                  <p className="text-sm text-destructive py-4 text-center">
+                    Não foi possível carregar o uso de armazenamento: {usoStorageErro}
+                  </p>
+                ) : usoStorage === null ? (
+                  <div className="flex h-20 items-center justify-center">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : usoStorage.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4 text-center">
+                    Nenhum documento no armazenamento ainda.
+                  </p>
+                ) : (
+                  <ul className="space-y-3">
+                    {usoStorage.map((r) => {
+                      const total = usoStorage.reduce((s, x) => s + x.bytes, 0);
+                      const pct = total > 0 ? Math.round((100 * r.bytes) / total) : 0;
+                      return (
+                        <li key={r.parceiro_id ?? "sem-parceiro"}>
+                          <div className="flex items-baseline justify-between gap-2 text-sm">
+                            <span className="min-w-0 truncate font-medium">
+                              {r.nome ?? "(sem parceiro)"}
+                            </span>
+                            <span className="shrink-0 text-xs text-muted-foreground">
+                              {formatarBytes(r.bytes)} · {r.arquivos}{" "}
+                              {r.arquivos === 1 ? "arquivo" : "arquivos"} · {pct}%
+                            </span>
+                          </div>
+                          <div className="mt-1 h-1.5 w-full rounded-full bg-muted">
+                            <div
+                              className="h-1.5 rounded-full bg-primary"
+                              style={{ width: `${Math.max(pct, 1)}%` }}
+                            />
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
 
         {/* Dialog: aceite de termos do parceiro (interno only) */}
         <Dialog open={aceiteAlvo !== null} onOpenChange={(o) => !o && setAceiteAlvo(null)}>
@@ -1157,9 +1331,9 @@ function ParceirosPage() {
                   autoComplete="off"
                 />
                 <p className="text-xs text-muted-foreground mt-1">
-                  Separe por vírgula. Recebem cópia dos avisos (andamentos,
-                  comentários). O acesso ao sistema continua sendo só pelo e-mail
-                  principal — é ele que recebe o link de login.
+                  Separe por vírgula. Recebem cópia dos avisos (andamentos, comentários). O acesso
+                  ao sistema continua sendo só pelo e-mail principal — é ele que recebe o link de
+                  login.
                 </p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1199,9 +1373,7 @@ function ParceirosPage() {
                   checked={editEnviarLink}
                   onCheckedChange={(c) => setEditEnviarLink(c === true)}
                 />
-                <span className="text-sm">
-                  Enviar novo link de acesso por e-mail ao salvar
-                </span>
+                <span className="text-sm">Enviar novo link de acesso por e-mail ao salvar</span>
               </label>
             </div>
             <DialogFooter>
@@ -1226,8 +1398,8 @@ function ParceirosPage() {
               <AlertDialogTitle>Desligar {desligarAlvo?.nome ?? "parceiro"}?</AlertDialogTitle>
               <AlertDialogDescription>
                 A pessoa não consegue mais entrar nem ver os casos dela. Nada é apagado: casos,
-                comentários, documentos e repasses continuam no nome dela, visíveis só pra
-                equipe. Dá pra reativar depois.
+                comentários, documentos e repasses continuam no nome dela, visíveis só pra equipe.
+                Dá pra reativar depois.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

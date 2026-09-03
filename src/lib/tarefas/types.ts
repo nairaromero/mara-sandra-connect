@@ -131,7 +131,11 @@ export const STATUS_LABEL: Record<TarefaStatus, string> = {
   cancelado: "Cancelado",
 };
 
-export const STATUS_ORDEM: TarefaStatus[] = ["a_fazer", "fazendo", "feito", "cancelado"];
+// "Cancelado" saiu das opções escolhíveis (Naira, 2026-09-02): tarefa ou se
+// conclui, ou se exclui com motivo (que vira andamento) — sem limbo de
+// cancelada. O enum e o STATUS_LABEL mantêm 'cancelado' só pra exibir as
+// tarefas canceladas antigas no histórico (Arquivados).
+export const STATUS_ORDEM: TarefaStatus[] = ["a_fazer", "fazendo", "feito"];
 
 export const TIPO_LABEL: Record<TarefaTipo, string> = {
   interna: "Interna",

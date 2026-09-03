@@ -25,7 +25,6 @@ import {
   nomeAmigavel,
   URGENCIA_BADGE_CLASS,
   urgenciaDoDueAt,
-  checklistPendente,
 } from "@/lib/tarefas/helpers";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -46,12 +45,12 @@ import { TarefaCard } from "@/components/tarefas/tarefa-card";
 import { TarefasParceiro } from "@/components/parceiro/tarefas-parceiro";
 import { useVerComoParceiro } from "@/hooks/use-ver-como-parceiro";
 import { TarefaSheet } from "@/components/tarefas/tarefa-sheet";
+import { useConcluirTarefa } from "@/components/tarefas/use-concluir-tarefa";
 import { TarefasExcluidas } from "@/components/tarefas/tarefas-excluidas";
 import { RadarCasosOrfaos } from "@/components/tarefas/radar-casos-orfaos";
 import {
   atualizarTarefa,
   contarTarefas,
-  excluirTarefa,
   listarInternosAtivos,
   listarTarefas,
 } from "@/lib/tarefas/queries";
@@ -211,6 +210,16 @@ function TarefasPage() {
     }
   }, []);
 
+  // Popup Concluir/Editar/Excluir — dono do "Feito" e de TODA exclusão
+  // (kanban, lista e menu do card). `carregar()` já re-busca o log de
+  // excluídas via versaoExcluidas.
+  const popupConcluir = useConcluirTarefa({
+    aoConcluida: () => carregar(),
+    aoExcluida: () => carregar(),
+    aoEditar: (t) => setSheetModo({ kind: "editar", tarefa: t }),
+    aoNovaTarefa: (casoId) => setSheetModo({ kind: "criar", casoIdInicial: casoId }),
+  });
+
   const trocarAba = useCallback(
     async (v: "ativos" | "arquivados") => {
       setAba(v);
@@ -342,17 +351,14 @@ function TarefasPage() {
   }, [tarefas, usuario?.id]);
 
   async function mudarStatus(id: string, status: TarefaStatus) {
-    // Concluir por fora (kanban/lista) não pode pular o widget da tarefa —
-    // a corrente morreria calada (auditoria 2026-09-01).
+    // Concluir pelo "Feito" (kanban/lista) sempre passa pelo popup: Concluir /
+    // Editar / Excluir com motivo — pra nenhuma tarefa (nem o caso) ficar
+    // parada sem razão (Naira, 2026-09-02). O popup também é quem barra a
+    // conclusão direta das tarefas de desfecho (antes um toast solto).
     if (status === "feito") {
       const alvo = tarefas.find((t) => t.id === id);
-      const pendente = alvo ? checklistPendente(alvo) : null;
-      if (pendente) {
-        toast.error("Esta tarefa se conclui pelo próprio botão dela", {
-          description: "Abra a tarefa e use " + pendente + " — é ele que dispara o andamento e o próximo passo.",
-        });
-        return;
-      }
+      if (alvo) popupConcluir.pedirConclusao(alvo);
+      return;
     }
     // Optimistic update
     const original = tarefas.find((t) => t.id === id);
@@ -368,19 +374,11 @@ function TarefasPage() {
     }
   }
 
-  async function excluir(id: string) {
-    if (!window.confirm("Excluir esta tarefa?")) return;
-    const snapshot = tarefas;
-    setTarefas((arr) => arr.filter((t) => t.id !== id));
-    try {
-      await excluirTarefa(id);
-      setVersaoExcluidas((v) => v + 1);
-      toast.success("Tarefa excluída.");
-    } catch (e) {
-      console.error(e);
-      setTarefas(snapshot);
-      toast.error("Falha ao excluir.");
-    }
+  // Excluir do menu do card: mesmo popup com motivo obrigatório do painel —
+  // não existe mais caminho de exclusão sem razão registrada.
+  function excluir(id: string) {
+    const t = tarefas.find((x) => x.id === id);
+    if (t) popupConcluir.pedirExclusao(t);
   }
 
   function abrirEditor(id: string) {
@@ -787,7 +785,9 @@ function TarefasPage() {
           modo={sheetModo}
           onClose={() => setSheetModo(null)}
           onSaved={carregar}
+          onConcluida={(casoId) => setSheetModo({ kind: "criar", casoIdInicial: casoId })}
         />
+        {popupConcluir.elemento}
       </div>
     </ClientOnly>
   );

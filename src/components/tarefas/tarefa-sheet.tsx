@@ -30,7 +30,7 @@ import {
 import {
   atualizarTarefa,
   criarTarefa,
-  excluirTarefa,
+  excluirTarefaComMotivo,
   listarCasosResumo,
   listarInternosAtivos,
   listarProcessosDoCaso,
@@ -81,6 +81,7 @@ import {
   checklistPendente,
   substituirPlaceholders,
 } from "@/lib/tarefas/helpers";
+import { ConcluirTarefaDialog } from "@/components/tarefas/concluir-tarefa-dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -122,12 +123,15 @@ interface Props {
   modo: Modo | null;                 // null = fechado
   onClose: () => void;
   onSaved: () => void;               // recarregar lista
+  // Chamado quando a tarefa foi CONCLUÍDA aqui (status -> feito): o pai abre a
+  // criação da próxima ("concluir e adicionar outra"). Opcional.
+  onConcluida?: (casoId: string | null) => void;
 }
 
 const TIPOS: TarefaTipo[] = ["interna", "prazo", "pericia", "pos_protocolo", "contato_cliente"];
 
 
-export function TarefaSheet({ modo, onClose, onSaved }: Props) {
+export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   const aberto = modo !== null;
   const { marcar: marcarDestaque } = useDestaque();
   const { usuario } = useAuth();
@@ -314,7 +318,11 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   const [avisosAgenda, setAvisosAgenda] = useState<string[] | null>(null);
   const ignorarAvisosAgenda = useRef(false);
   const [justificativa, setJustificativa] = useState("");
-  const [excluindo, setExcluindo] = useState(false);
+  // Popup de conclusão/exclusão: pôr Status em "Feito" (modo concluir) ou o
+  // botão Excluir do rodapé (modo excluir) abrem o MESMO popup do card —
+  // inclusive nas tarefas de desfecho, onde ele oferece só editar/excluir.
+  const [concluindoNoSheet, setConcluindoNoSheet] = useState<TarefaComJoins | null>(null);
+  const [modoPopupSheet, setModoPopupSheet] = useState<"concluir" | "excluir">("concluir");
 
   // Template atual selecionado tem item destino=agenda? Se sim, o save
   // cria evento na agenda + tarefas extras com prazos relativos. UI
@@ -572,9 +580,9 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
   }, [modo]);
 
   const fechar = useCallback(() => {
-    if (salvando || excluindo) return;
+    if (salvando) return;
     onClose();
-  }, [salvando, excluindo, onClose]);
+  }, [salvando, onClose]);
 
   function parseProcesso(): {
     processo_admin_id: string | null;
@@ -608,29 +616,36 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
     return new Date(novoDueAt).getTime() > new Date(tarefa.due_at).getTime();
   }
 
-  async function salvar(justificativa?: string) {
+  // Retorna true quando persistiu (e fechou o sheet); false nas validações
+  // que interrompem. statusForcado: o popup de conclusão usa pra salvar TODAS
+  // as edições pendentes junto com o status=feito (nada digitado se perde).
+  async function salvar(
+    justificativa?: string,
+    statusForcado?: TarefaStatus,
+  ): Promise<boolean> {
+    const statusEfetivo = statusForcado ?? status;
     if (!titulo.trim()) {
       toast.error("Título é obrigatório.");
-      return;
+      return false;
     }
     const dueCalculado = isoFromInputDateTime(dueDate);
     if (justificativa === undefined && adiandoPrazoFatal(dueCalculado)) {
       setConfirmandoAdiamento(true);
-      return;
+      return false;
     }
     setSalvando(true);
     try {
       const due_at = dueCalculado;
       const proc = parseProcesso();
       if (editando && tarefa) {
-        if (status === "feito" && tarefa.status !== "feito") {
+        if (statusEfetivo === "feito" && tarefa.status !== "feito") {
           const pendente = checklistPendente(tarefa);
           if (pendente) {
             toast.error("Esta tarefa se conclui pelo próprio botão dela", {
               description: "Use " + pendente + " — é ele que dispara o andamento e o próximo passo.",
             });
             setSalvando(false);
-            return;
+            return false;
           }
         }
         await atualizarTarefa({
@@ -640,7 +655,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
             descricao: descricao.trim() || null,
             tipo,
             prioridade,
-            status,
+            status: statusEfetivo,
             caso_id: casoId,
             responsavel_id: responsavelId,
             due_at,
@@ -726,7 +741,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
         if (templateTemPrazoFatalForm && !prazoFatal) {
           toast.error("Informe o prazo fatal da publicação.");
           setSalvando(false);
-          return;
+          return false;
         }
 
         // Comprovante de outra pessoa pendente de decisão: não deixa salvar.
@@ -735,7 +750,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
             "O comprovante anexado é de outra pessoa. Confirme que é o mesmo cliente ou anexe o arquivo certo.",
           );
           setSalvando(false);
-          return;
+          return false;
         }
 
         // Contexto pra substituir placeholders e lookup de e-mail→uuid
@@ -771,7 +786,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           if (!dueDate) {
             toast.error("Data e hora da perícia são obrigatórias.");
             setSalvando(false);
-            return;
+            return false;
           }
           const startIso = isoFromInputDateTime(dueDate)!;
           agendaStart = new Date(startIso);
@@ -821,7 +836,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
             if (avisos.length > 0) {
               setAvisosAgenda(avisos);
               setSalvando(false);
-              return;
+              return false;
             }
           }
           // Aviso direto marcado ANTES do insert: o trigger só cria a tarefa
@@ -1097,7 +1112,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           );
           onSaved();
           onClose();
-          return;
+          return true;
         }
 
         const totalTarefas = 1 + extras;
@@ -1111,6 +1126,7 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
       }
       onSaved();
       onClose();
+      return true;
     } catch (e) {
       console.error("[tarefa-sheet] salvar falhou:", e);
       const anyErr = e as { message?: string; details?: string; hint?: string };
@@ -1124,27 +1140,20 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
         }
       }
       toast.error(`Falha: ${msg}`);
+      return false;
     } finally {
       setSalvando(false);
     }
   }
 
-  async function excluir() {
+  // Excluir com motivo: abre o MESMO popup do card, ja no modo excluir —
+  // um unico dialog de motivo em toda a feature (revisao 2026-09-02).
+  function abrirExcluir() {
     if (!editando || !tarefa) return;
-    if (!window.confirm("Excluir esta tarefa?")) return;
-    setExcluindo(true);
-    try {
-      await excluirTarefa(tarefa.id);
-      toast.success("Tarefa excluída.");
-      onSaved();
-      onClose();
-    } catch (e) {
-      console.error(e);
-      toast.error("Falha ao excluir.");
-    } finally {
-      setExcluindo(false);
-    }
+    setModoPopupSheet("excluir");
+    setConcluindoNoSheet(tarefa);
   }
+
 
   return (
     <Sheet open={aberto} onOpenChange={(o) => !o && fechar()}>
@@ -1575,10 +1584,27 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           {editando && (
             <div className="space-y-1.5">
               <Label>Status</Label>
-              <Select value={status} onValueChange={(v) => setStatus(v as TarefaStatus)}>
+              <Select
+                value={status}
+                onValueChange={(v) => {
+                  // "Feito" abre o popup de conclusão (não muda o status direto):
+                  // Concluir e adicionar outra / Editar / Excluir com motivo.
+                  if (v === "feito" && tarefa && tarefa.status !== "feito") {
+                    setModoPopupSheet("concluir");
+                    setConcluindoNoSheet(tarefa);
+                    return;
+                  }
+                  setStatus(v as TarefaStatus);
+                }}
+              >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {STATUS_ORDEM.map((s) => (
+                  {/* "Cancelado" saiu das opções; se a tarefa já é cancelada
+                      (histórico), mantém a opção só pra ela não sumir do select. */}
+                  {(STATUS_ORDEM.includes(status)
+                    ? STATUS_ORDEM
+                    : [...STATUS_ORDEM, status]
+                  ).map((s) => (
                     <SelectItem key={s} value={s}>{STATUS_LABEL[s]}</SelectItem>
                   ))}
                 </SelectContent>
@@ -1816,11 +1842,11 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           {editando && (
             <Button
               variant="ghost"
-              onClick={excluir}
-              disabled={excluindo || salvando}
+              onClick={abrirExcluir}
+              disabled={salvando}
               className="mr-auto text-destructive hover:text-destructive"
             >
-              {excluindo ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              <Trash2 className="h-4 w-4" />
               Excluir
             </Button>
           )}
@@ -1938,6 +1964,34 @@ export function TarefaSheet({ modo, onClose, onSaved }: Props) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Popup de conclusão/exclusão: Status="Feito" ou o botão Excluir. */}
+      <ConcluirTarefaDialog
+        tarefa={concluindoNoSheet}
+        modoInicial={modoPopupSheet}
+        onClose={() => setConcluindoNoSheet(null)}
+        // Concluir daqui salva TODAS as edições pendentes do painel junto com
+        // o status (revisão 2026-09-02: antes só o status ia pro banco e o que
+        // estava digitado se perdia). salvar() fecha o sheet quando persiste.
+        concluir={async () => {
+          setStatus("feito");
+          const ok = await salvar(undefined, "feito");
+          if (!ok) {
+            throw new Error("A tarefa não foi salva — revise o painel.");
+          }
+        }}
+        onConcluidaEAdicionar={(t) => {
+          setConcluindoNoSheet(null);
+          onConcluida?.(t.caso_id);
+        }}
+        onExcluida={() => {
+          setConcluindoNoSheet(null);
+          onSaved();
+          onClose();
+        }}
+        // "Editar" não faz sentido aqui (já está no painel): só fecha o popup.
+        onEditar={() => setConcluindoNoSheet(null)}
+      />
     </Sheet>
   );
 }

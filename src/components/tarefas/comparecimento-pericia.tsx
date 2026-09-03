@@ -6,8 +6,9 @@
 //  "Compareceu"      → andamento + garante o acompanhamento do resultado
 //                      (a tarefa de conferir de 10 em 10 dias).
 //  "Não compareceu"  → andamento + tarefa de análise pro dia seguinte útil,
-//                      e cancela o acompanhamento do resultado: não há
-//                      resultado a esperar de perícia que não aconteceu.
+//                      e exclui (com motivo no log) o acompanhamento do
+//                      resultado: não há resultado a esperar de perícia que
+//                      não aconteceu.
 //
 // Os dois gravam andamento contando o que houve, visível ao parceiro — foi
 // ele quem confirmou, e é ele quem precisa saber o que vem agora.
@@ -19,6 +20,7 @@ import { CheckCircle2, Loader2, UserCheck, UserX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
 import type { TarefaComJoins } from "@/lib/tarefas/types";
+import { excluirTarefaComMotivo } from "@/lib/tarefas/queries";
 import { useDestaque } from "@/lib/destaque/destaque-context";
 import { proximoDiaUtil } from "@/lib/agenda/helpers";
 
@@ -122,12 +124,14 @@ export function ComparecimentoPericia({
             });
           }
         } else {
-          // Perícia que não aconteceu não tem resultado a esperar.
-          if (acomp && acomp.length > 0) {
-            await supabase
-              .from("tarefas")
-              .update({ status: "cancelado" })
-              .in("id", acomp.map((a) => a.id));
+          // Perícia que não aconteceu não tem resultado a esperar: exclui o
+          // acompanhamento com motivo (fica no log de exclusões). 'cancelado'
+          // saiu da UI — não criar novas linhas nesse status.
+          for (const a of acomp ?? []) {
+            await excluirTarefaComMotivo(
+              a.id,
+              "Perícia não realizada — acompanhamento do resultado sem efeito.",
+            );
           }
           const amanha = proximoDiaUtil(new Date(Date.now() + 86400_000));
           amanha.setHours(9, 0, 0, 0);

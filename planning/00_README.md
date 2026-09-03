@@ -12,7 +12,7 @@
 | Arquivo | Para quê serve |
 |---|---|
 | **[ARQUITETURA.md](ARQUITETURA.md)** | O sistema hoje: stack, ambientes, 45 tabelas, 27 rotas, automações, convenções, pegadinhas. **Auditado contra o banco em 2026-08-21.** |
-| **[DECISOES.md](DECISOES.md)** | **Por que o sistema é assim**: 21 decisões com contexto, opções, o que pesou e o que custou. Ler antes de propor mudança estrutural. |
+| **[DECISOES.md](DECISOES.md)** | **Por que o sistema é assim**: 22 decisões com contexto, opções, o que pesou e o que custou (+ a decisão multi-tenant, ainda aberta). Ler antes de propor mudança estrutural. |
 | **[TODO.md](TODO.md)** | O que está em aberto, por risco. |
 
 > ⚠️ **Regra de ouro:** o código e o banco andam mais rápido que a documentação.

@@ -11,10 +11,10 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { TarefaCard } from "@/components/tarefas/tarefa-card";
 import { TarefaSheet } from "@/components/tarefas/tarefa-sheet";
+import { useConcluirTarefa } from "@/components/tarefas/use-concluir-tarefa";
 import { TarefasExcluidas } from "@/components/tarefas/tarefas-excluidas";
 import { AgendaSheet } from "@/components/agenda/agenda-sheet";
-import { atualizarTarefa, excluirTarefa, listarTarefas } from "@/lib/tarefas/queries";
-import { checklistPendente } from "@/lib/tarefas/helpers";
+import { atualizarTarefa, listarTarefas } from "@/lib/tarefas/queries";
 import { STATUS_LABEL, type TarefaComJoins, type TarefaStatus } from "@/lib/tarefas/types";
 import { listarAgenda } from "@/lib/agenda/queries";
 import { type AgendaEventoComJoins, tipoBadge } from "@/lib/agenda/types";
@@ -71,6 +71,19 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
     carregar();
   }, [carregar]);
 
+  // Popup Concluir/Editar/Excluir — mesma regra do kanban /tarefas, via o
+  // hook comum. Concluir só muda o status: atualiza local (sem re-buscar
+  // tarefas + agenda inteiras); excluir re-busca pra atualizar o log.
+  const popupConcluir = useConcluirTarefa({
+    aoConcluida: (t) => {
+      setTarefas((arr) => arr.map((x) => (x.id === t.id ? { ...x, status: "feito" } : x)));
+      onChange?.();
+    },
+    aoExcluida: () => carregar(),
+    aoEditar: (t) => setSheetModo({ kind: "editar", tarefa: t }),
+    aoNovaTarefa: () => setSheetModo({ kind: "criar", casoIdInicial: casoId }),
+  });
+
   const porStatus = useMemo(() => {
     const m: Record<TarefaStatus, TarefaComJoins[]> = {
       a_fazer: [],
@@ -91,19 +104,13 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
   }, [tarefas]);
 
   async function mudarStatus(id: string, status: TarefaStatus) {
-    // Concluir por fora não pode pular o widget da tarefa — mesma regra do
-    // kanban /tarefas e do TarefaSheet (auditoria 2026-09-01); sem isto a
-    // corrente morre calada por este terceiro caminho.
+    // "Feito" sempre abre o popup Concluir/Editar/Excluir com motivo (Naira,
+    // 2026-09-02) — mesma regra do kanban /tarefas. É o popup que barra a
+    // conclusão direta das tarefas de desfecho e evita caso parado sem razão.
     if (status === "feito") {
       const alvo = tarefas.find((t) => t.id === id);
-      const pendente = alvo ? checklistPendente(alvo) : null;
-      if (pendente) {
-        toast.error("Esta tarefa se conclui pelo próprio botão dela", {
-          description:
-            "Abra a tarefa e use " + pendente + " — é ele que dispara o andamento e o próximo passo.",
-        });
-        return;
-      }
+      if (alvo) popupConcluir.pedirConclusao(alvo);
+      return;
     }
     const original = tarefas.find((t) => t.id === id);
     setTarefas((arr) => arr.map((t) => (t.id === id ? { ...t, status } : t)));
@@ -116,18 +123,10 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
     }
   }
 
-  async function excluir(id: string) {
-    if (!window.confirm("Excluir esta tarefa?")) return;
-    const snapshot = tarefas;
-    setTarefas((arr) => arr.filter((t) => t.id !== id));
-    try {
-      await excluirTarefa(id);
-      setVersaoExcluidas((v) => v + 1);
-    } catch (e) {
-      console.error(e);
-      setTarefas(snapshot);
-      toast.error("Falha ao excluir.");
-    }
+  // Excluir do menu do card: mesmo popup com motivo obrigatório do painel.
+  function excluir(id: string) {
+    const t = tarefas.find((x) => x.id === id);
+    if (t) popupConcluir.pedirExclusao(t);
   }
 
   function abrirEditor(id: string) {
@@ -256,7 +255,13 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
         </div>
       )}
 
-      <TarefaSheet modo={sheetModo} onClose={() => setSheetModo(null)} onSaved={carregar} />
+      <TarefaSheet
+        modo={sheetModo}
+        onClose={() => setSheetModo(null)}
+        onSaved={carregar}
+        onConcluida={() => setSheetModo({ kind: "criar", casoIdInicial: casoId })}
+      />
+      {popupConcluir.elemento}
 
       <AgendaSheet modo={agendaSheet} onClose={() => setAgendaSheet(null)} onSaved={carregar} />
     </div>
