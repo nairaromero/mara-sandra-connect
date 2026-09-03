@@ -227,6 +227,19 @@ export function descreverAutoriaStatus(t: {
 
 
 /**
+ * Tarefa "Cliente novo — Analisar" nas DUAS origens: caso indicado por
+ * parceiro (criada pelo trigger do banco, etapa analise_inicial_parceiro) e
+ * caso interno do escritório (criada pelo formulário, analise_inicial_interno).
+ * O desfecho é o mesmo nos dois; só a etapa mudava, e isso escondia os botões
+ * de continuação no caso sem parceiro (Naira, 2026-09-03).
+ */
+export function ehAnaliseInicial(metadata: unknown): boolean {
+  const etapa = (metadata as { etapa?: string } | null | undefined)?.etapa;
+  return etapa === "analise_inicial_parceiro" || etapa === "analise_inicial_interno";
+}
+
+
+/**
  * Tarefa cujo desfecho mora num WIDGET (checklist/corrente/decisão): concluir
  * por fora (kanban, select de status) pula andamento ao parceiro e a próxima
  * tarefa — a corrente morre calada (auditoria 2026-09-01). Retorna o rótulo
@@ -250,7 +263,7 @@ export function checklistPendente(t: {
   if (m.confirmar_comparecimento === true) {
     return "a confirmação de comparecimento (Compareceu / Não compareceu)";
   }
-  if (m.etapa === "analise_inicial_parceiro") {
+  if (ehAnaliseInicial(m)) {
     return "o desfecho da análise (requerimento / aguardar docs / sem direito)";
   }
   if (m.analise_indeferimento === true) {

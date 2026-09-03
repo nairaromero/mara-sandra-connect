@@ -48,6 +48,8 @@ export function AnaliseIndeferimento({
 
   if (tarefa.status === "feito" || tarefa.status === "cancelado") return null;
   const clienteNome = tarefa.caso?.cliente?.nome ?? "cliente";
+  // Cliente interno do escritório não tem parceiro indicador pra avisar.
+  const temParceiro = !!tarefa.caso?.parceiro_id;
 
   async function concluir() {
     // Roda DEPOIS dos efeitos do desfecho. Erro tem que subir: sucesso falso
@@ -113,7 +115,9 @@ export function AnaliseIndeferimento({
         .single();
       if (error) throw error;
       marcarDestaque(nova.id as string);
-      await supabase.from("andamentos").insert({
+      // Insert sem checagem engolia a falha: o recurso abria e o caso ficava
+      // sem o registro que o parceiro lê.
+      const { error: errAnd } = await supabase.from("andamentos").insert({
         caso_id: tarefa.caso_id,
         processo_admin_id: tarefa.processo_admin_id,
         origem: "interno",
@@ -124,6 +128,11 @@ export function AnaliseIndeferimento({
         visivel_parceiro: true,
         metadata: { etapa: "indeferimento_recurso_adm", tarefa_id: tarefa.id },
       });
+      if (errAnd) {
+        toast.warning("Recurso aberto, mas o registro no histórico falhou", {
+          description: errAnd.message,
+        });
+      }
       await concluir();
       toast.success("Análise concluída — tarefa do recurso administrativo aberta.");
       onUpdated();
@@ -155,11 +164,17 @@ export function AnaliseIndeferimento({
         .single();
       if (error) throw error;
       marcarDestaque(and.id as string);
-      supabase.functions
-        .invoke("notify-novo-andamento", { body: { andamento_id: and.id } })
-        .catch(() => {});
+      if (temParceiro) {
+        supabase.functions
+          .invoke("notify-novo-andamento", { body: { andamento_id: and.id } })
+          .catch(() => {});
+      }
       await concluir();
-      toast.success("Registrado — motivo visível ao parceiro. Se o caso não segue, arquive-o.");
+      toast.success(
+        temParceiro
+          ? "Registrado — motivo visível ao parceiro. Se o caso não segue, arquive-o."
+          : "Registrado no histórico do caso. Se o caso não segue, arquive-o.",
+      );
       onUpdated();
     } catch (e) {
       toast.error((e as { message?: string }).message || "Não consegui registrar.");
@@ -205,7 +220,10 @@ export function AnaliseIndeferimento({
       {modo === "encerrar" && (
         <div className="space-y-1.5">
           <Label className="text-xs">
-            Por que não vamos prosseguir? (vira andamento visível ao parceiro)
+            Por que não vamos prosseguir?{" "}
+            {temParceiro
+              ? "(vira andamento visível ao parceiro)"
+              : "(fica registrado no histórico do caso)"}
           </Label>
           <Textarea
             rows={3}

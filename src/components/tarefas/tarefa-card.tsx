@@ -30,6 +30,7 @@ import { EtapaCumprimentoExigencia } from "@/components/tarefas/etapa-cumpriment
 import { EtapaProtocoloRealizado } from "@/components/tarefas/etapa-protocolo-realizado";
 import {
   descreverAutoriaStatus,
+  ehAnaliseInicial,
   formatarDueAtCurto,
   formatarDueAtLongo,
   iniciaisDoNome,
@@ -85,8 +86,7 @@ export function TarefaCard({
   const ehMontagemInicial =
     (tarefa.metadata as { montagem_inicial?: boolean })?.montagem_inicial === true ||
     (tarefa.metadata as { montagem_requerimento?: boolean })?.montagem_requerimento === true;
-  const ehAnaliseCasoNovo =
-    (tarefa.metadata as { etapa?: string })?.etapa === "analise_inicial_parceiro";
+  const ehAnaliseCasoNovo = ehAnaliseInicial(tarefa.metadata);
   const ehAnaliseIndeferimento =
     (tarefa.metadata as { analise_indeferimento?: boolean })?.analise_indeferimento === true;
   const ehAcompImplementacao =

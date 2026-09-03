@@ -73,6 +73,7 @@ import {
 } from "@/lib/agenda/helpers";
 import {
   descreverAutoriaStatus,
+  ehAnaliseInicial,
   formatarDataHoraCurtaBR,
   formatarDueAtCurto,
   inputDateTimeValueFromIso,
@@ -1194,7 +1195,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
             )}
 
           {editando && tarefa &&
-            (tarefa.metadata as { etapa?: string })?.etapa === "analise_inicial_parceiro" && (
+            ehAnaliseInicial(tarefa.metadata) && (
               <AnaliseCasoNovo tarefa={tarefa} onUpdated={onSaved} />
             )}
 
