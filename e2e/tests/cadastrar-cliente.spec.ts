@@ -28,17 +28,29 @@ test("cadastrar cliente cria cliente e caso", async ({ page }) => {
   await page.getByLabel("Tipo de benefício *").click();
   await page.getByRole("option").first().click();
 
+  // Sem escolher a origem o formulário não pode gravar: antes o caso virava
+  // "sem parceiro" (interno) calado.
+  await page.getByRole("button", { name: "Cadastrar caso" }).click();
+  await expect(
+    page.getByText("Informe se o cliente veio por parceiro ou é interno do escritório").first(),
+  ).toBeVisible();
+  await expect(page).toHaveURL(/casos\/novo/);
+
+  await page.getByLabel("Cliente interno do escritório (sem parceiro indicador)").check();
+
   await page.getByRole("button", { name: "Cadastrar caso" }).click();
 
   // Sucesso: sai do formulário (vai pro caso criado ou lista).
   await expect(page).not.toHaveURL(/casos\/novo/, { timeout: 15_000 });
 
-  // Verificação no banco: cliente e caso existem.
+  // Verificação no banco: cliente e caso existem, caso sem parceiro.
   const { data: cliente } = await admin
     .from("clientes")
-    .select("id, casos(id)")
+    .select("id, casos(id, parceiro_id)")
     .eq("nome", nomeCliente)
     .single();
   expect(cliente).toBeTruthy();
-  expect((cliente!.casos as Array<{ id: string }>).length).toBeGreaterThan(0);
+  const casos = cliente!.casos as Array<{ id: string; parceiro_id: string | null }>;
+  expect(casos.length).toBeGreaterThan(0);
+  expect(casos[0].parceiro_id).toBeNull();
 });
