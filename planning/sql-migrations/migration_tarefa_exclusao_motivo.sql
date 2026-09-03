@@ -7,8 +7,10 @@
 -- judicial precisa ser deletada, não concluída.
 --
 -- Aqui: (1) coluna `motivo` no log de exclusão; (2) o trigger de log passa a
--- gravá-la; (3) RPC excluir_tarefa_com_motivo (SECURITY INVOKER — RLS do
--- interno vale) que carimba o motivo no metadata e deleta na mesma transação.
+-- gravá-la. O RPC excluir_tarefa_com_motivo mora SÓ em
+-- migration_exclusao_tarefa_andamento.sql — re-rodar este arquivo não pode
+-- rebaixar o RPC pra uma versão antiga (revisão 2026-09-02: a v1 que vivia
+-- aqui desfazia o andamento da v2 ao re-aplicar).
 --
 -- Corpo do trigger partido do pg_get_functiondef da PRODUÇÃO (2026-09-02);
 -- única mudança é a coluna motivo. Idempotente.
@@ -35,25 +37,5 @@ begin
 end;
 $function$;
 
--- RPC: carimba o motivo no metadata e deleta, na mesma transação. INVOKER
--- (não DEFINER) pra respeitar a RLS de tarefas — só quem já podia excluir
--- exclui; o trigger de log captura o motivo.
-create or replace function public.excluir_tarefa_com_motivo(p_id uuid, p_motivo text)
-returns void
-language plpgsql
-set search_path to 'public', 'pg_temp'
-as $function$
-begin
-  update public.tarefas
-     set metadata = coalesce(metadata, '{}'::jsonb)
-                    || jsonb_build_object('motivo_exclusao', btrim(coalesce(p_motivo, '')))
-   where id = p_id;
-  delete from public.tarefas where id = p_id;
-end;
-$function$;
-
-revoke all on function public.excluir_tarefa_com_motivo(uuid, text) from public, anon;
-grant execute on function public.excluir_tarefa_com_motivo(uuid, text) to authenticated;
-
-comment on function public.excluir_tarefa_com_motivo(uuid, text) is
-  'Exclui a tarefa registrando o motivo (via metadata -> trigger de log). SECURITY INVOKER: respeita a RLS de tarefas.';
+-- RPC excluir_tarefa_com_motivo: ver migration_exclusao_tarefa_andamento.sql
+-- (fonte única — aplicar aquele arquivo junto com este).

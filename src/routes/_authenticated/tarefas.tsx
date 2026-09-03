@@ -45,13 +45,12 @@ import { TarefaCard } from "@/components/tarefas/tarefa-card";
 import { TarefasParceiro } from "@/components/parceiro/tarefas-parceiro";
 import { useVerComoParceiro } from "@/hooks/use-ver-como-parceiro";
 import { TarefaSheet } from "@/components/tarefas/tarefa-sheet";
-import { ConcluirTarefaDialog } from "@/components/tarefas/concluir-tarefa-dialog";
+import { useConcluirTarefa } from "@/components/tarefas/use-concluir-tarefa";
 import { TarefasExcluidas } from "@/components/tarefas/tarefas-excluidas";
 import { RadarCasosOrfaos } from "@/components/tarefas/radar-casos-orfaos";
 import {
   atualizarTarefa,
   contarTarefas,
-  excluirTarefa,
   listarInternosAtivos,
   listarTarefas,
 } from "@/lib/tarefas/queries";
@@ -169,8 +168,6 @@ function TarefasPage() {
   const [somenteMinhas, setSomenteMinhas] = useState(false);
 
   const [sheetModo, setSheetModo] = useState<Modo | null>(null);
-  // Tarefa cujo "Feito" abriu o popup Concluir/Editar/Excluir.
-  const [concluindo, setConcluindo] = useState<TarefaComJoins | null>(null);
   const [aba, setAba] = useState<"ativos" | "arquivados">("ativos");
   // Bump pra seção "Excluídas" (aba Arquivados) re-buscar após exclusão.
   const [versaoExcluidas, setVersaoExcluidas] = useState(0);
@@ -212,6 +209,16 @@ function TarefasPage() {
       setCarregando(false);
     }
   }, []);
+
+  // Popup Concluir/Editar/Excluir — dono do "Feito" e de TODA exclusão
+  // (kanban, lista e menu do card). `carregar()` já re-busca o log de
+  // excluídas via versaoExcluidas.
+  const popupConcluir = useConcluirTarefa({
+    aoConcluida: () => carregar(),
+    aoExcluida: () => carregar(),
+    aoEditar: (t) => setSheetModo({ kind: "editar", tarefa: t }),
+    aoNovaTarefa: (casoId) => setSheetModo({ kind: "criar", casoIdInicial: casoId }),
+  });
 
   const trocarAba = useCallback(
     async (v: "ativos" | "arquivados") => {
@@ -349,8 +356,8 @@ function TarefasPage() {
     // parada sem razão (Naira, 2026-09-02). O popup também é quem barra a
     // conclusão direta das tarefas de desfecho (antes um toast solto).
     if (status === "feito") {
-      const alvo = tarefas.find((t) => t.id === id) ?? null;
-      setConcluindo(alvo);
+      const alvo = tarefas.find((t) => t.id === id);
+      if (alvo) popupConcluir.pedirConclusao(alvo);
       return;
     }
     // Optimistic update
@@ -367,19 +374,11 @@ function TarefasPage() {
     }
   }
 
-  async function excluir(id: string) {
-    if (!window.confirm("Excluir esta tarefa?")) return;
-    const snapshot = tarefas;
-    setTarefas((arr) => arr.filter((t) => t.id !== id));
-    try {
-      await excluirTarefa(id);
-      setVersaoExcluidas((v) => v + 1);
-      toast.success("Tarefa excluída.");
-    } catch (e) {
-      console.error(e);
-      setTarefas(snapshot);
-      toast.error("Falha ao excluir.");
-    }
+  // Excluir do menu do card: mesmo popup com motivo obrigatório do painel —
+  // não existe mais caminho de exclusão sem razão registrada.
+  function excluir(id: string) {
+    const t = tarefas.find((x) => x.id === id);
+    if (t) popupConcluir.pedirExclusao(t);
   }
 
   function abrirEditor(id: string) {
@@ -788,20 +787,7 @@ function TarefasPage() {
           onSaved={carregar}
           onConcluida={(casoId) => setSheetModo({ kind: "criar", casoIdInicial: casoId })}
         />
-        <ConcluirTarefaDialog
-          tarefa={concluindo}
-          onClose={() => setConcluindo(null)}
-          onConcluidaEAdicionar={(t) => {
-            carregar();
-            // Abre a criação da próxima tarefa, já no caso da que foi concluída.
-            setSheetModo({ kind: "criar", casoIdInicial: t.caso_id });
-          }}
-          onExcluida={() => {
-            setVersaoExcluidas((v) => v + 1);
-            carregar();
-          }}
-          onEditar={(t) => setSheetModo({ kind: "editar", tarefa: t })}
-        />
+        {popupConcluir.elemento}
       </div>
     </ClientOnly>
   );

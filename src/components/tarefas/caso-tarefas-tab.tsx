@@ -11,10 +11,10 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { TarefaCard } from "@/components/tarefas/tarefa-card";
 import { TarefaSheet } from "@/components/tarefas/tarefa-sheet";
-import { ConcluirTarefaDialog } from "@/components/tarefas/concluir-tarefa-dialog";
+import { useConcluirTarefa } from "@/components/tarefas/use-concluir-tarefa";
 import { TarefasExcluidas } from "@/components/tarefas/tarefas-excluidas";
 import { AgendaSheet } from "@/components/agenda/agenda-sheet";
-import { atualizarTarefa, excluirTarefa, listarTarefas } from "@/lib/tarefas/queries";
+import { atualizarTarefa, listarTarefas } from "@/lib/tarefas/queries";
 import { STATUS_LABEL, type TarefaComJoins, type TarefaStatus } from "@/lib/tarefas/types";
 import { listarAgenda } from "@/lib/agenda/queries";
 import { type AgendaEventoComJoins, tipoBadge } from "@/lib/agenda/types";
@@ -37,7 +37,6 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
   const [tarefas, setTarefas] = useState<TarefaComJoins[]>([]);
   const [eventos, setEventos] = useState<AgendaEventoComJoins[]>([]);
   const [sheetModo, setSheetModo] = useState<Modo | null>(null);
-  const [concluindo, setConcluindo] = useState<TarefaComJoins | null>(null);
   const [agendaSheet, setAgendaSheet] = useState<{
     kind: "editar";
     evento: AgendaEventoComJoins;
@@ -72,6 +71,19 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
     carregar();
   }, [carregar]);
 
+  // Popup Concluir/Editar/Excluir — mesma regra do kanban /tarefas, via o
+  // hook comum. Concluir só muda o status: atualiza local (sem re-buscar
+  // tarefas + agenda inteiras); excluir re-busca pra atualizar o log.
+  const popupConcluir = useConcluirTarefa({
+    aoConcluida: (t) => {
+      setTarefas((arr) => arr.map((x) => (x.id === t.id ? { ...x, status: "feito" } : x)));
+      onChange?.();
+    },
+    aoExcluida: () => carregar(),
+    aoEditar: (t) => setSheetModo({ kind: "editar", tarefa: t }),
+    aoNovaTarefa: () => setSheetModo({ kind: "criar", casoIdInicial: casoId }),
+  });
+
   const porStatus = useMemo(() => {
     const m: Record<TarefaStatus, TarefaComJoins[]> = {
       a_fazer: [],
@@ -96,8 +108,8 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
     // 2026-09-02) — mesma regra do kanban /tarefas. É o popup que barra a
     // conclusão direta das tarefas de desfecho e evita caso parado sem razão.
     if (status === "feito") {
-      const alvo = tarefas.find((t) => t.id === id) ?? null;
-      setConcluindo(alvo);
+      const alvo = tarefas.find((t) => t.id === id);
+      if (alvo) popupConcluir.pedirConclusao(alvo);
       return;
     }
     const original = tarefas.find((t) => t.id === id);
@@ -111,18 +123,10 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
     }
   }
 
-  async function excluir(id: string) {
-    if (!window.confirm("Excluir esta tarefa?")) return;
-    const snapshot = tarefas;
-    setTarefas((arr) => arr.filter((t) => t.id !== id));
-    try {
-      await excluirTarefa(id);
-      setVersaoExcluidas((v) => v + 1);
-    } catch (e) {
-      console.error(e);
-      setTarefas(snapshot);
-      toast.error("Falha ao excluir.");
-    }
+  // Excluir do menu do card: mesmo popup com motivo obrigatório do painel.
+  function excluir(id: string) {
+    const t = tarefas.find((x) => x.id === id);
+    if (t) popupConcluir.pedirExclusao(t);
   }
 
   function abrirEditor(id: string) {
@@ -257,17 +261,7 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
         onSaved={carregar}
         onConcluida={() => setSheetModo({ kind: "criar", casoIdInicial: casoId })}
       />
-      <ConcluirTarefaDialog
-        tarefa={concluindo}
-        onClose={() => setConcluindo(null)}
-        onConcluidaEAdicionar={() => {
-          carregar();
-          // Abre a criação da próxima tarefa deste caso.
-          setSheetModo({ kind: "criar", casoIdInicial: casoId });
-        }}
-        onExcluida={() => carregar()}
-        onEditar={(t) => setSheetModo({ kind: "editar", tarefa: t })}
-      />
+      {popupConcluir.elemento}
 
       <AgendaSheet modo={agendaSheet} onClose={() => setAgendaSheet(null)} onSaved={carregar} />
     </div>
