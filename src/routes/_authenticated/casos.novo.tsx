@@ -125,9 +125,7 @@ const schema = z.object({
   endereco: z.string().max(200).optional().or(z.literal("")),
   observacoes_cliente: z.string().max(1000).optional().or(z.literal("")),
   tipo_beneficio: z.string().min(1, "Selecione o tipo de benefício"),
-  // Origem do cliente: escolha explicita do interno, sem default. Antes o
-  // checkbox desmarcado + parceiro vazio salvava calado como "sem parceiro".
-  origem_cliente: z.enum(["parceiro", "interno"]).optional(),
+  cliente_interno: z.boolean().optional(),
   parceiro_id: z.string().optional().or(z.literal("")),
   tarefa_responsavel_id: z.string().optional().or(z.literal("")),
   observacoes_caso: z.string().max(1000).optional().or(z.literal("")),
@@ -200,28 +198,21 @@ function NovoCasoPage() {
 
   const isInterno = usuario?.tipo === "interno";
 
-  // O interno tem que dizer de onde veio o cliente antes de gravar:
-  // parceiro indicador ou cliente interno do escritorio. Parceiro logado
-  // nao escolhe (o caso ja fica no nome dele), entao a regra so vale pro
-  // interno. useForm reaplica _options a cada render, entao o resolver
-  // novo passa a valer quando o usuario termina de carregar.
-  const schemaComOrigem = useMemo(
+  // Nao da pra gravar sem dizer de onde veio o cliente: ou marca "cliente
+  // interno", ou escolhe o parceiro indicador. Antes os dois vazios salvavam
+  // um caso sem parceiro (= interno) calado. Parceiro logado nao escolhe (o
+  // caso ja fica no nome dele), entao a regra so vale pro interno. useForm
+  // reaplica _options a cada render, entao o resolver novo passa a valer
+  // quando o usuario termina de carregar.
+  const schemaComParceiro = useMemo(
     () =>
       schema.superRefine((v, ctx) => {
         if (!isInterno) return;
-        if (v.origem_cliente !== "parceiro" && v.origem_cliente !== "interno") {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["origem_cliente"],
-            message: "Informe se o cliente veio por parceiro ou é interno do escritório",
-          });
-          return;
-        }
-        if (v.origem_cliente === "parceiro" && !v.parceiro_id) {
+        if (!v.cliente_interno && !v.parceiro_id) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ["parceiro_id"],
-            message: "Selecione o parceiro indicador",
+            message: 'Selecione o parceiro indicador ou marque "Cliente interno do escritório"',
           });
         }
       }),
@@ -229,7 +220,7 @@ function NovoCasoPage() {
   );
 
   const form = useForm<FormValues>({
-    resolver: zodResolver(schemaComOrigem),
+    resolver: zodResolver(schemaComParceiro),
     defaultValues: {
       nome: "",
       cpf: "",
@@ -240,14 +231,14 @@ function NovoCasoPage() {
       endereco: "",
       observacoes_cliente: "",
       tipo_beneficio: "",
-      origem_cliente: undefined,
+      cliente_interno: false,
       parceiro_id: "",
       tarefa_responsavel_id: "",
       observacoes_caso: "",
     },
   });
 
-  const origemWatch = form.watch("origem_cliente");
+  const clienteInternoWatch = form.watch("cliente_interno");
 
   // Normaliza data vinda do TI para YYYY-MM-DD (formato do input date).
   function coerceData(d: string | null | undefined): string {
@@ -446,22 +437,12 @@ function NovoCasoPage() {
   async function onSubmit(values: FormValues) {
     if (!usuario) return;
 
-    // Trava dura, alem do schema: sem origem escolhida o caso nao grava.
-    // Antes, "nada marcado" caia no else e virava caso sem parceiro (interno).
-    if (isInterno && values.origem_cliente !== "interno" && values.origem_cliente !== "parceiro") {
-      form.setError("origem_cliente", {
-        type: "manual",
-        message: "Informe se o cliente veio por parceiro ou é interno do escritório",
-      });
-      toast.error("Informe se o cliente veio por parceiro ou é interno do escritório");
-      return;
-    }
-    if (isInterno && values.origem_cliente === "parceiro" && !values.parceiro_id) {
-      form.setError("parceiro_id", {
-        type: "manual",
-        message: "Selecione o parceiro indicador",
-      });
-      toast.error("Selecione o parceiro indicador");
+    // Trava dura, alem do schema: sem parceiro e sem "cliente interno" o caso
+    // nao grava. Antes caia no else e virava caso sem parceiro (interno).
+    if (isInterno && !values.cliente_interno && !values.parceiro_id) {
+      const msg = 'Selecione o parceiro indicador ou marque "Cliente interno do escritório"';
+      form.setError("parceiro_id", { type: "manual", message: msg });
+      toast.error(msg);
       return;
     }
 
@@ -485,9 +466,12 @@ function NovoCasoPage() {
       const cpfDigits = values.cpf.replace(/\D/g, "");
       let parceiroId: string | null;
       if (isInterno) {
-        // Origem "interno" = caso sem parceiro. Origem "parceiro" = parceiro
-        // indicador obrigatorio (validado acima e no schema).
-        parceiroId = values.origem_cliente === "interno" ? null : values.parceiro_id || null;
+        // Se marcou "cliente interno", caso fica sem parceiro
+        if (values.cliente_interno) {
+          parceiroId = null;
+        } else {
+          parceiroId = values.parceiro_id || null;
+        }
       } else {
         // Parceiro logado vira automaticamente parceiro_id do caso
         parceiroId = usuario.id;
@@ -1011,63 +995,38 @@ function NovoCasoPage() {
                 {isInterno && (
                   <FormField
                     control={form.control}
-                    name="origem_cliente"
+                    name="cliente_interno"
                     render={({ field }) => (
-                      <FormItem className="sm:col-span-2 space-y-2 rounded-md border p-3 bg-muted/30">
-                        <p className="text-sm font-medium">Origem do cliente *</p>
-                        <div className="space-y-2">
-                          <div className="flex items-start gap-2">
-                            <input
-                              id="origem-parceiro"
-                              ref={field.ref}
-                              type="radio"
-                              name="origem_cliente"
-                              value="parceiro"
-                              checked={field.value === "parceiro"}
-                              onChange={() => field.onChange("parceiro")}
-                              className="h-4 w-4 mt-0.5"
-                            />
-                            <div className="space-y-0.5 leading-none">
-                              <Label htmlFor="origem-parceiro" className="text-sm cursor-pointer">
-                                Indicado por parceiro
-                              </Label>
-                              <p className="text-xs text-muted-foreground">
-                                Escolha abaixo o parceiro captador que indicou o cliente.
-                              </p>
-                            </div>
-                          </div>
-                          <div className="flex items-start gap-2">
-                            <input
-                              id="origem-interno"
-                              type="radio"
-                              name="origem_cliente"
-                              value="interno"
-                              checked={field.value === "interno"}
-                              onChange={() => {
-                                field.onChange("interno");
+                      <FormItem className="sm:col-span-2 flex flex-row items-center gap-2 space-y-0 rounded-md border p-3 bg-muted/30">
+                        <FormControl>
+                          <input
+                            type="checkbox"
+                            checked={field.value === true}
+                            onChange={(e) => {
+                              field.onChange(e.target.checked);
+                              if (e.target.checked) {
                                 form.setValue("parceiro_id", "");
                                 form.clearErrors("parceiro_id");
-                              }}
-                              className="h-4 w-4 mt-0.5"
-                            />
-                            <div className="space-y-0.5 leading-none">
-                              <Label htmlFor="origem-interno" className="text-sm cursor-pointer">
-                                Cliente interno do escritório (sem parceiro indicador)
-                              </Label>
-                              <p className="text-xs text-muted-foreground">
-                                O cliente veio direto ao escritório, sem indicação de parceiro
-                                captador.
-                              </p>
-                            </div>
-                          </div>
+                              }
+                            }}
+                            className="h-4 w-4"
+                          />
+                        </FormControl>
+                        <div className="space-y-0.5 leading-none">
+                          <FormLabel className="text-sm cursor-pointer">
+                            Cliente interno do escritório (sem parceiro indicador)
+                          </FormLabel>
+                          <p className="text-xs text-muted-foreground">
+                            Marque se o cliente veio direto ao escritório, sem indicação de parceiro
+                            captador.
+                          </p>
                         </div>
-                        <FormMessage />
                       </FormItem>
                     )}
                   />
                 )}
 
-                {isInterno && origemWatch === "parceiro" && (
+                {isInterno && !clienteInternoWatch && (
                   <FormField
                     control={form.control}
                     name="parceiro_id"
@@ -1120,7 +1079,7 @@ function NovoCasoPage() {
                     control={form.control}
                     name="tarefa_responsavel_id"
                     render={({ field }) => (
-                      <FormItem className={origemWatch === "parceiro" ? "" : "sm:col-span-2"}>
+                      <FormItem className={clienteInternoWatch ? "sm:col-span-2" : ""}>
                         <FormLabel>Quem recebe a tarefa de novo cliente</FormLabel>
                         <Select value={field.value} onValueChange={field.onChange}>
                           <FormControl>

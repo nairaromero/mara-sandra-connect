@@ -28,12 +28,10 @@ test("cadastrar cliente cria cliente e caso", async ({ page }) => {
   await page.getByLabel("Tipo de benefício *").click();
   await page.getByRole("option").first().click();
 
-  // Sem escolher a origem o formulário não pode gravar: antes o caso virava
-  // "sem parceiro" (interno) calado.
+  // Sem parceiro e sem "cliente interno" o formulário não pode gravar: antes
+  // o caso virava "sem parceiro" (interno) calado.
   await page.getByRole("button", { name: "Cadastrar caso" }).click();
-  await expect(
-    page.getByText("Informe se o cliente veio por parceiro ou é interno do escritório").first(),
-  ).toBeVisible();
+  await expect(page.getByText("Selecione o parceiro indicador ou marque").first()).toBeVisible();
   await expect(page).toHaveURL(/casos\/novo/);
 
   await page.getByLabel("Cliente interno do escritório (sem parceiro indicador)").check();
