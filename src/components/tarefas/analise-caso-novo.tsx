@@ -1,5 +1,7 @@
 // Desfechos da tarefa "Cliente novo — Analisar" (metadata.etapa =
-// 'analise_inicial_parceiro') — pedido da Naira, 2026-09-01: a análise não
+// 'analise_inicial_parceiro' quando o caso veio de parceiro, ou
+// 'analise_inicial_interno' quando é cliente interno do escritório — as duas
+// abrem os mesmos botões) — pedido da Naira, 2026-09-01: a análise não
 // termina mais num "concluir" mudo; a pessoa ESCOLHE o que acontece:
 //
 //   1. Fazer o requerimento  → escolhe o responsável e a corrente "Montagem de
@@ -71,6 +73,9 @@ export function AnaliseCasoNovo({
 
   if (tarefa.status === "feito" || tarefa.status === "cancelado") return null;
   const clienteNome = tarefa.caso?.cliente?.nome ?? "cliente";
+  // Cliente interno do escritório não tem parceiro indicador: nada de
+  // prometer aviso a quem não existe (Naira, 2026-09-03).
+  const temParceiro = !!tarefa.caso?.parceiro_id;
 
   async function concluirAnalise() {
     // Roda DEPOIS dos efeitos do desfecho (template/tarefa/andamento). Se o
@@ -121,15 +126,20 @@ export function AnaliseCasoNovo({
         .from("tarefas")
         .insert({
           caso_id: tarefa.caso_id,
-          responsavel_id: tarefa.responsavel_id,
+          // Sem responsável a tarefa some de "Minhas tarefas" e vira órfã:
+          // herda quem estava na análise, ou quem clicou.
+          responsavel_id: tarefa.responsavel_id ?? usuario?.id ?? null,
           tipo: "interna",
           prioridade: 2,
           status: "a_fazer",
           titulo: "Aguardando documentação - " + clienteNome,
           descricao:
             "Análise feita: falta documentação pra montar o requerimento. " +
-            "Solicite os documentos na aba Documentos do caso (o pedido chega ao " +
-            "parceiro por lá) e cobre se não chegarem.",
+            (temParceiro
+              ? "Solicite os documentos na aba Documentos do caso (o pedido chega ao " +
+                "parceiro por lá) e cobre se não chegarem."
+              : "Cliente interno do escritório, sem parceiro indicador: peça os " +
+                "documentos direto ao cliente e registre na aba Documentos do caso."),
           due_at: dueDias(7),
           origem: "manual",
           metadata: { origem_tarefa_id: tarefa.id, aguardando_documentacao: true },
@@ -138,18 +148,34 @@ export function AnaliseCasoNovo({
         .single();
       if (error) throw error;
       marcarDestaque(nova.id as string);
-      await supabase.from("andamentos").insert({
-        caso_id: tarefa.caso_id,
-        origem: "interno",
-        titulo: "Análise concluída — aguardando documentação complementar",
-        descricao:
-          "Analisamos o caso e precisamos de documentação complementar antes de " +
-          "protocolar. A solicitação com a lista chega em seguida.",
-        data_evento: new Date().toISOString(),
-        criado_por: usuario?.id ?? null,
-        visivel_parceiro: true,
-        metadata: { etapa: "analise_aguarda_documentacao", tarefa_id: tarefa.id },
-      });
+      // Andamento é registro do caso — erro aqui não pode passar calado (era
+      // insert sem checagem: falhava e a análise fechava do mesmo jeito).
+      const { data: andAguardo, error: errAnd } = await supabase
+        .from("andamentos")
+        .insert({
+          caso_id: tarefa.caso_id,
+          origem: "interno",
+          titulo: "Análise concluída — aguardando documentação complementar",
+          descricao:
+            "Analisamos o caso e precisamos de documentação complementar antes de " +
+            "protocolar. A solicitação com a lista chega em seguida.",
+          data_evento: new Date().toISOString(),
+          criado_por: usuario?.id ?? null,
+          visivel_parceiro: true,
+          metadata: { etapa: "analise_aguarda_documentacao", tarefa_id: tarefa.id },
+        })
+        .select("id")
+        .single();
+      if (errAnd) {
+        toast.warning("Tarefa de aguardo criada, mas o registro no histórico falhou", {
+          description: errAnd.message,
+        });
+      } else if (temParceiro) {
+        // Os outros desfechos avisam o parceiro por e-mail; este não avisava.
+        supabase.functions
+          .invoke("notify-novo-andamento", { body: { andamento_id: andAguardo.id } })
+          .catch(() => {});
+      }
       await concluirAnalise();
       toast.success(
         "Análise concluída — tarefa de aguardo criada. Faça a solicitação na aba Documentos.",
@@ -182,12 +208,16 @@ export function AnaliseCasoNovo({
         .single();
       if (error) throw error;
       marcarDestaque(and.id as string);
-      supabase.functions
-        .invoke("notify-novo-andamento", { body: { andamento_id: and.id } })
-        .catch(() => {});
+      if (temParceiro) {
+        supabase.functions
+          .invoke("notify-novo-andamento", { body: { andamento_id: and.id } })
+          .catch(() => {});
+      }
       await concluirAnalise();
       toast.success(
-        "Análise concluída — o motivo virou andamento visível ao parceiro. Se o caso não segue, arquive-o.",
+        temParceiro
+          ? "Análise concluída — o motivo virou andamento visível ao parceiro. Se o caso não segue, arquive-o."
+          : "Análise concluída — o motivo ficou registrado no histórico do caso. Se o caso não segue, arquive-o.",
       );
       onUpdated();
     } catch (e) {
@@ -273,7 +303,10 @@ export function AnaliseCasoNovo({
       {modo === "sem_direito" && (
         <div className="space-y-1.5">
           <Label className="text-xs">
-            Por que não vamos entrar agora? (vira andamento visível ao parceiro)
+            Por que não vamos entrar agora?{" "}
+            {temParceiro
+              ? "(vira andamento visível ao parceiro)"
+              : "(fica registrado no histórico do caso)"}
           </Label>
           <Textarea
             rows={3}
