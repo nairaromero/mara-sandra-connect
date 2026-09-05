@@ -26,8 +26,8 @@ test("template indeferido cria 2 tarefas, ambas com responsável", async ({ page
   await page.goto("/tarefas");
   await page.getByRole("button", { name: "Nova tarefa" }).click();
 
-  // Radix Select do Caso (trigger mostra o placeholder "Sem caso").
-  await page.getByRole("combobox").filter({ hasText: "Sem caso" }).click();
+  // Combobox do Cliente (trigger mostra o placeholder "Sem cliente").
+  await page.getByRole("combobox").filter({ hasText: "Sem cliente" }).click();
   await page.getByRole("option", { name: nomeCliente }).click();
 
   // Select do template.

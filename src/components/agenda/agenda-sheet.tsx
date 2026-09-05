@@ -309,7 +309,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
 
   // Com caso, oferece os templates de cliente; sem caso, só os que não
   // dependem de um (ausência). Assim a ausência é alcançável mesmo com
-  // "Sem caso" — antes o seletor inteiro sumia.
+  // "Sem cliente" — antes o seletor inteiro sumia.
   const templatesVisiveis = useMemo(() => {
     const temSemCaso = (t: TarefaTemplateRow) =>
       t.itens.some((i) => i.destino === "agenda" && i.sem_caso);
@@ -787,7 +787,9 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
 
         <div className="space-y-4 py-4">
           <div className="space-y-1.5">
-            <Label>Caso</Label>
+            {/* Rótulo "Cliente" — mesma regra do TarefaSheet: grava caso_id,
+                mas as opções são nomes de cliente (1:1 hoje). */}
+            <Label>Cliente</Label>
             <Select
               value={casoId ?? "sem"}
               onValueChange={(v) => {
@@ -796,10 +798,10 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
               }}
             >
               <SelectTrigger>
-                <SelectValue placeholder="Sem caso" />
+                <SelectValue placeholder="Sem cliente" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="sem">Sem caso</SelectItem>
+                <SelectItem value="sem">Sem cliente</SelectItem>
                 {casos.map((c) => (
                   <SelectItem key={c.id} value={c.id}>
                     {c.cliente_nome ?? "(sem nome)"}
