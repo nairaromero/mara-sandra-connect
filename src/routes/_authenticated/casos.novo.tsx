@@ -530,19 +530,37 @@ function NovoCasoPage() {
 
       // 2a) Tarefa de novo cliente com responsável definido no form.
       // Com parceiro indicador, o trigger caso_novo_parceiro_cria_tarefa já
-      // criou a tarefa sem responsável — aqui só atribui. Cliente interno não
+      // criou a tarefa (desde 2026-09-03 já com dono padrão, a Mara) — aqui
+      // sobrescreve com quem a pessoa escolheu na tela. Cliente interno não
       // dispara o trigger, então a tarefa é criada aqui.
       if (isInterno) {
         const tarefaRespId = values.tarefa_responsavel_id || usuario.id;
         try {
           if (parceiroId) {
+            // Sem o filtro de responsável nulo: o trigger agora já põe a Mara,
+            // e a escolha da tela tem que valer por cima.
             const atribuirResp = await supabase
               .from("tarefas")
               .update({ responsavel_id: tarefaRespId })
               .eq("caso_id", casoId)
               .eq("metadata->>etapa", "analise_inicial_parceiro")
-              .is("responsavel_id", null);
+              .in("status", ["a_fazer", "fazendo"])
+              .select("id");
             if (atribuirResp.error) throw atribuirResp.error;
+            // Trigger não rodou (banco desatualizado): cria a tarefa aqui pra
+            // o caso não nascer sem próximo passo.
+            if (!atribuirResp.data || atribuirResp.data.length === 0) {
+              await criarTarefa({
+                caso_id: casoId,
+                responsavel_id: tarefaRespId,
+                tipo: "interna",
+                prioridade: 2,
+                titulo: "Cliente novo - Analisar",
+                descricao: `Caso ${values.nome.trim()} indicado por parceiro. Revisar dados, documentos e definir próximos passos.`,
+                due_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+                metadata: { origem_caso_id: casoId, etapa: "analise_inicial_parceiro" },
+              });
+            }
           } else {
             await criarTarefa({
               caso_id: casoId,
