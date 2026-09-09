@@ -20,8 +20,11 @@ import { listarAgenda } from "@/lib/agenda/queries";
 import { type AgendaEventoComJoins, tipoBadge } from "@/lib/agenda/types";
 import { DESTAQUE_CLASSE_GLOBAL, useDestaqueAtivo } from "@/lib/destaque/destaque-context";
 
-const STATUS_ATIVOS: TarefaStatus[] = ["a_fazer", "fazendo"];
-const STATUS_ARQUIVADOS: TarefaStatus[] = ["feito", "cancelado"];
+// Mesma regra da tela /tarefas (Naira, 2026-09-09): Ativos = "A fazer";
+// Arquivados = "Feito" + a lista de excluídas (que já inclui as canceladas
+// antigas). "Fazendo" não existe mais.
+const STATUS_ATIVOS: TarefaStatus[] = ["a_fazer"];
+const STATUS_ARQUIVADOS: TarefaStatus[] = ["feito"];
 
 type Modo = { kind: "criar"; casoIdInicial: string } | { kind: "editar"; tarefa: TarefaComJoins };
 
@@ -87,11 +90,12 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
   const porStatus = useMemo(() => {
     const m: Record<TarefaStatus, TarefaComJoins[]> = {
       a_fazer: [],
-      fazendo: [],
       feito: [],
       cancelado: [],
     };
-    for (const t of tarefas) m[t.status].push(t);
+    // Status legado fora do Record (ex.: 'fazendo' numa base ainda sem a
+    // migration) não pode derrubar a aba — cai fora em silêncio.
+    for (const t of tarefas) m[t.status]?.push(t);
     // Regra da Naira (2026-07-29): tarefas do administrativo juntas EM CIMA,
     // judiciais juntas EMBAIXO (sem vínculo por último). Sort estável mantém
     // a ordem de vencimento dentro de cada grupo.

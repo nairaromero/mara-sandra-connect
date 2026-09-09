@@ -1,4 +1,4 @@
-// Página /tarefas — kanban com 4 colunas (a fazer / fazendo / feito / cancelado),
+// Página /tarefas — kanban de "A fazer" (Ativos) e "Feito" (Arquivados),
 // filtros (responsável, tipo, prioridade, busca), e atalho "minhas".
 // Click em card abre Sheet de edição. Botão "Nova tarefa" abre Sheet vazia.
 
@@ -47,6 +47,8 @@ import { useVerComoParceiro } from "@/hooks/use-ver-como-parceiro";
 import { TarefaSheet } from "@/components/tarefas/tarefa-sheet";
 import { useConcluirTarefa } from "@/components/tarefas/use-concluir-tarefa";
 import { TarefasExcluidas } from "@/components/tarefas/tarefas-excluidas";
+import { SecoesPorMes } from "@/components/tarefas/secoes-por-mes";
+import { agruparPorMes } from "@/lib/tarefas/agrupar-mes";
 import { RadarCasosOrfaos } from "@/components/tarefas/radar-casos-orfaos";
 import {
   atualizarTarefa,
@@ -88,10 +90,20 @@ function TarefasRoute() {
 
 const TIPOS: TarefaTipo[] = ["interna", "prazo", "pericia", "pos_protocolo", "contato_cliente"];
 
-// Default mostra só "A fazer" / "Fazendo". "Feito" e "Cancelado" ficam na
-// aba "Arquivados", abre só quando a Naira pedir.
-const STATUS_ATIVOS: TarefaStatus[] = ["a_fazer", "fazendo"];
-const STATUS_ARQUIVADOS: TarefaStatus[] = ["feito", "cancelado"];
+// Ativos = só "A fazer" ("Fazendo" saiu em 2026-09-09). Arquivados = "Feito"
+// e "Excluídas" lado a lado. As canceladas antigas não têm coluna própria:
+// entram na lista de excluídas, que é onde a pessoa procura por tarefa
+// descartada (Naira, 2026-09-09).
+const STATUS_ATIVOS: TarefaStatus[] = ["a_fazer"];
+const STATUS_ARQUIVADOS: TarefaStatus[] = ["feito"];
+
+// Quando a tarefa saiu de circulação. O trigger de autoria grava
+// status_alterado_em; nas antigas sobra o completed_at e, em último caso, o
+// updated_at — melhor agrupar por uma data aproximada do que jogar tudo em
+// "Sem data".
+function dataDeArquivamento(t: TarefaComJoins): string | null {
+  return t.status_alterado_em ?? t.completed_at ?? t.updated_at ?? null;
+}
 
 type Modo =
   | { kind: "criar"; casoIdInicial?: string | null }
@@ -271,11 +283,12 @@ function TarefasPage() {
   const porStatus = useMemo(() => {
     const m: Record<TarefaStatus, TarefaComJoins[]> = {
       a_fazer: [],
-      fazendo: [],
       feito: [],
       cancelado: [],
     };
-    for (const t of filtradas) m[t.status].push(t);
+    // Status legado fora do Record (ex.: 'fazendo' numa base ainda sem a
+    // migration) não pode derrubar a tela — cai fora em silêncio.
+    for (const t of filtradas) m[t.status]?.push(t);
     return m;
   }, [filtradas]);
 
@@ -296,7 +309,7 @@ function TarefasPage() {
       sem_prazo: [],
     };
     for (const t of filtradas) {
-      if (t.status !== "a_fazer" && t.status !== "fazendo") continue;
+      if (t.status !== "a_fazer") continue;
       // Guichê de hoje/amanhã sai daqui: vai pra faixa própria no topo, e
       // aparecer nos dois lugares só duplicaria.
       if (guicheEmDestaque(t)) continue;
@@ -308,11 +321,7 @@ function TarefasPage() {
   const guichesDestaque = useMemo(
     () =>
       filtradas
-        .filter(
-          (t) =>
-            (t.status === "a_fazer" || t.status === "fazendo") &&
-            guicheEmDestaque(t),
-        )
+        .filter((t) => t.status === "a_fazer" && guicheEmDestaque(t))
         .sort((a, b) => (a.due_at ?? "").localeCompare(b.due_at ?? "")),
     [filtradas],
   );
@@ -334,7 +343,7 @@ function TarefasPage() {
       { id: string; nome: string; total: number; atrasadas: number }
     >();
     for (const t of tarefas) {
-      if (t.status !== "a_fazer" && t.status !== "fazendo") continue;
+      if (t.status !== "a_fazer") continue;
       const id = t.responsavel_id ?? "sem";
       const nome = t.responsavel?.nome ?? "Sem responsável";
       const e = mapa.get(id) ?? { id, nome, total: 0, atrasadas: 0 };
@@ -684,14 +693,6 @@ function TarefasPage() {
                               >
                                 {formatarDueAtCurto(t.due_at)}
                               </Badge>
-                              {t.status === "fazendo" && (
-                                <Badge
-                                  variant="secondary"
-                                  className="font-normal px-1.5 py-0 text-[10px] shrink-0"
-                                >
-                                  Fazendo
-                                </Badge>
-                              )}
                               {t.prioridade <= 2 && (
                                 <span
                                   className={cn(
@@ -740,7 +741,15 @@ function TarefasPage() {
           </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          // Ativos: uma coluna, "A fazer". Arquivados: "Feito" e "Excluídas"
+          // LADO A LADO — empilhado, o log ficava soterrado embaixo de
+          // centenas de cards concluídos e ninguém achava.
+          <div
+            className={cn(
+              "grid gap-3 grid-cols-1 items-start",
+              aba === "arquivados" && "md:grid-cols-2",
+            )}
+          >
             {(aba === "ativos" ? STATUS_ATIVOS : STATUS_ARQUIVADOS).map((s) => {
               const lista = porStatus[s];
               return (
@@ -751,34 +760,62 @@ function TarefasPage() {
                       {lista.length}
                     </Badge>
                   </div>
-                  <div className="p-2 space-y-2 flex-1">
+                  <div className="p-2 flex-1">
                     {lista.length === 0 ? (
                       <div className="text-xs text-muted-foreground text-center py-6">
                         — vazio —
                       </div>
+                    ) : aba === "arquivados" ? (
+                      // Centenas de concluídas: dobradas por mês da conclusão,
+                      // só o mês corrente aberto.
+                      <SecoesPorMes grupos={agruparPorMes(lista, dataDeArquivamento)}>
+                        {(itens) => (
+                          <div className="space-y-2">
+                            {itens.map((t) => (
+                              <TarefaCard
+                                key={t.id}
+                                tarefa={t}
+                                compacto
+                                onOpenSheet={abrirEditor}
+                                onChangeStatus={mudarStatus}
+                                onDelete={excluir}
+                                onChanged={carregar}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </SecoesPorMes>
                     ) : (
-                      lista.map((t) => (
-                        <TarefaCard
-                          key={t.id}
-                          tarefa={t}
-                          compacto
-                          onOpenSheet={abrirEditor}
-                          onChangeStatus={mudarStatus}
-                          onDelete={excluir}
-                          onChanged={carregar}
-                        />
-                      ))
+                      <div className="space-y-2">
+                        {lista.map((t) => (
+                          <TarefaCard
+                            key={t.id}
+                            tarefa={t}
+                            compacto
+                            onOpenSheet={abrirEditor}
+                            onChangeStatus={mudarStatus}
+                            onDelete={excluir}
+                            onChanged={carregar}
+                          />
+                        ))}
+                      </div>
                     )}
                   </div>
                 </div>
               );
             })}
+            {/* Excluídas (quem/quando), últimas 50 — a outra metade de
+                Arquivados. Aberta por padrão desde que a aba virou
+                "feitos e excluídos" (Naira, 2026-09-09). */}
+            {aba === "arquivados" && (
+              <TarefasExcluidas
+                mostrarCaso
+                porMes
+                versao={versaoExcluidas}
+                className="rounded-md border bg-muted/40 p-3"
+              />
+            )}
           </div>
-        )}
-
-        {/* Log de exclusões (quem/quando), últimas 50 — só em Arquivados. */}
-        {aba === "arquivados" && !carregando && !carregandoArquivados && (
-          <TarefasExcluidas mostrarCaso versao={versaoExcluidas} abertaInicial={false} />
         )}
 
         <TarefaSheet
