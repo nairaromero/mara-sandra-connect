@@ -55,8 +55,8 @@ test("exigência judicial cria solicitação com prazo e FATAL no dia útil ante
   await page.goto("/tarefas");
   await page.getByRole("button", { name: "Nova tarefa" }).click();
 
-  // Combobox do Caso (busca por cliente).
-  await page.getByRole("combobox").filter({ hasText: "Sem caso" }).click();
+  // Combobox do Cliente (grava caso_id; busca por nome).
+  await page.getByRole("combobox").filter({ hasText: "Sem cliente" }).click();
   await page.getByRole("option", { name: nomeCliente }).click();
 
   // Select do template.
@@ -209,7 +209,7 @@ test("calculadora de prazo: publicação + dias úteis preenche o fatal", async 
 }) => {
   await page.goto("/tarefas");
   await page.getByRole("button", { name: "Nova tarefa" }).click();
-  await page.getByRole("combobox").filter({ hasText: "Sem caso" }).click();
+  await page.getByRole("combobox").filter({ hasText: "Sem cliente" }).click();
   await page.getByRole("option", { name: nomeCliente }).click();
   await page.getByRole("combobox").filter({ hasText: "Escolha um template" }).click();
   await page.getByRole("option", { name: "Exigência Judicial" }).click();

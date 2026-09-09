@@ -1232,7 +1232,10 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
             )}
 
           <div className="space-y-1.5">
-            <Label>Caso</Label>
+            {/* Rótulo "Cliente" (Naira, 2026-09-05): o vínculo gravado é caso_id,
+                mas as opções listam nomes de cliente e hoje caso↔cliente é 1:1 —
+                pra quem usa, escolher o caso É escolher o cliente. */}
+            <Label>Cliente</Label>
             {/* Editando uma tarefa que ja tem caso, o normal e querer ABRIR o
                 cliente — nao trocar de caso. Um Select solto aqui reatribuia a
                 tarefa a outro cliente com um clique torto, sem confirmacao.
@@ -1256,7 +1259,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                   className="text-xs text-muted-foreground"
                   onClick={() => setTrocandoCaso(true)}
                 >
-                  Trocar caso
+                  Trocar cliente
                 </Button>
               </div>
             ) : (
@@ -1264,7 +1267,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                 {/* Combobox com busca: 395+ casos, rolar a lista nao dava. */}
                 <DocTypeCombobox
                   options={[
-                    { value: "sem", label: "Sem caso" },
+                    { value: "sem", label: "Sem cliente" },
                     ...casos.map((c) => ({
                       value: c.id,
                       label: c.cliente_nome ?? "(sem nome)",
@@ -1275,7 +1278,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                     setCasoId(v === "sem" ? null : v);
                     setProcessoToken("");
                   }}
-                  placeholder="Sem caso"
+                  placeholder="Sem cliente"
                   searchPlaceholder="Buscar cliente..."
                   emptyText="Nenhum cliente encontrado."
                 />
