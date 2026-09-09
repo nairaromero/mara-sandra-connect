@@ -64,6 +64,7 @@ export async function seedSolicitacao(
   admin: SupabaseClient,
   casoId: string,
   tipo = "comprovante_residencia",
+  opts: { origem?: string; prazoAt?: string | null } = {},
 ): Promise<string> {
   const { data, error } = await admin
     .from("solicitacoes_documento")
@@ -72,7 +73,8 @@ export async function seedSolicitacao(
       tipo,
       descricao: `${MARCADOR} solicitação de teste`,
       status: "pendente",
-      origem: "externa",
+      origem: opts.origem ?? "externa",
+      prazo_at: opts.prazoAt ?? null,
     })
     .select("id")
     .single();

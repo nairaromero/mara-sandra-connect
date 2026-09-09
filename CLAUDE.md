@@ -61,6 +61,27 @@ feature branch  ──merge──▶  staging  ──merge (após validação)�
 - IA fica disponível só pra usuários `tipo='interno'`. Parceiros não veem launcher de IA, integrações, nem assistant panel.
 - Verificação atual: `usuario?.tipo === "interno"` no `_authenticated.tsx`.
 
+## Checagem de regressão (após TODA modificação)
+
+Pedido da Naira (2026-08-25), depois do code review que achou 10 bugs latentes
+no lote de agosto: **sempre olhar se nada quebrou no meio do caminho.**
+
+1. `bunx tsc --noEmit` + eslint nos arquivos tocados.
+2. Suíte E2E **completa** (`bunx playwright test`) antes do push — não só a spec da feature.
+3. Reler o próprio diff com lente de revisor, caçando os padrões que já morderam:
+   - função de banco reescrita a partir de migration velha — partir SEMPRE do
+     `pg_get_functiondef` da produção e comparar hash staging×prod antes/depois;
+   - falha de query engolida virando "não existe" (error ignorado ≠ resultado vazio);
+   - data fora do calendário de Brasília (usar `src/lib/fuso.ts`, nunca `new Date()` cru);
+   - guard de contexto ainda carregando (comparar contra null passa calada);
+   - dedup/anti-spam largo demais engolindo o 2º evento legítimo;
+   - migration re-rodável desfazendo estado intencional (ex.: `oculto_na_ui`);
+   - matching amplo demais (`like '%_aviso'` concluiu tarefa errada);
+   - chamada externa (IA/HTTP) sem timeout.
+4. Depois de subir, conferir o que roda **de verdade**: logs da edge function,
+   `cron.job_run_details`, respostas do pg_net, dado esperado no banco.
+   Deploy verde ≠ funcionando.
+
 ## Comandos úteis
 
 ```bash

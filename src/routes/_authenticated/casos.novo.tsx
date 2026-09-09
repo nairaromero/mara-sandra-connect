@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -166,6 +166,11 @@ function NovoCasoPage() {
     Array<{ id: string; nome: string | null; email: string | null }>
   >([]);
   const [submitting, setSubmitting] = useState(false);
+  // Os documentos sobem um por vez: sem contador o botao fica girando calado
+  // por vários segundos quando o cadastro traz muitos anexos (Naira, 2026-09-07).
+  const [progressoUpload, setProgressoUpload] = useState<{ feito: number; total: number } | null>(
+    null,
+  );
   const [showPwd, setShowPwd] = useState(false);
   // Marca que o cliente veio do TI (escolhido pelo nome na busca). Quando true,
   // ao salvar o caso disparamos o sync automatico (importa andamentos +
@@ -198,8 +203,29 @@ function NovoCasoPage() {
 
   const isInterno = usuario?.tipo === "interno";
 
+  // Nao da pra gravar sem dizer de onde veio o cliente: ou marca "cliente
+  // interno", ou escolhe o parceiro indicador. Antes os dois vazios salvavam
+  // um caso sem parceiro (= interno) calado. Parceiro logado nao escolhe (o
+  // caso ja fica no nome dele), entao a regra so vale pro interno. useForm
+  // reaplica _options a cada render, entao o resolver novo passa a valer
+  // quando o usuario termina de carregar.
+  const schemaComParceiro = useMemo(
+    () =>
+      schema.superRefine((v, ctx) => {
+        if (!isInterno) return;
+        if (!v.cliente_interno && !v.parceiro_id) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["parceiro_id"],
+            message: 'Selecione o parceiro indicador ou marque "Cliente interno do escritório"',
+          });
+        }
+      }),
+    [isInterno],
+  );
+
   const form = useForm<FormValues>({
-    resolver: zodResolver(schema),
+    resolver: zodResolver(schemaComParceiro),
     defaultValues: {
       nome: "",
       cpf: "",
@@ -416,6 +442,15 @@ function NovoCasoPage() {
   async function onSubmit(values: FormValues) {
     if (!usuario) return;
 
+    // Trava dura, alem do schema: sem parceiro e sem "cliente interno" o caso
+    // nao grava. Antes caia no else e virava caso sem parceiro (interno).
+    if (isInterno && !values.cliente_interno && !values.parceiro_id) {
+      const msg = 'Selecione o parceiro indicador ou marque "Cliente interno do escritório"';
+      form.setError("parceiro_id", { type: "manual", message: msg });
+      toast.error(msg);
+      return;
+    }
+
     // Validacao de tamanho dos arquivos antes de qualquer insert.
     // Falha cedo evita criar cliente+caso e travar no upload depois.
     const arquivosParaSubir = docs.map((d) => d.file).filter((f): f is File => f !== null);
@@ -530,19 +565,37 @@ function NovoCasoPage() {
 
       // 2a) Tarefa de novo cliente com responsável definido no form.
       // Com parceiro indicador, o trigger caso_novo_parceiro_cria_tarefa já
-      // criou a tarefa sem responsável — aqui só atribui. Cliente interno não
+      // criou a tarefa (desde 2026-09-03 já com dono padrão, a Mara) — aqui
+      // sobrescreve com quem a pessoa escolheu na tela. Cliente interno não
       // dispara o trigger, então a tarefa é criada aqui.
       if (isInterno) {
         const tarefaRespId = values.tarefa_responsavel_id || usuario.id;
         try {
           if (parceiroId) {
+            // Sem o filtro de responsável nulo: o trigger agora já põe a Mara,
+            // e a escolha da tela tem que valer por cima.
             const atribuirResp = await supabase
               .from("tarefas")
               .update({ responsavel_id: tarefaRespId })
               .eq("caso_id", casoId)
               .eq("metadata->>etapa", "analise_inicial_parceiro")
-              .is("responsavel_id", null);
+              .in("status", ["a_fazer", "fazendo"])
+              .select("id");
             if (atribuirResp.error) throw atribuirResp.error;
+            // Trigger não rodou (banco desatualizado): cria a tarefa aqui pra
+            // o caso não nascer sem próximo passo.
+            if (!atribuirResp.data || atribuirResp.data.length === 0) {
+              await criarTarefa({
+                caso_id: casoId,
+                responsavel_id: tarefaRespId,
+                tipo: "interna",
+                prioridade: 2,
+                titulo: "Cliente novo - Analisar",
+                descricao: `Caso ${values.nome.trim()} indicado por parceiro. Revisar dados, documentos e definir próximos passos.`,
+                due_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+                metadata: { origem_caso_id: casoId, etapa: "analise_inicial_parceiro" },
+              });
+            }
           } else {
             await criarTarefa({
               caso_id: casoId,
@@ -586,7 +639,10 @@ function NovoCasoPage() {
       // 3) Upload de documentos (se houver)
       const docsToUpload = docs.filter((d) => d.file !== null);
       if (docsToUpload.length > 0) {
-        for (const doc of docsToUpload) {
+        setProgressoUpload({ feito: 0, total: docsToUpload.length });
+        for (let i = 0; i < docsToUpload.length; i++) {
+          const doc = docsToUpload[i];
+          setProgressoUpload({ feito: i + 1, total: docsToUpload.length });
           if (!doc.file) continue;
           const fileName = Date.now() + "_" + sanitizeFileName(doc.file.name);
           const storagePath = casoId + "/" + fileName;
@@ -734,6 +790,7 @@ function NovoCasoPage() {
       toast.error(msg);
     } finally {
       setSubmitting(false);
+      setProgressoUpload(null);
     }
   }
 
@@ -976,6 +1033,7 @@ function NovoCasoPage() {
                               field.onChange(e.target.checked);
                               if (e.target.checked) {
                                 form.setValue("parceiro_id", "");
+                                form.clearErrors("parceiro_id");
                               }
                             }}
                             className="h-4 w-4"
@@ -1002,7 +1060,7 @@ function NovoCasoPage() {
                     render={({ field }) => (
                       <FormItem>
                         <div className="flex items-center justify-between gap-2">
-                          <FormLabel>Parceiro indicador</FormLabel>
+                          <FormLabel>Parceiro indicador *</FormLabel>
                           <NovoParceiroDialog
                             onCriado={(p) => {
                               setParceiros((prev) => {
@@ -1221,7 +1279,9 @@ function NovoCasoPage() {
                 title={!todosDocumentosNomeados ? "Há documentos sem tipo selecionado" : undefined}
               >
                 {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                Cadastrar caso
+                {progressoUpload
+                  ? `Enviando ${progressoUpload.feito} de ${progressoUpload.total}…`
+                  : "Cadastrar caso"}
               </Button>
             </div>
           </form>

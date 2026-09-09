@@ -1,7 +1,12 @@
-// Corrente da montagem de inicial: Bia monta -> Mara revisa -> Bia protocola.
+// Corrente da montagem: Bia monta -> Mara revisa -> Bia protocola.
+// Duas variantes com as MESMAS 3 etapas:
+//   - inicial JUDICIAL  (metadata.montagem_inicial): o protocolo pede o nº do
+//     processo e cadastra em processos_judiciais (liga DataJud/DJE);
+//   - requerimento ADMINISTRATIVO (metadata.montagem_requerimento, Naira
+//     2026-09-01): o protocolo pede o nº do requerimento, cadastra em
+//     processos_admin e abre o Acompanhamento Processual (30/60/120).
 //
-// Aparece dentro do TarefaSheet/TarefaCard quando
-// tarefa.metadata.montagem_inicial === true. O botão muda conforme a etapa:
+// Aparece dentro do TarefaSheet/TarefaCard. O botão muda conforme a etapa:
 //
 //   montagem  (Bia,  10d) -> "Enviar para revisão"    cria a revisão da Mara
 //   revisao   (Mara, 10d) -> "Enviar para protocolo"  devolve pra Bia
@@ -25,6 +30,8 @@ import { Label } from "@/components/ui/label";
 import { supabase } from "@/lib/supabase";
 import type { TarefaComJoins } from "@/lib/tarefas/types";
 import { useDestaque } from "@/lib/destaque/destaque-context";
+import { beneficioTemPericia } from "@/lib/tarefas/helpers";
+import { instanteBR, partesBR } from "@/lib/fuso";
 
 const EMAIL_BIA = "advocacia.beatrizsan@outlook.com";
 const EMAIL_MARA = "marasandra.adv@gmail.com";
@@ -69,6 +76,34 @@ const PROXIMA: Record<
   protocolo: null,
 };
 
+// Variante ADMINISTRATIVA: mesmos passos, textos de requerimento.
+const PROXIMA_ADM: typeof PROXIMA = {
+  montagem: {
+    etapa: "revisao",
+    dias: 10,
+    email: EMAIL_MARA,
+    titulo: "Revisão do requerimento",
+    descricao:
+      'Revisar o requerimento montado. Ao aprovar, use o botão "Enviar para ' +
+      'protocolo" — a tarefa de protocolo volta para a Bia automaticamente.\n\n' +
+      "Prazo fatal: 10 dias corridos.",
+    andamento: "Caso enviado à revisão do requerimento",
+  },
+  revisao: {
+    etapa: "protocolo",
+    dias: 5,
+    email: EMAIL_BIA,
+    titulo: "Protocolo do requerimento",
+    descricao:
+      'Protocolar o requerimento no Meu INSS. Ao protocolar, use o botão ' +
+      '"Protocolo realizado" — o parceiro é avisado e o acompanhamento ' +
+      "processual (30/60/120) abre sozinho.\n\n" +
+      "Prazo fatal: 5 dias corridos.",
+    andamento: "Caso enviado ao protocolo do requerimento",
+  },
+  protocolo: null,
+};
+
 const ROTULO: Record<Etapa, { acao: string; titulo: string }> = {
   montagem: { acao: "Enviar para revisão", titulo: "Montagem" },
   revisao: { acao: "Enviar para protocolo", titulo: "Revisão" },
@@ -82,12 +117,15 @@ interface Props {
   stopPropagation?: boolean;
 }
 
-/** Dias corridos a partir de agora, às 18h (fim do expediente). */
+/**
+ * Dias corridos a partir de hoje, às 18h (fim do expediente) no calendário de
+ * Brasília — o relógio da máquina não decide prazo de escritório.
+ */
 function venceEm(dias: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + dias);
-  d.setHours(18, 0, 0, 0);
-  return d.toISOString();
+  const p = partesBR(new Date());
+  return new Date(
+    instanteBR(p.ano, p.mes, p.dia, 18, 0).getTime() + dias * 86400_000,
+  ).toISOString();
 }
 
 export function MontagemInicial({
@@ -96,7 +134,12 @@ export function MontagemInicial({
   compacto = false,
   stopPropagation = false,
 }: Props) {
-  const meta = (tarefa.metadata ?? {}) as { etapa?: Etapa };
+  const meta = (tarefa.metadata ?? {}) as {
+    etapa?: Etapa;
+    montagem_requerimento?: boolean;
+  };
+  const ehRequerimento = meta.montagem_requerimento === true;
+  const CORRENTE = ehRequerimento ? PROXIMA_ADM : PROXIMA;
   const etapa: Etapa = meta.etapa === "revisao" || meta.etapa === "protocolo"
     ? meta.etapa
     : "montagem";
@@ -107,13 +150,15 @@ export function MontagemInicial({
 
   const concluida = tarefa.status === "feito";
   const ehUltima = etapa === "protocolo";
+  // Sem parceiro indicador (cliente interno) não há ninguém pra avisar.
+  const temParceiro = !!tarefa.caso?.parceiro_id;
 
   async function avancar() {
     if (agindo) return;
     setAgindo(true);
     try {
       const agora = new Date().toISOString();
-      const proxima = PROXIMA[etapa];
+      const proxima = CORRENTE[etapa];
 
       // Encerra a etapa atual antes de abrir a próxima, pra não ficarem as
       // duas abertas se algo falhar no meio.
@@ -191,8 +236,99 @@ export function MontagemInicial({
         }
       }
 
-      // Última etapa: cadastra o processo (se veio número) e avisa o parceiro.
-      if (ehUltima && tarefa.caso_id) {
+      // Última etapa ADMINISTRATIVA: cadastra o requerimento, avisa o
+      // parceiro e abre o Acompanhamento Processual — a corrente não termina
+      // no vazio (auditoria 2026-09-01).
+      if (ehUltima && tarefa.caso_id && ehRequerimento) {
+        let processoAdminId: string | null = tarefa.processo_admin_id;
+        const numero = numeroProcesso.trim();
+        if (numero && !processoAdminId) {
+          const { data: proc, error: errProc } = await supabase
+            .from("processos_admin")
+            .insert({
+              caso_id: tarefa.caso_id,
+              numero_requerimento: numero,
+              data_protocolo: agora,
+            })
+            .select("id")
+            .single();
+          if (errProc) {
+            toast.warning("Não consegui cadastrar o requerimento", {
+              description: errProc.message + " — o número ficou no andamento.",
+            });
+          } else {
+            processoAdminId = (proc as { id: string }).id;
+          }
+        }
+        const { data: andAdm, error: errAndAdm } = await supabase
+          .from("andamentos")
+          .insert({
+            caso_id: tarefa.caso_id,
+            processo_admin_id: processoAdminId,
+            origem: "interno",
+            titulo: "Requerimento protocolado no INSS",
+            descricao: numero
+              ? "O requerimento administrativo foi protocolado. Nº " + numero + "."
+              : "O requerimento administrativo foi protocolado no INSS.",
+            data_evento: agora,
+            visivel_parceiro: true,
+            metadata: { montagem_requerimento: true, numero_requerimento: numero || null },
+          })
+          .select("id")
+          .single();
+        if (errAndAdm) throw errAndAdm;
+        marcarDestaque(andAdm.id as string);
+        supabase.functions
+          .invoke("notify-novo-andamento", { body: { andamento_id: andAdm.id } })
+          .catch(() => {});
+
+        // Perícia só existe em benefício por incapacidade — o acompanhamento
+        // não pode prometer perícia numa aposentadoria por idade (Naira,
+        // 2026-09-01).
+        const { data: casoInfo } = await supabase
+          .from("casos")
+          .select("tipo_beneficio")
+          .eq("id", tarefa.caso_id)
+          .maybeSingle();
+        const temPericia = beneficioTemPericia(
+          (casoInfo as { tipo_beneficio?: string | null } | null)?.tipo_beneficio,
+        );
+        const { data: acomp, error: errAcomp } = await supabase
+          .from("tarefas")
+          .insert({
+            caso_id: tarefa.caso_id,
+            processo_admin_id: processoAdminId,
+            responsavel_id: tarefa.responsavel_id,
+            tipo: "interna",
+            prioridade: 2,
+            status: "a_fazer",
+            titulo: temPericia
+              ? "Acompanhamento — aguardando agendamento da perícia"
+              : "Acompanhamento — aguardando análise do INSS",
+            descricao: temPericia
+              ? "Benefício por incapacidade: o INSS deve agendar a perícia. Vigie o Meu INSS e os e-mails; quando o comprovante chegar, aplique o template Perícia INSS (agenda + aviso ao parceiro). Se nada acontecer: 30d ouvidoria → 60d peticionamento de mora → 120d ajuizamento."
+              : "Aguardando a análise do requerimento. O resultado costuma chegar pelo robô de e-mails do INSS (aplica Concedido/Indeferido sozinho) — se souber antes, registre pelos botões aqui na tarefa. Se nada acontecer: 30d ouvidoria → 60d peticionamento de mora → 120d ajuizamento.",
+            due_at: venceEm(30),
+            origem: "manual",
+            metadata: {
+              origem_tarefa_id: tarefa.id,
+              template_aplicado: "montagem_requerimento_adm",
+              acompanhamento_processual: true,
+            },
+          })
+          .select("id")
+          .single();
+        if (errAcomp) {
+          toast.warning("Protocolo ok, mas o acompanhamento não abriu", {
+            description: errAcomp.message + " — crie a tarefa à mão.",
+          });
+        } else {
+          marcarDestaque(acomp.id as string);
+        }
+      }
+
+      // Última etapa JUDICIAL: cadastra o processo (se veio número) e avisa o parceiro.
+      if (ehUltima && tarefa.caso_id && !ehRequerimento) {
         let processoJudicialId: string | null = tarefa.processo_judicial_id;
         const numero = numeroProcesso.trim();
 
@@ -237,7 +373,9 @@ export function MontagemInicial({
 
       toast.success(
         ehUltima
-          ? "Protocolo registrado. O parceiro foi avisado."
+          ? temParceiro
+            ? "Protocolo registrado. O parceiro foi avisado."
+            : "Protocolo registrado no histórico do caso."
           : `${ROTULO[etapa].titulo} concluída.`,
         proxima
           ? { description: `${proxima.titulo} criada, vence em ${proxima.dias} dias.` }
@@ -262,7 +400,9 @@ export function MontagemInicial({
       {!compacto && (
         <div className="flex flex-wrap items-center gap-2">
           <Stamp className="h-4 w-4 text-[var(--gold)]" />
-          <span className="font-medium">Montagem de inicial</span>
+          <span className="font-medium">
+            {ehRequerimento ? "Montagem de requerimento (INSS)" : "Montagem de inicial"}
+          </span>
           <Badge variant="outline" className="font-normal">
             etapa {etapa === "montagem" ? "1" : etapa === "revisao" ? "2" : "3"} de 3 ·{" "}
             {ROTULO[etapa].titulo}
@@ -273,22 +413,31 @@ export function MontagemInicial({
       {concluida ? (
         <p className="flex items-center gap-1 text-xs text-muted-foreground">
           <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-          {ehUltima ? "Inicial protocolada." : `${ROTULO[etapa].titulo} concluída.`}
+          {ehUltima
+            ? ehRequerimento
+              ? "Requerimento protocolado."
+              : "Inicial protocolada."
+            : `${ROTULO[etapa].titulo} concluída.`}
         </p>
       ) : (
         <>
           {ehUltima && (
             <div className="space-y-1">
-              <Label className="text-xs">Número do processo (opcional)</Label>
+              <Label className="text-xs">
+                {ehRequerimento
+                  ? "Número do requerimento (opcional)"
+                  : "Número do processo (opcional)"}
+              </Label>
               <Input
                 value={numeroProcesso}
                 onChange={(e) => setNumeroProcesso(e.target.value)}
-                placeholder="0000000-00.0000.0.00.0000"
+                placeholder={ehRequerimento ? "000000000" : "0000000-00.0000.0.00.0000"}
                 disabled={agindo}
               />
               <p className="text-xs text-muted-foreground">
-                Se ainda não saiu, deixe em branco — dá para cadastrar o processo depois
-                na aba Processos.
+                Se ainda não saiu, deixe em branco — dá para cadastrar{" "}
+                {ehRequerimento ? "o requerimento" : "o processo"} depois na aba
+                Processos.
               </p>
             </div>
           )}
@@ -308,7 +457,7 @@ export function MontagemInicial({
             <p className="text-xs text-muted-foreground">
               Ao clicar, esta tarefa é encerrada e a próxima nasce para{" "}
               {etapa === "montagem" ? "a Mara" : "a Bia"}, com{" "}
-              {PROXIMA[etapa]?.dias} dias de prazo.
+              {CORRENTE[etapa]?.dias} dias de prazo.
             </p>
           )}
         </>

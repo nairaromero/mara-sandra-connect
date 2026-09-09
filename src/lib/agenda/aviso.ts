@@ -44,10 +44,16 @@ export async function montarTextoAvisoEvento(d: DadosAvisoEvento): Promise<strin
   return (data as string) ?? "";
 }
 
+export type TipoAviso =
+  | "pericia_aviso"
+  | "audiencia_aviso"
+  | "pericia_lembrete"
+  | "audiencia_lembrete";
+
 export interface EnviarAvisoInput {
   casoId: string;
   eventoId: string | null; // null: aviso avulso (nasceu de publicação, sem evento)
-  tipoAviso: "pericia_aviso" | "audiencia_aviso";
+  tipoAviso: TipoAviso;
   texto: string;
   autorId: string | null;
 }
@@ -78,4 +84,42 @@ export async function enviarAvisoEvento(input: EnviarAvisoInput): Promise<string
     });
 
   return data.id as string;
+}
+
+/**
+ * Rede de segurança quando o envio direto do aviso FALHA: cria a tarefa
+ * "Enviar aviso ao parceiro" com o texto pronto (mesma forma da tarefa que o
+ * trigger do banco cria), pra comunicação nunca se perder sem rastro
+ * (review #2 — antes só saía um toast e o parceiro ficava sem saber).
+ */
+export async function criarTarefaAvisoFallback(input: {
+  casoId: string;
+  eventoId: string | null;
+  tipoAviso: TipoAviso;
+  texto: string;
+  responsavelId: string | null;
+  clienteNome: string;
+}): Promise<void> {
+  const rotulo = input.tipoAviso.startsWith("audiencia") ? "audiência" : "perícia";
+  const { error } = await supabase.from("tarefas").insert({
+    caso_id: input.casoId,
+    responsavel_id: input.responsavelId,
+    tipo: "contato_cliente",
+    status: "a_fazer",
+    prioridade: 1,
+    titulo: `Enviar aviso da ${rotulo} ao parceiro - ${input.clienteNome || "cliente"}`,
+    descricao:
+      "O envio automático do aviso FALHOU na hora do agendamento. Revise o texto e envie pelo botão aqui na tarefa.",
+    due_at: new Date().toISOString(),
+    origem: "enviar_aviso",
+    origem_ref: input.eventoId ? `evento:${input.eventoId}` : null,
+    metadata: {
+      enviar_aviso: {
+        tipo_aviso: input.tipoAviso,
+        evento_id: input.eventoId,
+        texto: input.texto,
+      },
+    },
+  });
+  if (error) throw error;
 }

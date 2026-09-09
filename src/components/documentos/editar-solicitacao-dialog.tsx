@@ -15,6 +15,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { fimDoDiaBR, inputDateBRParaIso, isoParaInputDateBR } from "@/lib/fuso";
 import { TIPOS_DOCUMENTO_OPTIONS } from "@/lib/documentos/tipos";
 import { DocTypeCombobox } from "@/components/doc-type-combobox";
 import { Button } from "@/components/ui/button";
@@ -46,6 +47,10 @@ export interface SolicitacaoEditavel {
   tipo: string;
   descricao: string | null;
   origem: string;
+  // "Enviar até" do parceiro (fatal − 3). Editável aqui inclusive nas de
+  // template — é como a equipe define o prazo da exigência judicial antiga
+  // (sem backfill) ou ajusta um prazo que mudou.
+  prazo_at: string | null;
 }
 
 export function EditarSolicitacaoDialog(props: {
@@ -58,6 +63,7 @@ export function EditarSolicitacaoDialog(props: {
   const [tipoPersonalizado, setTipoPersonalizado] = useState("");
   const [descricao, setDescricao] = useState("");
   const [origem, setOrigem] = useState("externa");
+  const [prazo, setPrazo] = useState("");
   const [salvando, setSalvando] = useState(false);
 
   // Re-hidrata o formulário a cada solicitação aberta.
@@ -65,6 +71,7 @@ export function EditarSolicitacaoDialog(props: {
     if (!solic) return;
     setTipo(solic.tipo);
     setOrigem(solic.origem);
+    setPrazo(isoParaInputDateBR(solic.prazo_at));
     const m = /^\[([^\]]+)\]\s*([\s\S]*)$/.exec(solic.descricao ?? "");
     if (solic.tipo === "outro" && m) {
       setTipoPersonalizado(m[1]);
@@ -89,12 +96,14 @@ export function EditarSolicitacaoDialog(props: {
         tipo === "outro" && tipoPersonalizado.trim()
           ? "[" + tipoPersonalizado.trim() + "] " + descricao.trim()
           : descricao.trim();
+      const prazoIsoBase = prazo ? inputDateBRParaIso(prazo) : null;
       const resp = await supabase
         .from("solicitacoes_documento")
         .update({
           tipo,
           descricao: descricaoFinal || null,
           origem,
+          prazo_at: prazoIsoBase ? fimDoDiaBR(prazoIsoBase).toISOString() : null,
         })
         .eq("id", solic.id);
       if (resp.error) throw resp.error;
@@ -152,6 +161,20 @@ export function EditarSolicitacaoDialog(props: {
               </p>
             )}
           </div>
+          {origem !== "interna" && (
+            <div>
+              <Label className="text-xs">Prazo para envio ("enviar até" do parceiro)</Label>
+              <Input
+                type="date"
+                value={prazo}
+                onChange={(e) => setPrazo(e.target.value)}
+                aria-label="Prazo para envio"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Regra da casa: fatal real menos 3 dias. Vazio = sem prazo (sem lembretes).
+              </p>
+            </div>
+          )}
           <div>
             <Label className="text-xs">Observação</Label>
             <Textarea

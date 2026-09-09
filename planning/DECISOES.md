@@ -355,6 +355,58 @@ risco teórico.
 
 ---
 
+## 8. Storage por parceiro e caminho pra SaaS
+
+### D22 · Storage por parceiro em três degraus; só o primeiro construído (2026-08-23)
+
+- **Contexto.** Medido no banco: **1 parceiro concentra ~62%** dos 3,9 GB do
+  bucket `documentos`; os 3 maiores somam 95%. Ratear custo de storage
+  igualmente entre parceiros seria injusto — e há a intenção de vender planos
+  de assinatura pra outros escritórios. Ao mesmo tempo, o custo real hoje é
+  **zero** (3,9 GB dos 100 GB inclusos no plano Pro).
+- **Opções.** (a) Cobrar/limitar já, construindo quota + bloqueio; (b) uma
+  escada de três degraus, subindo um por vez conforme a necessidade real.
+- **Decisão.** (b). Os degraus, e o gatilho de cada um:
+
+  | Degrau | O que é | Gatilho pra subir | Estado |
+  |---|---|---|---|
+  | **1 · Medir** | RPC `uso_storage_parceiro()` (SECURITY DEFINER; interno vê tudo, parceiro só a própria linha, anon negado) + card em `/parceiros` com total, barra, arquivos e % | — | ✅ no ar (2026-08-23, `migration_uso_storage_parceiro.sql`) |
+  | **2 · Quota com aviso** | `quota_storage_bytes` por parceiro/plano; barra muda de cor, aviso no sino/e-mail ao cruzar; excedente vira **linha de cobrança**, nunca parede | existir plano/preço definido, ou o uso sair da faixa em que o custo é irrelevante | adiado |
+  | **3 · Enforcement** | recusa de upload acima do limite: checagem num **ponto único** antes de emitir a permissão + contador materializado (`uso_storage` por trigger em `documentos`, leitura O(1)); mensagem digna e válvula de escape do admin | só no cenário SaaS multi-tenant, se a conversa comercial do degrau 2 deixar de bastar | adiado |
+
+- **O que pesou.** No degrau 2: bloquear upload num escritório de advocacia
+  pode segurar a peça do prazo de amanhã — o custo de 2 GB excedentes é
+  centavos; o de um documento que não entrou é um prazo. Aviso + cobrança
+  transfere o problema pra onde ele pertence: conversa comercial com número na
+  mão. No degrau 3: cada peça (contador, trigger, recusa) é estado novo e modo
+  de falha novo — construir antes da demanda vira superfície morta (princípio 7;
+  o módulo de webhooks está aí de prova).
+- **Como a atribuição funciona.** Com o que já existe: o caminho do objeto no
+  bucket começa com o `caso_id`, e `casos.parceiro_id` diz de quem é o caso.
+  Nenhuma coluna nova foi necessária pro degrau 1.
+- **Revisitar quando.** Planos de assinatura saírem do papel — aí o degrau 2
+  entra junto com a tabela de planos, e a decisão multi-tenant (abaixo) precisa
+  ser tomada antes.
+
+### Decisão AINDA NÃO tomada · multi-tenant pra vender a outros escritórios
+
+Registrada aqui pra não se perder o raciocínio de 2026-08-23:
+
+- **(a) Coluna `escritorio_id` + RLS por tenant num banco só** — caminho de
+  SaaS de centenas de clientes, mas exige reescrever as ~46 tabelas e ~133
+  policies, e o modo de falha é o pior possível do ramo: uma policy errada =
+  escritório A vendo processo do escritório B (dado de saúde, art. 11 LGPD).
+- **(b) Um projeto Supabase + um worker por escritório** — isolamento físico
+  (vazamento entre tenants estruturalmente impossível — princípio 2), billing
+  por tenant = fatura do projeto, LGPD como argumento de venda. Custo: operação
+  ×N (migrations, edge functions, seed — automatizável; os scripts já são
+  parametrizados por ref). Recomendação atual: **(b) enquanto os clientes se
+  contarem em dezenas**; revisitar (a) além de ~20-30 tenants.
+
+Quando a decisão for tomada, ela vira o D23 com o formato padrão.
+
+---
+
 ## Princípios que emergiram (o padrão por trás das decisões)
 
 1. **Automação cria trabalho de revisão, nunca decisão jurídica.** Órfão >

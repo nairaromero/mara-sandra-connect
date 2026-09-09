@@ -89,6 +89,26 @@ export function dueAtDoPrazoFatal(
 }
 
 /**
+ * Prazo mostrado ao PARCEIRO ("enviar até") a partir do fatal digitado no
+ * form: fatal − 3 dias (regra da casa, Naira 2026-08-31 — o fatal real nunca
+ * chega ao parceiro), no FIM do dia de Brasília ("até o dia X" inclui o X).
+ * Caindo em fim de semana, RECUA pra sexta — empurrar pra frente comeria a
+ * folga que o −3 existe pra garantir.
+ */
+export function prazoParceiroDoFatal(fatalDia: string): string | null {
+  const [y, m, d] = fatalDia.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  const local = comoLocalBR(new Date());
+  local.setFullYear(y, m - 1, d);
+  local.setHours(23, 59, 59, 0);
+  local.setDate(local.getDate() - 3);
+  const dow = local.getDay(); // 0=dom, 6=sáb
+  if (dow === 6) local.setDate(local.getDate() - 1);
+  else if (dow === 0) local.setDate(local.getDate() - 2);
+  return deLocalBR(local).toISOString();
+}
+
+/**
  * Calcula due_at de uma tarefa-extra em template misto, dado o
  * start do agenda_evento e a configuração do item.
  */

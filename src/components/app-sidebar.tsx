@@ -30,6 +30,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/use-auth";
+import { useVerComoParceiro } from "@/hooks/use-ver-como-parceiro";
 
 // "/" e o site publico (landing). Ninguem tem "Inicio": /casos redireciona
 // interno pra /tarefas e parceiro pra /clientes (home de cada um).
@@ -48,8 +49,13 @@ const itemsInternosTopo = [
   { title: "Agenda", url: "/agenda", icon: Calendar },
 ];
 
-// Parceiro: /agenda renderiza a visao restrita (so pericias dos casos dele).
-const itemParceiroPericias = { title: "Perícias", url: "/agenda", icon: Calendar };
+// Parceiro: /tarefas e /agenda renderizam visões restritas aos casos dele.
+// "Tarefas" = kanban de pendências por fase (feedback de parceiro, 2026-08-31);
+// "Agenda" (ex-"Perícias") = calendário de perícias E audiências.
+const itemsParceiroTopo = [
+  { title: "Tarefas", url: "/tarefas", icon: ListTodo },
+  { title: "Agenda", url: "/agenda", icon: Calendar },
+];
 
 const itemsInternos = [
   { title: "Comercial", url: "/comercial", icon: Handshake },
@@ -71,7 +77,11 @@ const itemsFooter = [{ title: "Configurações", url: "/configuracoes", icon: Se
 export function AppSidebar() {
   const { state, isMobile, setOpenMobile } = useSidebar();
   const { usuario, isAdmin } = useAuth();
-  const isInterno = usuario?.tipo === "interno";
+  const { verComo } = useVerComoParceiro();
+  const emVerComo = !!verComo;
+  // Em "ver como", o admin enxerga a visão do parceiro — então NÃO é interno
+  // pra fins de menu.
+  const isInterno = usuario?.tipo === "interno" && !emVerComo;
   const collapsed = state === "collapsed";
   // No modo estreito o sidebar e um painel (Sheet) que cobre o conteudo;
   // sem isso ele fica aberto depois do clique e a pessoa precisa clicar
@@ -83,7 +93,12 @@ export function AppSidebar() {
   const isActive = (path: string) =>
     path === "/" ? currentPath === "/" : currentPath.startsWith(path);
 
-  const items = isInterno
+  // "Ver como parceiro" (admin, leitura): só as telas escopadas — Tarefas e
+  // Agenda. As demais mostrariam dado do admin (não escopado), então ficam de
+  // fora do modo.
+  const items = emVerComo
+    ? itemsParceiroTopo
+    : isInterno
     ? [
         ...itemsInternosTopo,
         ...itemsBase,
@@ -91,7 +106,14 @@ export function AppSidebar() {
         ...(isAdmin ? itemsAdmin : []),
         ...itemsFooter,
       ]
-    : [itemsBase[0], itemParceiroPericias, ...itemsBase.slice(1), ...itemsFooter];
+    : // Parceiro não tem mais "Documentos pendentes": o kanban de Tarefas
+      // cobre as pendências dele (Naira, 2026-09-01). A rota /documentos
+      // redireciona o parceiro pra /tarefas.
+      [
+        ...itemsParceiroTopo,
+        ...itemsBase.filter((i) => i.url !== "/documentos"),
+        ...itemsFooter,
+      ];
 
   // Badge de publicacoes novas (DJEN) desde a ultima visita. RLS escopa por
   // usuario (interno ve todas; parceiro so as dos casos dele).
@@ -139,6 +161,10 @@ export function AppSidebar() {
         .select("id", { count: "exact", head: true })
         .eq("status", "pendente");
       if (isInterno && usuario?.id) q = q.eq("solicitado_por", usuario.id);
+      // Parceiro conta o MESMO que as telas dele mostram: tudo que não é
+      // interna (externa + template de exigência) — antes o badge contava
+      // as internas e divergia da lista.
+      if (!isInterno) q = q.neq("origem", "interna");
       const { count } = await q;
       if (vivo) setDocBadge(count || 0);
     }
@@ -265,7 +291,13 @@ export function AppSidebar() {
                       ? docBadge
                       : item.url === "/conversas"
                         ? conversasBadge
-                        : 0;
+                        : // Kanban do parceiro: mesmas pendências do hub de
+                          // documentos, então o mesmo contador. (Suprimido em
+                          // "ver como" — o docBadge do admin conta o escritório
+                          // todo, não o parceiro visto.)
+                          item.url === "/tarefas" && !isInterno && !emVerComo
+                          ? docBadge
+                          : 0;
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>

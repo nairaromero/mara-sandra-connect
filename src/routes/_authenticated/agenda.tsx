@@ -32,6 +32,7 @@ import { ehDoGrupo, type GrupoAgenda } from "@/lib/agenda/types";
 import type { TarefaComJoins } from "@/lib/tarefas/types";
 import { AgendaPericiasParceiro } from "@/components/agenda/agenda-pericias-parceiro";
 import { useAuth } from "@/hooks/use-auth";
+import { useVerComoParceiro } from "@/hooks/use-ver-como-parceiro";
 import { chaveDiaBR, chavesDiasBR, fimDoDiaBR, formatarBR, instanteBR } from "@/lib/fuso";
 
 // A agenda mescla DUAS fontes: agenda_eventos + tarefas tipo='pericia' ativas
@@ -92,11 +93,13 @@ export const Route = createFileRoute("/_authenticated/agenda")({
   component: AgendaRoute,
 });
 
-// Parceiro vê a agenda restrita: só perícias dos casos dele, sem criar/editar.
+// Parceiro vê a agenda restrita: perícias e audiências dos casos dele, sem
+// criar/editar.
 // Componentes separados (não early-return dentro de AgendaPage) pra não
 // violar a ordem de hooks quando o tipo do usuário resolve.
 function AgendaRoute() {
   const { usuario } = useAuth();
+  const { verComo } = useVerComoParceiro();
   if (!usuario) {
     return (
       <div className="flex h-96 items-center justify-center">
@@ -104,7 +107,7 @@ function AgendaRoute() {
       </div>
     );
   }
-  if (usuario.tipo === "parceiro") return <AgendaPericiasParceiro />;
+  if (usuario.tipo === "parceiro" || verComo) return <AgendaPericiasParceiro />;
   return <AgendaPage />;
 }
 

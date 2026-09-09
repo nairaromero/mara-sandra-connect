@@ -54,6 +54,7 @@ import {
   comoLocalBR,
   deLocalBR,
   formatarBR,
+  hojeChaveBR,
   inputDateTimeBRParaIso,
   isoParaInputDateTimeBR,
 } from "@/lib/fuso";
@@ -68,7 +69,11 @@ import {
   obterContextoCaso,
   type ContextoCasoParaTemplate,
 } from "@/lib/tarefas/queries";
-import { enviarAvisoEvento, montarTextoAvisoEvento } from "@/lib/agenda/aviso";
+import {
+  criarTarefaAvisoFallback,
+  enviarAvisoEvento,
+  montarTextoAvisoEvento,
+} from "@/lib/agenda/aviso";
 import { AvisoParceiroEvento } from "@/components/agenda/aviso-parceiro-evento";
 import {
   templateTemAgenda,
@@ -177,7 +182,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
   }
 
   function avisarSeDataPassada(campos: CamposComprovante) {
-    if (campos.data && campos.data < new Date().toISOString().slice(0, 10)) {
+    if (campos.data && campos.data < hojeChaveBR()) {
       const [a, m, d] = campos.data.split("-");
       toast.warning(
         `Atenção: a perícia é de ${d}/${m}/${a} — data que JÁ PASSOU. Confira se é a publicação/comprovante atual.`,
@@ -190,6 +195,10 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
   async function lerPublicacaoColada() {
     if (!publicacaoColada.trim()) {
       toast.error("Cole o texto da publicação primeiro.");
+      return;
+    }
+    if (!ctxCaso?.cliente_nome) {
+      toast.error("Os dados do caso ainda estão carregando — tente de novo em instantes.");
       return;
     }
     setExtraindoComprovante(true);
@@ -217,6 +226,10 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
   }
 
   async function lerComprovante(file: File) {
+    if (!ctxCaso?.cliente_nome) {
+      toast.error("Os dados do caso ainda estão carregando — tente de novo em instantes.");
+      return;
+    }
     setExtraindoComprovante(true);
     setComprovanteDivergente(null);
     try {
@@ -296,7 +309,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
 
   // Com caso, oferece os templates de cliente; sem caso, só os que não
   // dependem de um (ausência). Assim a ausência é alcançável mesmo com
-  // "Sem caso" — antes o seletor inteiro sumia.
+  // "Sem cliente" — antes o seletor inteiro sumia.
   const templatesVisiveis = useMemo(() => {
     const temSemCaso = (t: TarefaTemplateRow) =>
       t.itens.some((i) => i.destino === "agenda" && i.sem_caso);
@@ -585,9 +598,24 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
             });
           } catch (e) {
             console.error("aviso ao parceiro falhou:", e);
-            toast.error(
-              "Evento criado, mas o aviso ao parceiro FALHOU — envie manualmente pelos Comentários do caso.",
-            );
+            try {
+              await criarTarefaAvisoFallback({
+                casoId,
+                eventoId: novoEvento.id,
+                tipoAviso: tipo === "audiencia" ? "audiencia_aviso" : "pericia_aviso",
+                texto: avisoTexto.trim(),
+                responsavelId: usuario?.id ?? null,
+                clienteNome: ctxCaso?.cliente_nome ?? "",
+              });
+              toast.error(
+                "O envio do aviso FALHOU — criei a tarefa 'Enviar aviso ao parceiro' pra não se perder.",
+              );
+            } catch (e2) {
+              console.error("fallback do aviso também falhou:", e2);
+              toast.error(
+                "Evento criado, mas o aviso ao parceiro FALHOU — envie manualmente pelos Comentários do caso.",
+              );
+            }
           }
         }
 
@@ -759,7 +787,9 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
 
         <div className="space-y-4 py-4">
           <div className="space-y-1.5">
-            <Label>Caso</Label>
+            {/* Rótulo "Cliente" — mesma regra do TarefaSheet: grava caso_id,
+                mas as opções são nomes de cliente (1:1 hoje). */}
+            <Label>Cliente</Label>
             <Select
               value={casoId ?? "sem"}
               onValueChange={(v) => {
@@ -768,10 +798,10 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
               }}
             >
               <SelectTrigger>
-                <SelectValue placeholder="Sem caso" />
+                <SelectValue placeholder="Sem cliente" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="sem">Sem caso</SelectItem>
+                <SelectItem value="sem">Sem cliente</SelectItem>
                 {casos.map((c) => (
                   <SelectItem key={c.id} value={c.id}>
                     {c.cliente_nome ?? "(sem nome)"}

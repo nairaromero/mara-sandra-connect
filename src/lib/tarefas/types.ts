@@ -52,6 +52,9 @@ export interface TarefaComJoins extends TarefaRow {
   status_autor?: { id: string; nome: string | null } | null;
   caso: {
     id: string;
+    // Null = cliente interno do escritório. Os widgets de desfecho usam isto
+    // pra não prometer aviso a parceiro que não existe.
+    parceiro_id?: string | null;
     cliente: { id: string; nome: string | null } | null;
   } | null;
   // Processo vinculado (mutuamente exclusivos) — badge Admin/Judicial no card.
@@ -131,7 +134,11 @@ export const STATUS_LABEL: Record<TarefaStatus, string> = {
   cancelado: "Cancelado",
 };
 
-export const STATUS_ORDEM: TarefaStatus[] = ["a_fazer", "fazendo", "feito", "cancelado"];
+// "Cancelado" saiu das opções escolhíveis (Naira, 2026-09-02): tarefa ou se
+// conclui, ou se exclui com motivo (que vira andamento) — sem limbo de
+// cancelada. O enum e o STATUS_LABEL mantêm 'cancelado' só pra exibir as
+// tarefas canceladas antigas no histórico (Arquivados).
+export const STATUS_ORDEM: TarefaStatus[] = ["a_fazer", "fazendo", "feito"];
 
 export const TIPO_LABEL: Record<TarefaTipo, string> = {
   interna: "Interna",

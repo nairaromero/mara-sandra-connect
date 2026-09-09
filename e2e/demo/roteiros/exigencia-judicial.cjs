@@ -4,7 +4,7 @@
 //                   mostra tarefas, andamento "visível parceiro" e a
 //                   solicitação reescrita pela IA.
 //   Ato 2 (parceiro): vê o caso, lê o pedido mastigado e cumpre com anexo.
-//   Ato 3 (equipe): a tarefa "Documento entregue — juntar aos autos" nasceu.
+//   Ato 3 (equipe): a tarefa "Cumprir Exigência Judicial - <cliente>" nasceu.
 //
 // Rodar da raiz: node e2e/demo/roteiros/exigencia-judicial.cjs
 // Montagem (MP4 único) e entrega: ver .claude/skills/video-demo/SKILL.md.
@@ -177,7 +177,7 @@ const PDF_FAKE = Buffer.from(
     await ler(p2, 2000);
     await still(p2, "ato2-03-anexo");
     await clicar(p2, p2.getByRole("button", { name: "Confirmar" }));
-    await p2.getByText("Solicitação cumprida e documento anexado").waitFor({ timeout: 30000 });
+    await p2.getByText(/Solicitação cumprida — \d+ documento/).waitFor({ timeout: 30000 });
     await ler(p2, 3000);
     await still(p2, "ato2-04-cumprido");
     await ato2.fechar();
@@ -190,9 +190,9 @@ const PDF_FAKE = Buffer.from(
     await busca.waitFor({ timeout: 20000 });
     await ler(p3, 1500);
     await deslizar(p3, busca);
-    await busca.pressSequentially("Documento entregue", { delay: 55 });
+    await busca.pressSequentially("Cumprir Exig", { delay: 55 });
     await ler(p3, 1800);
-    const tarefaRetorno = p3.getByText(/Documento entregue — juntar aos autos/).first();
+    const tarefaRetorno = p3.getByText(/Cumprir Exigência Judicial - /).first();
     await tarefaRetorno.waitFor({ timeout: 15000 });
     await deslizar(p3, tarefaRetorno);
     await ler(p3, 2000);

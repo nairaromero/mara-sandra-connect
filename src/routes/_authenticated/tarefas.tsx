@@ -42,12 +42,15 @@ import {
 } from "@/components/ui/select";
 
 import { TarefaCard } from "@/components/tarefas/tarefa-card";
+import { TarefasParceiro } from "@/components/parceiro/tarefas-parceiro";
+import { useVerComoParceiro } from "@/hooks/use-ver-como-parceiro";
 import { TarefaSheet } from "@/components/tarefas/tarefa-sheet";
+import { useConcluirTarefa } from "@/components/tarefas/use-concluir-tarefa";
 import { TarefasExcluidas } from "@/components/tarefas/tarefas-excluidas";
+import { RadarCasosOrfaos } from "@/components/tarefas/radar-casos-orfaos";
 import {
   atualizarTarefa,
   contarTarefas,
-  excluirTarefa,
   listarInternosAtivos,
   listarTarefas,
 } from "@/lib/tarefas/queries";
@@ -61,8 +64,27 @@ import {
 } from "@/lib/tarefas/types";
 
 export const Route = createFileRoute("/_authenticated/tarefas")({
-  component: TarefasPage,
+  component: TarefasRoute,
 });
+
+// Parceiro vê a versão restrita: kanban das pendências DELE por fase do caso
+// (a RLS de tarefas é só-interno; o board dele nem consulta essa tabela).
+// Componentes separados pra não violar a ordem de hooks — mesmo padrão da
+// /agenda.
+function TarefasRoute() {
+  const { usuario } = useAuth();
+  const { verComo } = useVerComoParceiro();
+  if (!usuario) {
+    return (
+      <div className="flex h-96 items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  // Parceiro real, ou admin em "ver como": kanban do parceiro (escopado).
+  if (usuario.tipo === "parceiro" || verComo) return <TarefasParceiro />;
+  return <TarefasPage />;
+}
 
 const TIPOS: TarefaTipo[] = ["interna", "prazo", "pericia", "pos_protocolo", "contato_cliente"];
 
@@ -187,6 +209,16 @@ function TarefasPage() {
       setCarregando(false);
     }
   }, []);
+
+  // Popup Concluir/Editar/Excluir — dono do "Feito" e de TODA exclusão
+  // (kanban, lista e menu do card). `carregar()` já re-busca o log de
+  // excluídas via versaoExcluidas.
+  const popupConcluir = useConcluirTarefa({
+    aoConcluida: () => carregar(),
+    aoExcluida: () => carregar(),
+    aoEditar: (t) => setSheetModo({ kind: "editar", tarefa: t }),
+    aoNovaTarefa: (casoId) => setSheetModo({ kind: "criar", casoIdInicial: casoId }),
+  });
 
   const trocarAba = useCallback(
     async (v: "ativos" | "arquivados") => {
@@ -319,6 +351,15 @@ function TarefasPage() {
   }, [tarefas, usuario?.id]);
 
   async function mudarStatus(id: string, status: TarefaStatus) {
+    // Concluir pelo "Feito" (kanban/lista) sempre passa pelo popup: Concluir /
+    // Editar / Excluir com motivo — pra nenhuma tarefa (nem o caso) ficar
+    // parada sem razão (Naira, 2026-09-02). O popup também é quem barra a
+    // conclusão direta das tarefas de desfecho (antes um toast solto).
+    if (status === "feito") {
+      const alvo = tarefas.find((t) => t.id === id);
+      if (alvo) popupConcluir.pedirConclusao(alvo);
+      return;
+    }
     // Optimistic update
     const original = tarefas.find((t) => t.id === id);
     setTarefas((arr) => arr.map((t) => (t.id === id ? { ...t, status } : t)));
@@ -333,19 +374,11 @@ function TarefasPage() {
     }
   }
 
-  async function excluir(id: string) {
-    if (!window.confirm("Excluir esta tarefa?")) return;
-    const snapshot = tarefas;
-    setTarefas((arr) => arr.filter((t) => t.id !== id));
-    try {
-      await excluirTarefa(id);
-      setVersaoExcluidas((v) => v + 1);
-      toast.success("Tarefa excluída.");
-    } catch (e) {
-      console.error(e);
-      setTarefas(snapshot);
-      toast.error("Falha ao excluir.");
-    }
+  // Excluir do menu do card: mesmo popup com motivo obrigatório do painel —
+  // não existe mais caminho de exclusão sem razão registrada.
+  function excluir(id: string) {
+    const t = tarefas.find((x) => x.id === id);
+    if (t) popupConcluir.pedirExclusao(t);
   }
 
   function abrirEditor(id: string) {
@@ -380,6 +413,9 @@ function TarefasPage() {
           </Button>
         </div>
 
+        {/* Radar: casos sem tarefa aberta nem evento futuro — ninguém é
+            lembrado deles. Some sozinho quando não há órfãos. */}
+        <RadarCasosOrfaos />
 
         {/* Filtros */}
         <div className="flex flex-wrap items-center gap-2 rounded-md border p-3 bg-card">
@@ -749,7 +785,9 @@ function TarefasPage() {
           modo={sheetModo}
           onClose={() => setSheetModo(null)}
           onSaved={carregar}
+          onConcluida={(casoId) => setSheetModo({ kind: "criar", casoIdInicial: casoId })}
         />
+        {popupConcluir.elemento}
       </div>
     </ClientOnly>
   );

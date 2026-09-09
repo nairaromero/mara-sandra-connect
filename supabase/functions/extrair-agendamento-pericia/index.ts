@@ -57,6 +57,18 @@ const SYSTEM =
   '"endereco": string | null, "protocolo": string | null, "servico": string | null, ' +
   '"requerente": string | null}';
 
+// Provedor de IA pendurado não pode segurar a UI até o gateway estourar 504 —
+// depois do limite, cai no catch e a pessoa preenche o formulário na mão.
+const IA_TIMEOUT_MS = 45_000;
+function comTimeout<T>(p: Promise<T>): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("timeout da IA (45s)")), IA_TIMEOUT_MS)
+    ),
+  ]);
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -129,7 +141,7 @@ serve(async (req) => {
         base64: arq!.base64!,
         name: arq!.nome ?? "comprovante",
       }];
-    const res = await chatWith(
+    const res = await comTimeout(chatWith(
       resIntegracao.integ.provider,
       apiKey,
       resIntegracao.integ.modelo,
@@ -148,7 +160,7 @@ serve(async (req) => {
               "Responda apenas com o JSON.",
         }],
       },
-    );
+    ));
     const campos = extrairJson(res.text || "");
     if (!campos) {
       return jsonResponse({ campos: null, aviso: "nao consegui ler o documento" });

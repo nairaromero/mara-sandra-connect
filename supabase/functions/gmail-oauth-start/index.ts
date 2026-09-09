@@ -23,7 +23,13 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const GMAIL_CLIENT_ID = Deno.env.get("GMAIL_CLIENT_ID") ?? "";
 const GMAIL_REDIRECT_URI = Deno.env.get("GMAIL_REDIRECT_URI") ?? "";
-const GMAIL_SCOPES = "https://www.googleapis.com/auth/gmail.readonly";
+// drive.readonly entrou pro intake do Trello (baixar as pastas de documentos
+// que o André compartilha — ver planning/INTEGRACAO_TRELLO.md). Quem conectou
+// antes dessa mudança precisa reconectar pra conceder o escopo novo.
+const GMAIL_SCOPES = [
+  "https://www.googleapis.com/auth/gmail.readonly",
+  "https://www.googleapis.com/auth/drive.readonly",
+].join(" ");
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
