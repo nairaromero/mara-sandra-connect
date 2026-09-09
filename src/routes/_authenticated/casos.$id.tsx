@@ -189,6 +189,9 @@ interface Caso {
   atrasados_estimados: number | null;
   tramitacao_id: string | null;
   observacoes: string | null;
+  // Dono do caso: toda tarefa automática do caso nasce pra essa pessoa
+  // (public.responsavel_tarefa_caso). Null = cai no padrão do escritório.
+  responsavel_id: string | null;
   // Pasta do Drive vinculada (Fase 52). Null = sem vinculo.
   gdrive_folder_id?: string | null;
   gdrive_folder_name?: string | null;
@@ -1554,6 +1557,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
     setCsParceiroId(caso.parceiro_id || "");
     setCsFase(caso.fase);
     setCsStatus(caso.status);
+    setCsResponsavelId(caso.responsavel_id || "");
     setAbrirEditCliente(true);
   }
 
@@ -1585,6 +1589,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
             parceiro_id: csInterno ? null : csParceiroId,
             fase: csFase,
             status: csStatus,
+            responsavel_id: csResponsavelId || null,
           })
           .eq("id", caso.id)
           .select();
@@ -1815,7 +1820,19 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
   const [csParceiroId, setCsParceiroId] = useState("");
   const [csFase, setCsFase] = useState("");
   const [csStatus, setCsStatus] = useState("");
+  const [csResponsavelId, setCsResponsavelId] = useState("");
   const [csSalvando, setCsSalvando] = useState(false);
+  // Equipe interna, pra escolher o dono do caso. Carrega uma vez, só pra
+  // interno — parceiro não edita caso.
+  const [internosCaso, setInternosCaso] = useState<
+    Array<{ id: string; nome: string | null; email: string | null }>
+  >([]);
+  useEffect(() => {
+    if (!isInterno || internosCaso.length > 0) return;
+    listarInternosAtivos()
+      .then(setInternosCaso)
+      .catch((e) => console.error("listarInternosAtivos:", e));
+  }, [isInterno, internosCaso.length]);
 
   function abrirDialogCaso() {
     setCsTipoBeneficio(caso.tipo_beneficio);
@@ -1823,6 +1840,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
     setCsParceiroId(caso.parceiro_id || "");
     setCsFase(caso.fase);
     setCsStatus(caso.status);
+    setCsResponsavelId(caso.responsavel_id || "");
     setAbrirEditCaso(true);
   }
 
@@ -1844,6 +1862,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
           parceiro_id: csInterno ? null : csParceiroId,
           fase: csFase,
           status: csStatus,
+          responsavel_id: csResponsavelId || null,
         })
         .eq("id", caso.id)
         .select();
@@ -2177,6 +2196,28 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                         </Select>
                       </div>
                     </div>
+                    <div>
+                      <Label className="text-xs">Responsável pelo caso</Label>
+                      <Select
+                        value={csResponsavelId || "sem"}
+                        onValueChange={(v) => setCsResponsavelId(v === "sem" ? "" : v)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="sem">Sem dono definido</SelectItem>
+                          {internosCaso.map((u) => (
+                            <SelectItem key={u.id} value={u.id}>
+                              {u.nome ?? u.email ?? "(sem nome)"}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Tarefa automática deste caso (documento do parceiro, publicação, exigência) nasce para essa pessoa. Sem dono, vai para quem já cuida do caso — ou para o padrão do escritório.
+                      </p>
+                    </div>
                   </div>
                 )}
 
@@ -2452,6 +2493,28 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
+              <div className="border-t pt-3">
+                <Label className="text-xs">Responsável pelo caso</Label>
+                <Select
+                  value={csResponsavelId || "sem"}
+                  onValueChange={(v) => setCsResponsavelId(v === "sem" ? "" : v)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sem">Sem dono definido</SelectItem>
+                    {internosCaso.map((u) => (
+                      <SelectItem key={u.id} value={u.id}>
+                        {u.nome ?? u.email ?? "(sem nome)"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Tarefa automática deste caso (documento do parceiro, publicação, exigência) nasce para essa pessoa. Sem dono, vai para quem já cuida do caso — ou para o padrão do escritório.
+                </p>
               </div>
             </div>
             <DialogFooter>
