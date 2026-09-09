@@ -20,7 +20,7 @@ const SELECT_COM_JOINS = `
   responsavel:usuarios!tarefas_responsavel_id_fkey(id, nome),
   criador:usuarios!tarefas_created_by_fkey(id, nome),
   status_autor:usuarios!tarefas_status_alterado_por_fkey(id, nome),
-  caso:casos(id, cliente:clientes(id, nome)),
+  caso:casos(id, parceiro_id, cliente:clientes(id, nome)),
   processo_admin:processo_admin_id(id, numero_requerimento),
   processo_judicial:processo_judicial_id(id, numero_processo)
 `;

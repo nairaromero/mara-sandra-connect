@@ -52,6 +52,9 @@ export interface TarefaComJoins extends TarefaRow {
   status_autor?: { id: string; nome: string | null } | null;
   caso: {
     id: string;
+    // Null = cliente interno do escritório. Os widgets de desfecho usam isto
+    // pra não prometer aviso a parceiro que não existe.
+    parceiro_id?: string | null;
     cliente: { id: string; nome: string | null } | null;
   } | null;
   // Processo vinculado (mutuamente exclusivos) — badge Admin/Judicial no card.
