@@ -1792,7 +1792,13 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
             >
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="sem">Sem responsável</SelectItem>
+                {/* Ao criar, o banco preenche sozinho quando fica vazio
+                    (trg_tarefas_set_responsavel: dono do caso -> quem já cuida
+                    dele -> padrão do escritório). Editando, "sem" continua
+                    sendo "sem". */}
+                <SelectItem value="sem">
+                  {editando ? "Sem responsável" : "Definir automaticamente"}
+                </SelectItem>
                 {internos.map((u) => (
                   <SelectItem key={u.id} value={u.id}>
                     {u.nome ?? "(sem nome)"}
@@ -1823,7 +1829,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="herdar">Mesmo da tarefa principal</SelectItem>
-                      <SelectItem value="sem">Sem responsável</SelectItem>
+                      <SelectItem value="sem">Definir automaticamente</SelectItem>
                       {internos.map((u) => (
                         <SelectItem key={u.id} value={u.id}>
                           {u.nome ?? "(sem nome)"}
