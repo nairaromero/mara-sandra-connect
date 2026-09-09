@@ -1601,7 +1601,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                   setStatus(v as TarefaStatus);
                 }}
               >
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger aria-label="Status"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {/* "Cancelado" saiu das opções; se a tarefa já é cancelada
                       (histórico), mantém a opção só pra ela não sumir do select. */}

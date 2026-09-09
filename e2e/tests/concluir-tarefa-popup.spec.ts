@@ -1,7 +1,7 @@
 // E2E: popup ao concluir tarefa pelo "Feito" (Naira, 2026-09-02).
-// Pela aba Atividades do caso: clicar "Feito" (menu "..." → Mover para →
-// Feito) abre o popup Concluir/Editar/Excluir; a exclusão exige motivo e
-// registra no log (tarefas_excluidas.motivo).
+// Pela aba Atividades do caso: abrir a tarefa e pôr o Status em "Feito" abre
+// o popup Concluir/Editar/Excluir; a exclusão exige motivo e registra no log
+// (tarefas_excluidas.motivo).
 
 import { test, expect } from "@playwright/test";
 import { STORAGE_INTERNO } from "../auth.setup";
@@ -45,15 +45,18 @@ test("clicar Feito abre popup; excluir exige motivo e registra no log", async ({
   await page.getByText("Atividades", { exact: true }).first().click();
   await expect(page.getByText(tituloTarefa)).toBeVisible({ timeout: 20000 });
 
-  // O botão "..." é opacity-0 até o hover no card (group-hover). Localiza o
-  // card pelo título, faz hover e clica no menu por aria-label.
+  // Concluir é DENTRO da tarefa: abre o card e põe o Status em "Feito". O
+  // menu "..." que fazia isso sem abrir saiu em 2026-09-09.
   const cardTarefa = page
     .locator("div.group")
     .filter({ hasText: tituloTarefa })
     .first();
-  await cardTarefa.hover();
-  await cardTarefa.getByRole("button", { name: "Ações da tarefa" }).click();
-  await page.getByRole("menuitem", { name: "Feito", exact: true }).click();
+  await cardTarefa.getByText(tituloTarefa).click();
+  await expect(page.getByRole("heading", { name: "Editar tarefa" })).toBeVisible({
+    timeout: 10000,
+  });
+  await page.getByRole("combobox", { name: "Status" }).click();
+  await page.getByRole("option", { name: "Feito", exact: true }).click();
 
   // Popup de conclusão — botão de concluir já leva "e adicionar outra".
   await expect(page.getByRole("heading", { name: "Concluir tarefa" })).toBeVisible();
@@ -118,9 +121,12 @@ test("Concluir tarefa e adicionar outra abre a criação da próxima", async ({ 
   await expect(page.getByText(titulo2)).toBeVisible({ timeout: 20000 });
 
   const card = page.locator("div.group").filter({ hasText: titulo2 }).first();
-  await card.hover();
-  await card.getByRole("button", { name: "Ações da tarefa" }).click();
-  await page.getByRole("menuitem", { name: "Feito", exact: true }).click();
+  await card.getByText(titulo2).click();
+  await expect(page.getByRole("heading", { name: "Editar tarefa" })).toBeVisible({
+    timeout: 10000,
+  });
+  await page.getByRole("combobox", { name: "Status" }).click();
+  await page.getByRole("option", { name: "Feito", exact: true }).click();
   await page.getByRole("button", { name: /Concluir tarefa e adicionar outra/ }).click();
 
   // Abriu o sheet de criação da próxima tarefa (SheetTitle "Nova tarefa" — o
