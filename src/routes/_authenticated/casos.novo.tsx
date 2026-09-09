@@ -166,6 +166,11 @@ function NovoCasoPage() {
     Array<{ id: string; nome: string | null; email: string | null }>
   >([]);
   const [submitting, setSubmitting] = useState(false);
+  // Os documentos sobem um por vez: sem contador o botao fica girando calado
+  // por vários segundos quando o cadastro traz muitos anexos (Naira, 2026-09-07).
+  const [progressoUpload, setProgressoUpload] = useState<{ feito: number; total: number } | null>(
+    null,
+  );
   const [showPwd, setShowPwd] = useState(false);
   // Marca que o cliente veio do TI (escolhido pelo nome na busca). Quando true,
   // ao salvar o caso disparamos o sync automatico (importa andamentos +
@@ -634,7 +639,10 @@ function NovoCasoPage() {
       // 3) Upload de documentos (se houver)
       const docsToUpload = docs.filter((d) => d.file !== null);
       if (docsToUpload.length > 0) {
-        for (const doc of docsToUpload) {
+        setProgressoUpload({ feito: 0, total: docsToUpload.length });
+        for (let i = 0; i < docsToUpload.length; i++) {
+          const doc = docsToUpload[i];
+          setProgressoUpload({ feito: i + 1, total: docsToUpload.length });
           if (!doc.file) continue;
           const fileName = Date.now() + "_" + sanitizeFileName(doc.file.name);
           const storagePath = casoId + "/" + fileName;
@@ -782,6 +790,7 @@ function NovoCasoPage() {
       toast.error(msg);
     } finally {
       setSubmitting(false);
+      setProgressoUpload(null);
     }
   }
 
@@ -1270,7 +1279,9 @@ function NovoCasoPage() {
                 title={!todosDocumentosNomeados ? "Há documentos sem tipo selecionado" : undefined}
               >
                 {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                Cadastrar caso
+                {progressoUpload
+                  ? `Enviando ${progressoUpload.feito} de ${progressoUpload.total}…`
+                  : "Cadastrar caso"}
               </Button>
             </div>
           </form>

@@ -85,6 +85,9 @@ function ConfiguracoesPage() {
   const [erro, setErro] = useState<string | null>(null);
   const [dados, setDados] = useState<UsuarioCompleto | null>(null);
   const jaCarregouRef = useRef(false);
+  // Recarga depois de salvar: os dados antigos ficam na tela e isto avisa que
+  // ja vem coisa nova (antes a recarga era muda).
+  const [recarregando, setRecarregando] = useState(false);
 
   // Edicao de perfil
   const [editando, setEditando] = useState(false);
@@ -106,6 +109,7 @@ function ConfiguracoesPage() {
   const carregar = useCallback(async () => {
     if (!usuarioId) return;
     if (!jaCarregouRef.current) setLoading(true);
+    else setRecarregando(true);
     setErro(null);
     try {
       const resp = await supabase
@@ -129,6 +133,7 @@ function ConfiguracoesPage() {
       setErro(errObj.message || "Erro ao carregar perfil");
     } finally {
       setLoading(false);
+      setRecarregando(false);
       jaCarregouRef.current = true;
     }
   }, [usuarioId]);
@@ -256,6 +261,15 @@ function ConfiguracoesPage() {
           <h1 className="font-serif text-3xl font-semibold tracking-tight flex items-center gap-2">
             <Settings className="h-6 w-6" />
             Configurações
+            {recarregando && (
+              <span
+                className="flex items-center gap-1.5 text-xs font-sans font-normal text-muted-foreground"
+                aria-live="polite"
+              >
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Atualizando…
+              </span>
+            )}
           </h1>
           <p className="text-sm text-muted-foreground">
             Gerencie seu perfil, senha e sessão.
