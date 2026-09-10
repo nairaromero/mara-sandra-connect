@@ -233,19 +233,6 @@ export function ImportarClientesExcelDialog(
       errosLinha: [],
     };
 
-    // Linha COM parceiro: o trigger do banco cria a tarefa "Cliente novo -
-    // Analisar" sozinho. Linha SEM parceiro não dispara trigger nenhum e o
-    // caso entrava mudo (Naira, 2026-09-03) — aqui a tarefa é criada igual,
-    // com o mesmo dono padrão que o trigger usa.
-    let responsavelPadrao: string | null = null;
-    try {
-      const respPadrao = await supabase.rpc("responsavel_padrao_analise");
-      if (respPadrao.error) throw respPadrao.error;
-      responsavelPadrao = (respPadrao.data as string | null) ?? null;
-    } catch (errResp) {
-      console.warn("responsavel_padrao_analise indisponível:", errResp);
-    }
-
     try {
       // 1) Resolve parceiros referenciados (lookup por nome)
       const nomesParceiros = aImportar
@@ -341,7 +328,16 @@ export function ImportarClientesExcelDialog(
                 const nomeCliente = (l.raw["Nome"] || "").trim() || "cliente";
                 const tarefaResp = await supabase.from("tarefas").insert({
                   caso_id: casoId,
-                  responsavel_id: responsavelPadrao,
+                  // Sem responsável de propósito: o trigger
+                  // trg_tarefas_set_responsavel resolve pela escada do banco
+                  // (dono do caso -> quem já cuida dele -> padrão do
+                  // escritório, que lê a chave de configuração). Antes o
+                  // front chamava responsavel_padrao_analise() por RPC e
+                  // mandava o valor cru — uma ida a mais ao banco e, pior,
+                  // um segundo lugar sabendo quem é o padrão: com a chave
+                  // apontando pra outra pessoa, a planilha ia toda pra Mara
+                  // assim mesmo (revisão 2026-09-10).
+                  responsavel_id: null,
                   tipo: "interna",
                   prioridade: 2,
                   status: "a_fazer",
