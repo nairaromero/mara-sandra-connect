@@ -95,7 +95,7 @@ export function ComparecimentoPericia({
           .select("id, status")
           .eq("caso_id", tarefa.caso_id)
           .eq("metadata->>acompanhamento_pericia", "true")
-          .in("status", ["a_fazer", "fazendo"]);
+          .eq("status", "a_fazer");
 
         if (compareceu) {
           // Garante que o acompanhamento do resultado existe.

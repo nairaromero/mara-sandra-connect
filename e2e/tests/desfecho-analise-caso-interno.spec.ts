@@ -56,15 +56,27 @@ test("caso sem parceiro mostra os desfechos e a corrente continua", async ({ pag
 
   // 2) Concluir pelo "Feito" não baixa a tarefa calada: o popup manda usar o
   // desfecho (checklistPendente cobre as duas etapas da análise).
-  await cardTarefa.hover();
-  await cardTarefa.getByRole("button", { name: "Ações da tarefa" }).click();
-  await page.getByRole("menuitem", { name: "Feito", exact: true }).click();
+  // Concluir é dentro da tarefa (o menu "..." do card saiu em 2026-09-09):
+  // abre o sheet e põe o Status em "Feito".
+  await cardTarefa.getByText(tituloTarefa).first().click();
+  await expect(page.getByRole("heading", { name: "Editar tarefa" })).toBeVisible({
+    timeout: 10000,
+  });
+  await page.getByRole("combobox", { name: "Status" }).click();
+  await page.getByRole("option", { name: "Feito", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Concluir tarefa" })).toBeVisible();
   await expect(page.getByText("o desfecho da análise")).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Concluir tarefa e adicionar outra" }),
   ).toHaveCount(0);
   await page.getByRole("button", { name: "Cancelar" }).click();
+  await expect(page.getByRole("heading", { name: "Concluir tarefa" })).toHaveCount(0);
+  // Fecha o SHEET: os botões de desfecho estão no card, atrás dele. Conferir
+  // pelo heading não serve — enquanto o popup está por cima, o sheet fica
+  // aria-hidden e o heading "some" sem ter fechado nada. Quem diz a verdade
+  // aqui é o botão do card voltar a ser alcançável.
+  await page.keyboard.press("Escape");
+  await expect(btnAguardar).toBeVisible();
 
   // 3) O desfecho fecha a análise e abre a próxima tarefa.
   await btnAguardar.click();

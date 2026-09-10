@@ -1,6 +1,6 @@
 // Tipos de tarefas (mirror do schema em planning/sql-migrations/migration_tarefas.sql).
 
-export type TarefaStatus = "a_fazer" | "fazendo" | "feito" | "cancelado";
+export type TarefaStatus = "a_fazer" | "feito" | "cancelado";
 export type TarefaTipo = "interna" | "prazo" | "pericia" | "pos_protocolo" | "contato_cliente";
 export type TarefaOrigem =
   | "manual"
@@ -129,16 +129,19 @@ export function templateTemAgenda(t: TarefaTemplateRow): boolean {
 
 export const STATUS_LABEL: Record<TarefaStatus, string> = {
   a_fazer: "A fazer",
-  fazendo: "Fazendo",
   feito: "Feito",
   cancelado: "Cancelado",
 };
 
 // "Cancelado" saiu das opções escolhíveis (Naira, 2026-09-02): tarefa ou se
 // conclui, ou se exclui com motivo (que vira andamento) — sem limbo de
-// cancelada. O enum e o STATUS_LABEL mantêm 'cancelado' só pra exibir as
-// tarefas canceladas antigas no histórico (Arquivados).
-export const STATUS_ORDEM: TarefaStatus[] = ["a_fazer", "fazendo", "feito"];
+// cancelada. O STATUS_LABEL mantém 'cancelado' pra rotular as canceladas
+// antigas, que aparecem junto com as excluídas.
+//
+// "Fazendo" saiu de vez (Naira, 2026-09-09, migration_tarefas_sem_fazendo):
+// ninguém movia tarefa pra lá, era só uma coluna vazia no kanban. Ativos = "A
+// fazer"; Arquivados = "Feito" + o log de excluídas.
+export const STATUS_ORDEM: TarefaStatus[] = ["a_fazer", "feito"];
 
 export const TIPO_LABEL: Record<TarefaTipo, string> = {
   interna: "Interna",

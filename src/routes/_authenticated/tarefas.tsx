@@ -1,6 +1,11 @@
-// Página /tarefas — kanban com 4 colunas (a fazer / fazendo / feito / cancelado),
-// filtros (responsável, tipo, prioridade, busca), e atalho "minhas".
-// Click em card abre Sheet de edição. Botão "Nova tarefa" abre Sheet vazia.
+// Página /tarefas — Ativos é a lista agrupada por prazo; Arquivados traz
+// "Feito" e "Excluídas", dobrados por mês. Filtros (responsável, tipo,
+// prioridade, busca) e atalho "minhas".
+//
+// A vista Kanban foi aposentada em 2026-09-09 (Naira): as colunas nunca
+// tiveram arrastar-e-soltar, e sem o menu "..." do card sobrava um quadro
+// só de leitura duplicando a lista. Criar, alterar e excluir tarefa é no
+// sheet — click no card abre; "Nova tarefa" abre vazia.
 
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -8,8 +13,6 @@ import { toast } from "sonner";
 import {
   ChevronDown,
   ChevronRight,
-  LayoutGrid,
-  List,
   Loader2,
   Plus,
   Search,
@@ -45,11 +48,11 @@ import { TarefaCard } from "@/components/tarefas/tarefa-card";
 import { TarefasParceiro } from "@/components/parceiro/tarefas-parceiro";
 import { useVerComoParceiro } from "@/hooks/use-ver-como-parceiro";
 import { TarefaSheet } from "@/components/tarefas/tarefa-sheet";
-import { useConcluirTarefa } from "@/components/tarefas/use-concluir-tarefa";
 import { TarefasExcluidas } from "@/components/tarefas/tarefas-excluidas";
+import { SecoesPorMes } from "@/components/tarefas/secoes-por-mes";
+import { agruparPorMes } from "@/lib/tarefas/agrupar-mes";
 import { RadarCasosOrfaos } from "@/components/tarefas/radar-casos-orfaos";
 import {
-  atualizarTarefa,
   contarTarefas,
   listarInternosAtivos,
   listarTarefas,
@@ -88,10 +91,20 @@ function TarefasRoute() {
 
 const TIPOS: TarefaTipo[] = ["interna", "prazo", "pericia", "pos_protocolo", "contato_cliente"];
 
-// Default mostra só "A fazer" / "Fazendo". "Feito" e "Cancelado" ficam na
-// aba "Arquivados", abre só quando a Naira pedir.
-const STATUS_ATIVOS: TarefaStatus[] = ["a_fazer", "fazendo"];
-const STATUS_ARQUIVADOS: TarefaStatus[] = ["feito", "cancelado"];
+// Ativos = só "A fazer" ("Fazendo" saiu em 2026-09-09). Arquivados = "Feito"
+// e "Excluídas" lado a lado. As canceladas antigas não têm coluna própria:
+// entram na lista de excluídas, que é onde a pessoa procura por tarefa
+// descartada (Naira, 2026-09-09).
+const STATUS_ATIVOS: TarefaStatus[] = ["a_fazer"];
+const STATUS_ARQUIVADOS: TarefaStatus[] = ["feito"];
+
+// Quando a tarefa saiu de circulação. O trigger de autoria grava
+// status_alterado_em; nas antigas sobra o completed_at e, em último caso, o
+// updated_at — melhor agrupar por uma data aproximada do que jogar tudo em
+// "Sem data".
+function dataDeArquivamento(t: TarefaComJoins): string | null {
+  return t.status_alterado_em ?? t.completed_at ?? t.updated_at ?? null;
+}
 
 type Modo =
   | { kind: "criar"; casoIdInicial?: string | null }
@@ -210,16 +223,6 @@ function TarefasPage() {
     }
   }, []);
 
-  // Popup Concluir/Editar/Excluir — dono do "Feito" e de TODA exclusão
-  // (kanban, lista e menu do card). `carregar()` já re-busca o log de
-  // excluídas via versaoExcluidas.
-  const popupConcluir = useConcluirTarefa({
-    aoConcluida: () => carregar(),
-    aoExcluida: () => carregar(),
-    aoEditar: (t) => setSheetModo({ kind: "editar", tarefa: t }),
-    aoNovaTarefa: (casoId) => setSheetModo({ kind: "criar", casoIdInicial: casoId }),
-  });
-
   const trocarAba = useCallback(
     async (v: "ativos" | "arquivados") => {
       setAba(v);
@@ -271,16 +274,15 @@ function TarefasPage() {
   const porStatus = useMemo(() => {
     const m: Record<TarefaStatus, TarefaComJoins[]> = {
       a_fazer: [],
-      fazendo: [],
       feito: [],
       cancelado: [],
     };
-    for (const t of filtradas) m[t.status].push(t);
+    // Status legado fora do Record (ex.: 'fazendo' numa base ainda sem a
+    // migration) não pode derrubar a tela — cai fora em silêncio.
+    for (const t of filtradas) m[t.status]?.push(t);
     return m;
   }, [filtradas]);
 
-  // Vista da aba Ativos: lista agrupada por prazo (default) ou kanban.
-  const [vista, setVista] = useState<"lista" | "kanban">("lista");
   // Secoes distantes ja comecam fechadas pra lista ter fim.
   const [secoesFechadas, setSecoesFechadas] = useState<Set<Bucket>>(
     () => new Set<Bucket>(["depois", "sem_prazo"]),
@@ -296,7 +298,7 @@ function TarefasPage() {
       sem_prazo: [],
     };
     for (const t of filtradas) {
-      if (t.status !== "a_fazer" && t.status !== "fazendo") continue;
+      if (t.status !== "a_fazer") continue;
       // Guichê de hoje/amanhã sai daqui: vai pra faixa própria no topo, e
       // aparecer nos dois lugares só duplicaria.
       if (guicheEmDestaque(t)) continue;
@@ -308,11 +310,7 @@ function TarefasPage() {
   const guichesDestaque = useMemo(
     () =>
       filtradas
-        .filter(
-          (t) =>
-            (t.status === "a_fazer" || t.status === "fazendo") &&
-            guicheEmDestaque(t),
-        )
+        .filter((t) => t.status === "a_fazer" && guicheEmDestaque(t))
         .sort((a, b) => (a.due_at ?? "").localeCompare(b.due_at ?? "")),
     [filtradas],
   );
@@ -334,7 +332,7 @@ function TarefasPage() {
       { id: string; nome: string; total: number; atrasadas: number }
     >();
     for (const t of tarefas) {
-      if (t.status !== "a_fazer" && t.status !== "fazendo") continue;
+      if (t.status !== "a_fazer") continue;
       const id = t.responsavel_id ?? "sem";
       const nome = t.responsavel?.nome ?? "Sem responsável";
       const e = mapa.get(id) ?? { id, nome, total: 0, atrasadas: 0 };
@@ -349,37 +347,6 @@ function TarefasPage() {
       return b.total - a.total;
     });
   }, [tarefas, usuario?.id]);
-
-  async function mudarStatus(id: string, status: TarefaStatus) {
-    // Concluir pelo "Feito" (kanban/lista) sempre passa pelo popup: Concluir /
-    // Editar / Excluir com motivo — pra nenhuma tarefa (nem o caso) ficar
-    // parada sem razão (Naira, 2026-09-02). O popup também é quem barra a
-    // conclusão direta das tarefas de desfecho (antes um toast solto).
-    if (status === "feito") {
-      const alvo = tarefas.find((t) => t.id === id);
-      if (alvo) popupConcluir.pedirConclusao(alvo);
-      return;
-    }
-    // Optimistic update
-    const original = tarefas.find((t) => t.id === id);
-    setTarefas((arr) => arr.map((t) => (t.id === id ? { ...t, status } : t)));
-    try {
-      await atualizarTarefa({ id, patch: { status } });
-      toast.success(`Movida para ${STATUS_LABEL[status]}.`);
-    } catch (e) {
-      console.error(e);
-      // Revert
-      if (original) setTarefas((arr) => arr.map((t) => (t.id === id ? original : t)));
-      toast.error("Falha ao mover.");
-    }
-  }
-
-  // Excluir do menu do card: mesmo popup com motivo obrigatório do painel —
-  // não existe mais caminho de exclusão sem razão registrada.
-  function excluir(id: string) {
-    const t = tarefas.find((x) => x.id === id);
-    if (t) popupConcluir.pedirExclusao(t);
-  }
 
   function abrirEditor(id: string) {
     const t = tarefas.find((x) => x.id === id);
@@ -403,8 +370,8 @@ function TarefasPage() {
               Tarefas
             </h1>
             <p className="text-sm text-muted-foreground">
-              Tarefas do escritório agrupadas por prazo. Clique numa tarefa pra editar; o status se muda lá dentro ou
-              arrastando no Kanban.
+              Tarefas do escritório agrupadas por prazo. Clique numa tarefa pra
+              abrir: é lá dentro que se muda o status, edita e exclui.
             </p>
           </div>
           <Button onClick={() => setSheetModo({ kind: "criar" })}>
@@ -522,7 +489,7 @@ function TarefasPage() {
           )}
         </div>
 
-        {/* Tabs Ativos / Arquivados + toggle Lista/Kanban */}
+        {/* Tabs Ativos / Arquivados */}
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <Tabs value={aba} onValueChange={(v) => trocarAba(v as "ativos" | "arquivados")}>
             <TabsList>
@@ -544,36 +511,14 @@ function TarefasPage() {
               </TabsTrigger>
             </TabsList>
           </Tabs>
-          {aba === "ativos" && (
-            <div className="flex items-center rounded-md border p-0.5 bg-card">
-              <Button
-                variant={vista === "lista" ? "secondary" : "ghost"}
-                size="sm"
-                className="h-7 px-2 text-xs"
-                onClick={() => setVista("lista")}
-              >
-                <List className="h-3.5 w-3.5 mr-1" />
-                Lista
-              </Button>
-              <Button
-                variant={vista === "kanban" ? "secondary" : "ghost"}
-                size="sm"
-                className="h-7 px-2 text-xs"
-                onClick={() => setVista("kanban")}
-              >
-                <LayoutGrid className="h-3.5 w-3.5 mr-1" />
-                Kanban
-              </Button>
-            </div>
-          )}
         </div>
 
-        {/* Conteudo: lista por prazo (default em Ativos) ou kanban */}
+        {/* Conteudo: Ativos = lista por prazo; Arquivados = Feito + Excluídas */}
         {carregando || (aba === "arquivados" && carregandoArquivados) ? (
           <div className="flex items-center justify-center h-64">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
-        ) : aba === "ativos" && vista === "lista" ? (
+        ) : aba === "ativos" ? (
           <div className="space-y-3">
           {/* Faixa do guichê: só na véspera e no dia. No dia, destaque forte —
               é atendimento com hora marcada. */}
@@ -604,8 +549,6 @@ function TarefasPage() {
                     <TarefaCard
                       tarefa={t}
                       onOpenSheet={abrirEditor}
-                      onChangeStatus={mudarStatus}
-                      onDelete={excluir}
                       onChanged={carregar}
                     />
                   </div>
@@ -684,14 +627,6 @@ function TarefasPage() {
                               >
                                 {formatarDueAtCurto(t.due_at)}
                               </Badge>
-                              {t.status === "fazendo" && (
-                                <Badge
-                                  variant="secondary"
-                                  className="font-normal px-1.5 py-0 text-[10px] shrink-0"
-                                >
-                                  Fazendo
-                                </Badge>
-                              )}
                               {t.prioridade <= 2 && (
                                 <span
                                   className={cn(
@@ -740,8 +675,12 @@ function TarefasPage() {
           </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {(aba === "ativos" ? STATUS_ATIVOS : STATUS_ARQUIVADOS).map((s) => {
+          // Arquivados: "Feito" e "Excluídas" LADO A LADO — empilhado, o log
+          // ficava soterrado embaixo de centenas de cards concluídos e
+          // ninguém achava. Este ramo só roda na aba Arquivados: Ativos é
+          // sempre a lista por prazo desde que o Kanban foi aposentado.
+          <div className="grid gap-3 grid-cols-1 md:grid-cols-2 items-start">
+            {STATUS_ARQUIVADOS.map((s) => {
               const lista = porStatus[s];
               return (
                 <div key={s} className="rounded-md bg-muted/40 border min-h-[60vh] flex flex-col">
@@ -751,34 +690,43 @@ function TarefasPage() {
                       {lista.length}
                     </Badge>
                   </div>
-                  <div className="p-2 space-y-2 flex-1">
+                  <div className="p-2 flex-1">
                     {lista.length === 0 ? (
                       <div className="text-xs text-muted-foreground text-center py-6">
                         — vazio —
                       </div>
                     ) : (
-                      lista.map((t) => (
-                        <TarefaCard
-                          key={t.id}
-                          tarefa={t}
-                          compacto
-                          onOpenSheet={abrirEditor}
-                          onChangeStatus={mudarStatus}
-                          onDelete={excluir}
-                          onChanged={carregar}
-                        />
-                      ))
+                      // Centenas de concluídas: dobradas por mês da conclusão,
+                      // só o mês corrente aberto.
+                      <SecoesPorMes grupos={agruparPorMes(lista, dataDeArquivamento)}>
+                        {(itens) => (
+                          <div className="space-y-2">
+                            {itens.map((t) => (
+                              <TarefaCard
+                                key={t.id}
+                                tarefa={t}
+                                compacto
+                                onOpenSheet={abrirEditor}
+                                onChanged={carregar}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </SecoesPorMes>
                     )}
                   </div>
                 </div>
               );
             })}
+            {/* Excluídas (quem/quando), últimas 50 — a outra metade de
+                Arquivados. */}
+            <TarefasExcluidas
+              mostrarCaso
+              porMes
+              versao={versaoExcluidas}
+              className="rounded-md border bg-muted/40 p-3"
+            />
           </div>
-        )}
-
-        {/* Log de exclusões (quem/quando), últimas 50 — só em Arquivados. */}
-        {aba === "arquivados" && !carregando && !carregandoArquivados && (
-          <TarefasExcluidas mostrarCaso versao={versaoExcluidas} abertaInicial={false} />
         )}
 
         <TarefaSheet
@@ -787,7 +735,6 @@ function TarefasPage() {
           onSaved={carregar}
           onConcluida={(casoId) => setSheetModo({ kind: "criar", casoIdInicial: casoId })}
         />
-        {popupConcluir.elemento}
       </div>
     </ClientOnly>
   );

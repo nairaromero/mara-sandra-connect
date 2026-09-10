@@ -180,7 +180,7 @@ function EquipePage() {
       .from("tarefas")
       .select("id", { count: "exact", head: true })
       .eq("responsavel_id", u.id)
-      .in("status", ["a_fazer", "fazendo"]);
+      .eq("status", "a_fazer");
     setDesligarAbertas(count ?? 0);
   }
 
@@ -498,8 +498,8 @@ function EquipePage() {
                   ) : (
                     <div className="space-y-1.5">
                       <p>
-                        Ela tem <strong>{desligarAbertas}</strong> tarefa(s) aberta(s)
-                        (a fazer / fazendo). Escolha quem assume:
+                        Ela tem <strong>{desligarAbertas}</strong> tarefa(s) aberta(s) (a
+                        fazer). Escolha quem assume:
                       </p>
                       <Select value={desligarNovoResp} onValueChange={setDesligarNovoResp}>
                         <SelectTrigger aria-label="Quem assume as tarefas">
