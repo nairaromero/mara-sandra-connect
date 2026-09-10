@@ -23,17 +23,25 @@ interface Props {
 
 export function TarefasExcluidas({ casoId, mostrarCaso = false, versao = 0, abertaInicial = true }: Props) {
   const [rows, setRows] = useState<TarefaExcluidaRow[] | null>(null);
+  // Falha de consulta é falha, não "nada foi excluído" — sem isto a seção
+  // inteira sumia da tela e a pessoa concluía que o log estava vazio
+  // (revisão 2026-09-10).
+  const [erro, setErro] = useState<string | null>(null);
   const [aberta, setAberta] = useState(abertaInicial);
 
   useEffect(() => {
     let vivo = true;
+    setErro(null);
     listarTarefasExcluidas({ caso_id: casoId, limite: casoId ? 100 : 50 })
       .then((r) => {
         if (vivo) setRows(r);
       })
       .catch((e) => {
         console.error(e);
-        if (vivo) setRows([]);
+        if (!vivo) return;
+        setRows([]);
+        const msg = (e as { message?: string })?.message;
+        setErro(msg || "Falha ao carregar as exclusões");
       });
     return () => {
       vivo = false;
@@ -41,7 +49,8 @@ export function TarefasExcluidas({ casoId, mostrarCaso = false, versao = 0, aber
   }, [casoId, versao]);
 
   // Sem nada excluído, a seção nem aparece (não polui a aba).
-  if (rows && rows.length === 0) return null;
+  // Vazio de verdade some da tela; erro, nunca — ele precisa aparecer.
+  if (rows && rows.length === 0 && !erro) return null;
 
   return (
     <section className="space-y-2">
@@ -67,7 +76,13 @@ export function TarefasExcluidas({ casoId, mostrarCaso = false, versao = 0, aber
         )}
       </button>
 
-      {aberta && rows && (
+      {aberta && erro && (
+        <p className="text-xs text-destructive rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
+          Não foi possível carregar as exclusões: {erro}
+        </p>
+      )}
+
+      {aberta && !erro && rows && (
         <ul className="rounded-md border bg-muted/30 divide-y">
           {rows.map((r) => {
             const clienteNome = r.caso?.cliente?.nome ?? null;
