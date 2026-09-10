@@ -1,22 +1,16 @@
-// Card de tarefa para o kanban / listas. Click no corpo abre o sheet de
-// edição. Dropdown "..." muda status sem abrir o sheet. Cor do badge de
-// prazo segue a urgência (urgencia.ts).
+// Card de tarefa para as listas (guichê, arquivo, aba do caso). Click no
+// corpo abre o sheet — que é o ÚNICO lugar de criar, alterar e excluir
+// tarefa desde 2026-09-09 (Naira). O menu "..." que mudava status e excluía
+// sem abrir a tarefa saiu: as duas ações já viviam no sheet (campo Status e
+// botão Excluir), e ter os dois caminhos era o que deixava concluir tarefa
+// com um clique perdido. Cor do badge de prazo segue a urgência
+// (urgencia.ts).
 
-import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { CalendarDays, CheckCircle2, MoreVertical, Trash2, User as UserIcon, XCircle } from "lucide-react";
+import { CalendarDays, CheckCircle2, User as UserIcon, XCircle } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { DESTAQUE_CLASSE_GLOBAL, useDestaqueAtivo } from "@/lib/destaque/destaque-context";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { EtapasAcompanhamento } from "@/components/tarefas/etapas-acompanhamento";
 import { AcompanhamentoPericia } from "@/components/tarefas/acompanhamento-pericia";
@@ -40,18 +34,13 @@ import {
 } from "@/lib/tarefas/helpers";
 import {
   PRIORIDADE_LABEL,
-  STATUS_LABEL,
-  STATUS_ORDEM,
   TIPO_LABEL,
   type TarefaComJoins,
-  type TarefaStatus,
 } from "@/lib/tarefas/types";
 
 interface Props {
   tarefa: TarefaComJoins;
   onOpenSheet: (id: string) => void;
-  onChangeStatus: (id: string, status: TarefaStatus) => void;
-  onDelete: (id: string) => void;
   onChanged?: () => void;
   mostrarCaso?: boolean;
   // Layout enxuto pro kanban: sem descricao (mora no sheet), meta numa linha
@@ -62,13 +51,10 @@ interface Props {
 export function TarefaCard({
   tarefa,
   onOpenSheet,
-  onChangeStatus,
-  onDelete,
   onChanged,
   mostrarCaso = true,
   compacto = false,
 }: Props) {
-  const [menuOpen, setMenuOpen] = useState(false);
   const urg = urgenciaDoDueAt(tarefa.due_at, tarefa.status);
   const clienteNome = tarefa.caso?.cliente?.nome ?? null;
   // Caso com admin E judicial correndo juntos: o badge diz de qual esfera é o
@@ -144,35 +130,6 @@ export function TarefaCard({
               </p>
             )}
           </div>
-          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 -mt-1 -mr-1 shrink-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
-                onClick={(e) => e.stopPropagation()}
-                aria-label="Ações da tarefa"
-              >
-                <MoreVertical className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-              <DropdownMenuLabel>Mover para</DropdownMenuLabel>
-              {STATUS_ORDEM.filter((s) => s !== tarefa.status).map((s) => (
-                <DropdownMenuItem key={s} onSelect={() => onChangeStatus(tarefa.id, s)}>
-                  {STATUS_LABEL[s]}
-                </DropdownMenuItem>
-              ))}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onSelect={() => onDelete(tarefa.id)}
-                className="text-destructive focus:text-destructive"
-              >
-                <Trash2 className="h-4 w-4" />
-                Excluir
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
 
         {compacto ? (

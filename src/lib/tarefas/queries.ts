@@ -63,7 +63,7 @@ function aplicarFiltros<Q extends { in: any; eq: any; is: any; or: any; lt: any 
     amanhaInicio.setDate(amanhaInicio.getDate() + 1);
     q = q
       .eq("responsavel_id", filtro.apenas_minhas_hoje.usuario_id)
-      .in("status", ["a_fazer", "fazendo"])
+      .eq("status", "a_fazer")
       .lt("due_at", amanhaInicio.toISOString());
   }
   return q;
@@ -219,6 +219,33 @@ export async function listarTarefasExcluidas(args: {
     for (const r of rows) r.caso = r.caso_id ? (porId.get(r.caso_id) ?? null) : null;
   }
   return rows;
+}
+
+// Tarefas CANCELADAS (status='cancelado'). Legado: 'cancelado' saiu das
+// opções escolhíveis em 2026-09-02 e o que existe é histórico — 159 vieram
+// da migração do Tramitação. Elas aparecem junto com as excluídas (Naira,
+// 2026-09-09): pra quem lê a tela, cancelada e excluída são a mesma coisa —
+// tarefa que foi descartada.
+//
+// Limite explícito (a UI diz "últimas N"), não um `.limit()` escondido: são
+// centenas de linhas e nenhuma delas exige ação.
+export async function listarTarefasCanceladas(args: {
+  caso_id?: string;
+  limite?: number;
+}): Promise<TarefaComJoins[]> {
+  let q = supabase
+    .from("tarefas")
+    .select(SELECT_COM_JOINS)
+    .eq("status", "cancelado")
+    // Quem cancelou/quando vem do trigger de autoria; nas antigas é null e o
+    // updated_at é o que sobrou. Ordem estável pelo id no desempate.
+    .order("status_alterado_em", { ascending: false, nullsFirst: false })
+    .order("updated_at", { ascending: false })
+    .order("id", { ascending: true });
+  if (args.caso_id) q = q.eq("caso_id", args.caso_id);
+  const { data, error } = await q.limit(args.limite ?? 50);
+  if (error) throw error;
+  return (data as unknown as TarefaComJoins[]) ?? [];
 }
 
 export async function aplicarTemplate(args: {

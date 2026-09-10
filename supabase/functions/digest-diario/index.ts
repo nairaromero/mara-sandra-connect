@@ -204,7 +204,7 @@ serve(async (req) => {
   const { data: tarefas, error: tarErr } = await supabase
     .from("tarefas")
     .select("id, titulo, due_at, status, caso_id, casos:caso_id(clientes(nome))")
-    .in("status", ["a_fazer", "fazendo"])
+    .eq("status", "a_fazer")
     .not("due_at", "is", null)
     .lte("due_at", hoje + "T23:59:59-03:00")
     .order("due_at", { ascending: true })

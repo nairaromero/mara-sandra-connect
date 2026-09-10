@@ -579,7 +579,7 @@ function NovoCasoPage() {
               .update({ responsavel_id: tarefaRespId })
               .eq("caso_id", casoId)
               .eq("metadata->>etapa", "analise_inicial_parceiro")
-              .in("status", ["a_fazer", "fazendo"])
+              .eq("status", "a_fazer")
               .select("id");
             if (atribuirResp.error) throw atribuirResp.error;
             // Trigger não rodou (banco desatualizado): cria a tarefa aqui pra

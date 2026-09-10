@@ -11,18 +11,20 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { TarefaCard } from "@/components/tarefas/tarefa-card";
 import { TarefaSheet } from "@/components/tarefas/tarefa-sheet";
-import { useConcluirTarefa } from "@/components/tarefas/use-concluir-tarefa";
 import { TarefasExcluidas } from "@/components/tarefas/tarefas-excluidas";
 import { AgendaSheet } from "@/components/agenda/agenda-sheet";
-import { atualizarTarefa, listarTarefas } from "@/lib/tarefas/queries";
+import { listarTarefas } from "@/lib/tarefas/queries";
 import { STATUS_LABEL, type TarefaComJoins, type TarefaStatus } from "@/lib/tarefas/types";
 import { listarAgenda } from "@/lib/agenda/queries";
 import { type AgendaEventoComJoins, tipoBadge } from "@/lib/agenda/types";
 import { DESTAQUE_CLASSE_GLOBAL, useDestaqueAtivo } from "@/lib/destaque/destaque-context";
 import { formatarBR, horaBR } from "@/lib/fuso";
 
-const STATUS_ATIVOS: TarefaStatus[] = ["a_fazer", "fazendo"];
-const STATUS_ARQUIVADOS: TarefaStatus[] = ["feito", "cancelado"];
+// Mesma regra da tela /tarefas (Naira, 2026-09-09): Ativos = "A fazer";
+// Arquivados = "Feito" + a lista de excluídas (que já inclui as canceladas
+// antigas). "Fazendo" não existe mais.
+const STATUS_ATIVOS: TarefaStatus[] = ["a_fazer"];
+const STATUS_ARQUIVADOS: TarefaStatus[] = ["feito"];
 
 type Modo = { kind: "criar"; casoIdInicial: string } | { kind: "editar"; tarefa: TarefaComJoins };
 
@@ -72,27 +74,15 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
     carregar();
   }, [carregar]);
 
-  // Popup Concluir/Editar/Excluir — mesma regra do kanban /tarefas, via o
-  // hook comum. Concluir só muda o status: atualiza local (sem re-buscar
-  // tarefas + agenda inteiras); excluir re-busca pra atualizar o log.
-  const popupConcluir = useConcluirTarefa({
-    aoConcluida: (t) => {
-      setTarefas((arr) => arr.map((x) => (x.id === t.id ? { ...x, status: "feito" } : x)));
-      onChange?.();
-    },
-    aoExcluida: () => carregar(),
-    aoEditar: (t) => setSheetModo({ kind: "editar", tarefa: t }),
-    aoNovaTarefa: () => setSheetModo({ kind: "criar", casoIdInicial: casoId }),
-  });
-
   const porStatus = useMemo(() => {
     const m: Record<TarefaStatus, TarefaComJoins[]> = {
       a_fazer: [],
-      fazendo: [],
       feito: [],
       cancelado: [],
     };
-    for (const t of tarefas) m[t.status].push(t);
+    // Status legado fora do Record (ex.: 'fazendo' numa base ainda sem a
+    // migration) não pode derrubar a aba — cai fora em silêncio.
+    for (const t of tarefas) m[t.status]?.push(t);
     // Regra da Naira (2026-07-29): tarefas do administrativo juntas EM CIMA,
     // judiciais juntas EMBAIXO (sem vínculo por último). Sort estável mantém
     // a ordem de vencimento dentro de cada grupo.
@@ -103,32 +93,6 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
     }
     return m;
   }, [tarefas]);
-
-  async function mudarStatus(id: string, status: TarefaStatus) {
-    // "Feito" sempre abre o popup Concluir/Editar/Excluir com motivo (Naira,
-    // 2026-09-02) — mesma regra do kanban /tarefas. É o popup que barra a
-    // conclusão direta das tarefas de desfecho e evita caso parado sem razão.
-    if (status === "feito") {
-      const alvo = tarefas.find((t) => t.id === id);
-      if (alvo) popupConcluir.pedirConclusao(alvo);
-      return;
-    }
-    const original = tarefas.find((t) => t.id === id);
-    setTarefas((arr) => arr.map((t) => (t.id === id ? { ...t, status } : t)));
-    try {
-      await atualizarTarefa({ id, patch: { status } });
-    } catch (e) {
-      console.error(e);
-      if (original) setTarefas((arr) => arr.map((t) => (t.id === id ? original : t)));
-      toast.error("Falha ao mover.");
-    }
-  }
-
-  // Excluir do menu do card: mesmo popup com motivo obrigatório do painel.
-  function excluir(id: string) {
-    const t = tarefas.find((x) => x.id === id);
-    if (t) popupConcluir.pedirExclusao(t);
-  }
 
   function abrirEditor(id: string) {
     const t = tarefas.find((x) => x.id === id);
@@ -237,8 +201,6 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
                         key={t.id}
                         tarefa={t}
                         onOpenSheet={abrirEditor}
-                        onChangeStatus={mudarStatus}
-                        onDelete={excluir}
                         onChanged={carregar}
                         mostrarCaso={false}
                       />
@@ -262,7 +224,6 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
         onSaved={carregar}
         onConcluida={() => setSheetModo({ kind: "criar", casoIdInicial: casoId })}
       />
-      {popupConcluir.elemento}
 
       <AgendaSheet modo={agendaSheet} onClose={() => setAgendaSheet(null)} onSaved={carregar} />
     </div>

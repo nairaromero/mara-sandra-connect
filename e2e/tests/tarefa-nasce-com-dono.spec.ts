@@ -179,3 +179,79 @@ test("parceiro não redefine o dono do caso via API (guard)", async () => {
     .single();
   expect(depois!.responsavel_id, "parceiro não muda o dono do caso").toBe(internoId);
 });
+
+// A escada tem que ser TOTAL: qualquer caso, mesmo um que não existe, resolve
+// numa pessoa. O degrau 5 (responsavel_padrao_analise) exige ativo=true, então
+// se a Mara for desligada ele devolve NULL — e antes da última rede a escada
+// inteira devolvia NULL junto, ressuscitando a tarefa órfã que este lote veio
+// matar. Provado por SQL com rollback em 09/09; aqui fica o contrato.
+test("a escada nunca devolve nulo, nem para caso inexistente", async () => {
+  const { data, error } = await admin.rpc("responsavel_tarefa_caso", {
+    p_caso_id: "00000000-0000-0000-0000-000000000000",
+  });
+  expect(error, "responsavel_tarefa_caso deveria ser chamável").toBeNull();
+  expect(data, "escada nunca pode devolver nulo").not.toBeNull();
+
+  const { data: pessoa } = await admin
+    .from("usuarios")
+    .select("tipo, ativo")
+    .eq("id", data as string)
+    .single();
+  expect(pessoa!.tipo).toBe("interno");
+  expect(pessoa!.ativo).toBe(true);
+});
+
+// O padrão do escritório passou a ler app_config (migration
+// migration_padrao_escritorio_configuravel): trocar quem recebe as tarefas
+// sem dono é um UPDATE numa chave, sem migration e sem deploy. Este teste
+// amarra a promessa — se alguém voltar a fixar a pessoa no corpo da função,
+// ele cai.
+const CHAVE_PADRAO = "tarefa_analise_responsavel_id";
+
+test("a chave de configuração troca o padrão do escritório", async () => {
+  const sufixo = `Padrao configuravel ${Date.now()}`;
+  const { casoId } = await seedClienteCaso(admin, { sufixo, parceiroId });
+  await limparTarefaDeAbertura(casoId);
+
+  // Guarda o estado anterior: a chave é global no banco compartilhado.
+  const { data: antes } = await admin
+    .from("app_config")
+    .select("valor")
+    .eq("chave", CHAVE_PADRAO)
+    .maybeSingle();
+
+  try {
+    const { error: errCfg } = await admin
+      .from("app_config")
+      .upsert({ chave: CHAVE_PADRAO, valor: outroInternoId }, { onConflict: "chave" });
+    expect(errCfg, "apontar a chave").toBeNull();
+
+    const { error } = await admin.from("documentos").insert({
+      caso_id: casoId,
+      tipo: "outro",
+      nome_arquivo: "[E2E] padrao-configuravel.pdf",
+      storage_path: `e2e/${casoId}/padrao.pdf`,
+      uploaded_by: parceiroId,
+    });
+    expect(error, "inserir documento do parceiro").toBeNull();
+
+    const { data: tarefa } = await admin
+      .from("tarefas")
+      .select("responsavel_id")
+      .eq("caso_id", casoId)
+      .eq("metadata->>analise_documento_parceiro", "true")
+      .maybeSingle();
+
+    expect(tarefa, "tarefa de análise criada").toBeTruthy();
+    expect(tarefa!.responsavel_id, "a chave manda no padrão").toBe(outroInternoId);
+  } finally {
+    // Devolve o banco ao estado anterior, dê no que der.
+    if (antes) {
+      await admin
+        .from("app_config")
+        .upsert({ chave: CHAVE_PADRAO, valor: antes.valor }, { onConflict: "chave" });
+    } else {
+      await admin.from("app_config").delete().eq("chave", CHAVE_PADRAO);
+    }
+  }
+});
