@@ -99,12 +99,18 @@ export function TarefasExcluidas({
   const [rows, setRows] = useState<Linha[] | null>(null);
   // Alguma das duas fontes bateu o teto? Aí a lista está truncada e a UI diz.
   const [truncada, setTruncada] = useState(false);
+  // Falha de consulta é falha, não "nada foi excluído" — sem isto a seção
+  // inteira sumia da tela e a pessoa concluía que o log estava vazio
+  // (revisão 2026-09-10). Agrava porque o Promise.all abaixo não isola as
+  // fontes: uma quebrada derrubava as duas, calada.
+  const [erro, setErro] = useState<string | null>(null);
   const [aberta, setAberta] = useState(abertaInicial);
 
   const limite = casoId ? 100 : 50;
 
   useEffect(() => {
     let vivo = true;
+    setErro(null);
     Promise.all([
       listarTarefasExcluidas({ caso_id: casoId, limite }),
       listarTarefasCanceladas({ caso_id: casoId, limite }),
@@ -122,10 +128,11 @@ export function TarefasExcluidas({
       })
       .catch((e) => {
         console.error(e);
-        if (vivo) {
-          setRows([]);
-          setTruncada(false);
-        }
+        if (!vivo) return;
+        setRows([]);
+        setTruncada(false);
+        const msg = (e as { message?: string })?.message;
+        setErro(msg || "Falha ao carregar as exclusões");
       });
     return () => {
       vivo = false;
@@ -133,7 +140,8 @@ export function TarefasExcluidas({
   }, [casoId, versao, limite]);
 
   // Sem nada excluído nem cancelado, a seção nem aparece (não polui a aba).
-  if (rows && rows.length === 0) return null;
+  // Erro, ao contrário, aparece sempre — é o que distingue "vazio" de "quebrou".
+  if (rows && rows.length === 0 && !erro) return null;
 
   return (
     <section className={cn("space-y-2", className)}>
@@ -159,7 +167,14 @@ export function TarefasExcluidas({
         )}
       </button>
 
+      {aberta && erro && (
+        <p className="text-xs text-destructive rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
+          Não foi possível carregar as exclusões: {erro}
+        </p>
+      )}
+
       {aberta &&
+        !erro &&
         rows &&
         (porMes ? (
           <SecoesPorMes grupos={agruparPorMes(rows, (r) => r.quando)}>

@@ -838,6 +838,10 @@ function CasoDetalhePage() {
       if (clienteResp.error) throw clienteResp.error;
       setCliente((clienteResp.data || null) as Cliente | null);
 
+      // Erro aqui NÃO pode virar "o cliente só tem este caso": o `?? []`
+      // sozinho escondia a falha e o seletor de casos sumia da tela, como se
+      // os outros casos tivessem sido apagados (revisão 2026-09-10).
+      if (casosResp.error) throw casosResp.error;
       setCasosCliente(
         (casosResp.data as Array<{
           id: string;
