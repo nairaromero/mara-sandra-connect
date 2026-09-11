@@ -30,6 +30,17 @@ const JWT_SECRET = Deno.env.get("SUPABASE_JWT_SECRET") ?? "";
 const SERVER_INFO = { name: "mara-sandra-connect", version: "0.1.0" };
 const PROTOCOL = "2024-11-05";
 
+// So no MCP (Claude/ChatGPT externos): o modelo so usa as ferramentas quando a
+// pessoa pede. O chat interno do app (ia-assistant) usa as mesmas tools SEM essa
+// restricao — por isso fica aqui, e nao nas descricoes de ia-tools.ts.
+const INSTRUCOES =
+  "Ferramentas do sistema do escritorio Mara Sandra (casos, clientes, andamentos, documentos). " +
+  "Use-as SOMENTE quando o usuario pedir explicitamente para consultar ou alterar algo no " +
+  "sistema - por exemplo: 'use o MCP para...', 'consulta no sistema', 'no Mara Sandra'. " +
+  "Se o usuario apenas mencionar um cliente ou caso, sem pedir consulta ao sistema, NAO chame " +
+  "as ferramentas: responda com o que ja tem ou pergunte se ele quer que voce consulte o sistema.";
+const PREFIXO_DESCRICAO = "[Sistema Mara Sandra - usar so quando o usuario pedir] ";
+
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, content-type, mcp-protocol-version",
@@ -77,8 +88,14 @@ function mcpContent(out: unknown): Array<Record<string, unknown>> {
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
-  // GET simples: ajuda a depurar a URL no navegador.
   if (req.method === "GET") {
+    // Cliente MCP (Streamable HTTP) usa GET para abrir um stream SSE. Nao temos
+    // stream: pela spec, responde 405. Com 200 o mcp-remote reconectava em loop
+    // (~100+ requests/min por cliente conectado, medido em 2026-09-11).
+    if ((req.headers.get("Accept") || "").includes("text/event-stream")) {
+      return new Response(null, { status: 405, headers: { ...cors, Allow: "POST, OPTIONS" } });
+    }
+    // GET simples: ajuda a depurar a URL no navegador.
     return httpJson({ ok: true, server: SERVER_INFO, transport: "http", protocol: PROTOCOL });
   }
   if (req.method !== "POST") return httpJson({ error: "metodo nao permitido" }, 405);
@@ -95,11 +112,14 @@ serve(async (req) => {
 
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
   const hash = await sha256Hex(token);
-  const { data: tok } = await admin
+  const { data: tok, error: tokErr } = await admin
     .from("ia_tokens")
     .select("id,usuario_id,escopo,expira_em,revogado_em")
     .eq("token_hash", hash)
     .maybeSingle();
+  // Falha de banco NAO e token invalido: com 401 o mcp-remote tenta login OAuth
+  // (que nao temos) e a conexao morre ate reiniciar o Claude Desktop.
+  if (tokErr) return httpJson({ error: "falha ao validar o token, tente de novo" }, 503);
 
   const agora = Date.now();
   const expirado = tok?.expira_em ? new Date(tok.expira_em).getTime() < agora : false;
@@ -113,12 +133,18 @@ serve(async (req) => {
     () => {},
   );
 
-  const { data: perfil } = await admin
+  const { data: perfil, error: perfilErr } = await admin
     .from("usuarios")
-    .select("tipo")
+    .select("tipo,ativo,desligado_em")
     .eq("id", tok.usuario_id)
     .maybeSingle();
-  const tipo: "interno" | "parceiro" = perfil?.tipo === "interno" ? "interno" : "parceiro";
+  if (perfilErr) return httpJson({ error: "falha ao carregar o usuario, tente de novo" }, 503);
+  // O token nao passa pelo login: quem foi desligado/desativado e barrado aqui
+  // (o client e service-role, entao nenhuma RLS faria isso por nos).
+  if (!perfil || !perfil.ativo || perfil.desligado_em) {
+    return httpJson({ error: "usuario desativado" }, 403);
+  }
+  const tipo: "interno" | "parceiro" = perfil.tipo === "interno" ? "interno" : "parceiro";
 
   // ---- Body JSON-RPC ----
   let payload: unknown;
@@ -168,6 +194,7 @@ serve(async (req) => {
         protocolVersion: PROTOCOL,
         capabilities: { tools: {} },
         serverInfo: SERVER_INFO,
+        instructions: INSTRUCOES,
       });
     }
     if (method === "ping") return rpc(id, {});
@@ -178,7 +205,8 @@ serve(async (req) => {
     if (method === "tools/list") {
       const tools = toolsForRole(tipo, escrita).map((t) => ({
         name: t.name,
-        description: t.description,
+        // Reforco para clientes que ignoram `instructions` (ex.: ChatGPT).
+        description: PREFIXO_DESCRICAO + t.description,
         inputSchema: t.schema,
       }));
       return rpc(id, { tools });

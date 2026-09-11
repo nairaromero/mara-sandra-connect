@@ -128,25 +128,18 @@ create policy "ia_tokens_select"
   on public.ia_tokens for select
   using (usuario_id = auth.uid() or public.is_interno());
 
+-- Escrita em ia_tokens: SÓ pelo backend (ia-config/ia-mcp com service role).
+-- As policies de insert/update/delete para usuário foram removidas em
+-- migration_ia_tokens_seguranca.sql (2026-09-11): com `or is_interno()` qualquer
+-- interno trocava o dono de um token. Re-rodar este arquivo NÃO pode recriá-las.
 drop policy if exists "ia_tokens_insert" on public.ia_tokens;
-create policy "ia_tokens_insert"
-  on public.ia_tokens for insert
-  with check (usuario_id = auth.uid());
-
 drop policy if exists "ia_tokens_update" on public.ia_tokens;
-create policy "ia_tokens_update"
-  on public.ia_tokens for update
-  using (usuario_id = auth.uid() or public.is_interno())
-  with check (usuario_id = auth.uid() or public.is_interno());
-
 drop policy if exists "ia_tokens_delete" on public.ia_tokens;
-create policy "ia_tokens_delete"
-  on public.ia_tokens for delete
-  using (usuario_id = auth.uid() or public.is_interno());
 
 -- ---------------------------------------------------------------------------
 -- 4) GRANTs (pegadinha conhecida: service_role precisa de grant explicito)
 -- ---------------------------------------------------------------------------
 grant select, insert, update, delete on public.ia_integracoes to authenticated, service_role;
 grant select, insert, update, delete on public.ia_acoes       to authenticated, service_role;
-grant select, insert, update, delete on public.ia_tokens      to authenticated, service_role;
+grant select                         on public.ia_tokens      to authenticated;
+grant select, insert, update, delete on public.ia_tokens      to service_role;
