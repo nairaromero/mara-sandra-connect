@@ -41,6 +41,13 @@ feature branch  ──merge──▶  staging  ──merge (após validação)�
 3. Commit, push, abro PR `feat/x → staging`.
 4. Naira valida (em staging.marasandraconnect.com, com a conta do papel certo, ou local) e merge.
 5. Quando um lote estiver validado: Naira merge `staging → main` → deploy prod.
+   O PR de release abre **com o label `release`**
+   (`gh pr create --base main --head staging --label release`) — assim ele fica fora do board.
+
+**Board ([Legal Connect](https://github.com/users/nairaromero/projects/1), desde 2026-09-10):** o trabalho aberto vive lá, não mais no `planning/TODO.md`. Colunas: Backlog · Lote atual · Em revisão · Validar no staging · Produção.
+- Automático: issue/PR novo → Backlog (nativo); PR aberto pra staging → Em revisão e release → Produção (`.github/workflows/board.yml` + `scripts/board-sync.mjs`); PR mergeado na staging → Validar no staging (nativo "Pull request merged").
+- Um card só vai pra Produção quando o commit está na `main` **e** as migrations do PR estão no registro de produção (ver DB). Card segurado anda sozinho na rodada diária depois que a migration é aplicada.
+- Teste local sem mexer em nada: `node scripts/board-sync.mjs release --dry-run`.
 
 ## DB
 

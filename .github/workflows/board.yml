@@ -1,0 +1,104 @@
+name: board
+
+# Mantém o board "Legal Connect" (GitHub Projects) em dia com o git e com o
+# registro de migrations de produção. A lógica está em scripts/board-sync.mjs.
+#
+#   PR aberto para a staging              -> "Em revisão"
+#   push na main (release), todo dia e manual
+#                                         -> "Validar no staging" vira "Produção"
+#                                            quando o commit do PR está na main
+#                                            E as migrations dele estão no
+#                                            registro de produção
+#
+# A rodada diária existe porque as migrations rodam à mão, muitas vezes depois
+# do merge: um card segurado por migration não aplicada anda sozinho no dia
+# seguinte à aplicação, sem esperar o próximo release.
+#
+# "PR mergeado na staging -> Validar no staging" NÃO é daqui: é o workflow
+# nativo "Pull request merged" do board. Ele acerta esse caso porque o PR de
+# release é aberto com o label `release` e fica fora do board (filtro do
+# Auto-add: -label:release).
+#
+# Segredos:
+#   BOARD_PROJECT_TOKEN       PAT clássico com escopo `project`, da dona do board
+#                             (o GITHUB_TOKEN não escreve em Projects v2).
+#   ESPELHO_LEITURA_PASSWORD  o mesmo do espelho semanal: só SELECT em produção.
+#
+# Repositório público: o log do Actions é público e o board é privado. O script
+# imprime só números de PR/issue, nomes de migration e motivos.
+#
+# O agendado e o manual rodam a partir da main (branch padrão); o de PR, a
+# partir da staging. Então a parte do release só começa a valer quando este
+# arquivo chegar na main.
+
+on:
+  # pull_request_target, e não pull_request: roda o workflow e o script da
+  # branch de DESTINO (staging, já revisada), nunca o código da PR. Com
+  # pull_request, qualquer PR podia alterar o board-sync.mjs e fazer o que
+  # quisesse com o BOARD_PROJECT_TOKEN — que alcança todos os boards da dona,
+  # não só este. É seguro porque o job NÃO faz checkout do código da PR (o
+  # checkout abaixo pega a staging): usa só o número dela.
+  pull_request_target:
+    types: [opened, reopened, ready_for_review]
+    branches: [staging]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 12 * * *" # 09:00 em Brasília
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Só mostrar o que faria, sem mexer no board"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: board
+  cancel-in-progress: false
+
+jobs:
+  em-revisao:
+    # Só PR do próprio repositório; draft ainda não está pronto pra revisão.
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Sem `ref:` de propósito — no pull_request_target isso é a staging.
+      # NÃO trocar por head.sha: executaria código da PR com o token.
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: PR -> Em revisão
+        env:
+          GH_TOKEN: ${{ secrets.BOARD_PROJECT_TOKEN }}
+          PR_NUMERO: ${{ github.event.pull_request.number }}
+        run: node scripts/board-sync.mjs em-revisao "$PR_NUMERO"
+
+  release:
+    if: github.event_name != 'pull_request_target'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Histórico inteiro: é o git que diz se o commit do PR já está na main.
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validar no staging -> Produção
+        env:
+          GH_TOKEN: ${{ secrets.BOARD_PROJECT_TOKEN }}
+          PGPASSWORD: ${{ secrets.ESPELHO_LEITURA_PASSWORD }}
+          REGISTRO_PG_CONN: >-
+            host=aws-1-sa-east-1.pooler.supabase.com port=5432 dbname=postgres
+            user=espelho_leitura.llugytkdsfsrciavhrfw sslmode=require
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: node scripts/board-sync.mjs release $DRY_RUN
