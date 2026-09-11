@@ -47,6 +47,7 @@ feature branch  ──merge──▶  staging  ──merge (após validação)�
 **Board ([Legal Connect](https://github.com/users/nairaromero/projects/1), desde 2026-09-10):** o trabalho aberto vive lá, não mais no `planning/TODO.md`. Colunas: Backlog · Lote atual · Em revisão · Validar no staging · Produção.
 - Automático: issue/PR novo → Backlog (nativo); PR aberto pra staging → Em revisão e release → Produção (`.github/workflows/board.yml` + `scripts/board-sync.mjs`); PR mergeado na staging → Validar no staging (nativo "Pull request merged").
 - Um card só vai pra Produção quando o commit está na `main` **e** as migrations do PR estão no registro de produção (ver DB). Card segurado anda sozinho na rodada diária depois que a migration é aplicada.
+- O `board.yml` roda **inteiro a partir da `main`** — inclusive o gatilho de PR (`pull_request_target` sempre usa a branch padrão). Mudança nele só vale depois do release que a leva pra `main`.
 - Teste local sem mexer em nada: `node scripts/board-sync.mjs release --dry-run`.
 
 ## DB
@@ -54,6 +55,10 @@ feature branch  ──merge──▶  staging  ──merge (após validação)�
 - Toda alteração via migration em `planning/sql-migrations/migration_*.sql`.
 - Apply: `node scripts/msc-sql.mjs --staging --file <arq>` (staging primeiro), depois sem a flag (produção).
 - Migrations devem ser idempotentes quando possível.
+- **Registro de migrations (desde 2026-09-11):** o `--file` grava toda `migration_*.sql` que roda sem erro em `ops.migrations_aplicadas` do banco-alvo. É esse registro — não inferência pelo `pg_proc` — que responde "já rodou em produção?", e o workflow do board depende dele. O que foi aplicado antes de 2026-09-11 não está lá.
+  - Aplicou por outro caminho (SQL editor, antes do registro)? `node scripts/msc-sql.mjs [--staging] --registrar <arq>` — grava sem executar.
+  - Saída **3** = a migration rodou mas não registrou; a mensagem traz o comando exato pra consertar.
+  - O `ops` fica fora do `public` de propósito: o espelho semanal só toca o `public` (senão sobrescreveria o registro do staging com o da produção) e a API REST não expõe `ops`.
 
 ## Papéis (interno / admin / parceiro)
 

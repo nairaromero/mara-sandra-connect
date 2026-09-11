@@ -27,17 +27,19 @@ name: board
 # Repositório público: o log do Actions é público e o board é privado. O script
 # imprime só números de PR/issue, nomes de migration e motivos.
 #
-# O agendado e o manual rodam a partir da main (branch padrão); o de PR, a
-# partir da staging. Então a parte do release só começa a valer quando este
-# arquivo chegar na main.
+# TODOS os gatilhos rodam a partir da main (branch padrão) — inclusive o de PR,
+# porque o pull_request_target sempre usa o workflow e o código da branch
+# padrão, não a de destino do PR. Ou seja: o workflow inteiro só passa a valer
+# quando este arquivo chegar na main. Na staging ele não faz nada (conferido em
+# 2026-09-11: reabrir um PR para a staging não disparou execução nenhuma).
 
 on:
   # pull_request_target, e não pull_request: roda o workflow e o script da
-  # branch de DESTINO (staging, já revisada), nunca o código da PR. Com
-  # pull_request, qualquer PR podia alterar o board-sync.mjs e fazer o que
-  # quisesse com o BOARD_PROJECT_TOKEN — que alcança todos os boards da dona,
-  # não só este. É seguro porque o job NÃO faz checkout do código da PR (o
-  # checkout abaixo pega a staging): usa só o número dela.
+  # MAIN (já em produção), nunca o código da PR. Com pull_request, qualquer
+  # PR podia alterar o board-sync.mjs e fazer o que quisesse com o
+  # BOARD_PROJECT_TOKEN — que alcança todos os boards da dona, não só este. É
+  # seguro porque o job NÃO faz checkout do código da PR (o checkout abaixo
+  # pega a main): usa só o número dela.
   pull_request_target:
     types: [opened, reopened, ready_for_review]
     branches: [staging]
@@ -69,7 +71,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      # Sem `ref:` de propósito — no pull_request_target isso é a staging.
+      # Sem `ref:` de propósito — no pull_request_target isso é a main.
       # NÃO trocar por head.sha: executaria código da PR com o token.
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
