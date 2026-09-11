@@ -47,6 +47,7 @@ feature branch  ──merge──▶  staging  ──merge (após validação)�
 **Board ([Legal Connect](https://github.com/users/nairaromero/projects/1), desde 2026-09-10):** o trabalho aberto vive lá, não mais no `planning/TODO.md`. Colunas: Backlog · Lote atual · Em revisão · Validar no staging · Produção.
 - Automático: issue/PR novo → Backlog (nativo); PR aberto pra staging → Em revisão e release → Produção (`.github/workflows/board.yml` + `scripts/board-sync.mjs`); PR mergeado na staging → Validar no staging (nativo "Pull request merged").
 - Um card só vai pra Produção quando o commit está na `main` **e** as migrations do PR estão no registro de produção (ver DB). Card segurado anda sozinho na rodada diária depois que a migration é aplicada.
+- O `board.yml` roda **inteiro a partir da `main`** — inclusive o gatilho de PR (`pull_request_target` sempre usa a branch padrão). Mudança nele só vale depois do release que a leva pra `main`.
 - Teste local sem mexer em nada: `node scripts/board-sync.mjs release --dry-run`.
 
 ## DB
