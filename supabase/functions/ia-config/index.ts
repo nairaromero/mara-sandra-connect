@@ -204,6 +204,17 @@ serve(async (req) => {
     }
 
     if (action === "token_criar") {
+      // So admin gera token do MCP: o card ja e so de admin, aqui garante no
+      // servidor (o token roda com service-role no ia-mcp).
+      const { data: perfil, error: perfilErr } = await admin
+        .from("usuarios")
+        .select("eh_admin,ativo")
+        .eq("id", uid)
+        .maybeSingle();
+      if (perfilErr) return jsonResponse({ error: "falha ao verificar permissao" }, 500);
+      if (!perfil?.eh_admin || !perfil.ativo) {
+        return jsonResponse({ error: "apenas administradores geram tokens do MCP" }, 403);
+      }
       const nome = String(body.nome || "").trim() || "Token";
       const escopo = body.escopo === "leitura" ? "leitura" : "completo";
       const dias = Number(body.dias);
