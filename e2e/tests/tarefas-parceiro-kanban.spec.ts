@@ -8,7 +8,9 @@
 //  - audiência entra como card informativo (sem botão Cumprir);
 //  - cumprir direto do kanban: modal com anexo obrigatório, solicitação
 //    atendida no banco e card some do board;
-//  - menu do parceiro: "Tarefas" e "Agenda" (ex-"Perícias").
+//  - menu do parceiro: "Tarefas" e "Agenda" (ex-"Perícias");
+//  - card mostra quem da equipe pediu o documento, e o texto automático quando
+//    o pedido veio do robô do e-mail INSS (#299).
 
 import { test, expect } from "@playwright/test";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
@@ -53,6 +55,7 @@ let solicAvulsaId: string;
 let nomeAnalise: string;
 let nomeAdmin: string;
 let nomeJudicial: string;
+let nomeSolicitante: string;
 
 const PDF_FAKE = Buffer.from(
   "%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF",
@@ -71,6 +74,16 @@ test.beforeAll(async () => {
   if (!parceira) throw new Error(`parceira de teste não encontrada: ${ENV.parceiroEmail}`);
   const stamp = Date.now();
 
+  // Quem pediu o documento do caso 1 (#299). Nome lido do banco: o filme de
+  // demo renomeia as contas sintéticas enquanto grava.
+  const { data: interno } = await admin
+    .from("usuarios")
+    .select("id, nome")
+    .eq("email", ENV.internoEmail)
+    .single();
+  if (!interno?.nome) throw new Error(`interno de teste sem nome: ${ENV.internoEmail}`);
+  nomeSolicitante = interno.nome as string;
+
   // Caso 1 — fase analise, solicitação avulsa com prazo em 2 dias (urgente).
   const sufixoA = `Kanban Análise ${stamp}`;
   nomeAnalise = `[E2E] ${sufixoA}`;
@@ -80,6 +93,7 @@ test.beforeAll(async () => {
   }));
   solicAvulsaId = await seedSolicitacao(admin, casoAnaliseId, "cnis", {
     prazoAt: diasAFrenteISO(2),
+    solicitadoPor: interno.id as string,
   });
 
   // Caso 2 — fase admin, solicitação de EXIGÊNCIA (origem template:exigencia)
@@ -132,11 +146,16 @@ test("kanban mostra as 3 colunas com solicitações, exigência e audiência", a
   await expect(cardAnalise).toBeVisible();
   await expect(cardAnalise.getByText(/Enviar até .* em 2 dias/)).toBeVisible();
   await expect(cardAnalise.getByText("Novo")).toBeVisible();
+  // Quem da equipe pediu (#299) — o parceiro lê o nome de um interno pela RLS.
+  await expect(cardAnalise.getByText("Solicitado por")).toBeVisible();
+  await expect(cardAnalise.getByText(nomeSolicitante, { exact: true })).toBeVisible();
 
   // Card da exigência (origem template) VISÍVEL pro parceiro — regressão do
   // filtro === 'externa'.
   await expect(cardAdmin).toBeVisible();
   await expect(cardAdmin.getByText("Exigência INSS")).toBeVisible();
+  // Exigência do robô do e-mail INSS: sem solicitante, texto automático (#299).
+  await expect(cardAdmin.getByText("Automático (e-mail do INSS)")).toBeVisible();
 
   // Audiência: card informativo (rotulado), com local, SEM botão Cumprir.
   // O card de evento é um link, não button (não tem "Cumprir").
@@ -204,7 +223,10 @@ test("pendência em caso finalizado aparece em Outros (não some do board)", asy
   await seedSolicitacao(admin, casoId, "cnis", { prazoAt: diasAFrenteISO(5) });
 
   await page.goto("/tarefas");
-  await expect(page.getByText("Outros")).toBeVisible();
+  // Mira o CABEÇALHO da coluna ("Outros" + contagem). getByText("Outros") solto
+  // casava com qualquer card cujo documento é "Outro" seguido de um texto que
+  // começa com "s" — o textContent junta os blocos sem espaço ("OutroSolicitado").
+  await expect(page.getByText(/^Outros\s*\d+$/)).toBeVisible();
   await expect(page.getByText(nome)).toBeVisible();
 });
 

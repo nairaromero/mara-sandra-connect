@@ -34,6 +34,7 @@ import {
   MapPin,
   Scale,
   Stethoscope,
+  UserRound,
 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
@@ -51,6 +52,7 @@ import {
   type ArquivoCumprimento,
   type ItemSolicitacao,
 } from "@/lib/documentos/cumprimento";
+import { descreverSolicitante, type SolicitanteLite } from "@/lib/documentos/solicitante";
 import { validateFileSize } from "@/lib/upload-limits";
 import { ArquivosCumprimento } from "@/components/documentos/arquivos-cumprimento";
 
@@ -81,6 +83,9 @@ interface SolicPendente {
   prazo_at: string | null;
   data_solicitacao: string;
   documento_id: string | null;
+  // Quem da equipe abriu o pedido. Nulo quando veio do robô do e-mail INSS
+  // (origem template:*) — descreverSolicitante() cobre os dois casos.
+  solicitante: SolicitanteLite | null;
   casos: {
     id: string;
     fase: string;
@@ -239,7 +244,7 @@ export function TarefasParceiro() {
           let q = supabase
             .from("solicitacoes_documento")
             .select(
-              "id, caso_id, tipo, tipos, descricao, origem, prazo_at, data_solicitacao, documento_id, casos!inner(id, fase, parceiro_id, clientes(id, nome))",
+              "id, caso_id, tipo, tipos, descricao, origem, prazo_at, data_solicitacao, documento_id, solicitante:usuarios!solicitacoes_documento_solicitado_por_fkey(id, nome), casos!inner(id, fase, parceiro_id, clientes(id, nome))",
             )
             .eq("status", "pendente")
             .neq("origem", "interna");
@@ -751,6 +756,17 @@ function CardSolicitacao(props: {
       <p className="text-sm font-medium break-words">{cliente}</p>
       <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
         {rotuloSolicitacao(s.tipo, s.tipos)}
+      </p>
+      {/* Quem da equipe pediu (#299): sem isso o parceiro recebia a pendência
+          sem saber com quem falar. Mesma expressão da aba Documentos do caso. */}
+      <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1 min-w-0">
+        <UserRound className="h-3 w-3 shrink-0" />
+        <span className="truncate min-w-0">
+          Solicitado por{" "}
+          <span className="font-medium text-foreground">
+            {descreverSolicitante(s.solicitante, s.origem)}
+          </span>
+        </span>
       </p>
       <p className={cn("text-xs mt-2 flex items-center gap-1", URGENCIA_TEXTO_CLASS[urg])}>
         <Clock className="h-3 w-3 shrink-0" />

@@ -64,7 +64,7 @@ export async function seedSolicitacao(
   admin: SupabaseClient,
   casoId: string,
   tipo = "comprovante_residencia",
-  opts: { origem?: string; prazoAt?: string | null } = {},
+  opts: { origem?: string; prazoAt?: string | null; solicitadoPor?: string | null } = {},
 ): Promise<string> {
   const { data, error } = await admin
     .from("solicitacoes_documento")
@@ -75,6 +75,8 @@ export async function seedSolicitacao(
       status: "pendente",
       origem: opts.origem ?? "externa",
       prazo_at: opts.prazoAt ?? null,
+      // Quem da equipe pediu. Omitido = nulo, como o robô do e-mail INSS grava.
+      ...(opts.solicitadoPor !== undefined ? { solicitado_por: opts.solicitadoPor } : {}),
     })
     .select("id")
     .single();
