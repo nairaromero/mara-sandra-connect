@@ -80,6 +80,8 @@ import {
   isoFromInputDateTime,
   nomeAmigavel,
   checklistPendente,
+  acaoAudiencia,
+  processoUnicoCompativel,
   substituirPlaceholders,
 } from "@/lib/tarefas/helpers";
 import { ConcluirTarefaDialog } from "@/components/tarefas/concluir-tarefa-dialog";
@@ -101,6 +103,7 @@ import { AnaliseCasoNovo } from "@/components/tarefas/analise-caso-novo";
 import { AnaliseIndeferimento } from "@/components/tarefas/analise-indeferimento";
 import { ComparecimentoPericia } from "@/components/tarefas/comparecimento-pericia";
 import { EnviarAvisoParceiro } from "@/components/tarefas/enviar-aviso-parceiro";
+import { AcoesAudiencia } from "@/components/tarefas/acoes-audiencia";
 import { EtapaCumprimentoExigencia } from "@/components/tarefas/etapa-cumprimento-exigencia";
 import { EtapaProtocoloRealizado } from "@/components/tarefas/etapa-protocolo-realizado";
 import { hojeChaveBR } from "@/lib/fuso";
@@ -310,6 +313,11 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
     Array<{ index: number; titulo: string; respId: string }>
   >([]);
   const [processosDoCaso, setProcessosDoCaso] = useState<ProcessoDoCasoOpcao[]>([]);
+  // De qual caso é a lista acima (null = carregando/falhou).
+  const [processosDoCasoDe, setProcessosDoCasoDe] = useState<string | null>(null);
+  // Token que o próprio formulário marcou; e se a pessoa já mexeu no select.
+  const processoAuto = useRef<string | null>(null);
+  const processoTocado = useRef(false);
 
   const [salvando, setSalvando] = useState(false);
   // Diálogo de adiamento de prazo fatal: exige justificativa antes de salvar.
@@ -417,12 +425,38 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
 
   // Carrega processos do caso quando muda. Limpa quando não há caso.
   useEffect(() => {
-    if (!casoId) {
-      setProcessosDoCaso([]);
-      return;
-    }
-    listarProcessosDoCaso(casoId).then(setProcessosDoCaso).catch(() => {});
+    setProcessosDoCaso([]);
+    setProcessosDoCasoDe(null);
+    if (!casoId) return;
+    let cancelado = false;
+    listarProcessosDoCaso(casoId)
+      .then((lista) => {
+        if (cancelado) return;
+        setProcessosDoCaso(lista);
+        setProcessosDoCasoDe(casoId);
+      })
+      .catch((e) => console.error("processos do caso falharam:", e));
+    return () => {
+      cancelado = true;
+    };
   }, [casoId]);
+
+  // Template de perícia/audiência: marca sozinho o processo quando ele é o
+  // ÚNICO compatível (mesma regra do AgendaSheet — ver
+  // processoUnicoCompativel). Escolha da pessoa nunca é sobrescrita, e a lista
+  // precisa ser a deste caso.
+  useEffect(() => {
+    if (editando || !casoId || processosDoCasoDe !== casoId) return;
+    if (processoTocado.current) return;
+    if (processoToken !== "" && processoToken !== processoAuto.current) return;
+    const unico = processoUnicoCompativel(
+      processosDoCaso,
+      agendaTipoDoTemplate,
+      templateSelecionado,
+    );
+    processoAuto.current = unico;
+    if ((unico ?? "") !== processoToken) setProcessoToken(unico ?? "");
+  }, [editando, casoId, processosDoCasoDe, processosDoCaso, agendaTipoDoTemplate, templateSelecionado]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Quando a Naira escolhe um template (modo criar), popula o form. Se o
   // template tem item destino=agenda (ex: "Perícia com parceiro"), esse
@@ -523,6 +557,8 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
       setCasoId(modo.casoIdInicial ?? null);
       setTrocandoCaso(false);
       setProcessoToken("");
+      processoAuto.current = null;
+      processoTocado.current = false;
       setResponsavelId(null);
       setDueDate("");
       setLocal("");
@@ -1221,6 +1257,10 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
               <EnviarAvisoParceiro tarefa={tarefa} onUpdated={onSaved} />
             )}
 
+          {editando && tarefa && acaoAudiencia(tarefa) && (
+            <AcoesAudiencia tarefa={tarefa} acao={acaoAudiencia(tarefa)!} onUpdated={onSaved} />
+          )}
+
           {editando && tarefa &&
             (tarefa.metadata as { cumprimento_exigencia?: boolean })?.cumprimento_exigencia && (
               <EtapaCumprimentoExigencia tarefa={tarefa} onUpdated={onSaved} />
@@ -1277,6 +1317,9 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                   onChange={(v) => {
                     setCasoId(v === "sem" ? null : v);
                     setProcessoToken("");
+                    // Cliente novo = decisão nova sobre o processo.
+                    processoAuto.current = null;
+                    processoTocado.current = false;
                   }}
                   placeholder="Sem cliente"
                   searchPlaceholder="Buscar cliente..."
@@ -1310,7 +1353,10 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
               <Label>Processo (opcional)</Label>
               <Select
                 value={processoToken || "sem"}
-                onValueChange={(v) => setProcessoToken(v === "sem" ? "" : v)}
+                onValueChange={(v) => {
+                  processoTocado.current = true;
+                  setProcessoToken(v === "sem" ? "" : v);
+                }}
               >
                 <SelectTrigger><SelectValue placeholder="Nenhum" /></SelectTrigger>
                 <SelectContent>

@@ -64,7 +64,10 @@ export function EnviarAvisoParceiro({
         toast.error("Não achei o texto da publicação de origem.");
         return;
       }
-      const campos = await extrairDePublicacao(fonte);
+      const campos = await extrairDePublicacao(
+        fonte,
+        meta.tipo_aviso.startsWith("audiencia") ? "audiencia" : "pericia",
+      );
       if (!campos) {
         toast.error("A IA não conseguiu ler a publicação — complete na mão.");
         return;

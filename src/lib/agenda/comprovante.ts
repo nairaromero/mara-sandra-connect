@@ -30,10 +30,17 @@ export async function extrairComprovante(file: File): Promise<CamposComprovante 
   return (data as { campos?: CamposComprovante | null } | null)?.campos ?? null;
 }
 
-/** Idem, mas a partir do TEXTO colado da publicação/intimação. */
-export async function extrairDePublicacao(texto: string): Promise<CamposComprovante | null> {
+/**
+ * Idem, mas a partir do TEXTO colado da publicação/intimação. `tipo` diz qual
+ * ato procurar — intimação de audiência traz várias datas (despacho, prazo) e
+ * a IA precisa saber que a data certa é a da audiência.
+ */
+export async function extrairDePublicacao(
+  texto: string,
+  tipo: "pericia" | "audiencia" = "pericia",
+): Promise<CamposComprovante | null> {
   const { data, error } = await supabase.functions.invoke("extrair-agendamento-pericia", {
-    body: { texto },
+    body: { texto, tipo },
   });
   if (error) throw error;
   return (data as { campos?: CamposComprovante | null } | null)?.campos ?? null;

@@ -364,6 +364,11 @@ export async function listarProcessosDoCaso(casoId: string): Promise<ProcessoDoC
       .eq("caso_id", casoId)
       .order("created_at", { ascending: false }),
   ]);
+  // Falha numa das metades NÃO pode virar "o caso não tem esse processo": o
+  // formulário marca sozinho o processo quando ele é o único compatível, e uma
+  // lista pela metade faria o errado parecer único.
+  if (admins.error) throw admins.error;
+  if (judiciais.error) throw judiciais.error;
   const out: ProcessoDoCasoOpcao[] = [];
   for (const a of admins.data ?? []) {
     const partes = ["Admin", a.numero_requerimento ?? "sem nº", a.etapa_tipo ?? null].filter(

@@ -81,7 +81,7 @@ import {
   type TarefaTemplateRow,
   type TarefaTipo,
 } from "@/lib/tarefas/types";
-import { substituirPlaceholders } from "@/lib/tarefas/helpers";
+import { processoUnicoCompativel, substituirPlaceholders } from "@/lib/tarefas/helpers";
 import { useDestaque } from "@/lib/destaque/destaque-context";
 
 const TIPOS: AgendaTipo[] = ["pericia", "audiencia", "reuniao", "interno"];
@@ -124,6 +124,10 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
   const [local, setLocal] = useState("");
   const [startInput, setStartInput] = useState("");
   const [endInput, setEndInput] = useState("");
+  const startInputRef = useRef(startInput);
+  useEffect(() => {
+    startInputRef.current = startInput;
+  }, [startInput]);
   const [casoId, setCasoId] = useState<string | null>(null);
   const [processoToken, setProcessoToken] = useState("");
   const [responsavelId, setResponsavelId] = useState<string | null>(null);
@@ -133,6 +137,11 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
     Array<{ id: string; nome: string | null; email: string | null }>
   >([]);
   const [processosDoCaso, setProcessosDoCaso] = useState<ProcessoDoCasoOpcao[]>([]);
+  // De qual caso é a lista acima (null = carregando/falhou).
+  const [processosDoCasoDe, setProcessosDoCasoDe] = useState<string | null>(null);
+  // Token que o próprio formulário marcou; e se a pessoa já mexeu no select.
+  const processoAuto = useRef<string | null>(null);
+  const processoTocado = useRef(false);
   // Templates de agenda (com pelo menos 1 item destino=agenda).
   const [templates, setTemplates] = useState<TarefaTemplateRow[]>([]);
   const [templateSelecionado, setTemplateSelecionado] = useState<string>("");
@@ -185,7 +194,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
     if (campos.data && campos.data < hojeChaveBR()) {
       const [a, m, d] = campos.data.split("-");
       toast.warning(
-        `Atenção: a perícia é de ${d}/${m}/${a} — data que JÁ PASSOU. Confira se é a publicação/comprovante atual.`,
+        `Atenção: a ${tipo === "audiencia" ? "audiência" : "perícia"} é de ${d}/${m}/${a} — data que JÁ PASSOU. Confira se é a publicação/comprovante atual.`,
       );
       return true;
     }
@@ -204,7 +213,10 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
     setExtraindoComprovante(true);
     setComprovanteDivergente(null);
     try {
-      const campos = await extrairDePublicacao(publicacaoColada.trim());
+      const campos = await extrairDePublicacao(
+        publicacaoColada.trim(),
+        tipo === "audiencia" ? "audiencia" : "pericia",
+      );
       if (!campos) {
         toast.error("Não consegui ler a publicação — preencha os campos na mão.");
         return;
@@ -332,14 +344,36 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
   }, [aberto]);
 
   useEffect(() => {
-    if (!casoId) {
-      setProcessosDoCaso([]);
-      return;
-    }
+    setProcessosDoCaso([]);
+    setProcessosDoCasoDe(null);
+    if (!casoId) return;
+    let cancelado = false;
     listarProcessosDoCaso(casoId)
-      .then(setProcessosDoCaso)
-      .catch(() => {});
+      .then((lista) => {
+        if (cancelado) return;
+        setProcessosDoCaso(lista);
+        setProcessosDoCasoDe(casoId);
+      })
+      .catch((e) => console.error("processos do caso falharam:", e));
+    return () => {
+      cancelado = true;
+    };
   }, [casoId]);
+
+  // Processo marcado sozinho quando é o ÚNICO compatível com a perícia/
+  // audiência (ver processoUnicoCompativel). Só mexe no que ele mesmo
+  // preencheu: escolha da pessoa — ou processo que veio de quem abriu o
+  // formulário — nunca é sobrescrita. A lista precisa ser a DESTE caso
+  // (processosDoCasoDe): a do caso anterior ainda na tela marcaria processo
+  // de outro cliente.
+  useEffect(() => {
+    if (editando || !casoId || processosDoCasoDe !== casoId) return;
+    if (processoTocado.current) return;
+    if (processoToken !== "" && processoToken !== processoAuto.current) return;
+    const unico = processoUnicoCompativel(processosDoCaso, tipo, templateSelecionado);
+    processoAuto.current = unico;
+    if ((unico ?? "") !== processoToken) setProcessoToken(unico ?? "");
+  }, [editando, casoId, processosDoCasoDe, processosDoCaso, tipo, templateSelecionado]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sincroniza form com modo na abertura.
   useEffect(() => {
@@ -359,6 +393,10 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
       setEndInput(isoToInputDatetime(deLocalBR(endDate).toISOString()));
       setCasoId(modo.casoIdInicial ?? null);
       setProcessoToken(modo.processoTokenInicial ?? "");
+      processoAuto.current = null;
+      // Processo que veio de quem abriu (ex.: tarefa de aviso da publicação)
+      // vale como escolha — o automático não troca.
+      processoTocado.current = !!modo.processoTokenInicial;
       setResponsavelId(null);
       setTemplateSelecionado("");
       setAvisoAtivo(true);
@@ -453,8 +491,12 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
       // Ausência é de quem está criando: já sai com a pessoa como responsável.
       if (agendaItem.sem_caso && usuario?.id) setResponsavelId(usuario.id);
       // Ajusta end_at = start_at + duracao_min se o usuário ainda não mexeu.
+      // Início ATUAL (ref), não o da closure: este bloco termina depois de um
+      // await, e nesse meio a leitura da publicação/comprovante pode ter
+      // trocado o início — com o valor velho o fim ficava ANTES do início e o
+      // salvar recusava.
       const dur = agendaItem.duracao_min ?? 60;
-      const startIsoTpl = inputDatetimeToIso(startInput);
+      const startIsoTpl = inputDatetimeToIso(startInputRef.current);
       if (startIsoTpl) {
         const endDate = new Date(new Date(startIsoTpl).getTime() + dur * 60_000);
         setEndInput(isoToInputDatetime(endDate.toISOString()));
@@ -795,6 +837,9 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
               onValueChange={(v) => {
                 setCasoId(v === "sem" ? null : v);
                 setProcessoToken("");
+                // Cliente novo = decisão nova sobre o processo.
+                processoAuto.current = null;
+                processoTocado.current = false;
               }}
             >
               <SelectTrigger>
@@ -816,7 +861,10 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
               <Label>Processo (opcional)</Label>
               <Select
                 value={processoToken || "sem"}
-                onValueChange={(v) => setProcessoToken(v === "sem" ? "" : v)}
+                onValueChange={(v) => {
+                  processoTocado.current = true;
+                  setProcessoToken(v === "sem" ? "" : v);
+                }}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Nenhum" />
@@ -873,8 +921,12 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
             </div>
           )}
 
-          {!editando && tipo === "pericia" && !!casoId && (
+          {!editando && (tipo === "pericia" || tipo === "audiencia") && !!casoId && (
             <div className="space-y-1.5 rounded-lg border border-dashed p-3 bg-muted/30">
+              {/* Audiência não tem comprovante de agendamento: só a publicação/
+                  intimação, que a IA lê do mesmo jeito. */}
+              {tipo === "pericia" && (
+              <>
               <Label htmlFor="ag-comprovante">
                 Comprovante do agendamento (PDF/foto) ou publicação
               </Label>
@@ -906,26 +958,34 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
                   </>
                 )}
               </p>
-              <div className="space-y-1.5 border-t border-dashed pt-2">
+              </>
+              )}
+              <div
+                className={
+                  tipo === "pericia" ? "space-y-1.5 border-t border-dashed pt-2" : "space-y-1.5"
+                }
+              >
                 <Label
                   htmlFor="ag-publicacao-colada"
                   className="text-xs font-normal text-muted-foreground"
                 >
-                  …ou cole o texto da publicação/intimação
+                  {tipo === "pericia"
+                    ? "…ou cole o texto da publicação/intimação"
+                    : "Publicação/intimação da audiência — a IA preenche data, hora e local"}
                 </Label>
                 <Textarea
                   id="ag-publicacao-colada"
                   rows={3}
                   value={publicacaoColada}
                   onChange={(e) => setPublicacaoColada(e.target.value)}
-                  placeholder="Cole aqui a publicação (Legalmail/DJE) que marcou a perícia — a IA preenche os campos do mesmo jeito."
+                  placeholder={`Cole aqui a publicação (Legalmail/DJE) que marcou a ${tipo === "audiencia" ? "audiência" : "perícia"} — a IA preenche os campos do mesmo jeito.`}
                 />
                 <Button
                   type="button"
                   size="sm"
                   variant="outline"
                   disabled={extraindoComprovante || !publicacaoColada.trim()}
-                  onClick={lerPublicacaoColada}
+                  onClick={() => lerPublicacaoColada()}
                 >
                   {extraindoComprovante ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />

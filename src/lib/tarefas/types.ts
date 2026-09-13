@@ -87,7 +87,8 @@ export interface TarefaTemplateItem {
   prioridade?: number;
   offset_dias?: number;
   // Âncora de prazo (tarefas): "hoje" (default), "data_cessacao" (do e-mail),
-  // "agenda" (start_at do evento criado no mesmo apply),
+  // "agenda" (start_at do evento criado no mesmo apply; caindo no fim de
+  // semana, offset negativo recua pra sexta e o resto avança pra segunda),
   // "sexta_antes_agenda" (sexta-feira anterior ao agenda),
   // "prazo_fatal" (data informada no form ao aplicar — ex.: Exigência
   // Judicial; offset_dias conta a partir dela e fim de semana recua pra

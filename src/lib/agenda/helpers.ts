@@ -25,6 +25,20 @@ export function sextaAnterior(d: Date): Date {
 }
 
 /**
+ * Tira do fim de semana, mantendo o horário: "frente" empurra pra segunda,
+ * "tras" recua pra sexta. O dia da semana é o de BRASÍLIA — com getDay() cru,
+ * uma audiência às 20h de sexta (Brasília) vista da Espanha já é sábado.
+ */
+export function foraDoFimDeSemanaBR(d: Date, direcao: "frente" | "tras"): Date {
+  const local = comoLocalBR(d);
+  const dow = local.getDay(); // 0=dom, 6=sáb
+  if (dow !== 0 && dow !== 6) return new Date(d);
+  if (direcao === "frente") local.setDate(local.getDate() + (dow === 6 ? 2 : 1));
+  else local.setDate(local.getDate() - (dow === 6 ? 1 : 2));
+  return deLocalBR(local);
+}
+
+/**
  * Empurra uma data que caiu em sábado ou domingo para a segunda seguinte,
  * mantendo o horário.
  *
@@ -34,11 +48,7 @@ export function sextaAnterior(d: Date): Date {
  * fadada a virar atraso na segunda.
  */
 export function proximoDiaUtil(d: Date): Date {
-  const r = new Date(d);
-  const dow = r.getDay(); // 0=dom, 6=sáb
-  if (dow === 6) r.setDate(r.getDate() + 2);
-  else if (dow === 0) r.setDate(r.getDate() + 1);
-  return r;
+  return foraDoFimDeSemanaBR(d, "frente");
 }
 
 /**
@@ -119,9 +129,14 @@ export function calcularDueAtRelativo(
 ): string | null {
   if (ancora === "agenda") {
     if (!agendaStartAt) return null;
-    // Nunca vencer no fim de semana — ver proximoDiaUtil.
-    return proximoDiaUtil(
-      new Date(agendaStartAt.getTime() + (offsetDias ?? 0) * 86400_000),
+    const offset = offsetDias ?? 0;
+    // Nunca vencer no fim de semana. Tarefa ANTES do evento (offset negativo,
+    // ex.: "Preparar audiência" D-3) recua pra sexta: empurrar pra segunda
+    // comia a preparação — audiência de terça ficava com 1 dia só. Tarefa no
+    // dia ou depois (registro D+1, ata D+10) segue indo pra segunda.
+    return foraDoFimDeSemanaBR(
+      new Date(agendaStartAt.getTime() + offset * 86400_000),
+      offset < 0 ? "tras" : "frente",
     ).toISOString();
   }
   if (ancora === "sexta_antes_agenda") {

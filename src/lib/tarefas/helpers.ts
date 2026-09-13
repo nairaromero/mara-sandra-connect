@@ -1,6 +1,6 @@
 // Helpers de apresentação de tarefas (urgência, cor, datas).
 
-import type { TarefaStatus } from "./types";
+import type { ProcessoDoCasoOpcao, TarefaStatus } from "./types";
 import {
   diasCorridosBR,
   formatarBR,
@@ -285,4 +285,62 @@ export function checklistPendente(t: {
 export function beneficioTemPericia(tipoBeneficio: string | null | undefined): boolean {
   if (!tipoBeneficio) return false;
   return /acidente|doen[çc]a|incapacidad|invalidez|bpc|loas/i.test(tipoBeneficio);
+}
+
+/**
+ * Processo que o formulário de perícia/audiência pode marcar SOZINHO: o único
+ * do caso compatível com o evento. Devolve o token do select
+ * ("judicial:<id>" / "admin:<id>") ou null quando não há escolha óbvia.
+ *
+ * Existe porque o select abria em "Sem processo específico" mesmo com o caso
+ * tendo um processo só — e a audiência (evento, tarefas e aviso) ficava sem o
+ * processo quando ninguém lembrava de trocar.
+ *
+ *   - audiência ou template pericia_judicial → só processos judiciais;
+ *   - pericia_parceiro (perícia INSS)         → só requerimentos admin;
+ *   - perícia sem template                    → qualquer natureza;
+ *   - outros tipos (reunião, guichê, interno) → nunca marca.
+ */
+export function processoUnicoCompativel(
+  processos: ProcessoDoCasoOpcao[],
+  tipoEvento: string | null | undefined,
+  templateNome?: string | null,
+): string | null {
+  if (tipoEvento !== "audiencia" && tipoEvento !== "pericia") return null;
+  const natureza =
+    tipoEvento === "audiencia" || templateNome === "pericia_judicial"
+      ? "judicial"
+      : templateNome === "pericia_parceiro"
+        ? "admin"
+        : null;
+  const candidatos = natureza ? processos.filter((p) => p.natureza === natureza) : processos;
+  if (candidatos.length !== 1) return null;
+  return `${candidatos[0].natureza}:${candidatos[0].id}`;
+}
+
+/**
+ * Qual ação de audiência a tarefa oferece (botões do AcoesAudiencia):
+ *   "preparar" → "Cliente instruído"
+ *   "sentenca" → "Sentença ainda não saiu" / "Sentença saiu"
+ *
+ * A marca vem do template (meta preparar_audiencia / acompanhar_sentenca_audiencia).
+ * Tarefa criada antes da marca existir cai no título — mas SÓ dentro do
+ * template de audiência, pra não pegar tarefa manual com título parecido.
+ */
+export function acaoAudiencia(t: {
+  titulo: string;
+  metadata: unknown;
+}): "preparar" | "sentenca" | null {
+  const m = (t.metadata ?? {}) as {
+    preparar_audiencia?: boolean;
+    acompanhar_sentenca_audiencia?: boolean;
+    template_aplicado?: string;
+  };
+  if (m.preparar_audiencia === true) return "preparar";
+  if (m.acompanhar_sentenca_audiencia === true) return "sentenca";
+  if (m.template_aplicado === "audiencia_judicial") {
+    if (t.titulo.startsWith("Preparar audiência")) return "preparar";
+    if (t.titulo.startsWith("Acompanhar ata/sentença")) return "sentenca";
+  }
+  return null;
 }

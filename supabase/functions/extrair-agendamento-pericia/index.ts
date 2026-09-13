@@ -8,6 +8,9 @@
 //
 // Body: { arquivo: { nome, mime, base64 } }   (base64 SEM prefixo data:)
 //   OU  { texto: "…" }  — publicação/intimação colada como texto puro.
+//   + tipo?: "pericia" (default) | "audiencia" — qual ato procurar no texto.
+//     Intimação de audiência costuma trazer várias datas (despacho,
+//     publicação, prazo); sem dizer o ato, a IA devolvia a data errada ou null.
 // Resp: { campos: { data, hora, local, endereco, protocolo, servico,
 //                   requerente }, aviso? }
 //
@@ -30,7 +33,7 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const MAX_BYTES = 8 * 1024 * 1024;
 
 const SYSTEM =
-  "Voce extrai os dados de agendamento de PERICIA de documentos brasileiros " +
+  "Voce extrai os dados de agendamento de PERICIA ou AUDIENCIA de documentos brasileiros " +
   "para um escritorio de advocacia previdenciaria.\n\n" +
   "DOCUMENTOS TIPICOS:\n" +
   "- Comprovante do protocolo de agendamento do Meu INSS / Central 135: traz " +
@@ -51,7 +54,14 @@ const SYSTEM =
   "houver, em uma linha.\n" +
   "4. servico sem o prefixo 'AGENDAMENTO - ' (ex.: 'Pericia medica de " +
   "auxilio-acidente').\n" +
-  "5. requerente = nome completo do periciando como impresso.\n\n" +
+  "5. requerente = nome completo do periciando como impresso.\n" +
+  "6. Se o pedido for de AUDIENCIA (intimacao/despacho que designa audiencia " +
+  "de conciliacao, instrucao e julgamento, art. 334 CPC etc.): data/hora = as " +
+  "da AUDIENCIA designada (nunca a data do despacho, da publicacao ou de " +
+  "prazo); local = sala/vara/CEJUSC ou 'Sala virtual' + plataforma; endereco " +
+  "= endereco fisico ou link da sala, se houver; protocolo = numero do " +
+  "processo; servico = tipo da audiencia (ex.: 'Conciliacao', 'Instrucao e " +
+  "julgamento'); requerente = nome da parte autora.\n\n" +
   "RESPONDA APENAS com JSON neste formato exato:\n" +
   '{"data": "AAAA-MM-DD" | null, "hora": "HH:MM" | null, "local": string | null, ' +
   '"endereco": string | null, "protocolo": string | null, "servico": string | null, ' +
@@ -83,6 +93,7 @@ serve(async (req) => {
   let body: {
     arquivo?: { nome?: string; mime?: string; base64?: string };
     texto?: string;
+    tipo?: string;
   };
   try {
     body = await req.json();
@@ -91,6 +102,7 @@ serve(async (req) => {
   }
   const arq = body.arquivo;
   const textoColado = (body.texto ?? "").trim();
+  const ato = body.tipo === "audiencia" ? "audiencia" : "pericia";
   if (!textoColado && (!arq?.base64 || !arq?.mime)) {
     return jsonResponse(
       { error: "arquivo { mime, base64 } ou texto obrigatorio" },
@@ -153,10 +165,10 @@ serve(async (req) => {
         messages: [{
           role: "user",
           content: textoColado
-            ? "Extraia os dados do agendamento de pericia do texto da " +
+            ? `Extraia os dados do agendamento de ${ato} do texto da ` +
               "publicacao/intimacao abaixo. Responda apenas com o JSON.\n\n" +
               textoColado
-            : "Extraia os dados do agendamento de pericia do documento anexado. " +
+            : `Extraia os dados do agendamento de ${ato} do documento anexado. ` +
               "Responda apenas com o JSON.",
         }],
       },

@@ -17,12 +17,14 @@ import { AcompanhamentoPericia } from "@/components/tarefas/acompanhamento-peric
 import { AcompanhamentoImplementacao } from "@/components/tarefas/acompanhamento-implementacao";
 import { MontagemInicial } from "@/components/tarefas/montagem-inicial";
 import { ComparecimentoPericia } from "@/components/tarefas/comparecimento-pericia";
+import { AcoesAudiencia } from "@/components/tarefas/acoes-audiencia";
 import { AnaliseCasoNovo } from "@/components/tarefas/analise-caso-novo";
 import { AnaliseIndeferimento } from "@/components/tarefas/analise-indeferimento";
 import { EnviarAvisoParceiro } from "@/components/tarefas/enviar-aviso-parceiro";
 import { EtapaCumprimentoExigencia } from "@/components/tarefas/etapa-cumprimento-exigencia";
 import { EtapaProtocoloRealizado } from "@/components/tarefas/etapa-protocolo-realizado";
 import {
+  acaoAudiencia,
   descreverAutoriaStatus,
   ehAnaliseInicial,
   formatarDueAtCurto,
@@ -81,6 +83,7 @@ export function TarefaCard({
   const ehComparecimento =
     (tarefa.metadata as { confirmar_comparecimento?: boolean })?.confirmar_comparecimento === true;
   const ehEnviarAviso = !!(tarefa.metadata as { enviar_aviso?: object })?.enviar_aviso;
+  const acaoDeAudiencia = acaoAudiencia(tarefa);
   // Chip "Perícia · dd/mm" / "Audiência · dd/mm": a tarefa carrega a data do
   // evento que a ancorou (pedido da Naira: dava pra saber que a tarefa era
   // SOBRE uma perícia, mas não de quando).
@@ -343,6 +346,16 @@ export function TarefaCard({
         {ehComparecimento && (
           <ComparecimentoPericia
             tarefa={tarefa}
+            onUpdated={onChanged ?? (() => {})}
+            compacto
+            stopPropagation
+          />
+        )}
+
+        {acaoDeAudiencia && (
+          <AcoesAudiencia
+            tarefa={tarefa}
+            acao={acaoDeAudiencia}
             onUpdated={onChanged ?? (() => {})}
             compacto
             stopPropagation
