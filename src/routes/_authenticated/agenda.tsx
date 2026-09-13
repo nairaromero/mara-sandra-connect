@@ -165,7 +165,7 @@ function AgendaPage() {
     try {
       const [data, pericias] = await Promise.all([
         listarAgenda({}),
-        listarTarefas({ tipo: ["pericia"], status: ["a_fazer", "fazendo"] }),
+        listarTarefas({ tipo: ["pericia"], status: ["a_fazer"] }),
       ]);
       setEventos(data);
       setTarefasPericia(pericias.filter((t) => !!t.due_at && ehPericiaEmSi(t)));

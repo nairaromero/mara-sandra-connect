@@ -30,22 +30,28 @@ test.afterAll(async () => {
   await cleanupE2E(admin);
 });
 
-test('"Cancelado" saiu do menu; sheet exclui com motivo (vira andamento)', async ({ page }) => {
+test('"Cancelado" não é escolhível; sheet exclui com motivo (vira andamento)', async ({ page }) => {
   await page.goto(`/casos/${casoId}`);
   await page.getByText("Atividades", { exact: true }).first().click();
   await expect(page.getByText(titulo)).toBeVisible({ timeout: 20000 });
 
-  // Menu "..." do card: tem "Feito", NÃO tem "Cancelado".
+  // O card não tem mais menu "...": criar, alterar e excluir é dentro da
+  // tarefa (Naira, 2026-09-09).
   const card = page.locator("div.group").filter({ hasText: titulo }).first();
   await card.hover();
-  await card.getByRole("button", { name: "Ações da tarefa" }).click();
-  await expect(page.getByRole("menuitem", { name: "Feito", exact: true })).toBeVisible();
-  await expect(page.getByRole("menuitem", { name: "Cancelado", exact: true })).toHaveCount(0);
-  await page.keyboard.press("Escape");
+  await expect(card.getByRole("button", { name: "Ações da tarefa" })).toHaveCount(0);
 
-  // Abre o sheet (clicando no card) e exclui com motivo.
+  // Abre o sheet (clicando no card).
   await page.getByText(titulo).click();
   await expect(page.getByRole("heading", { name: "Editar tarefa" })).toBeVisible({ timeout: 10000 });
+
+  // Status: tem "Feito", NÃO tem "Cancelado".
+  await page.getByRole("combobox", { name: "Status" }).click();
+  await expect(page.getByRole("option", { name: "Feito", exact: true })).toBeVisible();
+  await expect(page.getByRole("option", { name: "Cancelado", exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  // Exclui com motivo.
   await page.getByRole("button", { name: "Excluir", exact: true }).click();
 
   // Popup de exclusão (mesmo dialog do Concluir, já no modo de motivo):

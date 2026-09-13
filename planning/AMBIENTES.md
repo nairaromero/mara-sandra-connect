@@ -50,15 +50,27 @@ Pipeline:
    `espelho_leitura` (só `SELECT`, sem `BYPASSRLS`; criado por
    `migration_espelho_role_leitura.sql`, senha em `ESPELHO_LEITURA_PASSWORD`) —
    a senha do Postgres de produção **não é mais usada** pelo espelho; toda
-   tabela com RLS em produção precisa da policy `espelho_leitura_select`
-   (rodar a migration de novo quando nascer tabela nova); e o destino precisa
-   do marcador `comment on schema public is 'ambiente=staging'` (produção está
-   marcada `ambiente=producao`). Qualquer uma falhando, o script aborta antes
-   de tocar em qualquer banco;
+   tabela com RLS em produção **cujos dados saem de lá** precisa da policy
+   `espelho_leitura_select` (rodar a migration de novo quando nascer tabela
+   nova); e o destino precisa do marcador
+   `comment on schema public is 'ambiente=staging'` (produção está marcada
+   `ambiente=producao`). Qualquer uma falhando, o script aborta antes de tocar
+   em qualquer banco;
 1. dump de produção (só dados, `public`, `--enable-row-security`) **já
-   excluindo** tabelas sensíveis que nunca saem de prod (chaves de IA, tokens
-   OAuth, trilhas, WhatsApp, webhooks);
-2. truncate + restore no staging;
+   excluindo** duas listas de tabelas cujos dados nunca saem de prod:
+   - `EXCLUIR` — sensíveis (chaves de IA, tokens OAuth, trilhas, WhatsApp,
+     webhooks): no staging ficam **vazias**;
+   - `PRESERVAR` (desde 2026-09-11) — **configuração do ambiente**, hoje só o
+     `app_config`: no staging ficam **intactas**, com os valores do staging. O
+     `app_config.edge_base_url` é o endereço que os triggers usam pra chamar
+     edge functions; o da produção no staging faria o staging chamar edge
+     functions de **produção**. Tabela nova que guarde endereço, chave ou id
+     específico do ambiente vai pra cá.
+
+   Logo depois do dump, e **antes** de tocar no staging, o script confere que
+   nada de `PRESERVAR` veio no dump (senão aborta sem estrago); no fim, confere
+   que o `edge_base_url` do staging continua apontando pro staging;
+2. truncate (menos `PRESERVAR`) + restore no staging;
 3. `scripts/anonimizar-staging.sql`: mascara PII estruturada (nome/CPF/telefone/
    e-mail/endereço/nascimento/senha MEU INSS), reescreve NOMES DE CLIENTES em
    texto livre (títulos, descrições, comentários, nomes de arquivo — inclusive

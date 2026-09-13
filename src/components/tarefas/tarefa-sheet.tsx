@@ -73,6 +73,7 @@ import {
 } from "@/lib/agenda/helpers";
 import {
   descreverAutoriaStatus,
+  ehAnaliseInicial,
   formatarDataHoraCurtaBR,
   formatarDueAtCurto,
   inputDateTimeValueFromIso,
@@ -1194,7 +1195,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
             )}
 
           {editando && tarefa &&
-            (tarefa.metadata as { etapa?: string })?.etapa === "analise_inicial_parceiro" && (
+            ehAnaliseInicial(tarefa.metadata) && (
               <AnaliseCasoNovo tarefa={tarefa} onUpdated={onSaved} />
             )}
 
@@ -1231,7 +1232,10 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
             )}
 
           <div className="space-y-1.5">
-            <Label>Caso</Label>
+            {/* Rótulo "Cliente" (Naira, 2026-09-05): o vínculo gravado é caso_id,
+                mas as opções listam nomes de cliente e hoje caso↔cliente é 1:1 —
+                pra quem usa, escolher o caso É escolher o cliente. */}
+            <Label>Cliente</Label>
             {/* Editando uma tarefa que ja tem caso, o normal e querer ABRIR o
                 cliente — nao trocar de caso. Um Select solto aqui reatribuia a
                 tarefa a outro cliente com um clique torto, sem confirmacao.
@@ -1255,7 +1259,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                   className="text-xs text-muted-foreground"
                   onClick={() => setTrocandoCaso(true)}
                 >
-                  Trocar caso
+                  Trocar cliente
                 </Button>
               </div>
             ) : (
@@ -1263,7 +1267,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                 {/* Combobox com busca: 395+ casos, rolar a lista nao dava. */}
                 <DocTypeCombobox
                   options={[
-                    { value: "sem", label: "Sem caso" },
+                    { value: "sem", label: "Sem cliente" },
                     ...casos.map((c) => ({
                       value: c.id,
                       label: c.cliente_nome ?? "(sem nome)",
@@ -1274,7 +1278,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                     setCasoId(v === "sem" ? null : v);
                     setProcessoToken("");
                   }}
-                  placeholder="Sem caso"
+                  placeholder="Sem cliente"
                   searchPlaceholder="Buscar cliente..."
                   emptyText="Nenhum cliente encontrado."
                 />
@@ -1597,7 +1601,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                   setStatus(v as TarefaStatus);
                 }}
               >
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger aria-label="Status"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {/* "Cancelado" saiu das opções; se a tarefa já é cancelada
                       (histórico), mantém a opção só pra ela não sumir do select. */}
@@ -1792,7 +1796,13 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
             >
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="sem">Sem responsável</SelectItem>
+                {/* Ao criar, o banco preenche sozinho quando fica vazio
+                    (trg_tarefas_set_responsavel: dono do caso -> quem já cuida
+                    dele -> padrão do escritório). Editando, "sem" continua
+                    sendo "sem". */}
+                <SelectItem value="sem">
+                  {editando ? "Sem responsável" : "Definir automaticamente"}
+                </SelectItem>
                 {internos.map((u) => (
                   <SelectItem key={u.id} value={u.id}>
                     {u.nome ?? "(sem nome)"}
@@ -1823,7 +1833,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="herdar">Mesmo da tarefa principal</SelectItem>
-                      <SelectItem value="sem">Sem responsável</SelectItem>
+                      <SelectItem value="sem">Definir automaticamente</SelectItem>
                       {internos.map((u) => (
                         <SelectItem key={u.id} value={u.id}>
                           {u.nome ?? "(sem nome)"}

@@ -165,7 +165,7 @@ function ProcessosPage() {
         supabase
           .from("tarefas")
           .select("processo_admin_id, processo_judicial_id")
-          .in("status", ["a_fazer", "fazendo"])
+          .eq("status", "a_fazer")
           .or("processo_admin_id.not.is.null,processo_judicial_id.not.is.null"),
       ]);
 

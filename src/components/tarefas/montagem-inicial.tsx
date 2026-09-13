@@ -31,6 +31,7 @@ import { supabase } from "@/lib/supabase";
 import type { TarefaComJoins } from "@/lib/tarefas/types";
 import { useDestaque } from "@/lib/destaque/destaque-context";
 import { beneficioTemPericia } from "@/lib/tarefas/helpers";
+import { instanteBR, partesBR } from "@/lib/fuso";
 
 const EMAIL_BIA = "advocacia.beatrizsan@outlook.com";
 const EMAIL_MARA = "marasandra.adv@gmail.com";
@@ -116,12 +117,15 @@ interface Props {
   stopPropagation?: boolean;
 }
 
-/** Dias corridos a partir de agora, às 18h (fim do expediente). */
+/**
+ * Dias corridos a partir de hoje, às 18h (fim do expediente) no calendário de
+ * Brasília — o relógio da máquina não decide prazo de escritório.
+ */
 function venceEm(dias: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + dias);
-  d.setHours(18, 0, 0, 0);
-  return d.toISOString();
+  const p = partesBR(new Date());
+  return new Date(
+    instanteBR(p.ano, p.mes, p.dia, 18, 0).getTime() + dias * 86400_000,
+  ).toISOString();
 }
 
 export function MontagemInicial({
@@ -146,6 +150,8 @@ export function MontagemInicial({
 
   const concluida = tarefa.status === "feito";
   const ehUltima = etapa === "protocolo";
+  // Sem parceiro indicador (cliente interno) não há ninguém pra avisar.
+  const temParceiro = !!tarefa.caso?.parceiro_id;
 
   async function avancar() {
     if (agindo) return;
@@ -367,7 +373,9 @@ export function MontagemInicial({
 
       toast.success(
         ehUltima
-          ? "Protocolo registrado. O parceiro foi avisado."
+          ? temParceiro
+            ? "Protocolo registrado. O parceiro foi avisado."
+            : "Protocolo registrado no histórico do caso."
           : `${ROTULO[etapa].titulo} concluída.`,
         proxima
           ? { description: `${proxima.titulo} criada, vence em ${proxima.dias} dias.` }

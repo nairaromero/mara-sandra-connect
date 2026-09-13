@@ -62,6 +62,7 @@ interface Resultado {
   clientesCriados: number;
   clientesPulados: number;
   casosCriados: number;
+  tarefasAnalise: number;
   errosLinha: Array<{ linha: number; cpf: string; msg: string }>;
 }
 
@@ -228,6 +229,7 @@ export function ImportarClientesExcelDialog(
       clientesCriados: 0,
       clientesPulados: linhas.filter((l) => l.status === "duplicado").length,
       casosCriados: 0,
+      tarefasAnalise: 0,
       errosLinha: [],
     };
 
@@ -319,6 +321,42 @@ export function ImportarClientesExcelDialog(
               if (casoResp.error) throw casoResp.error;
               const casoId = (casoResp.data as { id: string }).id;
               res.casosCriados++;
+
+              // Sem parceiro na planilha o trigger não roda: cria aqui a mesma
+              // tarefa de análise, senão o caso nasce sem próximo passo.
+              if (!parceiroId) {
+                const nomeCliente = (l.raw["Nome"] || "").trim() || "cliente";
+                const tarefaResp = await supabase.from("tarefas").insert({
+                  caso_id: casoId,
+                  // Sem responsável de propósito: o trigger
+                  // trg_tarefas_set_responsavel resolve pela escada do banco
+                  // (dono do caso -> quem já cuida dele -> padrão do
+                  // escritório, que lê a chave de configuração). Antes o
+                  // front chamava responsavel_padrao_analise() por RPC e
+                  // mandava o valor cru — uma ida a mais ao banco e, pior,
+                  // um segundo lugar sabendo quem é o padrão: com a chave
+                  // apontando pra outra pessoa, a planilha ia toda pra Mara
+                  // assim mesmo (revisão 2026-09-10).
+                  responsavel_id: null,
+                  tipo: "interna",
+                  prioridade: 2,
+                  status: "a_fazer",
+                  titulo: "Cliente novo - Analisar",
+                  descricao:
+                    "Caso " +
+                    nomeCliente +
+                    " importado por planilha, sem parceiro indicador. Revisar dados, " +
+                    "documentos e definir próximos passos.",
+                  due_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+                  origem: "manual",
+                  metadata: { origem_caso_id: casoId, etapa: "analise_inicial_interno" },
+                });
+                if (tarefaResp.error) {
+                  console.warn("falha tarefa de análise:", tarefaResp.error);
+                } else {
+                  res.tarefasAnalise++;
+                }
+              }
 
               // Processos admin
               const procsAdmin = (l.raw["Processos Admin"] || "")
@@ -570,6 +608,11 @@ export function ImportarClientesExcelDialog(
               <Badge variant="secondary" className="gap-1">
                 {resultado.casosCriados} caso(s) criados
               </Badge>
+              {resultado.tarefasAnalise > 0 && (
+                <Badge variant="secondary" className="gap-1">
+                  {resultado.tarefasAnalise} tarefa(s) de análise
+                </Badge>
+              )}
               <Badge variant="secondary" className="gap-1">
                 {resultado.clientesPulados} pulado(s)
               </Badge>

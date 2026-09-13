@@ -13,6 +13,7 @@ import {
   TIPO_CLASS,
   type PericiaNatureza,
 } from "@/lib/agenda/types";
+import { fimDoDiaBR, formatarBR, horaBR, partesBR } from "@/lib/fuso";
 
 // Uma perícia agendada do caso, como vem da RPC pericias_do_caso().
 interface PericiaDoCaso {
@@ -47,28 +48,23 @@ function rotuloNatureza(nat: PericiaNatureza): string {
 function formatarQuando(iso: string): string {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "-";
-  const data = d.toLocaleDateString("pt-BR", {
+  const data = formatarBR(d, {
     weekday: "short",
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
   });
-  const hora = d.toLocaleTimeString("pt-BR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
   // Tarefas migradas sem hora ficam em 00:00 — não mostrar hora nesse caso.
-  const semHora = d.getHours() === 0 && d.getMinutes() === 0;
-  return semHora ? data : data + " às " + hora;
+  const p = partesBR(d);
+  const semHora = p.hora === 0 && p.min === 0;
+  return semHora ? data : data + " às " + horaBR(d);
 }
 
 function ehFutura(iso: string): boolean {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return false;
-  // Considera "próxima" até o fim do dia da perícia.
-  const fimDoDia = new Date(d);
-  fimDoDia.setHours(23, 59, 59, 999);
-  return fimDoDia.getTime() >= Date.now();
+  // Considera "próxima" até o fim do dia (de Brasília) da perícia.
+  return fimDoDiaBR(d).getTime() >= Date.now();
 }
 
 // Bloco "Perícia" que aparece no topo dos Andamentos (equipe e parceiro).

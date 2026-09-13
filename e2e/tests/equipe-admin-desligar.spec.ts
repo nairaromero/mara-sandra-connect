@@ -54,7 +54,7 @@ test.beforeAll(async () => {
   ({ casoId } = await seedClienteCaso(admin, { sufixo: `Desligar ${Date.now()}` }));
   const { error: tErr } = await admin.from("tarefas").insert([
     { caso_id: casoId, titulo: "[E2E] aberta 1", tipo: "interna", status: "a_fazer", responsavel_id: alvoId, origem: "manual" },
-    { caso_id: casoId, titulo: "[E2E] aberta 2", tipo: "interna", status: "fazendo", responsavel_id: alvoId, origem: "manual" },
+    { caso_id: casoId, titulo: "[E2E] aberta 2", tipo: "interna", status: "a_fazer", responsavel_id: alvoId, origem: "manual" },
     { caso_id: casoId, titulo: "[E2E] feita", tipo: "interna", status: "feito", responsavel_id: alvoId, origem: "manual" },
   ]);
   if (tErr) throw new Error(tErr.message);

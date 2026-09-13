@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase";
 import type { TarefaComJoins } from "@/lib/tarefas/types";
 import { useDestaque } from "@/lib/destaque/destaque-context";
+import { formatarBR } from "@/lib/fuso";
 import { useAuth } from "@/hooks/use-auth";
 import { aplicarTemplateProgramatico } from "@/lib/tarefas/aplicador";
 
@@ -34,7 +35,7 @@ interface EtapaConfig {
 }
 
 function fmtData(d: Date): string {
-  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  return formatarBR(d, { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
 const ETAPAS: EtapaConfig[] = [
@@ -301,7 +302,7 @@ export function EtapasAcompanhamento({
                   </div>
                   {feito && reg && (
                     <div className={compacto ? "text-[10px] text-muted-foreground" : "text-xs text-muted-foreground"}>
-                      Feita em {new Date(reg.feito_em).toLocaleDateString("pt-BR")}
+                      Feita em {formatarBR(reg.feito_em, { day: "2-digit", month: "2-digit", year: "numeric" })}
                     </div>
                   )}
                 </div>

@@ -1,5 +1,5 @@
 // Widget compacto "Minhas tarefas hoje" para a home (casos.index).
-// Lista tarefas em a_fazer/fazendo do usuário com due_at <= hoje (inclui atrasadas).
+// Lista tarefas "a fazer" do usuário com due_at <= hoje (inclui atrasadas).
 
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";

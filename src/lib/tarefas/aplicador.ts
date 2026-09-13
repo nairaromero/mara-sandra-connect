@@ -65,7 +65,7 @@ export async function aplicarTemplateProgramatico(input: {
     .from("tarefas")
     .select("id")
     .eq("caso_id", input.casoId)
-    .in("status", ["a_fazer", "fazendo"])
+    .eq("status", "a_fazer")
     .or(
       `metadata->>template_aplicado.eq.${input.nomeTemplate},metadata->>template.eq.${input.nomeTemplate}`,
     )

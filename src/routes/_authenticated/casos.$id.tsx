@@ -189,6 +189,9 @@ interface Caso {
   atrasados_estimados: number | null;
   tramitacao_id: string | null;
   observacoes: string | null;
+  // Dono do caso: toda tarefa automática do caso nasce pra essa pessoa
+  // (public.responsavel_tarefa_caso). Null = cai no padrão do escritório.
+  responsavel_id: string | null;
   // Pasta do Drive vinculada (Fase 52). Null = sem vinculo.
   gdrive_folder_id?: string | null;
   gdrive_folder_name?: string | null;
@@ -691,6 +694,9 @@ function CasoDetalhePage() {
   }, [search.tab]);
 
   const [loading, setLoading] = useState(true);
+  // Recarga apos salvar: os dados antigos continuam na tela e isto avisa que
+  // ja tem coisa nova a caminho.
+  const [recarregando, setRecarregando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const jaCarregouRef = useRef(false);
 
@@ -713,39 +719,129 @@ function CasoDetalhePage() {
   const [processosJudiciais, setProcessosJudiciais] = useState<Array<ProcessoJudicial>>([]);
 
   const carregar = useCallback(async () => {
-    // So mostra loading global na primeira carga, depois recarregamentos sao silenciosos
+    // Primeira carga bloqueia a tela. Recarga depois de salvar mantem os dados
+    // que ja estao na tela e sinaliza pelo `recarregando`: antes ela era muda e
+    // a tela ficava ~3,4 s mostrando dado velho DEPOIS do toast de "salvo"
+    // (Naira, 2026-09-07).
     if (!jaCarregouRef.current) {
       setLoading(true);
+    } else {
+      setRecarregando(true);
     }
     setErro(null);
     try {
-      const casoResp = await supabase.from("casos").select("*").eq("id", casoId).maybeSingle();
+      // Tudo que depende so do casoId vai numa onda so. Eram 13 idas ao banco
+      // em serie (~3,7 s medidos no staging); em duas ondas fica ~0,6 s.
+      const [
+        casoResp,
+        parceirosResp,
+        andamentosResp,
+        documentosResp,
+        solicResp,
+        analisesResp,
+        comentariosResp,
+        repassesResp,
+        procAdminResp,
+        procJudResp,
+      ] = await Promise.all([
+        supabase.from("casos").select("*").eq("id", casoId).maybeSingle(),
+        // Lista de parceiros disponiveis (para edicao do caso). So interno usa.
+        supabase
+          .from("usuarios")
+          .select("id, nome, email")
+          .eq("eh_parceiro", true)
+          .order("nome", { ascending: true }),
+        supabase
+          .from("andamentos")
+          .select("*, autor:criado_por(id, nome)")
+          .eq("caso_id", casoId)
+          .order("data_evento", { ascending: false }),
+        supabase
+          .from("documentos")
+          .select("*")
+          .eq("caso_id", casoId)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("solicitacoes_documento")
+          .select("*, solicitante:usuarios!solicitacoes_documento_solicitado_por_fkey(id, nome)")
+          .eq("caso_id", casoId)
+          .order("data_solicitacao", { ascending: false }),
+        isInterno
+          ? supabase
+              .from("analises_tecnicas")
+              .select("*")
+              .eq("caso_id", casoId)
+              .order("versao", { ascending: false })
+          : Promise.resolve(null),
+        supabase
+          .from("comentarios")
+          .select(
+            "id, caso_id, parent_id, autor_id, texto, created_at, destinatario_id, autor:autor_id(id, nome, email, tipo), destinatario:destinatario_id(id, nome, tipo)",
+          )
+          .eq("caso_id", casoId)
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("repasses")
+          .select("*")
+          .eq("caso_id", casoId)
+          .order("created_at", { ascending: false }),
+        // Processos sao carregados tambem para o parceiro porque a aba
+        // Andamentos depende disso pra renderizar os cards "Administrativos" e
+        // "Judiciais" (a separacao de andamentos por processo). RLS ja
+        // restringe parceiro aos processos dos casos dele.
+        supabase
+          .from("processos_admin")
+          .select("*")
+          .eq("caso_id", casoId)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("processos_judiciais")
+          .select("*")
+          .eq("caso_id", casoId)
+          .order("created_at", { ascending: false }),
+      ]);
+
       if (casoResp.error) throw casoResp.error;
       const casoData = casoResp.data as Caso | null;
       if (!casoData) {
         setErro("Caso não encontrado ou você não tem permissão para visualizá-lo.");
-        setLoading(false);
         return;
       }
       setCaso(casoData);
 
-      const clienteResp = await supabase
-        .from("clientes")
-        .select(
-          "id, nome, cpf, data_nascimento, telefone, email, endereco, observacoes, tags, ti_customer_id",
-        )
-        .eq("id", casoData.cliente_id)
-        .maybeSingle();
+      // Segunda onda: so o que depende do cliente_id/parceiro_id, que acabaram
+      // de chegar no caso.
+      const [clienteResp, casosResp, parceiroResp] = await Promise.all([
+        supabase
+          .from("clientes")
+          .select(
+            "id, nome, cpf, data_nascimento, telefone, email, endereco, observacoes, tags, ti_customer_id",
+          )
+          .eq("id", casoData.cliente_id)
+          .maybeSingle(),
+        // Todos os casos do cliente (inclui o atual). RLS ja filtra o que o
+        // usuario pode ver (parceiro so os dele).
+        supabase
+          .from("casos")
+          .select("id, tipo_beneficio, status, created_at")
+          .eq("cliente_id", casoData.cliente_id)
+          .order("created_at", { ascending: true }),
+        casoData.parceiro_id
+          ? supabase
+              .from("usuarios")
+              .select("id, nome, email")
+              .eq("id", casoData.parceiro_id)
+              .maybeSingle()
+          : Promise.resolve(null),
+      ]);
+
       if (clienteResp.error) throw clienteResp.error;
       setCliente((clienteResp.data || null) as Cliente | null);
 
-      // Todos os casos do cliente (inclui o atual). RLS ja filtra o que o
-      // usuario pode ver (parceiro so os dele).
-      const casosResp = await supabase
-        .from("casos")
-        .select("id, tipo_beneficio, status, created_at")
-        .eq("cliente_id", casoData.cliente_id)
-        .order("created_at", { ascending: true });
+      // Erro aqui NÃO pode virar "o cliente só tem este caso": o `?? []`
+      // sozinho escondia a falha e o seletor de casos sumia da tela, como se
+      // os outros casos tivessem sido apagados (revisão 2026-09-10).
+      if (casosResp.error) throw casosResp.error;
       setCasosCliente(
         (casosResp.data as Array<{
           id: string;
@@ -754,64 +850,31 @@ function CasoDetalhePage() {
         }>) ?? [],
       );
 
-      if (casoData.parceiro_id) {
-        const parceiroResp = await supabase
-          .from("usuarios")
-          .select("id, nome, email")
-          .eq("id", casoData.parceiro_id)
-          .maybeSingle();
+      if (parceiroResp) {
         if (parceiroResp.error) throw parceiroResp.error;
         setParceiro((parceiroResp.data || null) as ParceiroLite | null);
       } else {
         setParceiro(null);
       }
 
-      // Lista de parceiros disponiveis (para edicao do caso). So interno usa.
-      const parceirosResp = await supabase
-        .from("usuarios")
-        .select("id, nome, email")
-        .eq("eh_parceiro", true)
-        .order("nome", { ascending: true });
       if (parceirosResp.error) {
         console.error("erro listar parceiros", parceirosResp.error);
       } else {
         setParceirosDisponiveis((parceirosResp.data || []) as Array<ParceiroLite>);
       }
 
-      const andamentosResp = await supabase
-        .from("andamentos")
-        .select("*, autor:criado_por(id, nome)")
-        .eq("caso_id", casoId)
-        .order("data_evento", { ascending: false });
       if (andamentosResp.error) throw andamentosResp.error;
       setAndamentos((andamentosResp.data || []) as Array<Andamento>);
 
-      const documentosResp = await supabase
-        .from("documentos")
-        .select("*")
-        .eq("caso_id", casoId)
-        .order("created_at", { ascending: false });
       if (documentosResp.error) throw documentosResp.error;
       setDocumentos((documentosResp.data || []) as Array<Documento>);
 
-      const solicResp = await supabase
-        .from("solicitacoes_documento")
-        .select("*, solicitante:usuarios!solicitacoes_documento_solicitado_por_fkey(id, nome)")
-        .eq("caso_id", casoId)
-        .order("data_solicitacao", { ascending: false });
       if (!solicResp.error) {
         setSolicitacoes((solicResp.data || []) as Array<SolicitacaoDocumento>);
       }
 
-      if (isInterno) {
-        const analisesResp = await supabase
-          .from("analises_tecnicas")
-          .select("*")
-          .eq("caso_id", casoId)
-          .order("versao", { ascending: false });
-        if (!analisesResp.error) {
-          setAnalises((analisesResp.data || []) as Array<AnaliseTecnica>);
-        }
+      if (analisesResp && !analisesResp.error) {
+        setAnalises((analisesResp.data || []) as Array<AnaliseTecnica>);
       }
 
       // Mensagens (legacy chat) nao sao mais carregadas. Substituido por
@@ -819,45 +882,18 @@ function CasoDetalhePage() {
       // quebrar nada se algum codigo antigo referenciar.
       setMensagens([]);
 
-      // Carrega comentarios do caso com join no autor.
-      const comentariosResp = await supabase
-        .from("comentarios")
-        .select(
-          "id, caso_id, parent_id, autor_id, texto, created_at, destinatario_id, autor:autor_id(id, nome, email, tipo), destinatario:destinatario_id(id, nome, tipo)",
-        )
-        .eq("caso_id", casoId)
-        .order("created_at", { ascending: true });
       if (!comentariosResp.error) {
         setComentarios((comentariosResp.data || []) as unknown as Array<ComentarioRow>);
       }
 
-      const repassesResp = await supabase
-        .from("repasses")
-        .select("*")
-        .eq("caso_id", casoId)
-        .order("created_at", { ascending: false });
       if (!repassesResp.error) {
         setRepasses((repassesResp.data || []) as Array<Repasse>);
       }
 
-      // Processos sao carregados tambem para o parceiro porque a aba Andamentos
-      // depende disso pra renderizar os cards "Administrativos" e "Judiciais"
-      // (a separacao de andamentos por processo). RLS ja restringe parceiro
-      // aos processos dos casos dele.
-      const procAdminResp = await supabase
-        .from("processos_admin")
-        .select("*")
-        .eq("caso_id", casoId)
-        .order("created_at", { ascending: false });
       if (!procAdminResp.error) {
         setProcessosAdmin((procAdminResp.data || []) as Array<ProcessoAdmin>);
       }
 
-      const procJudResp = await supabase
-        .from("processos_judiciais")
-        .select("*")
-        .eq("caso_id", casoId)
-        .order("created_at", { ascending: false });
       if (!procJudResp.error) {
         setProcessosJudiciais((procJudResp.data || []) as Array<ProcessoJudicial>);
       }
@@ -867,6 +903,7 @@ function CasoDetalhePage() {
       setErro(errObj.message || "Erro ao carregar o caso");
     } finally {
       setLoading(false);
+      setRecarregando(false);
       jaCarregouRef.current = true;
     }
   }, [casoId, isInterno]);
@@ -918,6 +955,15 @@ function CasoDetalhePage() {
               Voltar
             </Link>
           </Button>
+          {recarregando && (
+            <span
+              className="flex items-center gap-2 text-xs text-muted-foreground"
+              aria-live="polite"
+            >
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Atualizando…
+            </span>
+          )}
         </div>
 
         <CasoHeader
@@ -1051,6 +1097,7 @@ function CasoDetalhePage() {
                 <TabAndamentos
                   casoId={casoId}
                   andamentos={andamentos}
+                  setAndamentos={setAndamentos}
                   processosAdmin={processosAdmin}
                   processosJudiciais={processosJudiciais}
                   isInterno={isInterno}
@@ -1106,6 +1153,8 @@ function CasoDetalhePage() {
               isInterno={isInterno}
               processosAdmin={processosAdmin}
               processosJudiciais={processosJudiciais}
+              setProcessosAdmin={setProcessosAdmin}
+              setProcessosJudiciais={setProcessosJudiciais}
               focoId={search.foco}
               onChange={carregar}
             />
@@ -1554,6 +1603,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
     setCsParceiroId(caso.parceiro_id || "");
     setCsFase(caso.fase);
     setCsStatus(caso.status);
+    setCsResponsavelId(caso.responsavel_id || "");
     setAbrirEditCliente(true);
   }
 
@@ -1585,6 +1635,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
             parceiro_id: csInterno ? null : csParceiroId,
             fase: csFase,
             status: csStatus,
+            responsavel_id: csResponsavelId || null,
           })
           .eq("id", caso.id)
           .select();
@@ -1815,7 +1866,19 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
   const [csParceiroId, setCsParceiroId] = useState("");
   const [csFase, setCsFase] = useState("");
   const [csStatus, setCsStatus] = useState("");
+  const [csResponsavelId, setCsResponsavelId] = useState("");
   const [csSalvando, setCsSalvando] = useState(false);
+  // Equipe interna, pra escolher o dono do caso. Carrega uma vez, só pra
+  // interno — parceiro não edita caso.
+  const [internosCaso, setInternosCaso] = useState<
+    Array<{ id: string; nome: string | null; email: string | null }>
+  >([]);
+  useEffect(() => {
+    if (!isInterno || internosCaso.length > 0) return;
+    listarInternosAtivos()
+      .then(setInternosCaso)
+      .catch((e) => console.error("listarInternosAtivos:", e));
+  }, [isInterno, internosCaso.length]);
 
   function abrirDialogCaso() {
     setCsTipoBeneficio(caso.tipo_beneficio);
@@ -1823,6 +1886,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
     setCsParceiroId(caso.parceiro_id || "");
     setCsFase(caso.fase);
     setCsStatus(caso.status);
+    setCsResponsavelId(caso.responsavel_id || "");
     setAbrirEditCaso(true);
   }
 
@@ -1844,6 +1908,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
           parceiro_id: csInterno ? null : csParceiroId,
           fase: csFase,
           status: csStatus,
+          responsavel_id: csResponsavelId || null,
         })
         .eq("id", caso.id)
         .select();
@@ -2177,6 +2242,28 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                         </Select>
                       </div>
                     </div>
+                    <div>
+                      <Label className="text-xs">Responsável pelo caso</Label>
+                      <Select
+                        value={csResponsavelId || "sem"}
+                        onValueChange={(v) => setCsResponsavelId(v === "sem" ? "" : v)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="sem">Sem dono definido</SelectItem>
+                          {internosCaso.map((u) => (
+                            <SelectItem key={u.id} value={u.id}>
+                              {u.nome ?? u.email ?? "(sem nome)"}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Tarefa automática deste caso (documento do parceiro, publicação, exigência) nasce para essa pessoa. Sem dono, vai para quem já cuida do caso — ou para o padrão do escritório.
+                      </p>
+                    </div>
                   </div>
                 )}
 
@@ -2453,6 +2540,28 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                   </Select>
                 </div>
               </div>
+              <div className="border-t pt-3">
+                <Label className="text-xs">Responsável pelo caso</Label>
+                <Select
+                  value={csResponsavelId || "sem"}
+                  onValueChange={(v) => setCsResponsavelId(v === "sem" ? "" : v)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sem">Sem dono definido</SelectItem>
+                    {internosCaso.map((u) => (
+                      <SelectItem key={u.id} value={u.id}>
+                        {u.nome ?? u.email ?? "(sem nome)"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Tarefa automática deste caso (documento do parceiro, publicação, exigência) nasce para essa pessoa. Sem dono, vai para quem já cuida do caso — ou para o padrão do escritório.
+                </p>
+              </div>
             </div>
             <DialogFooter>
               <Button variant="ghost" onClick={() => setAbrirEditCaso(false)} disabled={csSalvando}>
@@ -2524,6 +2633,9 @@ function Linha(props: { label: string; valor: string }) {
 interface TabAndamentosProps {
   casoId: string;
   andamentos: Array<Andamento>;
+  // Setter do pai: o andamento gravado volta na mesma ida e entra na lista na
+  // hora; a recarga completa fica so pra conferir (Naira, 2026-09-07).
+  setAndamentos: React.Dispatch<React.SetStateAction<Array<Andamento>>>;
   processosAdmin: Array<ProcessoAdmin>;
   processosJudiciais: Array<ProcessoJudicial>;
   isInterno: boolean;
@@ -2541,6 +2653,7 @@ function TabAndamentos(props: TabAndamentosProps) {
   const {
     casoId,
     andamentos,
+    setAndamentos,
     processosAdmin,
     processosJudiciais,
     isInterno,
@@ -2572,10 +2685,15 @@ function TabAndamentos(props: TabAndamentosProps) {
         .update({ visivel_parceiro: novo })
         .eq("id", a.id);
       if (resp.error) throw resp.error;
+      // So um booleano mudou: vira na hora na tela. Antes um clique de
+      // checkbox custava a recarga inteira do caso.
+      setAndamentos((atual) =>
+        atual.map((x) => (x.id === a.id ? { ...x, visivel_parceiro: novo } : x)),
+      );
       toast.success(
         novo ? "Andamento agora visível ao parceiro" : "Andamento marcado como interno",
       );
-      onChange();
+      void onChange();
     } catch (err) {
       console.error(err);
       const errObj = err as { message?: string };
@@ -2873,8 +2991,9 @@ function TabAndamentos(props: TabAndamentosProps) {
         );
         return;
       }
+      setAndamentos((atual) => atual.filter((x) => x.id !== a.id));
       toast.success("Andamento excluído");
-      onChange();
+      void onChange();
     } catch (err) {
       console.error(err);
       const errObj = err as { message?: string };
@@ -2917,10 +3036,17 @@ function TabAndamentos(props: TabAndamentosProps) {
           processo_admin_id: processoAdminId,
           processo_judicial_id: processoJudicialId,
         })
-        .select("id")
+        // Mesma forma que o carregar() usa, pra linha entrar na lista pronta
+        // (com o nome do autor) sem esperar a recarga.
+        .select("*, autor:criado_por(id, nome)")
         .single();
       if (resp.error) throw resp.error;
-      const novoAndamentoId = (resp.data as { id: string } | null)?.id;
+      const novoAndamento = resp.data as Andamento | null;
+      const novoAndamentoId = novoAndamento?.id;
+      if (novoAndamento) {
+        // Lista ordenada por data_evento desc e o novo e agora: entra em cima.
+        setAndamentos((atual) => [novoAndamento, ...atual]);
+      }
       if (novoAndamentoId) marcarDestaque(novoAndamentoId);
 
       // Dispara email pro parceiro se andamento visivel. Fire-and-forget.
@@ -2941,7 +3067,7 @@ function TabAndamentos(props: TabAndamentosProps) {
       setDescricao("");
       setProcessoVinculo(PROCESSO_NENHUM);
       setTipoDialogoNovo(null);
-      onChange();
+      void onChange();
     } catch (err) {
       console.error(err);
       const errObj = err as { message?: string };
@@ -4301,7 +4427,10 @@ function TabDocumentos(props: TabDocumentosProps) {
     }
     let okCount = 0;
     let errCount = 0;
-    for (const a of arquivos) {
+    const tid = toast.loading("Enviando 1 de " + arquivos.length + "…");
+    for (let i = 0; i < arquivos.length; i++) {
+      const a = arquivos[i];
+      toast.loading("Enviando " + (i + 1) + " de " + arquivos.length + "…", { id: tid });
       try {
         const fileName = Date.now() + "_" + sanitizeFileName(a.file.name);
         const storagePath = casoId + "/" + fileName;
@@ -4340,6 +4469,7 @@ function TabDocumentos(props: TabDocumentosProps) {
     if (errCount > 0) {
       toast.error(errCount + " arquivo(s) falharam ao importar.");
     }
+    toast.dismiss(tid);
   }
 
   function toggleGrupoExpandido(g: number) {
@@ -4562,7 +4692,12 @@ function TabDocumentos(props: TabDocumentosProps) {
     if (alvos.length === 0) return;
     let okCount = 0;
     let errCount = 0;
-    for (const d of alvos) {
+    // Lote em serie: sem isto o clique some e a pessoa fica no escuro ate o
+    // fim (Naira, 2026-09-07).
+    const tid = toast.loading("Preparando 1 de " + alvos.length + "…");
+    for (let i = 0; i < alvos.length; i++) {
+      const d = alvos[i];
+      toast.loading("Preparando " + (i + 1) + " de " + alvos.length + "…", { id: tid });
       try {
         const resp = await supabase.storage.from("documentos").createSignedUrl(d.storage_path, 60);
         if (resp.error) throw resp.error;
@@ -4584,6 +4719,7 @@ function TabDocumentos(props: TabDocumentosProps) {
         errCount++;
       }
     }
+    toast.dismiss(tid);
     if (okCount > 0) {
       toast.success(
         okCount +
@@ -4618,7 +4754,10 @@ function TabDocumentos(props: TabDocumentosProps) {
     let okCount = 0;
     let errCount = 0;
     let driveFailCount = 0;
-    for (const d of alvos) {
+    const tid = toast.loading("Excluindo 1 de " + alvos.length + "…");
+    for (let i = 0; i < alvos.length; i++) {
+      const d = alvos[i];
+      toast.loading("Excluindo " + (i + 1) + " de " + alvos.length + "…", { id: tid });
       try {
         const storageResp = await supabase.storage.from("documentos").remove([d.storage_path]);
         if (storageResp.error) {
@@ -4634,6 +4773,7 @@ function TabDocumentos(props: TabDocumentosProps) {
         errCount++;
       }
     }
+    toast.dismiss(tid);
     if (okCount > 0) {
       toast.success(
         okCount +
@@ -4688,7 +4828,10 @@ function TabDocumentos(props: TabDocumentosProps) {
     let okCount = 0;
     let errCount = 0;
     let driveFailCount = 0;
-    for (const d of lista) {
+    const tid = toast.loading("Excluindo 1 de " + lista.length + "…");
+    for (let i = 0; i < lista.length; i++) {
+      const d = lista[i];
+      toast.loading("Excluindo " + (i + 1) + " de " + lista.length + "…", { id: tid });
       try {
         const storageResp = await supabase.storage.from("documentos").remove([d.storage_path]);
         if (storageResp.error) {
@@ -4704,6 +4847,7 @@ function TabDocumentos(props: TabDocumentosProps) {
         errCount++;
       }
     }
+    toast.dismiss(tid);
     if (okCount > 0) {
       toast.success(
         okCount +
@@ -7429,8 +7573,13 @@ interface TabProcessosProps {
   isInterno: boolean;
   processosAdmin: Array<ProcessoAdmin>;
   processosJudiciais: Array<ProcessoJudicial>;
+  // Setters do pai: gravar devolve a linha criada na MESMA ida ao banco
+  // (.select().single()), entao ela entra na lista na hora. A recarga completa
+  // vira so conferencia, em segundo plano (Naira, 2026-09-07).
+  setProcessosAdmin: React.Dispatch<React.SetStateAction<Array<ProcessoAdmin>>>;
+  setProcessosJudiciais: React.Dispatch<React.SetStateAction<Array<ProcessoJudicial>>>;
   focoId?: string;
-  onChange: () => void;
+  onChange: () => void | Promise<void>;
 }
 
 interface ResultadoBuscaLM {
@@ -7453,6 +7602,8 @@ function TabProcessos(props: TabProcessosProps) {
     isInterno,
     processosAdmin,
     processosJudiciais,
+    setProcessosAdmin,
+    setProcessosJudiciais,
     focoId,
     onChange,
   } = props;
@@ -7823,16 +7974,36 @@ function TabProcessos(props: TabProcessosProps) {
         parent_tipo: parentTipo,
         tipo_beneficio: tipoBeneficioAdmin || null,
       };
+      // .select().single() devolve a linha gravada na mesma ida: da pra por na
+      // lista sem esperar a recarga (Naira, 2026-09-07 — antes o dialog fechava
+      // e a tela ficava ~3,4 s mostrando dado velho).
       const resp = editAdminId
-        ? await supabase.from("processos_admin").update(payload).eq("id", editAdminId)
-        : await supabase.from("processos_admin").insert(payload);
+        ? await supabase
+            .from("processos_admin")
+            .update(payload)
+            .eq("id", editAdminId)
+            .select("*")
+            .single()
+        : await supabase.from("processos_admin").insert(payload).select("*").single();
       if (resp.error) throw resp.error;
+      const linha = resp.data as ProcessoAdmin | null;
+      if (linha) {
+        // A lista vem ordenada por created_at desc: novo entra em cima.
+        setProcessosAdmin((atual) =>
+          editAdminId ? atual.map((p) => (p.id === linha.id ? linha : p)) : [linha, ...atual],
+        );
+        // Recarga completa so pra conferir (o aviso "Atualizando…" avisa).
+        void onChange();
+      } else {
+        // Sem a linha de volta (RLS, por exemplo) nao da pra ser otimista:
+        // segura o botao ate a recarga trazer a verdade.
+        await onChange();
+      }
       toast.success(
         editAdminId ? "Processo administrativo atualizado" : "Processo administrativo registrado",
       );
       resetAdmin();
       setAbrirAdmin(false);
-      onChange();
     } catch (err) {
       console.error(err);
       const errObj = err as { message?: string; code?: string };
@@ -7890,13 +8061,26 @@ function TabProcessos(props: TabProcessosProps) {
         parent_tipo: parentTipo,
       };
       const resp = editJudId
-        ? await supabase.from("processos_judiciais").update(payload).eq("id", editJudId)
-        : await supabase.from("processos_judiciais").insert(payload);
+        ? await supabase
+            .from("processos_judiciais")
+            .update(payload)
+            .eq("id", editJudId)
+            .select("*")
+            .single()
+        : await supabase.from("processos_judiciais").insert(payload).select("*").single();
       if (resp.error) throw resp.error;
+      const linha = resp.data as ProcessoJudicial | null;
+      if (linha) {
+        setProcessosJudiciais((atual) =>
+          editJudId ? atual.map((p) => (p.id === linha.id ? linha : p)) : [linha, ...atual],
+        );
+        void onChange();
+      } else {
+        await onChange();
+      }
       toast.success(editJudId ? "Processo judicial atualizado" : "Processo judicial registrado");
       resetJud();
       setAbrirJud(false);
-      onChange();
     } catch (err) {
       console.error(err);
       const errObj = err as { message?: string; code?: string };
@@ -7927,9 +8111,15 @@ function TabProcessos(props: TabProcessosProps) {
       const tabela = node.tipo === "admin" ? "processos_admin" : "processos_judiciais";
       const del = await supabase.from(tabela).delete().eq("id", node.id);
       if (del.error) throw del.error;
+      // Some da lista na hora. Os filhos religados ao "avo" vem na recarga.
+      if (node.tipo === "admin") {
+        setProcessosAdmin((atual) => atual.filter((p) => p.id !== node.id));
+      } else {
+        setProcessosJudiciais((atual) => atual.filter((p) => p.id !== node.id));
+      }
       toast.success("Processo excluído");
       setExcluindo(null);
-      onChange();
+      void onChange();
     } catch (err) {
       console.error(err);
       const errObj = err as { message?: string };

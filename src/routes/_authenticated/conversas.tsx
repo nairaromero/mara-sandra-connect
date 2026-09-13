@@ -186,6 +186,9 @@ function ConversasPage() {
   const [parceiroIds, setParceiroIds] = useState<Set<string>>(new Set());
   const [colapsados, setColapsados] = useState<Set<string>>(new Set());
   const jaCarregouRef = useRef(false);
+  // Recarga depois de salvar: os dados antigos ficam na tela e isto avisa que
+  // ja vem coisa nova (antes a recarga era muda).
+  const [recarregando, setRecarregando] = useState(false);
 
   const [busca, setBusca] = useState("");
   const [selecionado, setSelecionado] = useState<string | null>(null);
@@ -194,6 +197,7 @@ function ConversasPage() {
 
   const carregar = useCallback(async () => {
     if (!jaCarregouRef.current) setLoading(true);
+    else setRecarregando(true);
     setErro(null);
     try {
       const [comResp, leiResp, usrResp] = await Promise.all([
@@ -230,6 +234,7 @@ function ConversasPage() {
       setErro(errObj.message || "Erro ao carregar conversas");
     } finally {
       setLoading(false);
+      setRecarregando(false);
       jaCarregouRef.current = true;
     }
   }, []);
@@ -534,6 +539,15 @@ function ConversasPage() {
                   {totalNaoLidas} não lida{totalNaoLidas > 1 ? "s" : ""}
                 </Badge>
               )}
+            {recarregando && (
+              <span
+                className="flex items-center gap-1.5 text-xs font-sans font-normal text-muted-foreground"
+                aria-live="polite"
+              >
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Atualizando…
+              </span>
+            )}
             </h1>
             <p className="text-sm text-muted-foreground">
               Comunicação com os parceiros, agrupada por parceiro.
