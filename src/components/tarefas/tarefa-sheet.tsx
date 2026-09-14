@@ -30,7 +30,6 @@ import {
 import {
   atualizarTarefa,
   criarTarefa,
-  excluirTarefaComMotivo,
   listarCasosResumo,
   listarInternosAtivos,
   listarProcessosDoCaso,

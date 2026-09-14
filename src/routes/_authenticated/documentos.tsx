@@ -26,16 +26,12 @@ import {
 } from "@/lib/documentos/cumprimento";
 
 import { useAuth } from "@/hooks/use-auth";
-import {
-  TIPOS_DOCUMENTO_LABEL,
-  nomeArquivoPorTipo,
-} from "@/lib/documentos/tipos";
 import { descreverSolicitante } from "@/lib/documentos/solicitante";
 import { listarInternosAtivos } from "@/lib/tarefas/queries";
 import { supabase } from "@/lib/supabase";
 import { diasCorridosBR } from "@/lib/fuso";
 import { notificarEquipe } from "@/lib/notificar";
-import { MAX_FILE_SIZE_MB, validateFileSize } from "@/lib/upload-limits";
+import { validateFileSize } from "@/lib/upload-limits";
 import { ClientOnly } from "@/components/client-only";
 import { EditarSolicitacaoDialog } from "@/components/documentos/editar-solicitacao-dialog";
 import { CumprirTrocaSenhaDialog } from "@/components/documentos/cumprir-troca-senha-dialog";
@@ -355,15 +351,6 @@ function DocumentosPendentesPage() {
     setSalvandoModal(false);
     setArquivosUpload([]);
     setComAnexo(false);
-  }
-
-  // Mesma sanitizacao usada nos uploads avulsos (casos.$id.tsx): Storage
-  // rejeita chave com acento ("Invalid key").
-  function sanitizeFileName(name: string): string {
-    return name
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-zA-Z0-9._-]/g, "_");
   }
 
   // Excluir de vez a solicitacao. Diferente de "Dispensar", que mantem o

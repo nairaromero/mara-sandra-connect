@@ -18,7 +18,6 @@ import {
   Clock,
   FileSearch,
   TrendingUp,
-  Wallet,
   CheckCircle2,
   Loader2,
   Plus,
@@ -113,10 +112,6 @@ function formatDate(iso: string | null) {
   } catch {
     return "-";
   }
-}
-
-function formatBRL(v: number) {
-  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
 function DashboardPage() {
