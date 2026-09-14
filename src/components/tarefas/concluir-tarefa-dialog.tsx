@@ -5,24 +5,43 @@
 // registrada. Ex.: análise criada por importação do Legalmail num caso
 // judicial precisa ser EXCLUÍDA (com motivo), não concluída.
 //
-// Três saídas:
+// Duas saídas (card #306, 2026-09-14 — "Editar tarefa" saiu: o popup só abre
+// de dentro da tarefa, então era redundante):
 //   • Concluir  — marca 'feito' (some pra tarefa de desfecho pendente: ela se
 //                 conclui pelo próprio widget). O caller pode trocar a
 //                 persistência via `concluir` (o sheet salva TODAS as edições
-//                 pendentes junto, não só o status).
-//   • Editar    — abre a tarefa pra ajustar.
+//                 pendentes junto, não só o status). Depois abre a etapa
+//                 "Próxima tarefa do caso": a IA sugere o seguimento e a pessoa
+//                 SEMPRE confere no formulário antes de criar — ou conclui sem
+//                 criar nada. Sem sugestão, oferece o formulário em branco.
 //   • Excluir   — pede um motivo (obrigatório, validado também no servidor)
 //                 e apaga registrando no log; com caso ligado, vira andamento.
 //
 // `modoInicial="excluir"` abre direto no modo de motivo (menu do card e botão
 // Excluir do painel usam isso — não existe mais exclusão sem motivo na UI).
 
-import { useEffect, useState } from "react";
-import { Loader2, CheckCircle2, Pencil, Trash2, AlertTriangle } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  Loader2,
+  CheckCircle2,
+  Pencil,
+  Trash2,
+  AlertTriangle,
+  Calendar,
+  Check,
+  Plus,
+  Scale,
+  Sparkles,
+  User,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import type { TarefaComJoins } from "@/lib/tarefas/types";
-import { checklistPendente } from "@/lib/tarefas/helpers";
+import { checklistPendente, formatarDueAtCurto } from "@/lib/tarefas/helpers";
+import {
+  sugerirProximaTarefa,
+  type SugestaoProximaTarefa,
+} from "@/lib/tarefas/proxima-sugerida";
 import { atualizarTarefa, excluirTarefaComMotivo } from "@/lib/tarefas/queries";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -47,19 +66,27 @@ export function ConcluirTarefaDialog(props: {
    * gravar so { status: 'feito' }.
    */
   concluir?: () => Promise<void>;
-  /** concluída (status -> feito) e já abrir a criação da próxima tarefa */
-  onConcluidaEAdicionar: (t: TarefaComJoins) => void;
+  /**
+   * Já concluída, a pessoa quer criar a próxima: abre o formulário de nova
+   * tarefa — preenchido com a sugestão da IA, ou em branco (null).
+   */
+  onCriarProxima: (t: TarefaComJoins, sugestao: SugestaoProximaTarefa | null) => void;
   /** excluída com motivo */
   onExcluida: (id: string) => void;
-  /** abrir a tarefa pra editar */
-  onEditar: (t: TarefaComJoins) => void;
 }) {
-  const { tarefa, modoInicial, onClose, concluir, onConcluidaEAdicionar, onExcluida, onEditar } =
-    props;
+  const { tarefa, modoInicial, onClose, concluir, onCriarProxima, onExcluida } = props;
   const [motivo, setMotivo] = useState("");
   const [modoExcluir, setModoExcluir] = useState(false);
   const [erroMotivo, setErroMotivo] = useState(false);
   const [salvando, setSalvando] = useState<"concluir" | "excluir" | null>(null);
+  // Etapa 2: a tarefa já foi concluída; decide-se a próxima.
+  const [etapaProxima, setEtapaProxima] = useState(false);
+  const [carregandoSugestao, setCarregandoSugestao] = useState(false);
+  const [sugestao, setSugestao] = useState<SugestaoProximaTarefa | null>(null);
+  const [motivoSemSugestao, setMotivoSemSugestao] = useState<string | null>(null);
+  // Resposta da IA que chega depois de fechar (ou de trocar de tarefa) não
+  // pode aparecer no popup seguinte.
+  const pedidoAtual = useRef(0);
 
   // Reset REAL ao abrir/trocar de tarefa (o dialog e reusado): sem isto, o
   // motivo da tarefa anterior vazaria pra proxima confirmacao.
@@ -69,19 +96,28 @@ export function ConcluirTarefaDialog(props: {
     setMotivo("");
     setErroMotivo(false);
     setSalvando(null);
+    setEtapaProxima(false);
+    setCarregandoSugestao(false);
+    setSugestao(null);
+    setMotivoSemSugestao(null);
   }, [tarefa, modoInicial]);
 
   const pendente = tarefa ? checklistPendente(tarefa) : null;
 
   function fechar() {
+    pedidoAtual.current++;
     setMotivo("");
     setModoExcluir(false);
     setErroMotivo(false);
     setSalvando(null);
+    setEtapaProxima(false);
+    setCarregandoSugestao(false);
+    setSugestao(null);
+    setMotivoSemSugestao(null);
     onClose();
   }
 
-  async function concluirEAdicionar() {
+  async function concluirTarefa() {
     if (!tarefa) return;
     setSalvando("concluir");
     try {
@@ -90,17 +126,35 @@ export function ConcluirTarefaDialog(props: {
       } else {
         await atualizarTarefa({ id: tarefa.id, patch: { status: "feito" } });
       }
-      toast.success("Tarefa concluída. Crie a próxima do caso.");
-      const t = tarefa;
-      fechar();
-      // Abre a criação da próxima tarefa (pode cancelar se não houver).
-      onConcluidaEAdicionar(t);
+      toast.success("Tarefa concluída.");
+      setSalvando(null);
+      // Sem caso não há seguimento a sugerir.
+      if (!tarefa.caso_id) {
+        fechar();
+        return;
+      }
+      setEtapaProxima(true);
+      setCarregandoSugestao(true);
+      const meu = ++pedidoAtual.current;
+      const r = await sugerirProximaTarefa(tarefa.id);
+      if (meu !== pedidoAtual.current) return;
+      setSugestao(r.sugestao);
+      setMotivoSemSugestao(r.sugestao ? null : r.motivo);
+      setCarregandoSugestao(false);
     } catch (e) {
       console.error(e);
       const msg = (e as { message?: string })?.message;
       toast.error(msg || "Falha ao concluir.");
       setSalvando(null);
     }
+  }
+
+  function criarProxima(comSugestao: boolean) {
+    if (!tarefa) return;
+    const t = tarefa;
+    const s = comSugestao ? sugestao : null;
+    fechar();
+    onCriarProxima(t, s);
   }
 
   async function excluir() {
@@ -133,51 +187,118 @@ export function ConcluirTarefaDialog(props: {
     <Dialog open={tarefa !== null} onOpenChange={(o) => !o && fechar()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{modoExcluir ? "Excluir tarefa" : "Concluir tarefa"}</DialogTitle>
-          <DialogDescription>{tarefa?.titulo}</DialogDescription>
+          <DialogTitle>
+            {etapaProxima ? "Próxima tarefa do caso" : modoExcluir ? "Excluir tarefa" : "Concluir tarefa"}
+          </DialogTitle>
+          <DialogDescription>
+            {etapaProxima ? `Concluída: ${tarefa?.titulo ?? ""}` : tarefa?.titulo}
+          </DialogDescription>
         </DialogHeader>
 
+        {etapaProxima && (
+          <div className="space-y-3">
+            {carregandoSugestao ? (
+              <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                A IA está sugerindo a próxima tarefa…
+              </p>
+            ) : sugestao ? (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  Após essa tarefa, a outra tarefa para seguimento seria:
+                </p>
+                <div className="rounded-md border p-3 space-y-1.5" data-testid="sugestao-proxima-tarefa">
+                  <span className="inline-flex items-center gap-1 rounded bg-violet-100 px-2 py-0.5 text-xs text-violet-800 dark:bg-violet-950 dark:text-violet-200">
+                    <Sparkles className="h-3 w-3" />
+                    Sugerida pela IA
+                  </span>
+                  <p className="text-sm font-medium">{sugestao.titulo}</p>
+                  {sugestao.descricao && (
+                    <p className="text-xs text-muted-foreground">{sugestao.descricao}</p>
+                  )}
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                    {sugestao.due_at && (
+                      <span className="flex items-center gap-1">
+                        <Calendar className="h-3 w-3" />
+                        vence {formatarDueAtCurto(sugestao.due_at)}
+                      </span>
+                    )}
+                    {sugestao.responsavel_nome && (
+                      <span className="flex items-center gap-1">
+                        <User className="h-3 w-3" />
+                        {sugestao.responsavel_nome}
+                      </span>
+                    )}
+                    {(sugestao.processo_judicial_id || sugestao.processo_admin_id) && (
+                      <span className="flex items-center gap-1">
+                        <Scale className="h-3 w-3" />
+                        {sugestao.processo_judicial_id ? "processo judicial" : "processo administrativo"}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="rounded-md border border-dashed p-3 text-sm">
+                <p className="font-medium">Não consegui sugerir a próxima tarefa.</p>
+                {motivoSemSugestao && (
+                  <p className="text-xs text-muted-foreground mt-1">{motivoSemSugestao}</p>
+                )}
+              </div>
+            )}
+            <div className="flex flex-col gap-2 pt-1">
+              {!carregandoSugestao &&
+                (sugestao ? (
+                  <Button onClick={() => criarProxima(true)}>
+                    <Pencil className="h-4 w-4 mr-2" />
+                    Editar tarefa sugerida
+                  </Button>
+                ) : (
+                  <Button onClick={() => criarProxima(false)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Criar nova tarefa
+                  </Button>
+                ))}
+              <Button variant="outline" onClick={fechar}>
+                <Check className="h-4 w-4 mr-2" />
+                Concluir sem criar nova tarefa
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Tarefa de desfecho: não conclui pelo Feito — só editar/excluir. */}
-        {pendente && !modoExcluir && (
+        {pendente && !modoExcluir && !etapaProxima && (
           <div className="flex gap-2 rounded-md border border-amber-400/50 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200">
             <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
             <span>
               Esta tarefa se conclui por <strong>{pendente}</strong>. Se ela não se aplica a este
-              caso (ex.: veio do Legalmail e o caso é judicial), edite ou exclua com motivo.
+              caso (ex.: veio do Legalmail e o caso é judicial), exclua com motivo — ou cancele e
+              ajuste a tarefa.
             </span>
           </div>
         )}
 
-        {!modoExcluir ? (
+        {etapaProxima ? null : !modoExcluir ? (
           <div className="space-y-2">
             {!pendente && (
               <p className="text-sm text-muted-foreground">
-                Ao concluir, você já cria a próxima tarefa do caso — pra ele não ficar parado. Se a
-                tarefa não deveria existir (não se aplica ao caso), exclua com um motivo.
+                Ao concluir, a IA sugere a próxima tarefa do caso — pra ele não ficar parado — e você
+                confere antes de criar. Se a tarefa não deveria existir (não se aplica ao caso),
+                exclua com um motivo.
               </p>
             )}
             <div className="flex flex-col gap-2 pt-1">
               {!pendente && (
-                <Button onClick={concluirEAdicionar} disabled={salvando !== null}>
+                <Button onClick={concluirTarefa} disabled={salvando !== null}>
                   {salvando === "concluir" ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   ) : (
                     <CheckCircle2 className="h-4 w-4 mr-2" />
                   )}
-                  Concluir tarefa e adicionar outra
+                  Concluir tarefa
                 </Button>
               )}
-              <Button
-                variant="outline"
-                disabled={salvando !== null}
-                onClick={() => {
-                  if (tarefa) onEditar(tarefa);
-                  fechar();
-                }}
-              >
-                <Pencil className="h-4 w-4 mr-2" />
-                Editar tarefa
-              </Button>
               <Button
                 variant="outline"
                 className="text-destructive hover:text-destructive"
@@ -212,6 +333,7 @@ export function ConcluirTarefaDialog(props: {
           </div>
         )}
 
+        {!etapaProxima && (
         <DialogFooter>
           {modoExcluir ? (
             <>
@@ -233,6 +355,7 @@ export function ConcluirTarefaDialog(props: {
             </Button>
           )}
         </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
   );

@@ -83,6 +83,7 @@ import {
   substituirPlaceholders,
 } from "@/lib/tarefas/helpers";
 import { ConcluirTarefaDialog } from "@/components/tarefas/concluir-tarefa-dialog";
+import type { SugestaoProximaTarefa } from "@/lib/tarefas/proxima-sugerida";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -113,6 +114,9 @@ type Modo =
       kind: "criar";
       casoIdInicial?: string | null;
       templateInicial?: string;        // nome do template a pré-selecionar
+      // Próxima tarefa sugerida pela IA ao concluir a anterior (card #306):
+      // só PREENCHE o formulário — a pessoa confere e salva.
+      sugestao?: SugestaoProximaTarefa;
     }
   | { kind: "editar"; tarefa: TarefaComJoins };
 
@@ -124,9 +128,9 @@ interface Props {
   modo: Modo | null;                 // null = fechado
   onClose: () => void;
   onSaved: () => void;               // recarregar lista
-  // Chamado quando a tarefa foi CONCLUÍDA aqui (status -> feito): o pai abre a
-  // criação da próxima ("concluir e adicionar outra"). Opcional.
-  onConcluida?: (casoId: string | null) => void;
+  // Tarefa CONCLUÍDA aqui e a pessoa quer criar a próxima: o pai abre a criação,
+  // com a sugestão da IA (card #306) ou em branco. Opcional.
+  onConcluida?: (casoId: string | null, sugestao: SugestaoProximaTarefa | null) => void;
 }
 
 const TIPOS: TarefaTipo[] = ["interna", "prazo", "pericia", "pos_protocolo", "contato_cliente"];
@@ -547,6 +551,23 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
       setPericiaEvento(true);
       setExtrasResp([]);
       setTemplateSelecionado(modo.templateInicial ?? "");
+      // Sugestão da IA: preenche o que ela trouxe; o resto segue o padrão.
+      const sug = modo.sugestao;
+      if (sug) {
+        setTitulo(sug.titulo);
+        setDescricao(sug.descricao ?? "");
+        setTipo(sug.tipo);
+        setPrioridade(sug.prioridade);
+        setResponsavelId(sug.responsavel_id);
+        setDueDate(sug.due_at ? inputDateTimeValueFromIso(sug.due_at) : "");
+        setProcessoToken(
+          sug.processo_admin_id
+            ? `admin:${sug.processo_admin_id}`
+            : sug.processo_judicial_id
+              ? `judicial:${sug.processo_judicial_id}`
+              : "",
+        );
+      }
     } else {
       const t = modo.tarefa;
       setTitulo(t.titulo);
@@ -1592,7 +1613,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                 value={status}
                 onValueChange={(v) => {
                   // "Feito" abre o popup de conclusão (não muda o status direto):
-                  // Concluir e adicionar outra / Editar / Excluir com motivo.
+                  // Concluir tarefa (→ próxima sugerida) / Excluir com motivo.
                   if (v === "feito" && tarefa && tarefa.status !== "feito") {
                     setModoPopupSheet("concluir");
                     setConcluindoNoSheet(tarefa);
@@ -1990,17 +2011,15 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
             throw new Error("A tarefa não foi salva — revise o painel.");
           }
         }}
-        onConcluidaEAdicionar={(t) => {
+        onCriarProxima={(t, sugestao) => {
           setConcluindoNoSheet(null);
-          onConcluida?.(t.caso_id);
+          onConcluida?.(t.caso_id, sugestao);
         }}
         onExcluida={() => {
           setConcluindoNoSheet(null);
           onSaved();
           onClose();
         }}
-        // "Editar" não faz sentido aqui (já está no painel): só fecha o popup.
-        onEditar={() => setConcluindoNoSheet(null)}
       />
     </Sheet>
   );

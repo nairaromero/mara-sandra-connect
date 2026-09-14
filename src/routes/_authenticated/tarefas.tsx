@@ -65,6 +65,7 @@ import {
   type TarefaStatus,
   type TarefaTipo,
 } from "@/lib/tarefas/types";
+import type { SugestaoProximaTarefa } from "@/lib/tarefas/proxima-sugerida";
 
 export const Route = createFileRoute("/_authenticated/tarefas")({
   component: TarefasRoute,
@@ -107,7 +108,7 @@ function dataDeArquivamento(t: TarefaComJoins): string | null {
 }
 
 type Modo =
-  | { kind: "criar"; casoIdInicial?: string | null }
+  | { kind: "criar"; casoIdInicial?: string | null; sugestao?: SugestaoProximaTarefa }
   | { kind: "editar"; tarefa: TarefaComJoins };
 
 // ---------------------------------------------------------------------------
@@ -733,7 +734,9 @@ function TarefasPage() {
           modo={sheetModo}
           onClose={() => setSheetModo(null)}
           onSaved={carregar}
-          onConcluida={(casoId) => setSheetModo({ kind: "criar", casoIdInicial: casoId })}
+          onConcluida={(casoId, sugestao) =>
+            setSheetModo({ kind: "criar", casoIdInicial: casoId, sugestao: sugestao ?? undefined })
+          }
         />
       </div>
     </ClientOnly>

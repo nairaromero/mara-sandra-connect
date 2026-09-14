@@ -19,6 +19,7 @@ import { listarAgenda } from "@/lib/agenda/queries";
 import { type AgendaEventoComJoins, tipoBadge } from "@/lib/agenda/types";
 import { DESTAQUE_CLASSE_GLOBAL, useDestaqueAtivo } from "@/lib/destaque/destaque-context";
 import { formatarBR, horaBR } from "@/lib/fuso";
+import type { SugestaoProximaTarefa } from "@/lib/tarefas/proxima-sugerida";
 
 // Mesma regra da tela /tarefas (Naira, 2026-09-09): Ativos = "A fazer";
 // Arquivados = "Feito" + a lista de excluídas (que já inclui as canceladas
@@ -26,7 +27,9 @@ import { formatarBR, horaBR } from "@/lib/fuso";
 const STATUS_ATIVOS: TarefaStatus[] = ["a_fazer"];
 const STATUS_ARQUIVADOS: TarefaStatus[] = ["feito"];
 
-type Modo = { kind: "criar"; casoIdInicial: string } | { kind: "editar"; tarefa: TarefaComJoins };
+type Modo =
+  | { kind: "criar"; casoIdInicial: string; sugestao?: SugestaoProximaTarefa }
+  | { kind: "editar"; tarefa: TarefaComJoins };
 
 interface Props {
   casoId: string;
@@ -222,7 +225,9 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
         modo={sheetModo}
         onClose={() => setSheetModo(null)}
         onSaved={carregar}
-        onConcluida={() => setSheetModo({ kind: "criar", casoIdInicial: casoId })}
+        onConcluida={(_caso, sugestao) =>
+          setSheetModo({ kind: "criar", casoIdInicial: casoId, sugestao: sugestao ?? undefined })
+        }
       />
 
       <AgendaSheet modo={agendaSheet} onClose={() => setAgendaSheet(null)} onSaved={carregar} />
