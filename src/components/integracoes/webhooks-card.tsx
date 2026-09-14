@@ -78,7 +78,7 @@ const EVENTOS: { value: string; label: string; desc: string }[] = [
     label: "Status da solicitação",
     desc: "Solicitação de documento mudou de status",
   },
-  // Repasse pausado na UI (mantido no backend) - ver todo list.
+  // Repasse pausado na UI (mantido no backend) - ver issue #247 (repasses).
   // { value: "repasse.status_changed", label: "Status de repasse", desc: "Mudanca no status de um repasse" },
   {
     value: "processo_admin.decisao",
@@ -105,12 +105,10 @@ interface ParceiroOption {
 
 interface DestinoRow {
   id: string;
-  parceiro_id: string | null;
   url: string;
   eventos: string[];
   ativo: boolean;
   secret_id: string | null;
-  created_at: string | null;
   parceiro: { nome: string | null; email: string | null } | null;
 }
 
@@ -296,9 +294,9 @@ export function WebhooksCard() {
     const [destResp, parcResp] = await Promise.all([
       supabase
         .from("webhook_destinos")
-        .select(
-          "id, parceiro_id, url, eventos, ativo, secret_id, created_at, parceiro:parceiro_id(nome, email)",
-        )
+        // Só o que a tela lê. A ordem é feita no banco (não precisa de
+        // created_at no select) e o nome do parceiro vem pela FK parceiro_id.
+        .select("id, url, eventos, ativo, secret_id, parceiro:parceiro_id(nome, email)")
         .order("created_at", { ascending: false }),
       supabase
         .from("usuarios")

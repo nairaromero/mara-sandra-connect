@@ -181,6 +181,11 @@ test("admin: ciclo de um destino dentro da aba Webhooks", async ({ page }) => {
   const linha = page.getByRole("row").filter({ hasText: URL_E2E });
   await expect(linha).toBeVisible();
   await expect(linha.getByText("Definido", { exact: true })).toBeVisible();
+  // O nome vem do embed parceiro:parceiro_id(nome, email) da lista — sem ele a
+  // célula cai no fallback "Parceiro removido". Prova, pela tela e com o RLS do
+  // admin, que a consulta da lista traz o parceiro (o select não tem mais a
+  // coluna parceiro_id, só o embed).
+  await expect(linha.getByRole("cell", { name: "[E2E] Parceiro", exact: true })).toBeVisible();
 
   // ---- Desativar ----
   await clicar(page, linha.getByRole("switch", { name: "Ativar ou desativar webhook" }));
