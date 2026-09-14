@@ -34,7 +34,7 @@ import type { TarefaComJoins } from "@/lib/tarefas/types";
 import { AgendaPericiasParceiro } from "@/components/agenda/agenda-pericias-parceiro";
 import { useAuth } from "@/hooks/use-auth";
 import { useVerComoParceiro } from "@/hooks/use-ver-como-parceiro";
-import { chaveDiaBR, chavesDiasBR, fimDoDiaBR, formatarBR, instanteBR } from "@/lib/fuso";
+import { chavesDiasBR, fimDoDiaBR, formatarBR, instanteBR } from "@/lib/fuso";
 
 // A agenda mescla DUAS fontes: agenda_eventos + tarefas tipo='pericia' ativas
 // (migradas do TI, criadas pelo processador do INSS ou na tela de Tarefas).
