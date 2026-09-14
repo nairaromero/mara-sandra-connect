@@ -86,9 +86,16 @@ function maskTelefone(v: string): string {
 // Aba da barra de Configurações. No celular a barra rola na horizontal (cinco
 // abas não cabem em 375px) e começa na ponta esquerda: quem chegava por
 // deep-link (?tab=webhooks, inclusive pelo /webhooks antigo) não via qual aba
-// estava ativa. Ao ficar ativa, a aba rola pra dentro da barra — "nearest" não
-// mexe em nada se ela já está à vista, então no desktop é no-op. O efeito mora
+// estava ativa. Ao ficar ativa, a aba rola pra dentro da barra — só o
+// necessário, e nada se ela já está à vista (no desktop é no-op). O efeito mora
 // aqui, e não na página, porque a barra só aparece depois do ClientOnly montar.
+//
+// Rolar uma vez na montagem não basta: a Inter (Google Fonts, display=swap)
+// costuma chegar depois no celular. As abas alargam, o scrollLeft fica, e a
+// ativa saía 8px pela borda (E2E flaky de 2026-09-14). Por isso realinha a cada
+// mudança de largura das abas enquanto ela estiver ativa. Rola só a barra, na
+// horizontal: scrollIntoView também rolaria a PÁGINA de volta até a barra se a
+// fonte chegasse com a pessoa já lá embaixo.
 function AbaConfig({
   value,
   ativa,
@@ -102,7 +109,21 @@ function AbaConfig({
 }) {
   const ref = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    if (ativa) ref.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    const aba = ref.current;
+    const barra = aba?.parentElement;
+    if (!ativa || !aba || !barra) return;
+    const alinhar = () => {
+      const a = aba.getBoundingClientRect();
+      const b = barra.getBoundingClientRect();
+      // ceil: medida fracionada arredondada pra baixo deixaria fração de px cortada.
+      if (a.left < b.left) barra.scrollLeft -= Math.ceil(b.left - a.left);
+      else if (a.right > b.right) barra.scrollLeft += Math.ceil(a.right - b.right);
+    };
+    // O observer já avisa ao observar (1º alinhamento) e de novo a cada aba
+    // que muda de largura.
+    const observer = new ResizeObserver(alinhar);
+    for (const irma of barra.children) observer.observe(irma);
+    return () => observer.disconnect();
   }, [ativa]);
   return (
     <TabsTrigger ref={ref} value={value} className="flex items-center gap-1.5 shrink-0">
