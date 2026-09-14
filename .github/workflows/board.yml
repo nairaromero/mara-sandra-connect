@@ -3,7 +3,14 @@ name: board
 # Mantém o board "Legal Connect" (GitHub Projects) em dia com o git e com o
 # registro de migrations de produção. A lógica está em scripts/board-sync.mjs.
 #
-#   PR aberto para a staging              -> "Em revisão"
+# O card é a ISSUE: PR ligado a uma issue (`Closes #N` no corpo, em inglês,
+# ou o campo Development) move a issue e tem o próprio card arquivado. PR sem
+# issue ligada continua sendo o card.
+#
+#   PR aberto para a staging              -> issues ligadas (ou o PR) em
+#                                            "Em revisão"
+#   PR com issue mergeado na staging      -> issues ligadas em "Validar no
+#                                            staging"
 #   push na main (release), todo dia e manual
 #                                         -> "Validar no staging" vira "Produção"
 #                                            quando o commit do PR está na main
@@ -14,8 +21,8 @@ name: board
 # do merge: um card segurado por migration não aplicada anda sozinho no dia
 # seguinte à aplicação, sem esperar o próximo release.
 #
-# "PR mergeado na staging -> Validar no staging" NÃO é daqui: é o workflow
-# nativo "Pull request merged" do board. Ele acerta esse caso porque o PR de
+# "PR SEM issue mergeado na staging -> Validar no staging" NÃO é daqui: é o
+# workflow nativo "Pull request merged" do board. Ele acerta esse caso porque o PR de
 # release é aberto com o label `release` e fica fora do board (filtro do
 # Auto-add: -label:release).
 #
@@ -41,7 +48,9 @@ on:
   # seguro porque o job NÃO faz checkout do código da PR (o checkout abaixo
   # pega a main): usa só o número dela.
   pull_request_target:
-    types: [opened, reopened, ready_for_review]
+    # Sem `edited` de propósito: editar o corpo de um PR aberto não pode
+    # arrancar da coluna uma issue que alguém moveu à mão.
+    types: [opened, reopened, ready_for_review, closed]
     branches: [staging]
   push:
     branches: [main]
@@ -66,6 +75,7 @@ jobs:
     # Só PR do próprio repositório; draft ainda não está pronto pra revisão.
     if: >-
       github.event_name == 'pull_request_target' &&
+      github.event.action != 'closed' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       !github.event.pull_request.draft
     runs-on: ubuntu-latest
@@ -82,6 +92,26 @@ jobs:
           GH_TOKEN: ${{ secrets.BOARD_PROJECT_TOKEN }}
           PR_NUMERO: ${{ github.event.pull_request.number }}
         run: node scripts/board-sync.mjs em-revisao "$PR_NUMERO"
+
+  validar-no-staging:
+    # Mesmo cuidado do em-revisao: checkout da main, só o número da PR.
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.action == 'closed' &&
+      github.event.pull_request.merged &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: PR mergeado -> issues em Validar no staging
+        env:
+          GH_TOKEN: ${{ secrets.BOARD_PROJECT_TOKEN }}
+          PR_NUMERO: ${{ github.event.pull_request.number }}
+        run: node scripts/board-sync.mjs mergeado "$PR_NUMERO"
 
   release:
     if: github.event_name != 'pull_request_target'
