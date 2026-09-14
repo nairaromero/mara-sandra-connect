@@ -2,8 +2,19 @@
 // board-sync.mjs — mantém o board "Legal Connect" (GitHub Projects) em dia com
 // o que o git e o banco de produção dizem. Roda pelo .github/workflows/board.yml.
 //
-//   node scripts/board-sync.mjs em-revisao <pr>
-//       PR aberto para a staging -> "Em revisão".
+// O card é a ISSUE (o pedido). PR ligado a uma issue não é card: ele move a
+// issue e, se tiver entrado no board, é arquivado. PR sem issue ligada (ex.:
+// correção avulsa) continua sendo o próprio card. "Ligado" é a ligação do
+// GitHub — `Closes #N` no corpo do PR (a palavra tem que ser em inglês:
+// "Fecha #N" não liga) ou o campo Development da issue.
+//
+//   node scripts/board-sync.mjs em-revisao <pr> [--dry-run]
+//       PR aberto para a staging -> issues ligadas (ou o PR) em "Em revisão".
+//
+//   node scripts/board-sync.mjs mergeado <pr> [--dry-run]
+//       PR mergeado na staging -> issues ligadas em "Validar no staging" (a
+//       que ainda tiver outro PR aberto fica em "Em revisão"). PR sem issue
+//       ligada fica com o workflow nativo "Pull request merged".
 //
 //   node scripts/board-sync.mjs release [--dry-run] [--alvo <ref>] [--registro-staging]
 //       Cada card em "Validar no staging" vai para "Produção" só quando TODOS
@@ -16,9 +27,9 @@
 //         --registro-staging   lê o registro do STAGING em vez do de produção
 //                              (só para teste local)
 //
-// O que NÃO é daqui: "PR mergeado na staging -> Validar no staging" é do
-// workflow nativo "Pull request merged" do board, que acerta esse caso porque
-// o PR de release entra com o label `release` e fica fora do board.
+// O que NÃO é daqui: "PR SEM issue mergeado na staging -> Validar no staging"
+// é do workflow nativo "Pull request merged" do board, que acerta esse caso
+// porque o PR de release entra com o label `release` e fica fora do board.
 //
 // Credenciais:
 //   GH_TOKEN  PAT com escopo `project` (no Actions: BOARD_PROJECT_TOKEN).
@@ -323,32 +334,147 @@ async function lerRegistro(nomes, { staging }) {
 
 const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function emRevisao(numero) {
-  const board = await carregarBoard();
+// PR + as issues abertas ligadas a ele. Só escopo de repositório: dá para
+// rodar em --dry-run com um token sem acesso ao board.
+async function lerPrELigacoes(numero) {
   const d = await gql(
     `query($o: String!, $r: String!, $n: Int!) {
-      repository(owner: $o, name: $r) { pullRequest(number: $n) { id isDraft baseRefName state } }
+      repository(owner: $o, name: $r) {
+        pullRequest(number: $n) {
+          id isDraft baseRefName state merged
+          closingIssuesReferences(first: 20) {
+            nodes { id number state repository { nameWithOwner } }
+          }
+        }
+      }
     }`,
     { o: REPO_OWNER, r: REPO_NAME, n: numero },
   );
   const pr = d.repository.pullRequest;
+  const issues = pr.closingIssuesReferences.nodes.filter(
+    (i) => i.state === "OPEN" && i.repository.nameWithOwner === REPO,
+  );
+  return { pr, issues };
+}
+
+// O item deste board para um conteúdo (issue/PR), ou null. Precisa do escopo
+// `project` no token.
+async function itemDoConteudo(board, contentId) {
+  const d = await gql(
+    `query($id: ID!) {
+      node(id: $id) {
+        ... on Issue { projectItems(first: 20, includeArchived: true) { nodes { id isArchived project { id } } } }
+        ... on PullRequest { projectItems(first: 20, includeArchived: true) { nodes { id isArchived project { id } } } }
+      }
+    }`,
+    { id: contentId },
+  );
+  return d.node?.projectItems?.nodes.find((n) => n.project.id === board.id) ?? null;
+}
+
+// PRs ainda abertos ligados à issue, fora o `exceto`.
+async function outrosPrsAbertos(issueNumero, exceto) {
+  const d = await gql(
+    `query($o: String!, $r: String!, $n: Int!) {
+      repository(owner: $o, name: $r) {
+        issue(number: $n) {
+          closedByPullRequestsReferences(first: 20, includeClosedPrs: false) { nodes { number state } }
+        }
+      }
+    }`,
+    { o: REPO_OWNER, r: REPO_NAME, n: issueNumero },
+  );
+  return d.repository.issue.closedByPullRequestsReferences.nodes
+    .filter((p) => p.state === "OPEN" && p.number !== exceto)
+    .map((p) => p.number);
+}
+
+// Põe cada conteúdo na coluna. O "Item added to project" nativo carimba
+// Backlog quando o item entra no board, e não há ordem garantida entre ele e
+// este job: confere depois de um tempo e, se ele passou por cima, grava de novo.
+async function gravarNaColuna(board, alvos, coluna) {
+  const itens = [];
+  for (const a of alvos) {
+    const existente = await itemDoConteudo(board, a.id);
+    if (existente?.isArchived) {
+      console.log(`${a.rotulo}: card arquivado no board — deixado como está`);
+      continue;
+    }
+    const itemId = existente?.id ?? (await adicionar(board, a.id));
+    await gravarStatus(board, itemId, coluna);
+    console.log(`${a.rotulo} -> ${coluna}`);
+    itens.push({ ...a, itemId });
+  }
+  if (!itens.length) return;
+  await dormir(20_000);
+  for (const it of itens) {
+    const agora = await lerStatus(it.itemId);
+    if (agora !== coluna) {
+      await gravarStatus(board, it.itemId, coluna);
+      console.log(`${it.rotulo}: estava em "${agora}" (workflow nativo passou por cima) — regravado`);
+    }
+  }
+}
+
+// PR ligado a issue não é card. Confere de novo depois de um tempo: o Auto-add
+// nativo pode puxar o PR para o board depois deste job.
+async function arquivarPrLigado(board, pr, numero) {
+  for (let volta = 0; volta < 2; volta++) {
+    const item = await itemDoConteudo(board, pr.id);
+    if (item && !item.isArchived) {
+      await arquivar(board, item.id);
+      console.log(`#${numero}: card do PR arquivado — o card é a issue`);
+    }
+    if (volta === 0) await dormir(20_000);
+  }
+}
+
+async function emRevisao(numero, { dryRun }) {
+  const { pr, issues } = await lerPrELigacoes(numero);
   if (pr.baseRefName !== "staging" || pr.isDraft || pr.state !== "OPEN") {
     console.log(`#${numero}: nada a fazer (base ${pr.baseRefName}, draft=${pr.isDraft}, ${pr.state})`);
     return;
   }
-  const itemId = await adicionar(board, pr.id);
-  await gravarStatus(board, itemId, COLUNA.revisao);
-  console.log(`#${numero} -> ${COLUNA.revisao}`);
-
-  // O "Item added to project" nativo carimba Backlog quando o Auto-add puxa o
-  // PR, e não há ordem garantida entre ele e este job. Confere depois de um
-  // tempo; se ele passou por cima, grava de novo.
-  await dormir(20_000);
-  const agora = await lerStatus(itemId);
-  if (agora !== COLUNA.revisao) {
-    await gravarStatus(board, itemId, COLUNA.revisao);
-    console.log(`#${numero}: estava em "${agora}" (workflow nativo passou por cima) — regravado`);
+  const alvos = issues.length
+    ? issues.map((i) => ({ id: i.id, rotulo: `issue #${i.number}` }))
+    : [{ id: pr.id, rotulo: `#${numero} (PR sem issue ligada)` }];
+  if (dryRun) {
+    for (const a of alvos) console.log(`[dry-run] ${a.rotulo} -> ${COLUNA.revisao}`);
+    if (issues.length) console.log(`[dry-run] #${numero}: card do PR seria arquivado se estiver no board`);
+    return;
   }
+  const board = await carregarBoard();
+  await gravarNaColuna(board, alvos, COLUNA.revisao);
+  if (issues.length) await arquivarPrLigado(board, pr, numero);
+}
+
+async function mergeado(numero, { dryRun }) {
+  const { pr, issues } = await lerPrELigacoes(numero);
+  if (pr.baseRefName !== "staging" || !pr.merged) {
+    console.log(`#${numero}: nada a fazer (base ${pr.baseRefName}, merged=${pr.merged})`);
+    return;
+  }
+  if (!issues.length) {
+    console.log(`#${numero}: sem issue ligada — o card é o PR, movido pelo workflow nativo "Pull request merged"`);
+    return;
+  }
+  const alvos = [];
+  for (const i of issues) {
+    const abertos = await outrosPrsAbertos(i.number, numero);
+    if (abertos.length) {
+      console.log(`issue #${i.number}: fica em "${COLUNA.revisao}" — PR ${abertos.map((n) => `#${n}`).join(", ")} ainda aberto`);
+      continue;
+    }
+    alvos.push({ id: i.id, rotulo: `issue #${i.number}` });
+  }
+  if (dryRun) {
+    for (const a of alvos) console.log(`[dry-run] ${a.rotulo} -> ${COLUNA.validar}`);
+    console.log(`[dry-run] #${numero}: card do PR seria arquivado se estiver no board`);
+    return;
+  }
+  const board = await carregarBoard();
+  await gravarNaColuna(board, alvos, COLUNA.validar);
+  await arquivarPrLigado(board, pr, numero);
 }
 
 async function release({ dryRun, alvo, registroStaging }) {
@@ -489,10 +615,11 @@ async function main() {
   const [modo, ...resto] = process.argv.slice(2);
   TOKEN = tokenGitHub();
 
-  if (modo === "em-revisao") {
+  if (modo === "em-revisao" || modo === "mergeado") {
     const numero = Number(resto[0]);
-    if (!Number.isInteger(numero) || numero <= 0) throw new Error("uso: em-revisao <número do PR>");
-    return emRevisao(numero);
+    if (!Number.isInteger(numero) || numero <= 0) throw new Error(`uso: ${modo} <número do PR> [--dry-run]`);
+    const opcoes = { dryRun: resto.includes("--dry-run") };
+    return modo === "em-revisao" ? emRevisao(numero, opcoes) : mergeado(numero, opcoes);
   }
   if (modo === "release") {
     const i = resto.indexOf("--alvo");
@@ -502,7 +629,9 @@ async function main() {
       registroStaging: resto.includes("--registro-staging"),
     });
   }
-  throw new Error("uso: board-sync.mjs em-revisao <pr> | release [--dry-run] [--alvo <ref>] [--registro-staging]");
+  throw new Error(
+    "uso: board-sync.mjs em-revisao <pr> [--dry-run] | mergeado <pr> [--dry-run] | release [--dry-run] [--alvo <ref>] [--registro-staging]",
+  );
 }
 
 main().catch((e) => {

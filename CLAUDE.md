@@ -38,17 +38,19 @@ feature branch  ──merge──▶  staging  ──merge (após validação)�
 
 1. Naira diz "implementar X".
 2. Crio branch `feat/x` saindo de `staging`.
-3. Commit, push, abro PR `feat/x → staging`.
+3. Commit, push, abro PR `feat/x → staging` com `Closes #N` (o card) no corpo.
 4. Naira valida (em staging.marasandraconnect.com, com a conta do papel certo, ou local) e merge.
 5. Quando um lote estiver validado: Naira merge `staging → main` → deploy prod.
    O PR de release abre **com o label `release`**
    (`gh pr create --base main --head staging --label release`) — assim ele fica fora do board.
 
 **Board ([Legal Connect](https://github.com/users/nairaromero/projects/1), desde 2026-09-10):** o trabalho aberto vive lá, não mais no `planning/TODO.md`. Colunas: Backlog · Lote atual · Em revisão · Validar no staging · Produção.
-- Automático: issue/PR novo → Backlog (nativo); PR aberto pra staging → Em revisão e release → Produção (`.github/workflows/board.yml` + `scripts/board-sync.mjs`); PR mergeado na staging → Validar no staging (nativo "Pull request merged").
+- **O card é a issue.** PR não vira card: o corpo do PR abre com `Closes #N` (**em inglês** — "Fecha #N" não liga) ou a issue é ligada no campo Development. Com essa ligação, o PR move a issue e o card dele (se entrar no board) é arquivado. PR sem issue ligada continua sendo o próprio card. Efeito do `Closes`: a issue **fecha sozinha** quando o release leva o PR pra `main` (merge na staging não fecha).
+- Automático: issue nova → Backlog (nativo); PR aberto pra staging → issue ligada em Em revisão; PR mergeado na staging → issue ligada em Validar no staging (a que ainda tem outro PR aberto fica em Em revisão); release → Produção (`.github/workflows/board.yml` + `scripts/board-sync.mjs`). PR sem issue: nativo "Pull request merged" → Validar no staging.
 - Um card só vai pra Produção quando o commit está na `main` **e** as migrations do PR estão no registro de produção (ver DB). Card segurado anda sozinho na rodada diária depois que a migration é aplicada.
 - O `board.yml` roda **inteiro a partir da `main`** — inclusive o gatilho de PR (`pull_request_target` sempre usa a branch padrão). Mudança nele só vale depois do release que a leva pra `main`.
-- Teste local sem mexer em nada: `node scripts/board-sync.mjs release --dry-run`.
+- Workflows nativos ligados: Auto-add (filtro `is:issue is:open -label:release` — PR não entra sozinho), Item added → Backlog, Pull request merged → Validar no staging, Auto-add sub-issues. "Item closed" fica **desligado**: fechar a issue no release não pode passar por cima da trava de migration.
+- Teste local sem mexer em nada: `node scripts/board-sync.mjs release --dry-run`; `em-revisao <pr> --dry-run` e `mergeado <pr> --dry-run` mostram quais issues o PR move (esses dois nem leem o board).
 
 ## DB
 
