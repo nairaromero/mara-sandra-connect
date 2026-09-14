@@ -22,24 +22,28 @@ export interface ResultadoSugestao {
   motivo: string | null;
 }
 
-// O popup não pode ficar girando pra sempre se a função não responder.
+// O popup não pode ficar girando pra sempre se a função não responder (a edge
+// corta a IA em 25s; a folga cobre o cold start).
 const TIMEOUT_MS = 35_000;
 
-/** Nunca lança: falha vira `sugestao: null` com um motivo legível. */
-export async function sugerirProximaTarefa(tarefaId: string): Promise<ResultadoSugestao> {
-  try {
-    const chamada = supabase.functions.invoke("sugerir-proxima-tarefa", {
-      body: { tarefa_id: tarefaId },
-    });
-    const limite = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("timeout")), TIMEOUT_MS),
-    );
-    const { data, error } = await Promise.race([chamada, limite]);
-    if (error) throw error;
-    const r = data as Partial<ResultadoSugestao> | null;
-    return { sugestao: r?.sugestao ?? null, motivo: r?.motivo ?? null };
-  } catch (err) {
-    console.error("sugerir-proxima-tarefa:", err);
+/**
+ * Nunca lança: falha vira `sugestao: null` com um motivo legível.
+ *
+ * O timeout e o `signal` vão pro próprio invoke: a requisição é abortada de
+ * verdade (fechar o popup cancela) e nenhum timer fica pendurado depois.
+ */
+export async function sugerirProximaTarefa(
+  tarefaId: string,
+  signal?: AbortSignal,
+): Promise<ResultadoSugestao> {
+  const { data, error } = await supabase.functions.invoke<Partial<ResultadoSugestao>>(
+    "sugerir-proxima-tarefa",
+    { body: { tarefa_id: tarefaId }, timeout: TIMEOUT_MS, signal },
+  );
+  if (error) {
+    // Cancelado por quem chamou não é falha: ninguém vai ler a resposta.
+    if (!signal?.aborted) console.error("sugerir-proxima-tarefa:", error);
     return { sugestao: null, motivo: "Não consegui falar com a IA agora." };
   }
+  return { sugestao: data?.sugestao ?? null, motivo: data?.motivo ?? null };
 }

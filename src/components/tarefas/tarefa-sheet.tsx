@@ -74,6 +74,7 @@ import {
 import {
   descreverAutoriaStatus,
   ehAnaliseInicial,
+  ehPericiaEmSi,
   formatarDataHoraCurtaBR,
   formatarDueAtCurto,
   inputDateTimeValueFromIso,
@@ -116,12 +117,12 @@ type Modo =
       templateInicial?: string;        // nome do template a pré-selecionar
       // Próxima tarefa sugerida pela IA ao concluir a anterior (card #306):
       // só PREENCHE o formulário — a pessoa confere e salva.
-      sugestao?: SugestaoProximaTarefa;
+      sugestao?: SugestaoProximaTarefa | null;
     }
   | { kind: "editar"; tarefa: TarefaComJoins };
 
-// Export pra outras telas (ex: /clientes "+ Perícia") abrirem o sheet
-// com template pré-selecionado.
+// Export pra outras telas abrirem o sheet (ex: /clientes "+ Perícia" com
+// template pré-selecionado) sem redeclarar o Modo.
 export type TarefaSheetModo = Modo;
 
 interface Props {
@@ -129,11 +130,22 @@ interface Props {
   onClose: () => void;
   onSaved: () => void;               // recarregar lista
   // Tarefa CONCLUÍDA aqui e a pessoa quer criar a próxima: o pai abre a criação,
-  // com a sugestão da IA (card #306) ou em branco. Opcional.
+  // com a sugestão da IA (card #306) ou em branco. Sem ele, concluir só fecha —
+  // o popup não pede sugestão que não teria como virar tarefa.
   onConcluida?: (casoId: string | null, sugestao: SugestaoProximaTarefa | null) => void;
 }
 
 const TIPOS: TarefaTipo[] = ["interna", "prazo", "pericia", "pos_protocolo", "contato_cliente"];
+
+// Valor único do select de processo: "" = nenhum, "admin:<id>" ou "judicial:<id>".
+function tokenDoProcesso(p: {
+  processo_admin_id: string | null;
+  processo_judicial_id: string | null;
+}): string {
+  if (p.processo_admin_id) return `admin:${p.processo_admin_id}`;
+  if (p.processo_judicial_id) return `judicial:${p.processo_judicial_id}`;
+  return "";
+}
 
 
 export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
@@ -325,7 +337,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   const [justificativa, setJustificativa] = useState("");
   // Popup de conclusão/exclusão: pôr Status em "Feito" (modo concluir) ou o
   // botão Excluir do rodapé (modo excluir) abrem o MESMO popup do card —
-  // inclusive nas tarefas de desfecho, onde ele oferece só editar/excluir.
+  // inclusive nas tarefas de desfecho, onde ele oferece só excluir com motivo.
   const [concluindoNoSheet, setConcluindoNoSheet] = useState<TarefaComJoins | null>(null);
   const [modoPopupSheet, setModoPopupSheet] = useState<"concluir" | "excluir">("concluir");
 
@@ -557,41 +569,23 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
         setTitulo(sug.titulo);
         setDescricao(sug.descricao ?? "");
         setTipo(sug.tipo);
+        setPericiaEvento(ehPericiaEmSi(sug));
         setPrioridade(sug.prioridade);
         setResponsavelId(sug.responsavel_id);
-        setDueDate(sug.due_at ? inputDateTimeValueFromIso(sug.due_at) : "");
-        setProcessoToken(
-          sug.processo_admin_id
-            ? `admin:${sug.processo_admin_id}`
-            : sug.processo_judicial_id
-              ? `judicial:${sug.processo_judicial_id}`
-              : "",
-        );
+        setDueDate(inputDateTimeValueFromIso(sug.due_at));
+        setProcessoToken(tokenDoProcesso(sug));
       }
     } else {
       const t = modo.tarefa;
       setTitulo(t.titulo);
       setDescricao(t.descricao ?? "");
       setTipo(t.tipo);
-      {
-        const flag = (t.metadata as { pericia_evento?: boolean } | null)?.pericia_evento;
-        setPericiaEvento(
-          flag !== undefined
-            ? !!flag
-            : !/(acompanh|contatar|resultado|ligar|compareceu|agendamento de)/i.test(t.titulo),
-        );
-      }
+      setPericiaEvento(ehPericiaEmSi(t));
       setPrioridade(t.prioridade);
       setStatus(t.status);
       setCasoId(t.caso_id);
       setTrocandoCaso(false);
-      setProcessoToken(
-        t.processo_admin_id
-          ? `admin:${t.processo_admin_id}`
-          : t.processo_judicial_id
-            ? `judicial:${t.processo_judicial_id}`
-            : "",
-      );
+      setProcessoToken(tokenDoProcesso(t));
       setResponsavelId(t.responsavel_id);
       setDueDate(inputDateTimeValueFromIso(t.due_at));
       setLocal("");
@@ -2018,12 +2012,9 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
             throw new Error("A tarefa não foi salva — revise o painel.");
           }
         }}
-        onCriarProxima={(t, sugestao) => {
-          setConcluindoNoSheet(null);
-          onConcluida?.(t.caso_id, sugestao);
-        }}
+        // O popup já se fecha (onClose acima) antes de chamar estes dois.
+        onCriarProxima={onConcluida && ((t, sugestao) => onConcluida(t.caso_id, sugestao))}
         onExcluida={() => {
-          setConcluindoNoSheet(null);
           onSaved();
           onClose();
         }}

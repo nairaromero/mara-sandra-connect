@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { TarefaCard } from "@/components/tarefas/tarefa-card";
-import { TarefaSheet } from "@/components/tarefas/tarefa-sheet";
+import { TarefaSheet, type TarefaSheetModo } from "@/components/tarefas/tarefa-sheet";
 import { TarefasExcluidas } from "@/components/tarefas/tarefas-excluidas";
 import { AgendaSheet } from "@/components/agenda/agenda-sheet";
 import { listarTarefas } from "@/lib/tarefas/queries";
@@ -19,17 +19,12 @@ import { listarAgenda } from "@/lib/agenda/queries";
 import { type AgendaEventoComJoins, tipoBadge } from "@/lib/agenda/types";
 import { DESTAQUE_CLASSE_GLOBAL, useDestaqueAtivo } from "@/lib/destaque/destaque-context";
 import { formatarBR, horaBR } from "@/lib/fuso";
-import type { SugestaoProximaTarefa } from "@/lib/tarefas/proxima-sugerida";
 
 // Mesma regra da tela /tarefas (Naira, 2026-09-09): Ativos = "A fazer";
 // Arquivados = "Feito" + a lista de excluídas (que já inclui as canceladas
 // antigas). "Fazendo" não existe mais.
 const STATUS_ATIVOS: TarefaStatus[] = ["a_fazer"];
 const STATUS_ARQUIVADOS: TarefaStatus[] = ["feito"];
-
-type Modo =
-  | { kind: "criar"; casoIdInicial: string; sugestao?: SugestaoProximaTarefa }
-  | { kind: "editar"; tarefa: TarefaComJoins };
 
 interface Props {
   casoId: string;
@@ -42,7 +37,7 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
   const [carregando, setCarregando] = useState(true);
   const [tarefas, setTarefas] = useState<TarefaComJoins[]>([]);
   const [eventos, setEventos] = useState<AgendaEventoComJoins[]>([]);
-  const [sheetModo, setSheetModo] = useState<Modo | null>(null);
+  const [sheetModo, setSheetModo] = useState<TarefaSheetModo | null>(null);
   const [agendaSheet, setAgendaSheet] = useState<{
     kind: "editar";
     evento: AgendaEventoComJoins;
@@ -226,7 +221,7 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
         onClose={() => setSheetModo(null)}
         onSaved={carregar}
         onConcluida={(_caso, sugestao) =>
-          setSheetModo({ kind: "criar", casoIdInicial: casoId, sugestao: sugestao ?? undefined })
+          setSheetModo({ kind: "criar", casoIdInicial: casoId, sugestao })
         }
       />
 
