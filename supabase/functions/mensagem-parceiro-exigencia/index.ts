@@ -66,16 +66,10 @@ function dataBR(iso: string): string {
 }
 
 // Provedor de IA pendurado não pode segurar a UI até o gateway estourar 504 —
-// depois do limite, cai no catch e o template segue com o texto padrão.
+// depois do limite, cai no catch e o template segue com o texto padrão. O
+// signal aborta o fetch do provedor (não só a espera): nada fica rodando nem
+// gastando token depois do limite.
 const IA_TIMEOUT_MS = 45_000;
-function comTimeout<T>(p: Promise<T>): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("timeout da IA (45s)")), IA_TIMEOUT_MS)
-    ),
-  ]);
-}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -143,7 +137,7 @@ serve(async (req) => {
     const prazoLinha = body.prazo_fatal
       ? `PRAZO FATAL: ${dataBR(body.prazo_fatal)}`
       : "PRAZO FATAL: não informado";
-    const res = await comTimeout(chatWith(
+    const res = await chatWith(
       resIntegracao.integ.provider,
       apiKey,
       resIntegracao.integ.modelo,
@@ -159,8 +153,9 @@ serve(async (req) => {
             `${prazoLinha}\n\n` +
             `Trecho da publicação/despacho judicial:\n${despacho}`,
         }],
+        signal: AbortSignal.timeout(IA_TIMEOUT_MS),
       },
-    ));
+    );
     const texto = (res.text || "").trim();
     // Resposta vazia ou curta demais = modelo se perdeu; melhor o texto padrão.
     if (texto.length < 40) {

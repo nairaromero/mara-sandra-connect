@@ -29,11 +29,13 @@ import {
   Clock,
   FileText,
   Gavel,
+  KeyRound,
   ListTodo,
   Loader2,
   MapPin,
   Scale,
   Stethoscope,
+  UserRound,
 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
@@ -51,8 +53,11 @@ import {
   type ArquivoCumprimento,
   type ItemSolicitacao,
 } from "@/lib/documentos/cumprimento";
+import { descreverSolicitante, type SolicitanteLite } from "@/lib/documentos/solicitante";
 import { validateFileSize } from "@/lib/upload-limits";
 import { ArquivosCumprimento } from "@/components/documentos/arquivos-cumprimento";
+import { CumprirTrocaSenhaDialog } from "@/components/documentos/cumprir-troca-senha-dialog";
+import { ehPedidoSenhaMeuInss } from "@/lib/documentos/senha-meu-inss";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -81,6 +86,9 @@ interface SolicPendente {
   prazo_at: string | null;
   data_solicitacao: string;
   documento_id: string | null;
+  // Quem da equipe abriu o pedido. Nulo quando veio do robô do e-mail INSS
+  // (origem template:*) — descreverSolicitante() cobre os dois casos.
+  solicitante: SolicitanteLite | null;
   casos: {
     id: string;
     fase: string;
@@ -184,8 +192,10 @@ function textoDataEvento(iso: string): string {
   return hora === "00:00" ? data : `${data} · ${hora}`;
 }
 
-// Categoria do card de solicitação a partir da origem.
-function categoriaSolic(origem: string): { label: string; exigencia: boolean } {
+// Categoria do card de solicitação a partir da origem (e do tipo: o pedido de
+// troca da senha do Meu INSS tem card próprio).
+function categoriaSolic(origem: string, tipo?: string): { label: string; exigencia: boolean } {
+  if (ehPedidoSenhaMeuInss(tipo)) return { label: "Senha Meu INSS", exigencia: false };
   if (origem === "template:exigencia") return { label: "Exigência INSS", exigencia: true };
   if (origem === "template:exigencia_judicial") {
     return { label: "Exigência judicial", exigencia: true };
@@ -221,6 +231,8 @@ export function TarefasParceiro() {
   const [arquivos, setArquivos] = useState<ArquivoCumprimento[]>([]);
   const [comentario, setComentario] = useState("");
   const [salvando, setSalvando] = useState(false);
+  // Pedido de troca da senha do Meu INSS: cumpre informando a senha, não anexo.
+  const [trocandoSenha, setTrocandoSenha] = useState<SolicPendente | null>(null);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -239,7 +251,7 @@ export function TarefasParceiro() {
           let q = supabase
             .from("solicitacoes_documento")
             .select(
-              "id, caso_id, tipo, tipos, descricao, origem, prazo_at, data_solicitacao, documento_id, casos!inner(id, fase, parceiro_id, clientes(id, nome))",
+              "id, caso_id, tipo, tipos, descricao, origem, prazo_at, data_solicitacao, documento_id, solicitante:usuarios!solicitacoes_documento_solicitado_por_fkey(id, nome), casos!inner(id, fase, parceiro_id, clientes(id, nome))",
             )
             .eq("status", "pendente")
             .neq("origem", "interna");
@@ -351,6 +363,10 @@ export function TarefasParceiro() {
 
   function abrirCumprir(s: SolicPendente) {
     if (readOnly) return; // admin em "ver como" não cumpre pelo parceiro
+    if (ehPedidoSenhaMeuInss(s.tipo)) {
+      setTrocandoSenha(s);
+      return;
+    }
     setCumprindo(s);
     setArquivos([]);
     setComentario("");
@@ -642,6 +658,42 @@ export function TarefasParceiro() {
           </div>
         )}
 
+        <CumprirTrocaSenhaDialog
+          pedido={
+            trocandoSenha
+              ? {
+                  id: trocandoSenha.id,
+                  clienteNome: trocandoSenha.casos?.clientes?.nome ?? null,
+                  descricao: trocandoSenha.descricao,
+                  prazoAt: trocandoSenha.prazo_at,
+                  solicitanteNome: trocandoSenha.solicitante?.nome ?? null,
+                }
+              : null
+          }
+          onClose={() => setTrocandoSenha(null)}
+          onCumprido={() => {
+            const feito = trocandoSenha;
+            setTrocandoSenha(null);
+            if (!feito) return;
+            // Mesma atualização local do cumprimento por anexo.
+            setSolicitacoes((prev) => prev.filter((x) => x.id !== feito.id));
+            setCumpridas((prev) =>
+              [
+                {
+                  id: feito.id,
+                  tipo: feito.tipo,
+                  tipos: feito.tipos,
+                  data_atendimento: new Date().toISOString(),
+                  casos: feito.casos
+                    ? { id: feito.casos.id, clientes: feito.casos.clientes }
+                    : null,
+                },
+                ...prev,
+              ].slice(0, 40),
+            );
+          }}
+        />
+
         {/* Modal Cumprir — anexo obrigatório (parceiro sempre cumpre com arquivo) */}
         <Dialog open={cumprindo !== null} onOpenChange={(o) => !o && fecharCumprir()}>
           <DialogContent className="max-h-[90vh] overflow-y-auto">
@@ -706,7 +758,8 @@ function CardSolicitacao(props: {
   onAbrirCaso: () => void;
 }) {
   const { s, readOnly, onCumprir, onAbrirCaso } = props;
-  const cat = categoriaSolic(s.origem);
+  const cat = categoriaSolic(s.origem, s.tipo);
+  const ehSenha = ehPedidoSenhaMeuInss(s.tipo);
   const urg = urgenciaDoPrazo(s.prazo_at);
   const cliente = s.casos?.clientes?.nome ?? "(cliente sem nome)";
 
@@ -737,6 +790,8 @@ function CardSolicitacao(props: {
             ) : (
               <AlertTriangle className="h-3.5 w-3.5" />
             )
+          ) : ehSenha ? (
+            <KeyRound className="h-3.5 w-3.5" />
           ) : (
             <FileText className="h-3.5 w-3.5" />
           )}
@@ -751,6 +806,17 @@ function CardSolicitacao(props: {
       <p className="text-sm font-medium break-words">{cliente}</p>
       <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
         {rotuloSolicitacao(s.tipo, s.tipos)}
+      </p>
+      {/* Quem da equipe pediu (#299): sem isso o parceiro recebia a pendência
+          sem saber com quem falar. Mesma expressão da aba Documentos do caso. */}
+      <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1 min-w-0">
+        <UserRound className="h-3 w-3 shrink-0" />
+        <span className="truncate min-w-0">
+          Solicitado por{" "}
+          <span className="font-medium text-foreground">
+            {descreverSolicitante(s.solicitante, s.origem)}
+          </span>
+        </span>
       </p>
       <p className={cn("text-xs mt-2 flex items-center gap-1", URGENCIA_TEXTO_CLASS[urg])}>
         <Clock className="h-3 w-3 shrink-0" />
@@ -767,8 +833,12 @@ function CardSolicitacao(props: {
             onCumprir();
           }}
         >
-          <CheckCircle2 className="h-3 w-3 mr-1" />
-          Cumprir
+          {ehSenha ? (
+            <KeyRound className="h-3 w-3 mr-1" />
+          ) : (
+            <CheckCircle2 className="h-3 w-3 mr-1" />
+          )}
+          {ehSenha ? "Informar nova senha" : "Cumprir"}
         </Button>
       )}
     </div>

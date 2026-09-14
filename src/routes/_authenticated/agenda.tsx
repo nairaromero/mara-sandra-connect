@@ -27,13 +27,14 @@ import { AgendaMes } from "@/components/agenda/agenda-mes";
 import { excluirEvento, listarAgenda } from "@/lib/agenda/queries";
 import { type AgendaEventoComJoins, tipoBadge } from "@/lib/agenda/types";
 import { TarefaSheet, type TarefaSheetModo } from "@/components/tarefas/tarefa-sheet";
+import { ehPericiaEmSi } from "@/lib/tarefas/helpers";
 import { listarTarefas } from "@/lib/tarefas/queries";
 import { ehDoGrupo, type GrupoAgenda } from "@/lib/agenda/types";
 import type { TarefaComJoins } from "@/lib/tarefas/types";
 import { AgendaPericiasParceiro } from "@/components/agenda/agenda-pericias-parceiro";
 import { useAuth } from "@/hooks/use-auth";
 import { useVerComoParceiro } from "@/hooks/use-ver-como-parceiro";
-import { chaveDiaBR, chavesDiasBR, fimDoDiaBR, formatarBR, instanteBR } from "@/lib/fuso";
+import { chavesDiasBR, fimDoDiaBR, formatarBR, instanteBR } from "@/lib/fuso";
 
 // A agenda mescla DUAS fontes: agenda_eventos + tarefas tipo='pericia' ativas
 // (migradas do TI, criadas pelo processador do INSS ou na tela de Tarefas).
@@ -76,17 +77,6 @@ function tarefaComoEvento(t: TarefaComJoins): AgendaEventoComJoins {
 
 function ehEventoDeTarefa(e: AgendaEventoComJoins): boolean {
   return (e.metadata as { origem_tarefa?: boolean } | null)?.origem_tarefa === true;
-}
-
-// So a PERICIA EM SI entra na agenda ("PERICIA AGENDADA - X", "Perícia INSS
-// - X"...). Tarefas SOBRE pericia (acompanhar resultado, contatar parceiro,
-// ligar pra agendar) ficam so em /tarefas. A flag metadata.pericia_evento e
-// gravada pela migration/sheet; a heuristica cobre tarefa futura sem flag.
-function ehPericiaEmSi(t: TarefaComJoins): boolean {
-  const flag = (t.metadata as { pericia_evento?: boolean } | null)?.pericia_evento;
-  if (flag === true) return true;
-  if (flag === false) return false;
-  return !/(acompanh|contatar|resultado|ligar|compareceu|agendamento de)/i.test(t.titulo);
 }
 
 export const Route = createFileRoute("/_authenticated/agenda")({
@@ -168,6 +158,8 @@ function AgendaPage() {
         listarTarefas({ tipo: ["pericia"], status: ["a_fazer"] }),
       ]);
       setEventos(data);
+      // So a PERICIA EM SI entra na agenda ("PERICIA AGENDADA - X", "Perícia
+      // INSS - X"...); tarefas SOBRE pericia ficam so em /tarefas.
       setTarefasPericia(pericias.filter((t) => !!t.due_at && ehPericiaEmSi(t)));
     } catch (e) {
       console.error(e);
@@ -440,6 +432,11 @@ function AgendaPage() {
           modo={tarefaSheetModo}
           onClose={() => setTarefaSheetModo(null)}
           onSaved={carregar}
+          // Concluir a perícia daqui também oferece a próxima tarefa do caso
+          // (card #306) — sem isto os botões da "Próxima tarefa" não abriam nada.
+          onConcluida={(casoId, sugestao) =>
+            setTarefaSheetModo({ kind: "criar", casoIdInicial: casoId, sugestao })
+          }
         />
       </div>
     </ClientOnly>

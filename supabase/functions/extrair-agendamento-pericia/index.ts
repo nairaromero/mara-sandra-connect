@@ -58,16 +58,10 @@ const SYSTEM =
   '"requerente": string | null}';
 
 // Provedor de IA pendurado não pode segurar a UI até o gateway estourar 504 —
-// depois do limite, cai no catch e a pessoa preenche o formulário na mão.
+// depois do limite, cai no catch e a pessoa preenche o formulário na mão. O
+// signal aborta o fetch do provedor (não só a espera): nada fica rodando nem
+// gastando token depois do limite.
 const IA_TIMEOUT_MS = 45_000;
-function comTimeout<T>(p: Promise<T>): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("timeout da IA (45s)")), IA_TIMEOUT_MS)
-    ),
-  ]);
-}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -141,7 +135,7 @@ serve(async (req) => {
         base64: arq!.base64!,
         name: arq!.nome ?? "comprovante",
       }];
-    const res = await comTimeout(chatWith(
+    const res = await chatWith(
       resIntegracao.integ.provider,
       apiKey,
       resIntegracao.integ.modelo,
@@ -159,8 +153,9 @@ serve(async (req) => {
             : "Extraia os dados do agendamento de pericia do documento anexado. " +
               "Responda apenas com o JSON.",
         }],
+        signal: AbortSignal.timeout(IA_TIMEOUT_MS),
       },
-    ));
+    );
     const campos = extrairJson(res.text || "");
     if (!campos) {
       return jsonResponse({ campos: null, aviso: "nao consegui ler o documento" });

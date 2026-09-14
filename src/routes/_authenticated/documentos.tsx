@@ -26,18 +26,16 @@ import {
 } from "@/lib/documentos/cumprimento";
 
 import { useAuth } from "@/hooks/use-auth";
-import {
-  TIPOS_DOCUMENTO_LABEL,
-  nomeArquivoPorTipo,
-} from "@/lib/documentos/tipos";
 import { descreverSolicitante } from "@/lib/documentos/solicitante";
 import { listarInternosAtivos } from "@/lib/tarefas/queries";
 import { supabase } from "@/lib/supabase";
 import { diasCorridosBR } from "@/lib/fuso";
 import { notificarEquipe } from "@/lib/notificar";
-import { MAX_FILE_SIZE_MB, validateFileSize } from "@/lib/upload-limits";
+import { validateFileSize } from "@/lib/upload-limits";
 import { ClientOnly } from "@/components/client-only";
 import { EditarSolicitacaoDialog } from "@/components/documentos/editar-solicitacao-dialog";
+import { CumprirTrocaSenhaDialog } from "@/components/documentos/cumprir-troca-senha-dialog";
+import { ehPedidoSenhaMeuInss } from "@/lib/documentos/senha-meu-inss";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -240,6 +238,7 @@ function DocumentosPendentesPage() {
   // cada um com o próprio tipo (Naira, 2026-08-26).
   const [arquivosUpload, setArquivosUpload] = useState<ArquivoCumprimento[]>([]);
   const [comAnexo, setComAnexo] = useState(false);
+  const [trocandoSenha, setTrocandoSenha] = useState<SolicitacaoComCaso | null>(null);
   // Nome editavel pelo usuario (pre-preenchido com auto-rename)
 
   const carregar = useCallback(async () => {
@@ -333,6 +332,12 @@ function DocumentosPendentesPage() {
 
 
   function abrirAcaoModal(s: SolicitacaoComCaso, novoStatus: string) {
+    // Pedido de troca da senha do Meu INSS: o parceiro cumpre informando a
+    // senha (a equipe não marca "atendido" — sem senha nova não há troca).
+    if (novoStatus === "atendido" && ehPedidoSenhaMeuInss(s.tipo)) {
+      if (!isInterno) setTrocandoSenha(s);
+      return;
+    }
     setAcaoAlvo({ solic: s, novoStatus: novoStatus });
     setComentarioModal(s.comentario || "");
     setArquivosUpload([]);
@@ -346,15 +351,6 @@ function DocumentosPendentesPage() {
     setSalvandoModal(false);
     setArquivosUpload([]);
     setComAnexo(false);
-  }
-
-  // Mesma sanitizacao usada nos uploads avulsos (casos.$id.tsx): Storage
-  // rejeita chave com acento ("Invalid key").
-  function sanitizeFileName(name: string): string {
-    return name
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-zA-Z0-9._-]/g, "_");
   }
 
   // Excluir de vez a solicitacao. Diferente de "Dispensar", que mantem o
@@ -773,6 +769,26 @@ function DocumentosPendentesPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        {!isInterno && (
+          <CumprirTrocaSenhaDialog
+            pedido={
+              trocandoSenha
+                ? {
+                    id: trocandoSenha.id,
+                    clienteNome: trocandoSenha.casos?.clientes?.nome ?? null,
+                    descricao: trocandoSenha.descricao,
+                    prazoAt: trocandoSenha.prazo_at,
+                    solicitanteNome: trocandoSenha.solicitante?.nome ?? null,
+                  }
+                : null
+            }
+            onClose={() => setTrocandoSenha(null)}
+            onCumprido={() => {
+              setTrocandoSenha(null);
+              carregar();
+            }}
+          />
+        )}
         {/* Edição de solicitação pendente (interno only). */}
         {isInterno && (
           <EditarSolicitacaoDialog
@@ -916,6 +932,9 @@ function SolicitacaoItem(props: SolicitacaoItemProps) {
   const isAtendido = s.status === "atendido";
   const isDispensado = s.status === "dispensado";
   const dias = diasDesde(s.data_solicitacao);
+  // Troca da senha do Meu INSS: só o parceiro cumpre (informando a senha); a
+  // equipe pode dispensar ou excluir, não marcar atendido nem trocar o tipo.
+  const ehSenha = ehPedidoSenhaMeuInss(s.tipo);
 
   return (
     <li
@@ -997,14 +1016,20 @@ function SolicitacaoItem(props: SolicitacaoItemProps) {
         </div>
         {isInterno && isPendente && (
           <div className="flex gap-1">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => onAtendido(s)}
-            >
-              <CheckCircle2 className="h-3 w-3 mr-1" />
-              Atendido
-            </Button>
+            {ehSenha ? (
+              <span className="text-xs text-muted-foreground self-center mr-1">
+                Aguardando o parceiro informar a nova senha
+              </span>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => onAtendido(s)}
+              >
+                <CheckCircle2 className="h-3 w-3 mr-1" />
+                Atendido
+              </Button>
+            )}
             <Button
               size="sm"
               variant="ghost"
@@ -1014,14 +1039,16 @@ function SolicitacaoItem(props: SolicitacaoItemProps) {
             </Button>
             {/* Editar tipo/observação — só interno. Útil sobretudo nas de
                 template (texto bruto do despacho do INSS). */}
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => onEditar(s)}
-              title="Editar solicitação"
-            >
-              <Pencil className="h-3 w-3" />
-            </Button>
+            {!ehSenha && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => onEditar(s)}
+                title="Editar solicitação"
+              >
+                <Pencil className="h-3 w-3" />
+              </Button>
+            )}
             <Button
               size="sm"
               variant="ghost"
@@ -1054,7 +1081,7 @@ function SolicitacaoItem(props: SolicitacaoItemProps) {
               onClick={() => onAtendido(s)}
             >
               <CheckCircle2 className="h-3 w-3 mr-1" />
-              Cumprir
+              {ehSenha ? "Informar nova senha" : "Cumprir"}
             </Button>
           </div>
         )}
