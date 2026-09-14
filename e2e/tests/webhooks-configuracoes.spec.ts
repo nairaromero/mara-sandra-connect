@@ -94,11 +94,35 @@ test("admin: webhooks saíram da sidebar e /webhooks abre a aba nas Configuraç�
   await expect(page.getByText(/Integração Google/).first()).toBeVisible();
 });
 
+// Alguma face da Inter (Google Fonts) já carregou?
+const interCarregada = (page: Page) =>
+  page.evaluate(() =>
+    [...document.fonts].some((f) => f.family.replace(/["']/g, "") === "Inter" && f.status === "loaded"),
+  );
+
 test("admin no celular: /webhooks mostra a aba ativa na barra que rola", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
-  await page.goto("/webhooks");
+  // A fonte chega DEPOIS de a aba rolar pra vista — como no celular com rede
+  // lenta. Com a fonte de reserva as abas são mais estreitas; quando a Inter
+  // entra (display=swap) elas alargam e a ativa saía 8px pela borda da barra
+  // (flaky de 2026-09-14: ratio 0.93, dependia de a fonte chegar antes ou
+  // depois). Segurar os arquivos de fonte torna o caso determinístico. Só os
+  // arquivos (gstatic): o CSS do Google Fonts bloqueia a renderização.
+  let liberarFontes!: () => void;
+  const fontesLiberadas = new Promise<void>((r) => (liberarFontes = r));
+  await page.route(/fonts\.gstatic\.com/, async (route) => {
+    await fontesLiberadas;
+    await route.continue();
+  });
+  // "load" esperaria as fontes seguradas.
+  await page.goto("/webhooks", { waitUntil: "domcontentloaded" });
   const webhooks = page.getByRole("tab", { name: "Webhooks" });
-  await expect(webhooks).toHaveAttribute("data-state", "active");
+  await expect(webhooks).toHaveAttribute("data-state", "active", { timeout: 20_000 });
+  expect(await interCarregada(page), "a Inter chegou antes da aba rolar: o caso não foi exercido").toBe(
+    false,
+  );
+  liberarFontes();
+  await expect.poll(() => interCarregada(page), { timeout: 15_000 }).toBe(true);
   // Cinco abas não cabem em 375px: a barra rola por dentro. Sem rolar até a
   // aba ativa, ela ficava fora da tela (visto em 2026-09-14).
   await expect(webhooks).toBeInViewport({ ratio: 1 });
