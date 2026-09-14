@@ -313,7 +313,7 @@ function EquipePage() {
             </CardTitle>
             <CardDescription>
               Pessoas com acesso interno à plataforma. Admin (Naira/Mara) vê
-              Equipe, Webhooks, Auditoria e integrações.
+              Equipe, Auditoria e as integrações e webhooks das Configurações.
             </CardDescription>
           </CardHeader>
           <CardContent>
