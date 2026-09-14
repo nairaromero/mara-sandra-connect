@@ -48,7 +48,7 @@ import {
 import { TarefaCard } from "@/components/tarefas/tarefa-card";
 import { TarefasParceiro } from "@/components/parceiro/tarefas-parceiro";
 import { useVerComoParceiro } from "@/hooks/use-ver-como-parceiro";
-import { TarefaSheet } from "@/components/tarefas/tarefa-sheet";
+import { TarefaSheet, type TarefaSheetModo } from "@/components/tarefas/tarefa-sheet";
 import { TarefasExcluidas } from "@/components/tarefas/tarefas-excluidas";
 import { SecoesPorMes } from "@/components/tarefas/secoes-por-mes";
 import { agruparPorMes } from "@/lib/tarefas/agrupar-mes";
@@ -66,7 +66,6 @@ import {
   type TarefaStatus,
   type TarefaTipo,
 } from "@/lib/tarefas/types";
-import type { SugestaoProximaTarefa } from "@/lib/tarefas/proxima-sugerida";
 
 export const Route = createFileRoute("/_authenticated/tarefas")({
   component: TarefasRoute,
@@ -107,12 +106,6 @@ const STATUS_ARQUIVADOS: TarefaStatus[] = ["feito"];
 function dataDeArquivamento(t: TarefaComJoins): string | null {
   return t.status_alterado_em ?? t.completed_at ?? t.updated_at ?? null;
 }
-
-type Modo =
-  // Tarefa nova aqui só nasce da "Próxima tarefa do caso" (vem do caso da
-  // tarefa concluída) — o "Nova tarefa" em branco saiu em 2026-09-14.
-  | { kind: "criar"; casoIdInicial: string | null; sugestao?: SugestaoProximaTarefa }
-  | { kind: "editar"; tarefa: TarefaComJoins };
 
 // ---------------------------------------------------------------------------
 // Vista "Lista por prazo": secoes por bucket de vencimento. Compara so a
@@ -184,7 +177,9 @@ function TarefasPage() {
   const [filtroPri, setFiltroPri] = useState<string>("todos");
   const [somenteMinhas, setSomenteMinhas] = useState(false);
 
-  const [sheetModo, setSheetModo] = useState<Modo | null>(null);
+  // Tarefa nova aqui só nasce da "Próxima tarefa do caso" (vem do caso da
+  // tarefa concluída) — o "Nova tarefa" em branco saiu em 2026-09-14.
+  const [sheetModo, setSheetModo] = useState<TarefaSheetModo | null>(null);
   const [aba, setAba] = useState<"ativos" | "arquivados">("ativos");
   // Bump pra seção "Excluídas" (aba Arquivados) re-buscar após exclusão.
   const [versaoExcluidas, setVersaoExcluidas] = useState(0);
@@ -734,7 +729,7 @@ function TarefasPage() {
           onClose={() => setSheetModo(null)}
           onSaved={carregar}
           onConcluida={(casoId, sugestao) =>
-            setSheetModo({ kind: "criar", casoIdInicial: casoId, sugestao: sugestao ?? undefined })
+            setSheetModo({ kind: "criar", casoIdInicial: casoId, sugestao })
           }
         />
       </div>

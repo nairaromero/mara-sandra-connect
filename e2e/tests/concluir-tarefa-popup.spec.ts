@@ -7,7 +7,8 @@
 // sugerida" abre o formulário preenchido (nada é criado sem salvar); sem
 // sugestão → "Criar nova tarefa" em branco; "Concluir sem criar nova tarefa"
 // fecha sem criar. A nova tarefa (dali ou do botão "Nova tarefa") não fecha
-// por clique fora nem Esc — só Cancelar/X.
+// por clique fora nem Esc — só Cancelar/X. Na Agenda, concluir a perícia
+// também oferece a próxima.
 //
 // O staging não tem chave de IA: o caminho sem sugestão é o real; o com
 // sugestão simula a resposta da edge sugerir-proxima-tarefa.
@@ -15,57 +16,64 @@
 import { test, expect, type Page } from "@playwright/test";
 import { STORAGE_INTERNO } from "../auth.setup";
 import { adminClient, cleanupE2E, seedClienteCaso } from "../supabase-admin";
+import { abrirNovaTarefaNoCaso, abrirTarefaNoCaso, marcarFeito } from "../tarefas";
 
 test.use({ storageState: STORAGE_INTERNO });
 
 const admin = adminClient();
 let casoId: string;
+let nomeCliente: string;
 let tituloTarefa: string;
 let tarefaId: string;
 
-test.beforeAll(async () => {
-  const sufixo = `Popup Concluir ${Date.now()}`;
-  ({ casoId } = await seedClienteCaso(admin, { sufixo }));
-  tituloTarefa = `[E2E] Analisar ${Date.now()}`;
+async function seedTarefa(
+  titulo: string,
+  extra: { tipo?: string; due_at?: string; metadata?: Record<string, unknown> } = {},
+): Promise<string> {
   const { data, error } = await admin
     .from("tarefas")
-    .insert({
-      caso_id: casoId,
-      tipo: "interna",
-      status: "a_fazer",
-      titulo: tituloTarefa,
-      descricao: "tarefa de teste do popup",
-      origem: "manual",
-    })
+    .insert({ caso_id: casoId, tipo: "interna", status: "a_fazer", titulo, origem: "manual", ...extra })
     .select("id")
     .single();
   if (error) throw new Error(`seed tarefa: ${error.message}`);
-  tarefaId = data.id;
+  return data.id;
+}
+
+// Tarefas do caso agora. Falha de query lança: count nulo nos dois lados
+// passaria calado no toBe.
+async function contarTarefasDoCaso(): Promise<number> {
+  const { count, error } = await admin
+    .from("tarefas")
+    .select("id", { count: "exact", head: true })
+    .eq("caso_id", casoId);
+  if (error || count === null) throw new Error(`contar tarefas: ${error?.message ?? "sem count"}`);
+  return count;
+}
+
+async function statusDa(id: string): Promise<string> {
+  const { data, error } = await admin.from("tarefas").select("status").eq("id", id).single();
+  if (error) throw new Error(`status: ${error.message}`);
+  return data.status;
+}
+
+test.beforeAll(async () => {
+  const sufixo = `Popup Concluir ${Date.now()}`;
+  nomeCliente = `[E2E] ${sufixo}`;
+  ({ casoId } = await seedClienteCaso(admin, { sufixo }));
+  tituloTarefa = `[E2E] Analisar ${Date.now()}`;
+  tarefaId = await seedTarefa(tituloTarefa);
 });
 
 test.afterAll(async () => {
-  await admin.from("tarefas_excluidas").delete().eq("tarefa_id", tarefaId);
+  // Leva junto o log de exclusões (tarefas_excluidas por caso_id).
   await cleanupE2E(admin);
 });
 
 test("clicar Feito abre popup; excluir exige motivo e registra no log", async ({ page }) => {
-  await page.goto(`/casos/${casoId}`);
-  // Aba Atividades.
-  await page.getByText("Atividades", { exact: true }).first().click();
-  await expect(page.getByText(tituloTarefa)).toBeVisible({ timeout: 20000 });
-
   // Concluir é DENTRO da tarefa: abre o card e põe o Status em "Feito". O
   // menu "..." que fazia isso sem abrir saiu em 2026-09-09.
-  const cardTarefa = page
-    .locator("div.group")
-    .filter({ hasText: tituloTarefa })
-    .first();
-  await cardTarefa.getByText(tituloTarefa).click();
-  await expect(page.getByRole("heading", { name: "Editar tarefa" })).toBeVisible({
-    timeout: 10000,
-  });
-  await page.getByRole("combobox", { name: "Status" }).click();
-  await page.getByRole("option", { name: "Feito", exact: true }).click();
+  await abrirTarefaNoCaso(page, casoId, tituloTarefa);
+  await marcarFeito(page);
 
   // Popup de conclusão: "Concluir tarefa" e "Excluir com motivo"; o "Editar
   // tarefa" saiu (card #306).
@@ -116,28 +124,8 @@ test("clicar Feito abre popup; excluir exige motivo e registra no log", async ({
   expect(and!.visivel_parceiro).toBe(false);
 });
 
-async function seedTarefa(titulo: string): Promise<string> {
-  const { data, error } = await admin
-    .from("tarefas")
-    .insert({ caso_id: casoId, tipo: "interna", status: "a_fazer", titulo, origem: "manual" })
-    .select("id")
-    .single();
-  if (error) throw new Error(`seed tarefa: ${error.message}`);
-  return data.id;
-}
-
-// Abre a tarefa pela aba Atividades e clica "Concluir tarefa" no popup.
-async function concluirPeloPopup(page: Page, titulo: string) {
-  await page.goto(`/casos/${casoId}`);
-  await page.getByText("Atividades", { exact: true }).first().click();
-  await expect(page.getByText(titulo)).toBeVisible({ timeout: 20000 });
-  const card = page.locator("div.group").filter({ hasText: titulo }).first();
-  await card.getByText(titulo).click();
-  await expect(page.getByRole("heading", { name: "Editar tarefa" })).toBeVisible({
-    timeout: 10000,
-  });
-  await page.getByRole("combobox", { name: "Status" }).click();
-  await page.getByRole("option", { name: "Feito", exact: true }).click();
+// Clica "Concluir tarefa" no popup já aberto e espera a etapa "Próxima tarefa".
+async function concluirNoPopup(page: Page) {
   await page
     .getByRole("dialog", { name: "Concluir tarefa" })
     .getByRole("button", { name: "Concluir tarefa", exact: true })
@@ -145,6 +133,13 @@ async function concluirPeloPopup(page: Page, titulo: string) {
   const proxima = page.getByRole("dialog", { name: "Próxima tarefa do caso" });
   await expect(proxima).toBeVisible({ timeout: 15000 });
   return proxima;
+}
+
+// Abre a tarefa pela aba Atividades e clica "Concluir tarefa" no popup.
+async function concluirPeloPopup(page: Page, titulo: string) {
+  await abrirTarefaNoCaso(page, casoId, titulo);
+  await marcarFeito(page);
+  return concluirNoPopup(page);
 }
 
 // O sheet ocupa a direita (max-w-md): o canto esquerdo é o fundo escurecido.
@@ -160,12 +155,6 @@ async function clicarForaEEsc(page: Page) {
   // Tempo da animação de saída (se tivesse fechado, já teria sumido).
   await page.waitForTimeout(600);
   await expect(sheet).toHaveAttribute("data-state", "open");
-}
-
-async function statusDa(id: string): Promise<string> {
-  const { data, error } = await admin.from("tarefas").select("status").eq("id", id).single();
-  if (error) throw new Error(`status: ${error.message}`);
-  return data.status;
 }
 
 test("sem sugestão da IA: Criar nova tarefa abre o formulário em branco", async ({ page }) => {
@@ -201,10 +190,7 @@ test("Nova tarefa: não existe em /tarefas; no caso, clique fora e Esc não fech
   });
   await expect(page.getByRole("button", { name: "Nova tarefa" })).toHaveCount(0);
 
-  await page.goto(`/casos/${casoId}`);
-  await page.getByText("Atividades", { exact: true }).first().click();
-  await page.getByRole("button", { name: "Nova tarefa" }).click();
-  await expect(page.getByRole("heading", { name: "Nova tarefa" })).toBeVisible({ timeout: 10000 });
+  await abrirNovaTarefaNoCaso(page, casoId);
   await page.locator("#t-titulo").fill("[E2E] rascunho travado");
 
   await clicarForaEEsc(page);
@@ -221,11 +207,12 @@ test("com sugestão da IA: Editar tarefa sugerida abre o formulário preenchido"
   const tituloSugerido = `[E2E] Acompanhar implantação ${Date.now()}`;
   const vence = new Date(Date.now() + 5 * 86400_000);
   vence.setUTCHours(12, 0, 0, 0); // 09:00 de Brasília
-  const { data: eu } = await admin
+  const { data: eu, error: erroEu } = await admin
     .from("usuarios")
     .select("id, nome")
     .eq("email", "e2e+interno@marasandraconnect.com")
     .single();
+  if (erroEu) throw new Error(`usuario e2e+interno: ${erroEu.message}`);
 
   await page.route("**/functions/v1/sugerir-proxima-tarefa", async (route) => {
     const cors = {
@@ -248,8 +235,8 @@ test("com sugestão da IA: Editar tarefa sugerida abre o formulário preenchido"
           tipo: "contato_cliente",
           prioridade: 2,
           due_at: vence.toISOString(),
-          responsavel_id: eu?.id ?? null,
-          responsavel_nome: eu?.nome ?? null,
+          responsavel_id: eu.id,
+          responsavel_nome: eu.nome,
           processo_admin_id: null,
           processo_judicial_id: null,
         },
@@ -284,13 +271,14 @@ test("com sugestão da IA: Editar tarefa sugerida abre o formulário preenchido"
       async () => {
         const { data, error } = await admin
           .from("tarefas")
-          .select("caso_id, tipo, responsavel_id")
+          .select("caso_id, tipo, prioridade, responsavel_id")
           .eq("titulo", tituloSugerido);
         if (error) throw error;
         return data.length === 1 &&
           data[0].caso_id === casoId &&
           data[0].tipo === "contato_cliente" &&
-          data[0].responsavel_id === (eu?.id ?? null)
+          data[0].prioridade === 2 &&
+          data[0].responsavel_id === eu.id
           ? "ok"
           : JSON.stringify(data);
       },
@@ -302,10 +290,7 @@ test("com sugestão da IA: Editar tarefa sugerida abre o formulário preenchido"
 test("Concluir sem criar nova tarefa fecha e não cria nada", async ({ page }) => {
   const titulo = `[E2E] Proxima nenhuma ${Date.now()}`;
   const id = await seedTarefa(titulo);
-  const { count: antes } = await admin
-    .from("tarefas")
-    .select("id", { count: "exact", head: true })
-    .eq("caso_id", casoId);
+  const antes = await contarTarefasDoCaso();
 
   const proxima = await concluirPeloPopup(page, titulo);
   await proxima.getByRole("button", { name: "Concluir sem criar nova tarefa" }).click();
@@ -313,9 +298,41 @@ test("Concluir sem criar nova tarefa fecha e não cria nada", async ({ page }) =
   await expect(page.getByRole("heading", { name: "Nova tarefa" })).toHaveCount(0);
 
   expect(await statusDa(id)).toBe("feito");
-  const { count: depois } = await admin
-    .from("tarefas")
-    .select("id", { count: "exact", head: true })
-    .eq("caso_id", casoId);
-  expect(depois).toBe(antes);
+  expect(await contarTarefasDoCaso()).toBe(antes);
+});
+
+test("na Agenda: concluir a perícia também abre a próxima tarefa do caso", async ({ page }) => {
+  // Perícia em si (entra na Agenda) amanhã às 09:00 de Brasília.
+  const titulo = `[E2E] PERICIA AGENDADA ${Date.now()}`;
+  const amanha = new Date(Date.now() + 86400_000);
+  amanha.setUTCHours(12, 0, 0, 0);
+  const id = await seedTarefa(titulo, {
+    tipo: "pericia",
+    due_at: amanha.toISOString(),
+    metadata: { pericia_evento: true },
+  });
+
+  await page.goto("/agenda");
+  await page.getByRole("tab", { name: "Lista" }).click();
+  // O card da Agenda mostra o CLIENTE (não o título da tarefa) e o selo "via
+  // tarefa"; a única tarefa do caso com data na Agenda é esta perícia.
+  await page
+    .getByRole("button")
+    .filter({ hasText: nomeCliente })
+    .filter({ hasText: "via tarefa" })
+    .first()
+    .click({ timeout: 20000 });
+  await expect(page.getByRole("heading", { name: "Editar tarefa" })).toBeVisible({ timeout: 10000 });
+  await marcarFeito(page);
+  const proxima = await concluirNoPopup(page);
+
+  await expect.poll(() => statusDa(id), { timeout: 15000 }).toBe("feito");
+  // Antes os botões desta etapa não abriam nada na Agenda.
+  await expect(proxima.getByText("Não consegui sugerir a próxima tarefa.")).toBeVisible({
+    timeout: 40000,
+  });
+  await proxima.getByRole("button", { name: "Criar nova tarefa", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Nova tarefa" })).toBeVisible({ timeout: 10000 });
+  await page.getByRole("button", { name: "Cancelar", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Nova tarefa" })).toHaveCount(0);
 });

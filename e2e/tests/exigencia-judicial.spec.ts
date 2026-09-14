@@ -7,10 +7,11 @@
 // aparece), tarefa de acompanhamento e tarefa FATAL no dia útil anterior
 // ao fatal (regra da casa: vencer no fatal é perder o prazo).
 
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 import { STORAGE_INTERNO } from "../auth.setup";
 import { cursorVisivel } from "../cursor";
 import { adminClient, cleanupE2E, seedClienteCaso } from "../supabase-admin";
+import { abrirNovaTarefaNoCaso } from "../tarefas";
 
 test.use({ storageState: STORAGE_INTERNO });
 
@@ -47,21 +48,12 @@ test.afterAll(async () => {
   await cleanupE2E(admin);
 });
 
-// "Nova tarefa" saiu de /tarefas (2026-09-14): tarefa nova nasce no caso, que
-// já vem preenchido no formulário.
-async function abrirNovaTarefaNoCaso(page: Page) {
-  await page.goto(`/casos/${casoId}`);
-  await page.getByText("Atividades", { exact: true }).first().click();
-  await page.getByRole("button", { name: "Nova tarefa" }).click();
-  await expect(page.getByRole("heading", { name: "Nova tarefa" })).toBeVisible({ timeout: 10000 });
-}
-
 test("exigência judicial cria solicitação com prazo e FATAL no dia útil anterior", async ({
   page,
 }) => {
   const { fatal, vesperaBR, fatalBR } = proximaSexta();
 
-  await abrirNovaTarefaNoCaso(page);
+  await abrirNovaTarefaNoCaso(page, casoId);
   // Aberta no caso: Cliente já vem preenchido (grava caso_id).
   await expect(page.getByRole("combobox").filter({ hasText: nomeCliente })).toBeVisible();
 
@@ -213,7 +205,7 @@ test("solicitação atendida: andamento + tarefa de juntada + Aguardando fechada
 test("calculadora de prazo: publicação + dias úteis preenche o fatal", async ({
   page,
 }) => {
-  await abrirNovaTarefaNoCaso(page);
+  await abrirNovaTarefaNoCaso(page, casoId);
   await page.getByRole("combobox").filter({ hasText: "Escolha um template" }).click();
   await page.getByRole("option", { name: "Exigência Judicial" }).click();
 

@@ -2,9 +2,10 @@
 // Exercita os Selects Radix em portal e valida que TODAS as tarefas do
 // template saem com responsável (feature dos selects por item).
 
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 import { STORAGE_INTERNO } from "../auth.setup";
 import { adminClient, cleanupE2E, seedClienteCaso } from "../supabase-admin";
+import { abrirNovaTarefaNoCaso } from "../tarefas";
 
 test.use({ storageState: STORAGE_INTERNO });
 
@@ -22,17 +23,8 @@ test.afterAll(async () => {
   await cleanupE2E(admin);
 });
 
-// "Nova tarefa" saiu de /tarefas (2026-09-14): tarefa nova nasce no caso, que
-// já vem preenchido no formulário.
-async function abrirNovaTarefaNoCaso(page: Page) {
-  await page.goto(`/casos/${casoId}`);
-  await page.getByText("Atividades", { exact: true }).first().click();
-  await page.getByRole("button", { name: "Nova tarefa" }).click();
-  await expect(page.getByRole("heading", { name: "Nova tarefa" })).toBeVisible({ timeout: 10000 });
-}
-
 test("template indeferido cria 2 tarefas, ambas com responsável", async ({ page }) => {
-  await abrirNovaTarefaNoCaso(page);
+  await abrirNovaTarefaNoCaso(page, casoId);
   await expect(page.getByRole("combobox").filter({ hasText: nomeCliente })).toBeVisible();
 
   // Select do template.
