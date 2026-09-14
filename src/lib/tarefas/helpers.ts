@@ -286,3 +286,16 @@ export function beneficioTemPericia(tipoBeneficio: string | null | undefined): b
   if (!tipoBeneficio) return false;
   return /acidente|doen[çc]a|incapacidad|invalidez|bpc|loas/i.test(tipoBeneficio);
 }
+
+/**
+ * Tarefa de perícia é a PERÍCIA EM SI (vai pra Agenda) ou uma tarefa SOBRE a
+ * perícia (acompanhar resultado, contatar parceiro, ligar pra agendar)?
+ * A flag metadata.pericia_evento (gravada pela migration/sheet) decide; sem
+ * ela, o título. Usado pela Agenda (o que entra) e pelo sheet (o checkbox).
+ */
+export function ehPericiaEmSi(t: { titulo: string; metadata?: unknown }): boolean {
+  const flag = (t.metadata as { pericia_evento?: boolean } | null | undefined)?.pericia_evento;
+  if (flag === true) return true;
+  if (flag === false) return false;
+  return !/(acompanh|contatar|resultado|ligar|compareceu|agendamento de)/i.test(t.titulo);
+}

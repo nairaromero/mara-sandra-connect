@@ -5,6 +5,7 @@
 import { test, expect } from "@playwright/test";
 import { STORAGE_INTERNO } from "../auth.setup";
 import { adminClient, cleanupE2E, seedClienteCaso } from "../supabase-admin";
+import { abrirNovaTarefaNoCaso } from "../tarefas";
 
 test.use({ storageState: STORAGE_INTERNO });
 
@@ -23,12 +24,8 @@ test.afterAll(async () => {
 });
 
 test("template indeferido cria 2 tarefas, ambas com responsável", async ({ page }) => {
-  await page.goto("/tarefas");
-  await page.getByRole("button", { name: "Nova tarefa" }).click();
-
-  // Combobox do Cliente (trigger mostra o placeholder "Sem cliente").
-  await page.getByRole("combobox").filter({ hasText: "Sem cliente" }).click();
-  await page.getByRole("option", { name: nomeCliente }).click();
+  await abrirNovaTarefaNoCaso(page, casoId);
+  await expect(page.getByRole("combobox").filter({ hasText: nomeCliente })).toBeVisible();
 
   // Select do template.
   await page.getByRole("combobox").filter({ hasText: "Escolha um template" }).click();

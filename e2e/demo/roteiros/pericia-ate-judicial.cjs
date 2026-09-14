@@ -106,13 +106,17 @@ const {
 
     // ---- 3. perícia agendada: template Perícia INSS ----
     await narrar(p1, "O INSS agendou! Template Perícia INSS: agenda, aviso pronto ao parceiro, comparecimento e resultado.");
+    // "Nova tarefa" saiu de /tarefas (2026-09-14): abre no caso, aba Atividades,
+    // e o Cliente já vem preenchido.
     for (let t = 1; ; t++) {
-      try { await p1.goto(BASE + "/tarefas", { waitUntil: "domcontentloaded", timeout: 45000 }); break; }
+      try { await p1.goto(BASE + "/casos/" + casoId, { waitUntil: "domcontentloaded", timeout: 45000 }); break; }
       catch (e) { if (t >= 2) throw e; }
     }
+    await p1.getByText("Jorge Batista Leal").first().waitFor({ timeout: 20000 });
+    await clicar(p1, p1.getByText("Atividades", { exact: true }).first());
+    await ler(p1, 800);
     await clicar(p1, p1.getByRole("button", { name: "Nova tarefa" }));
-    await clicar(p1, p1.getByRole("combobox").filter({ hasText: "Sem caso" }));
-    await clicar(p1, p1.getByRole("option", { name: "Jorge Batista Leal" }));
+    await p1.getByRole("combobox").filter({ hasText: "Jorge Batista Leal" }).waitFor({ timeout: 10000 });
     await clicar(p1, p1.getByRole("combobox").filter({ hasText: "Escolha um template" }));
     await clicar(p1, p1.getByRole("option", { name: /^Perícia INSS \(/ }));
     await ler(p1, 1500);
@@ -120,7 +124,8 @@ const {
     await ler(p1, 1800);
     await still(p1, "02-pericia-agendando");
     await clicar(p1, p1.getByRole("button", { name: "Salvar" }));
-    await p1.getByRole("button", { name: "Nova tarefa" }).waitFor({ timeout: 30000 });
+    // Salvou = o sheet fechou (título "Nova tarefa" some).
+    await p1.getByRole("heading", { name: "Nova tarefa" }).waitFor({ state: "hidden", timeout: 30000 });
     await ler(p1, 1500);
     await limparNarracao(p1);
 

@@ -11,6 +11,7 @@ import { test, expect } from "@playwright/test";
 import { STORAGE_INTERNO } from "../auth.setup";
 import { cursorVisivel } from "../cursor";
 import { adminClient, cleanupE2E, seedClienteCaso } from "../supabase-admin";
+import { abrirNovaTarefaNoCaso } from "../tarefas";
 
 test.use({ storageState: STORAGE_INTERNO });
 
@@ -52,12 +53,9 @@ test("exigência judicial cria solicitação com prazo e FATAL no dia útil ante
 }) => {
   const { fatal, vesperaBR, fatalBR } = proximaSexta();
 
-  await page.goto("/tarefas");
-  await page.getByRole("button", { name: "Nova tarefa" }).click();
-
-  // Combobox do Cliente (grava caso_id; busca por nome).
-  await page.getByRole("combobox").filter({ hasText: "Sem cliente" }).click();
-  await page.getByRole("option", { name: nomeCliente }).click();
+  await abrirNovaTarefaNoCaso(page, casoId);
+  // Aberta no caso: Cliente já vem preenchido (grava caso_id).
+  await expect(page.getByRole("combobox").filter({ hasText: nomeCliente })).toBeVisible();
 
   // Select do template.
   await page.getByRole("combobox").filter({ hasText: "Escolha um template" }).click();
@@ -207,10 +205,7 @@ test("solicitação atendida: andamento + tarefa de juntada + Aguardando fechada
 test("calculadora de prazo: publicação + dias úteis preenche o fatal", async ({
   page,
 }) => {
-  await page.goto("/tarefas");
-  await page.getByRole("button", { name: "Nova tarefa" }).click();
-  await page.getByRole("combobox").filter({ hasText: "Sem cliente" }).click();
-  await page.getByRole("option", { name: nomeCliente }).click();
+  await abrirNovaTarefaNoCaso(page, casoId);
   await page.getByRole("combobox").filter({ hasText: "Escolha um template" }).click();
   await page.getByRole("option", { name: "Exigência Judicial" }).click();
 

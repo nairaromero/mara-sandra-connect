@@ -60,6 +60,9 @@ export type ChatOpts = {
   tools: ToolDef[];
   maxTokens?: number; // teto de saida; default MAX_TOKENS (chat). Analise usa mais.
   attachments?: Attachment[]; // anexados a ULTIMA mensagem 'user' (PDF/imagem).
+  // Aborta o fetch do provider (ex.: AbortSignal.timeout). Diferente de um
+  // Promise.race, a requisicao para de verdade — nao fica pendurada gastando token.
+  signal?: AbortSignal;
 };
 
 // Blocos de anexo por provider. Anthropic le PDF/imagem nativamente (document/
@@ -182,6 +185,7 @@ async function anthropicChat(
       "content-type": "application/json",
     },
     body: JSON.stringify(body),
+    signal: opts.signal,
   });
 
   if (!resp.ok) {
@@ -253,6 +257,7 @@ async function openaiChat(
       "content-type": "application/json",
     },
     body: JSON.stringify(body),
+    signal: opts.signal,
   });
 
   if (!resp.ok) {
