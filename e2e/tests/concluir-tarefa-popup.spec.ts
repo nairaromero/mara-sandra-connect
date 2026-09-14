@@ -6,7 +6,8 @@
 // e abre "Próxima tarefa do caso": com sugestão da IA → "Editar tarefa
 // sugerida" abre o formulário preenchido (nada é criado sem salvar); sem
 // sugestão → "Criar nova tarefa" em branco; "Concluir sem criar nova tarefa"
-// fecha sem criar.
+// fecha sem criar. A nova tarefa (dali ou do botão "Nova tarefa") não fecha
+// por clique fora nem Esc — só Cancelar/X.
 //
 // O staging não tem chave de IA: o caminho sem sugestão é o real; o com
 // sugestão simula a resposta da edge sugerir-proxima-tarefa.
@@ -146,6 +147,21 @@ async function concluirPeloPopup(page: Page, titulo: string) {
   return proxima;
 }
 
+// O sheet ocupa a direita (max-w-md): o canto esquerdo é o fundo escurecido.
+// Confere o data-state do sheet a cada gesto — o heading continua "visível"
+// durante a animação de saída e deixaria passar um sheet que fechou.
+async function clicarForaEEsc(page: Page) {
+  const sheet = page.getByRole("dialog").filter({ has: page.getByRole("heading", { name: "Nova tarefa" }) });
+  const altura = page.viewportSize()?.height ?? 720;
+  await page.mouse.click(20, Math.round(altura / 2));
+  await expect(sheet).toHaveAttribute("data-state", "open");
+  await page.keyboard.press("Escape");
+  await expect(sheet).toHaveAttribute("data-state", "open");
+  // Tempo da animação de saída (se tivesse fechado, já teria sumido).
+  await page.waitForTimeout(600);
+  await expect(sheet).toHaveAttribute("data-state", "open");
+}
+
 async function statusDa(id: string): Promise<string> {
   const { data, error } = await admin.from("tarefas").select("status").eq("id", id).single();
   if (error) throw new Error(`status: ${error.message}`);
@@ -165,6 +181,38 @@ test("sem sugestão da IA: Criar nova tarefa abre o formulário em branco", asyn
   await proxima.getByRole("button", { name: "Criar nova tarefa", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Nova tarefa" })).toBeVisible({ timeout: 10000 });
   await expect(page.locator("#t-titulo")).toHaveValue("");
+
+  // Travado: clique fora e Esc não fecham o formulário; só Cancelar/X.
+  await page.locator("#t-titulo").fill("rascunho que não pode sumir");
+  await clicarForaEEsc(page);
+  await expect(page.getByRole("heading", { name: "Nova tarefa" })).toBeVisible();
+  await expect(page.locator("#t-titulo")).toHaveValue("rascunho que não pode sumir");
+  await page.getByRole("button", { name: "Cancelar", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Nova tarefa" })).toHaveCount(0);
+});
+
+test("Nova tarefa: não existe em /tarefas; no caso, clique fora e Esc não fecham e o X fecha", async ({
+  page,
+}) => {
+  // Saiu da tela Tarefas (2026-09-14): tarefa nova nasce no caso.
+  await page.goto("/tarefas");
+  await expect(page.getByRole("heading", { name: "Tarefas", level: 1 })).toBeVisible({
+    timeout: 20000,
+  });
+  await expect(page.getByRole("button", { name: "Nova tarefa" })).toHaveCount(0);
+
+  await page.goto(`/casos/${casoId}`);
+  await page.getByText("Atividades", { exact: true }).first().click();
+  await page.getByRole("button", { name: "Nova tarefa" }).click();
+  await expect(page.getByRole("heading", { name: "Nova tarefa" })).toBeVisible({ timeout: 10000 });
+  await page.locator("#t-titulo").fill("[E2E] rascunho travado");
+
+  await clicarForaEEsc(page);
+  await expect(page.getByRole("heading", { name: "Nova tarefa" })).toBeVisible();
+  await expect(page.locator("#t-titulo")).toHaveValue("[E2E] rascunho travado");
+
+  await page.getByRole("dialog").getByRole("button", { name: "Close" }).click();
+  await expect(page.getByRole("heading", { name: "Nova tarefa" })).toHaveCount(0);
 });
 
 test("com sugestão da IA: Editar tarefa sugerida abre o formulário preenchido", async ({ page }) => {

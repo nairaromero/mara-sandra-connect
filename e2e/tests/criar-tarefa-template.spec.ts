@@ -2,7 +2,7 @@
 // Exercita os Selects Radix em portal e valida que TODAS as tarefas do
 // template saem com responsável (feature dos selects por item).
 
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { STORAGE_INTERNO } from "../auth.setup";
 import { adminClient, cleanupE2E, seedClienteCaso } from "../supabase-admin";
 
@@ -22,13 +22,18 @@ test.afterAll(async () => {
   await cleanupE2E(admin);
 });
 
-test("template indeferido cria 2 tarefas, ambas com responsável", async ({ page }) => {
-  await page.goto("/tarefas");
+// "Nova tarefa" saiu de /tarefas (2026-09-14): tarefa nova nasce no caso, que
+// já vem preenchido no formulário.
+async function abrirNovaTarefaNoCaso(page: Page) {
+  await page.goto(`/casos/${casoId}`);
+  await page.getByText("Atividades", { exact: true }).first().click();
   await page.getByRole("button", { name: "Nova tarefa" }).click();
+  await expect(page.getByRole("heading", { name: "Nova tarefa" })).toBeVisible({ timeout: 10000 });
+}
 
-  // Combobox do Cliente (trigger mostra o placeholder "Sem cliente").
-  await page.getByRole("combobox").filter({ hasText: "Sem cliente" }).click();
-  await page.getByRole("option", { name: nomeCliente }).click();
+test("template indeferido cria 2 tarefas, ambas com responsável", async ({ page }) => {
+  await abrirNovaTarefaNoCaso(page);
+  await expect(page.getByRole("combobox").filter({ hasText: nomeCliente })).toBeVisible();
 
   // Select do template.
   await page.getByRole("combobox").filter({ hasText: "Escolha um template" }).click();
