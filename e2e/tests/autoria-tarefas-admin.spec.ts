@@ -70,7 +70,7 @@ test("concluir tarefa grava quem concluiu e o card mostra", async ({ page }) => 
   await expect(dialog.getByText("Editar tarefa")).toBeVisible();
   await dialog.getByRole("combobox").filter({ hasText: "A fazer" }).click();
   await page.getByRole("option", { name: "Feito", exact: true }).click();
-  await page.getByRole("button", { name: /Concluir tarefa e adicionar outra/ }).click();
+  await page.getByRole("button", { name: "Concluir tarefa", exact: true }).click();
 
   await expect
     .poll(
@@ -88,10 +88,9 @@ test("concluir tarefa grava quem concluiu e o card mostra", async ({ page }) => 
     )
     .toBe("ok");
 
-  // Concluir agora já abre a criação da PRÓXIMA tarefa ("e adicionar outra").
-  // Como aqui não vamos criar outra, cancela esse sheet.
-  await expect(page.getByRole("heading", { name: "Nova tarefa" })).toBeVisible({ timeout: 10_000 });
-  await page.getByRole("button", { name: "Cancelar" }).click();
+  // Concluir abre "Próxima tarefa do caso" (card #306). Aqui não vamos criar
+  // outra.
+  await page.getByRole("button", { name: "Concluir sem criar nova tarefa" }).click();
 
   // Aba Arquivados mostra "Concluída por <nome do e2e>".
   await page.getByRole("tab", { name: /Arquivados/ }).click();
