@@ -1179,7 +1179,14 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
 
   return (
     <Sheet open={aberto} onOpenChange={(o) => !o && fechar()}>
-      <SheetContent className="w-full sm:max-w-md overflow-y-auto">
+      <SheetContent
+        className="w-full sm:max-w-md overflow-y-auto"
+        // Nova tarefa não fecha por clique fora nem Esc: quem abriu (inclusive
+        // pelo "Próxima tarefa do caso") perdia o que digitou sem querer. Sair
+        // só pelo X ou pelo Cancelar. Na edição continua como antes.
+        onInteractOutside={editando ? undefined : (e) => e.preventDefault()}
+        onEscapeKeyDown={editando ? undefined : (e) => e.preventDefault()}
+      >
         <SheetHeader>
           <SheetTitle>{editando ? "Editar tarefa" : "Nova tarefa"}</SheetTitle>
           {editando && tarefa && (

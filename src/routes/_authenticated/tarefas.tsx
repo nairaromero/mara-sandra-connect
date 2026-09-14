@@ -4,8 +4,10 @@
 //
 // A vista Kanban foi aposentada em 2026-09-09 (Naira): as colunas nunca
 // tiveram arrastar-e-soltar, e sem o menu "..." do card sobrava um quadro
-// só de leitura duplicando a lista. Criar, alterar e excluir tarefa é no
-// sheet — click no card abre; "Nova tarefa" abre vazia.
+// só de leitura duplicando a lista. Alterar e excluir tarefa é no sheet —
+// click no card abre. Sem botão "Nova tarefa" aqui desde 2026-09-14 (Naira):
+// tarefa nova nasce no caso (aba Atividades) ou na "Próxima tarefa do caso"
+// ao concluir.
 
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -14,7 +16,6 @@ import {
   ChevronDown,
   ChevronRight,
   Loader2,
-  Plus,
   Search,
   Ticket,
   X,
@@ -108,7 +109,9 @@ function dataDeArquivamento(t: TarefaComJoins): string | null {
 }
 
 type Modo =
-  | { kind: "criar"; casoIdInicial?: string | null; sugestao?: SugestaoProximaTarefa }
+  // Tarefa nova aqui só nasce da "Próxima tarefa do caso" (vem do caso da
+  // tarefa concluída) — o "Nova tarefa" em branco saiu em 2026-09-14.
+  | { kind: "criar"; casoIdInicial: string | null; sugestao?: SugestaoProximaTarefa }
   | { kind: "editar"; tarefa: TarefaComJoins };
 
 // ---------------------------------------------------------------------------
@@ -375,10 +378,6 @@ function TarefasPage() {
               abrir: é lá dentro que se muda o status, edita e exclui.
             </p>
           </div>
-          <Button onClick={() => setSheetModo({ kind: "criar" })}>
-            <Plus className="h-4 w-4" />
-            Nova tarefa
-          </Button>
         </div>
 
         {/* Radar: casos sem tarefa aberta nem evento futuro — ninguém é

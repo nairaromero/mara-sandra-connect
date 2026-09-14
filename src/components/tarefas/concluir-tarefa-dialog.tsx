@@ -5,8 +5,7 @@
 // registrada. Ex.: análise criada por importação do Legalmail num caso
 // judicial precisa ser EXCLUÍDA (com motivo), não concluída.
 //
-// Duas saídas (card #306, 2026-09-14 — "Editar tarefa" saiu: o popup só abre
-// de dentro da tarefa, então era redundante):
+// Duas saídas:
 //   • Concluir  — marca 'feito' (some pra tarefa de desfecho pendente: ela se
 //                 conclui pelo próprio widget). O caller pode trocar a
 //                 persistência via `concluir` (o sheet salva TODAS as edições
@@ -267,7 +266,7 @@ export function ConcluirTarefaDialog(props: {
           </div>
         )}
 
-        {/* Tarefa de desfecho: não conclui pelo Feito — só editar/excluir. */}
+        {/* Tarefa de desfecho: não conclui pelo Feito — só exclui com motivo. */}
         {pendente && !modoExcluir && !etapaProxima && (
           <div className="flex gap-2 rounded-md border border-amber-400/50 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200">
             <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
