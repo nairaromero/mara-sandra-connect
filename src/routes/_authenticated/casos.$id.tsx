@@ -45,7 +45,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useTiposBeneficio } from "@/hooks/use-tipos-beneficio";
 import { DESTAQUE_CLASSE, useFocoItem } from "@/hooks/use-foco-item";
 import { notificarEquipe } from "@/lib/notificar";
-import { diasCorridosBR, fimDoDiaBR, inputDateBRParaIso } from "@/lib/fuso";
+import { diasCorridosBR, fimDoDiaBR, formatarBR, inputDateBRParaIso } from "@/lib/fuso";
 import { descreverSolicitante } from "@/lib/documentos/solicitante";
 import { iaAnalise } from "@/lib/ia/client";
 import { supabase } from "@/lib/supabase";
@@ -82,6 +82,15 @@ import { ClientOnly } from "@/components/client-only";
 import { DocTypeCombobox } from "@/components/doc-type-combobox";
 import { DrivePickerDialog, type DriveImportedFile } from "@/components/drive-picker-dialog";
 import { EditarSolicitacaoDialog } from "@/components/documentos/editar-solicitacao-dialog";
+import { CumprirTrocaSenhaDialog } from "@/components/documentos/cumprir-troca-senha-dialog";
+import {
+  buscarPedidoSenhaAberto,
+  ehPedidoSenhaMeuInss,
+  mensagemErroSenha,
+  pedirTrocaSenhaMeuInss,
+  prazoSugeridoSenha,
+  type PedidoSenhaAberto,
+} from "@/lib/documentos/senha-meu-inss";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -1758,6 +1767,63 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
   const [senhaParcSalvando, setSenhaParcSalvando] = useState(false);
   const [senhaParcTemSenha, setSenhaParcTemSenha] = useState(false);
 
+  // ---- Pedido de troca da senha ao parceiro (card #305) ----
+  // Um pedido aberto por CLIENTE. Interno pede (prazo + motivo opcional);
+  // parceiro vê o aviso e informa a nova senha — pelo pedido ou pelo "Alterar",
+  // que no banco já cumpre o pedido aberto.
+  const [pedidoSenha, setPedidoSenha] = useState<PedidoSenhaAberto | null>(null);
+  const [abrirPedirSenha, setAbrirPedirSenha] = useState(false);
+  const [prazoPedidoSenha, setPrazoPedidoSenha] = useState("");
+  const [motivoPedidoSenha, setMotivoPedidoSenha] = useState("");
+  const [enviandoPedidoSenha, setEnviandoPedidoSenha] = useState(false);
+  const [informandoSenhaPedido, setInformandoSenhaPedido] = useState(false);
+
+  const recarregarPedidoSenha = useCallback(async () => {
+    try {
+      setPedidoSenha(await buscarPedidoSenhaAberto(cliente.id));
+    } catch (e) {
+      // Sem a consulta não dá pra afirmar "sem pedido"; o botão de pedir
+      // continua seguro porque o banco devolve o pedido já aberto.
+      console.error("pedido de troca de senha:", e);
+      setPedidoSenha(null);
+    }
+  }, [cliente.id]);
+
+  useEffect(() => {
+    void recarregarPedidoSenha();
+  }, [recarregarPedidoSenha]);
+
+  function abrirDialogPedirSenha() {
+    setPrazoPedidoSenha(prazoSugeridoSenha());
+    setMotivoPedidoSenha("");
+    setAbrirPedirSenha(true);
+  }
+
+  async function enviarPedidoSenha() {
+    if (enviandoPedidoSenha) return;
+    setEnviandoPedidoSenha(true);
+    try {
+      const r = await pedirTrocaSenhaMeuInss({
+        casoId: caso.id,
+        prazo: prazoPedidoSenha,
+        motivo: motivoPedidoSenha,
+      });
+      toast.success(
+        r.jaExistia
+          ? "Já havia um pedido de troca aberto para este cliente."
+          : "Pedido enviado ao parceiro — você recebe uma tarefa quando ele trocar a senha.",
+      );
+      setAbrirPedirSenha(false);
+      await recarregarPedidoSenha();
+    } catch (err) {
+      toast.error(
+        mensagemErroSenha(err, "Não foi possível enviar o pedido agora. Tente de novo em instantes."),
+      );
+    } finally {
+      setEnviandoPedidoSenha(false);
+    }
+  }
+
   async function abrirAlterarSenhaParceiro() {
     setSenhaParcValor("");
     try {
@@ -1791,6 +1857,11 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
       setSenhaCarregada(false);
       setSenhaValor(null);
       setSenhaVisivel(false);
+      // Havia pedido da equipe? O banco já o cumpriu com esta troca.
+      if (pedidoSenha) {
+        toast.success("Pedido de troca da equipe concluído.");
+        void recarregarPedidoSenha();
+      }
     } catch (err) {
       console.error(err);
       const errObj = err as { message?: string };
@@ -2034,6 +2105,41 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                 </div>
               </div>
             )}
+            {isInterno && (pedidoSenha || caso.parceiro_id) && (
+              <div className="flex items-center justify-end gap-2 text-xs">
+                {pedidoSenha ? (
+                  <span className="flex items-center gap-1 min-w-0 text-muted-foreground">
+                    <Clock className="h-3.5 w-3.5 shrink-0 text-warning" />
+                    <span className="truncate">
+                      Troca pedida ao parceiro em{" "}
+                      {formatarBR(pedidoSenha.data_solicitacao, {
+                        day: "2-digit",
+                        month: "2-digit",
+                        year: "numeric",
+                      })}
+                      {pedidoSenha.solicitante?.nome ? ` por ${pedidoSenha.solicitante.nome}` : ""}
+                      {pedidoSenha.prazo_at
+                        ? ` · prazo ${formatarBR(pedidoSenha.prazo_at, {
+                            day: "2-digit",
+                            month: "2-digit",
+                            year: "numeric",
+                          })}`
+                        : ""}
+                    </span>
+                  </span>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-xs"
+                    onClick={abrirDialogPedirSenha}
+                  >
+                    <Send className="h-3.5 w-3.5 mr-1" />
+                    Pedir troca ao parceiro
+                  </Button>
+                )}
+              </div>
+            )}
             {!isInterno && (
               // Parceiro: olhinho revela a senha (RPC com audit; sem copiar
               // nem selecionar). Alterar continua write-only via dialog.
@@ -2078,6 +2184,28 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                     Alterar
                   </Button>
                 </div>
+              </div>
+            )}
+            {!isInterno && pedidoSenha && (
+              <div className="rounded-md border border-warning/40 bg-warning/10 p-2.5 text-xs space-y-2">
+                <p>
+                  <strong>A equipe pediu a troca desta senha</strong>
+                  {pedidoSenha.prazo_at
+                    ? ` — prazo ${formatarBR(pedidoSenha.prazo_at, {
+                        day: "2-digit",
+                        month: "2-digit",
+                        year: "numeric",
+                      })}`
+                    : ""}
+                  .
+                </p>
+                {pedidoSenha.descricao && (
+                  <p className="whitespace-pre-wrap text-muted-foreground">{pedidoSenha.descricao}</p>
+                )}
+                <Button size="sm" onClick={() => setInformandoSenhaPedido(true)}>
+                  <KeyRound className="h-3.5 w-3.5 mr-1" />
+                  Informar nova senha
+                </Button>
               </div>
             )}
             {cliente.observacoes && (
@@ -2374,6 +2502,90 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+          )}
+          {isInterno && (
+            <Dialog
+              open={abrirPedirSenha}
+              onOpenChange={(o) => !o && !enviandoPedidoSenha && setAbrirPedirSenha(false)}
+            >
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <KeyRound className="h-4 w-4" />
+                    Pedir troca da senha do Meu INSS
+                  </DialogTitle>
+                  <DialogDescription>
+                    {parceiro?.nome || "O parceiro"} recebe um e-mail e o pedido nas tarefas dele.
+                    Quando ele informar a nova senha, você recebe uma tarefa avisando.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="pedido-senha-prazo" className="text-xs">
+                      Prazo para o parceiro
+                    </Label>
+                    <Input
+                      id="pedido-senha-prazo"
+                      type="date"
+                      value={prazoPedidoSenha}
+                      onChange={(e) => setPrazoPedidoSenha(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Sugestão: 3 dias úteis. O parceiro recebe lembretes perto do prazo.
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="pedido-senha-motivo" className="text-xs">
+                      Motivo (opcional — vai no e-mail)
+                    </Label>
+                    <Textarea
+                      id="pedido-senha-motivo"
+                      rows={3}
+                      value={motivoPedidoSenha}
+                      onChange={(e) => setMotivoPedidoSenha(e.target.value)}
+                      placeholder="Ex.: a senha cadastrada não entra no Meu INSS."
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button
+                    variant="ghost"
+                    onClick={() => setAbrirPedirSenha(false)}
+                    disabled={enviandoPedidoSenha}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button onClick={enviarPedidoSenha} disabled={enviandoPedidoSenha}>
+                    {enviandoPedidoSenha && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
+                    Enviar pedido
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
+          {!isInterno && (
+            <CumprirTrocaSenhaDialog
+              pedido={
+                informandoSenhaPedido && pedidoSenha
+                  ? {
+                      id: pedidoSenha.id,
+                      clienteNome: cliente.nome,
+                      descricao: pedidoSenha.descricao,
+                      prazoAt: pedidoSenha.prazo_at,
+                      solicitanteNome: pedidoSenha.solicitante?.nome ?? null,
+                    }
+                  : null
+              }
+              onClose={() => setInformandoSenhaPedido(false)}
+              onCumprido={() => {
+                setInformandoSenhaPedido(false);
+                setSenhaCarregada(false);
+                setSenhaValor(null);
+                setSenhaVisivel(false);
+                void recarregarPedidoSenha();
+                onChange();
+              }}
+            />
           )}
           {!isInterno && (
             // Dialog write-only do parceiro. So input + Salvar.
@@ -4010,6 +4222,8 @@ function TabDocumentos(props: TabDocumentosProps) {
   const [salvandoModal, setSalvandoModal] = useState(false);
   // Solicitação pendente sendo editada (só interno).
   const [solicEditando, setSolicEditando] = useState<SolicitacaoDocumento | null>(null);
+  // Pedido de troca da senha do Meu INSS: o parceiro cumpre informando a senha.
+  const [trocandoSenha, setTrocandoSenha] = useState<SolicitacaoDocumento | null>(null);
   // Upload de arquivo no atendimento
   // Cumprimento aceita VÁRIOS arquivos (pedido dos parceiros, 2026-08-26),
   // cada um com o próprio tipo (Naira, 2026-08-26).
@@ -5084,6 +5298,12 @@ function TabDocumentos(props: TabDocumentosProps) {
   }
 
   function abrirAcaoModal(s: SolicitacaoDocumento, novoStatus: string) {
+    // Troca da senha do Meu INSS: sem senha nova não há troca — a equipe não
+    // marca atendido; o parceiro cumpre no diálogo da senha.
+    if (novoStatus === "atendido" && ehPedidoSenhaMeuInss(s.tipo)) {
+      if (!isInterno) setTrocandoSenha(s);
+      return;
+    }
     setAcaoAlvo({ solic: s, novoStatus: novoStatus });
     setComentarioModal(s.comentario || "");
     setArquivosUpload([]);
@@ -5827,14 +6047,20 @@ function TabDocumentos(props: TabDocumentosProps) {
                     </div>
                     {isInterno && isPendente && (
                       <div className="flex gap-1">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => abrirAcaoModal(s, "atendido")}
-                        >
-                          <CheckCircle2 className="h-3 w-3 mr-1" />
-                          Atendido
-                        </Button>
+                        {ehPedidoSenhaMeuInss(s.tipo) ? (
+                          <span className="text-xs text-muted-foreground self-center mr-1">
+                            Aguardando o parceiro informar a nova senha
+                          </span>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => abrirAcaoModal(s, "atendido")}
+                          >
+                            <CheckCircle2 className="h-3 w-3 mr-1" />
+                            Atendido
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           variant="ghost"
@@ -5845,14 +6071,16 @@ function TabDocumentos(props: TabDocumentosProps) {
                         {/* Editar tipo/observação. Só interno: o parceiro
                             cumpre, não redefine o pedido. Útil sobretudo nas
                             de template (texto bruto do despacho do INSS). */}
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setSolicEditando(s)}
-                          title="Editar solicitação"
-                        >
-                          <Pencil className="h-3 w-3" />
-                        </Button>
+                        {!ehPedidoSenhaMeuInss(s.tipo) && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setSolicEditando(s)}
+                            title="Editar solicitação"
+                          >
+                            <Pencil className="h-3 w-3" />
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           variant="ghost"
@@ -5884,7 +6112,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                         onClick={() => abrirAcaoModal(s, "atendido")}
                       >
                         <CheckCircle2 className="h-3 w-3 mr-1" />
-                        Cumprir
+                        {ehPedidoSenhaMeuInss(s.tipo) ? "Informar nova senha" : "Cumprir"}
                       </Button>
                     )}
                     {isInterno && !isPendente && (
@@ -6124,6 +6352,26 @@ function TabDocumentos(props: TabDocumentosProps) {
           tiposDocumento={tiposDocImportOptions}
           pastaRaizNome={gdriveFolderName}
           onConfirmar={importarDriveParaCaso}
+        />
+      )}
+      {!isInterno && (
+        <CumprirTrocaSenhaDialog
+          pedido={
+            trocandoSenha
+              ? {
+                  id: trocandoSenha.id,
+                  clienteNome: null,
+                  descricao: trocandoSenha.descricao,
+                  prazoAt: trocandoSenha.prazo_at,
+                  solicitanteNome: trocandoSenha.solicitante?.nome ?? null,
+                }
+              : null
+          }
+          onClose={() => setTrocandoSenha(null)}
+          onCumprido={() => {
+            setTrocandoSenha(null);
+            onChange();
+          }}
         />
       )}
       {/* Edição de solicitação pendente (interno only). */}

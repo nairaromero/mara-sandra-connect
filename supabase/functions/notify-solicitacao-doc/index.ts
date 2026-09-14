@@ -4,6 +4,10 @@
 // — e tambem os LEMBRETES de prazo (7d/3d/no dia do "enviar até"), disparados
 // pelo job diario enviar_lembretes_solicitacao() via pg_net.
 //
+// Pedido de troca da senha do Meu INSS (tipo 'senha_meu_inss', card #305):
+// mesmo circuito, com texto proprio — pede pra informar a nova senha NA
+// PLATAFORMA e nunca por e-mail. A senha nunca passa por aqui.
+//
 // Regras:
 //   - Criacao: envia apenas se origem='externa' (as de template avisam o
 //     parceiro pelo andamento visivel -> notify-novo-andamento).
@@ -85,6 +89,12 @@ function prazoBR(iso: string): string {
   }).format(new Date(iso));
 }
 
+const TIPO_PEDIDO_SENHA = "senha_meu_inss";
+
+// Resend pendurado nao pode segurar a funcao (e o job de lembretes) ate o
+// gateway estourar.
+const RESEND_TIMEOUT_MS = 20_000;
+
 const LEMBRETE_FRASE: Record<string, string> = {
   "7d": "O prazo para envio esta chegando: faltam menos de 7 dias.",
   "3d": "Atencao: faltam 3 dias ou menos para o prazo de envio.",
@@ -109,21 +119,31 @@ function renderEmail(opts: {
   linkCaso: string;
   prazoLabel: string | null;
   lembrete: string | null;
+  ehSenha: boolean;
 }): { html: string; text: string } {
-  const { parceiroNome, clienteNome, tipoLabel, descricao, linkCaso, prazoLabel, lembrete } = opts;
+  const { parceiroNome, clienteNome, tipoLabel, descricao, linkCaso, prazoLabel, lembrete, ehSenha } = opts;
   const desc = descricao ? escapeHtml(descricao) : null;
+  const oQue = ehSenha
+    ? "um pedido para trocar a senha do Meu INSS"
+    : "uma solicitacao de documento";
   const intro = lembrete
-    ? `${LEMBRETE_FRASE[lembrete] ?? "O prazo de envio esta proximo."} Ainda ha uma solicitacao de documento aberta no caso de <strong>${escapeHtml(clienteNome)}</strong>.`
-    : `Voce tem uma nova solicitacao de documento para o caso de <strong>${escapeHtml(clienteNome)}</strong>.`;
+    ? `${LEMBRETE_FRASE[lembrete] ?? "O prazo de envio esta proximo."} Ainda ha ${oQue} aberto no caso de <strong>${escapeHtml(clienteNome)}</strong>.`
+    : `Voce tem ${ehSenha ? "um novo pedido para trocar a senha do Meu INSS" : "uma nova solicitacao de documento"} do cliente <strong>${escapeHtml(clienteNome)}</strong>.`;
   const introText = lembrete
-    ? `${LEMBRETE_FRASE[lembrete] ?? "O prazo de envio esta proximo."} Ainda ha uma solicitacao de documento aberta no caso de ${clienteNome}.`
-    : `Voce tem uma nova solicitacao de documento para o caso de ${clienteNome}.`;
+    ? `${LEMBRETE_FRASE[lembrete] ?? "O prazo de envio esta proximo."} Ainda ha ${oQue} aberto no caso de ${clienteNome}.`
+    : `Voce tem ${ehSenha ? "um novo pedido para trocar a senha do Meu INSS" : "uma nova solicitacao de documento"} do cliente ${clienteNome}.`;
+  const rotuloItem = ehSenha ? "Pedido:" : "Documento solicitado:";
+  const rotuloPrazo = ehSenha ? "Prazo:" : "Prazo para envio:";
+  const instrucao = ehSenha
+    ? "Troque a senha no Meu INSS junto com o cliente e informe a nova senha na plataforma, pelo botao abaixo. Nunca envie a senha por e-mail ou WhatsApp."
+    : "Para enviar o documento, clique no botao abaixo. Voce sera direcionado(a) ao caso na plataforma:";
+  const botao = ehSenha ? "Acessar caso e informar a nova senha" : "Acessar caso e enviar documento";
 
   const html = `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8" />
-<title>Nova solicitacao de documento</title>
+<title>${ehSenha ? "Pedido de troca da senha do Meu INSS" : "Nova solicitacao de documento"}</title>
 </head>
 <body style="margin:0;padding:0;background:#f6f7f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1f2937;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f7f9;padding:24px 0;">
@@ -143,7 +163,7 @@ function renderEmail(opts: {
               <p style="margin:0 0 16px 0;font-size:15px;line-height:1.5;">${intro}</p>
               <table role="presentation" cellpadding="0" cellspacing="0" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:12px;margin:0 0 20px 0;width:100%;">
                 <tr>
-                  <td style="padding:8px 12px;font-size:13px;color:#6b7280;width:140px;">Documento solicitado:</td>
+                  <td style="padding:8px 12px;font-size:13px;color:#6b7280;width:140px;">${rotuloItem}</td>
                   <td style="padding:8px 12px;font-size:14px;font-weight:500;">${escapeHtml(tipoLabel)}</td>
                 </tr>
                 ${
@@ -157,7 +177,7 @@ function renderEmail(opts: {
                 ${
     prazoLabel
       ? `<tr>
-                  <td style="padding:8px 12px;font-size:13px;color:#6b7280;">Prazo para envio:</td>
+                  <td style="padding:8px 12px;font-size:13px;color:#6b7280;">${rotuloPrazo}</td>
                   <td style="padding:8px 12px;font-size:14px;font-weight:600;color:#b91c1c;">${escapeHtml(prazoLabel)}</td>
                 </tr>`
       : ""
@@ -167,11 +187,11 @@ function renderEmail(opts: {
                   <td style="padding:8px 12px;font-size:14px;">${escapeHtml(clienteNome)}</td>
                 </tr>
               </table>
-              <p style="margin:0 0 8px 0;font-size:14px;line-height:1.5;">Para enviar o documento, clique no botao abaixo. Voce sera direcionado(a) ao caso na plataforma:</p>
+              <p style="margin:0 0 8px 0;font-size:14px;line-height:1.5;">${instrucao}</p>
               <table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 24px 0;">
                 <tr>
                   <td bgcolor="#1f2937" style="border-radius:6px;">
-                    <a href="${linkCaso}" target="_blank" rel="noopener" style="display:inline-block;padding:12px 24px;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:6px;">Acessar caso e enviar documento</a>
+                    <a href="${linkCaso}" target="_blank" rel="noopener" style="display:inline-block;padding:12px 24px;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:6px;">${botao}</a>
                   </td>
                 </tr>
               </table>
@@ -199,12 +219,12 @@ function renderEmail(opts: {
     "",
     introText,
     "",
-    `Documento solicitado: ${tipoLabel}`,
+    `${rotuloItem} ${tipoLabel}`,
     desc ? `Observacao: ${descricao}` : "",
-    prazoLabel ? `Prazo para envio: ${prazoLabel}` : "",
+    prazoLabel ? `${rotuloPrazo} ${prazoLabel}` : "",
     `Cliente: ${clienteNome}`,
     "",
-    "Para enviar o documento, acesse o caso na plataforma:",
+    ehSenha ? instrucao : "Para enviar o documento, acesse o caso na plataforma:",
     linkCaso,
     "",
     "--",
@@ -323,6 +343,7 @@ serve(async (req) => {
     solic.tipos && solic.tipos.length > 0
       ? solic.tipos.map((t) => t.label || t.tipo).join(", ")
       : TIPOS_DOC_LABEL[solic.tipo] || solic.tipo;
+  const ehSenha = solic.tipo === TIPO_PEDIDO_SENHA;
   const linkCaso = `${APP_BASE_URL}/casos/${solic.casos.id}`;
   const prazoLabel = solic.prazo_at ? prazoBR(solic.prazo_at) : null;
 
@@ -334,6 +355,7 @@ serve(async (req) => {
     linkCaso,
     prazoLabel,
     lembrete,
+    ehSenha,
   });
 
   // Envia via Resend API REST
@@ -347,11 +369,14 @@ serve(async (req) => {
       from: FROM_EMAIL,
       to: parceiroEmail,
       subject: lembrete
-        ? `Lembrete de prazo${prazoLabel ? " " + prazoLabel : ""} - documentos pendentes - ${clienteNome}`
+        ? `Lembrete de prazo${prazoLabel ? " " + prazoLabel : ""} - ${ehSenha ? "troca da senha do Meu INSS" : "documentos pendentes"} - ${clienteNome}`
+        : ehSenha
+        ? `Pedido: trocar a senha do Meu INSS - ${clienteNome}`
         : `Nova solicitacao de documento - ${tipoLabel} - ${clienteNome}`,
       html,
       text,
     }),
+    signal: AbortSignal.timeout(RESEND_TIMEOUT_MS),
   });
 
   if (!resp.ok) {
