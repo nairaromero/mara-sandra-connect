@@ -195,15 +195,29 @@ serve(async (req) => {
 
     // ---- Tokens da Superficie B (Claude/ChatGPT) ----
     if (action === "token_listar") {
-      const { data } = await admin
+      const { data, error } = await admin
         .from("ia_tokens")
         .select("id,nome,prefixo,escopo,expira_em,ultimo_uso,revogado_em,criado_em")
         .eq("usuario_id", uid)
         .order("criado_em", { ascending: false });
+      // Falha de banco nao pode virar "voce nao tem tokens" (o card sumiria com
+      // tokens ativos, que continuam valendo no MCP).
+      if (error) return jsonResponse({ error: "falha ao listar tokens" }, 500);
       return jsonResponse({ tokens: data ?? [] });
     }
 
     if (action === "token_criar") {
+      // So admin gera token do MCP: o card ja e so de admin, aqui garante no
+      // servidor (o token roda com service-role no ia-mcp).
+      const { data: perfil, error: perfilErr } = await admin
+        .from("usuarios")
+        .select("eh_admin,ativo")
+        .eq("id", uid)
+        .maybeSingle();
+      if (perfilErr) return jsonResponse({ error: "falha ao verificar permissao" }, 500);
+      if (!perfil?.eh_admin || !perfil.ativo) {
+        return jsonResponse({ error: "apenas administradores geram tokens do MCP" }, 403);
+      }
       const nome = String(body.nome || "").trim() || "Token";
       const escopo = body.escopo === "leitura" ? "leitura" : "completo";
       const dias = Number(body.dias);
