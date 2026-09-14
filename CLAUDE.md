@@ -79,7 +79,10 @@ feature branch  ──merge──▶  staging  ──merge (após validação)�
 Pedido da Naira (2026-08-25), depois do code review que achou 10 bugs latentes
 no lote de agosto: **sempre olhar se nada quebrou no meio do caminho.**
 
-1. `bunx tsc --noEmit` + eslint nos arquivos tocados.
+1. `bunx tsc --noEmit` + eslint nos arquivos tocados. Desde 2026-09-14 o `tsc`
+   barra import, variável e parâmetro sem uso (`noUnusedLocals`/`noUnusedParameters`).
+   Parâmetro que a assinatura exige e o código não usa leva prefixo `_`
+   (`(_, i) => …`); o resto sem uso se apaga, não se silencia.
 2. Suíte E2E **completa** (`bunx playwright test`) antes do push — não só a spec da feature.
 3. Reler o próprio diff com lente de revisor, caçando os padrões que já morderam:
    - função de banco reescrita a partir de migration velha — partir SEMPRE do

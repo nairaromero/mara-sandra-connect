@@ -16,10 +16,12 @@
     /* Linting */
     "skipLibCheck": true,
     "strict": true,
-    /* Código morto zerado no #310: a partir daqui o tsc barra import/variável
-       sem uso (o eslint deixa no-unused-vars desligado). */
+    /* Código morto zerado no #310: a partir daqui o tsc barra import, variável
+       e parâmetro sem uso (o eslint deixa no-unused-vars desligado).
+       Parâmetro que a assinatura exige mas o código não usa (callback com
+       assinatura fixa): prefixo `_`, ex. `filter((_, i) => …)`, `(_caso, sugestao) => …`. */
     "noUnusedLocals": true,
-    "noUnusedParameters": false,
+    "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
     "paths": {
