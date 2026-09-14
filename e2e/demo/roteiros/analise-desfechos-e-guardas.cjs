@@ -123,19 +123,24 @@ const {
 
     // ---- Cena 4: Em Análise consertado ----
     await narrar(p1, "E o template 'Em Análise' — que só registra andamento — agora salva direto, sem travar.");
+    // "Nova tarefa" saiu de /tarefas (2026-09-14): abre no caso, aba Atividades,
+    // e o Cliente já vem preenchido.
     for (let t = 1; ; t++) {
-      try { await p1.goto(BASE + "/tarefas", { waitUntil: "domcontentloaded", timeout: 45000 }); break; }
+      try { await p1.goto(BASE + "/casos/" + casoDocs, { waitUntil: "domcontentloaded", timeout: 45000 }); break; }
       catch (e) { if (t >= 2) throw e; }
     }
+    await p1.getByText("Otavio Bento Sales").first().waitFor({ timeout: 20000 });
+    await clicar(p1, p1.getByText("Atividades", { exact: true }).first());
+    await ler(p1, 800);
     await clicar(p1, p1.getByRole("button", { name: "Nova tarefa" }));
-    await clicar(p1, p1.getByRole("combobox").filter({ hasText: "Sem caso" }));
-    await clicar(p1, p1.getByRole("option", { name: "Otavio Bento Sales" }));
+    await p1.getByRole("combobox").filter({ hasText: "Otavio Bento Sales" }).waitFor({ timeout: 10000 });
     await clicar(p1, p1.getByRole("combobox").filter({ hasText: "Escolha um template" }));
     await clicar(p1, p1.getByRole("option", { name: /^Em Análise \(/ }));
     await ler(p1, 1500);
     await still(p1, "04-em-analise-form");
     await clicar(p1, p1.getByRole("button", { name: "Salvar" }));
-    await p1.getByRole("button", { name: "Nova tarefa" }).waitFor({ timeout: 20000 });
+    // Salvou = o sheet fechou (título "Nova tarefa" some).
+    await p1.getByRole("heading", { name: "Nova tarefa" }).waitFor({ state: "hidden", timeout: 20000 });
     await narrar(p1, "Salvou: virou SÓ o andamento no caso — nenhuma tarefa fantasma.");
     await ler(p1, 3000);
     await still(p1, "05-em-analise-salvo");
