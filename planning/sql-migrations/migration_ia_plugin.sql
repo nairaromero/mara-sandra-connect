@@ -122,16 +122,14 @@ create index if not exists ia_tokens_usuario_idx on public.ia_tokens (usuario_id
 
 alter table public.ia_tokens enable row level security;
 
--- SELECT/gerenciar: dono ou interno (kill-switch).
+-- Leitura só do dono; escrita SÓ pelo backend (ia-config/ia-mcp com service
+-- role). Com `or is_interno()` qualquer interno lia os tokens de todos e trocava
+-- o dono de um token — corrigido em migration_ia_tokens_seguranca.sql
+-- (2026-09-11, leitura em 2026-09-14). Re-rodar este arquivo NÃO pode reabrir.
 drop policy if exists "ia_tokens_select" on public.ia_tokens;
 create policy "ia_tokens_select"
   on public.ia_tokens for select
-  using (usuario_id = auth.uid() or public.is_interno());
-
--- Escrita em ia_tokens: SÓ pelo backend (ia-config/ia-mcp com service role).
--- As policies de insert/update/delete para usuário foram removidas em
--- migration_ia_tokens_seguranca.sql (2026-09-11): com `or is_interno()` qualquer
--- interno trocava o dono de um token. Re-rodar este arquivo NÃO pode recriá-las.
+  using (usuario_id = auth.uid());
 drop policy if exists "ia_tokens_insert" on public.ia_tokens;
 drop policy if exists "ia_tokens_update" on public.ia_tokens;
 drop policy if exists "ia_tokens_delete" on public.ia_tokens;

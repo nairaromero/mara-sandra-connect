@@ -40,6 +40,7 @@ const INSTRUCOES =
   "Se o usuario apenas mencionar um cliente ou caso, sem pedir consulta ao sistema, NAO chame " +
   "as ferramentas: responda com o que ja tem ou pergunte se ele quer que voce consulte o sistema.";
 const PREFIXO_DESCRICAO = "[Sistema Mara Sandra - usar so quando o usuario pedir] ";
+const ULTIMO_USO_INTERVALO_MS = 5 * 60_000;
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -112,9 +113,11 @@ serve(async (req) => {
 
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
   const hash = await sha256Hex(token);
+  // Token e dono numa consulta so (FK ia_tokens.usuario_id -> usuarios): toda
+  // chamada MCP passa por aqui.
   const { data: tok, error: tokErr } = await admin
     .from("ia_tokens")
-    .select("id,usuario_id,escopo,expira_em,revogado_em")
+    .select("id,usuario_id,escopo,expira_em,revogado_em,ultimo_uso,usuarios(tipo,ativo,desligado_em)")
     .eq("token_hash", hash)
     .maybeSingle();
   // Falha de banco NAO e token invalido: com 401 o mcp-remote tenta login OAuth
@@ -127,24 +130,23 @@ serve(async (req) => {
     return httpJson({ error: "token invalido ou expirado" }, 401);
   }
 
-  // Marca uso (best-effort).
-  admin.from("ia_tokens").update({ ultimo_uso: new Date(agora).toISOString() }).eq("id", tok.id).then(
-    () => {},
-    () => {},
-  );
-
-  const { data: perfil, error: perfilErr } = await admin
-    .from("usuarios")
-    .select("tipo,ativo,desligado_em")
-    .eq("id", tok.usuario_id)
-    .maybeSingle();
-  if (perfilErr) return httpJson({ error: "falha ao carregar o usuario, tente de novo" }, 503);
   // O token nao passa pelo login: quem foi desligado/desativado e barrado aqui
   // (o client e service-role, entao nenhuma RLS faria isso por nos).
+  const perfil = tok.usuarios as { tipo: string; ativo: boolean; desligado_em: string | null } | null;
   if (!perfil || !perfil.ativo || perfil.desligado_em) {
     return httpJson({ error: "usuario desativado" }, 403);
   }
   const tipo: "interno" | "parceiro" = perfil.tipo === "interno" ? "interno" : "parceiro";
+
+  // Marca uso (best-effort) so de token aceito, e no maximo a cada 5 min: o card
+  // mostra "ultimo uso", nao precisa de uma escrita em ia_tokens por chamada.
+  const ultimoUso = tok.ultimo_uso ? new Date(tok.ultimo_uso).getTime() : 0;
+  if (agora - ultimoUso > ULTIMO_USO_INTERVALO_MS) {
+    admin.from("ia_tokens").update({ ultimo_uso: new Date(agora).toISOString() }).eq("id", tok.id).then(
+      () => {},
+      () => {},
+    );
+  }
 
   // ---- Body JSON-RPC ----
   let payload: unknown;

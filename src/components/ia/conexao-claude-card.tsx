@@ -38,7 +38,9 @@ export function ConexaoClaudeCard() {
   const [novoToken, setNovoToken] = useState<string | null>(null);
 
   async function carregar() {
-    const { data } = await iaTokens.listar();
+    const { data, error } = await iaTokens.listar();
+    // Falha não é "nenhum token": tokens ativos continuam valendo no MCP.
+    if (error) toast.error(error.message || "Falha ao listar os tokens");
     if (data) setTokens(data.tokens);
     setCarregando(false);
   }

@@ -15,11 +15,20 @@
 -- =============================================================================
 
 -- 1) ia_tokens: escrita só pelo backend (service role ignora RLS e grants abaixo).
---    SELECT continua como está (ninguém lê direto hoje; o card usa ia-config).
 drop policy if exists "ia_tokens_insert" on public.ia_tokens;
 drop policy if exists "ia_tokens_update" on public.ia_tokens;
 drop policy if exists "ia_tokens_delete" on public.ia_tokens;
 revoke insert, update, delete on public.ia_tokens from authenticated, anon;
+
+--    Leitura: só o próprio dono (revisão 2026-09-14). Antes `or is_interno()`
+--    deixava qualquer interno ler nome, prefixo, dono e último uso dos tokens de
+--    todos. Ninguém lê a tabela com JWT de usuário (o card usa ia-config, e
+--    nenhuma função/view SQL a consulta — conferido em produção), então não
+--    quebra nada. A policy espelho_leitura_select (papel do espelho) fica.
+drop policy if exists "ia_tokens_select" on public.ia_tokens;
+create policy "ia_tokens_select"
+  on public.ia_tokens for select
+  using (usuario_id = auth.uid());
 
 -- 2) desligar_interno passa a revogar os tokens do MCP.
 --    Base: pg_get_functiondef de PRODUÇÃO em 2026-09-11 (md5 b76896a09638134755d139d86fbbbc8b,

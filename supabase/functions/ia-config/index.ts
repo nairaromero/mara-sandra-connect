@@ -195,11 +195,14 @@ serve(async (req) => {
 
     // ---- Tokens da Superficie B (Claude/ChatGPT) ----
     if (action === "token_listar") {
-      const { data } = await admin
+      const { data, error } = await admin
         .from("ia_tokens")
         .select("id,nome,prefixo,escopo,expira_em,ultimo_uso,revogado_em,criado_em")
         .eq("usuario_id", uid)
         .order("criado_em", { ascending: false });
+      // Falha de banco nao pode virar "voce nao tem tokens" (o card sumiria com
+      // tokens ativos, que continuam valendo no MCP).
+      if (error) return jsonResponse({ error: "falha ao listar tokens" }, 500);
       return jsonResponse({ tokens: data ?? [] });
     }
 
