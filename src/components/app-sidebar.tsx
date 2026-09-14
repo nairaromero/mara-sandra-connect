@@ -8,7 +8,6 @@ import {
   ShieldCheck,
   Users,
   UserCog,
-  Webhook,
   ListTodo,
   Calendar,
   Tag,
@@ -64,11 +63,11 @@ const itemsInternos = [
   { title: "Etiquetas", url: "/etiquetas", icon: Tag },
 ];
 
-// Só admin (Naira/Mara): gestão da equipe, webhooks e auditoria. As rotas
-// também se protegem sozinhas (redirect) — aqui é só pra não aparecer.
+// Só admin (Naira/Mara): gestão da equipe e auditoria. As rotas também se
+// protegem sozinhas (redirect) — aqui é só pra não aparecer. Webhooks saiu
+// daqui em 2026-09-14: virou aba das Configurações.
 const itemsAdmin = [
   { title: "Equipe", url: "/equipe", icon: UserCog },
-  { title: "Webhooks", url: "/webhooks", icon: Webhook },
   { title: "Auditoria", url: "/auditoria", icon: ShieldCheck },
 ];
 
