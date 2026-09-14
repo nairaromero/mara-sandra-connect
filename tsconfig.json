@@ -16,7 +16,9 @@
     /* Linting */
     "skipLibCheck": true,
     "strict": true,
-    "noUnusedLocals": false,
+    /* Código morto zerado no #310: a partir daqui o tsc barra import/variável
+       sem uso (o eslint deixa no-unused-vars desligado). */
+    "noUnusedLocals": true,
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
