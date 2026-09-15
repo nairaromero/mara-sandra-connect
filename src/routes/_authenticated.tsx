@@ -62,7 +62,15 @@ function AuthenticatedLayout() {
     }
   }, [loading, usuario, precisaSenha, currentPath, navigate]);
 
-  if (loading || !session) {
+  // Nada do sistema renderiza enquanto não se sabe que a conta tem senha
+  // (precisaSenha só vira false com a resposta do RPC, ou com a falha dele).
+  // Filho que redireciona já no primeiro render (/casos -> /tarefas) corria
+  // contra o redirect pra /definir-senha acima: o efeito do filho roda antes do
+  // do layout, e com o backend rápido a navegação do filho vencia. Como aquele
+  // efeito não depende da rota, não rodava de novo — a pessoa entrava sem criar
+  // senha (visto no ambiente local em 2026-09-15; no staging a latência
+  // escondia).
+  if (loading || !session || precisaSenha !== false) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
