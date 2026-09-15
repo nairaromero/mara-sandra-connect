@@ -16,7 +16,8 @@ Testes ponta-a-ponta rodando contra o app real e o banco de **staging**
 ## Rodar
 
 ```bash
-bun run e2e                  # frontend local (vite dev :8085)
+bun run e2e                  # frontend local (vite dev :8085), banco de staging
+bun run e2e:local            # frontend local (vite :8095), banco LOCAL (cópia do staging)
 bun run e2e:staging          # frontend da branch staging
 bun run e2e:ui               # modo interativo (debug)
 

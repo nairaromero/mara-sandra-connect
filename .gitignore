@@ -19,6 +19,10 @@ src/routeTree.gen.ts
 !.env.example
 *.local
 
+# Supabase local (`supabase start`, ver scripts/ambiente-local.sh)
+supabase/.branches/
+supabase/.temp/start-secrets/
+
 # Wrangler / Cloudflare
 .wrangler/
 .dev.vars

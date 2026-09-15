@@ -143,8 +143,19 @@ export async function cleanupE2E(admin: SupabaseClient): Promise<void> {
 // seria uma arma carregada em producao so pra servir os testes.
 //
 // Precisa de SUPABASE_ACCESS_TOKEN no .env.local (mesmo token do msc-sql.mjs).
+// No ambiente local (`bun run e2e:local`) vai direto no Postgres da pilha.
 // ---------------------------------------------------------------------------
 export async function sqlAdmin(sql: string): Promise<unknown> {
+  if (ENV.local) {
+    const { default: pg } = await import("pg");
+    const cliente = new pg.Client({ connectionString: ENV.localDbUrl });
+    await cliente.connect();
+    try {
+      return (await cliente.query(sql)).rows;
+    } finally {
+      await cliente.end();
+    }
+  }
   if (!ENV.accessToken) {
     throw new Error(
       "SUPABASE_ACCESS_TOKEN ausente no .env.local — necessário para este teste.",

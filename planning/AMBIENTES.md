@@ -6,10 +6,12 @@ Antes havia UM projeto Supabase pra tudo. Agora:
 |---|---|---|
 | **Produção** | marasandraconnect.com (branch `main`) | `llugytkdsfsrciavhrfw` (Pro) |
 | **Staging** | staging.marasandraconnect.com (branch `staging`, worker `mara-sandra-connect-staging`) | `alhqbpbekmxpoibrrnbi` (free, org pessoal) |
+| **Local isolado** (`bun run dev:local`, `bun run e2e:local`) | localhost | Supabase no Docker, **cópia do staging** (`bun run local:copiar`) |
 | **Dev local** (`bun dev`) | localhost | staging (via `.env.local`) |
-| **Testes E2E** | localhost/staging | staging |
+| **Testes E2E** | localhost/staging | staging (`bun run e2e`) ou local (`bun run e2e:local`) |
 
-Nada que rode local/staging encosta mais no banco de produção.
+Nada que rode local/staging encosta mais no banco de produção. E o que roda no
+local isolado não encosta nem no staging.
 
 ## Como o frontend escolhe o banco
 
@@ -22,9 +24,11 @@ Nada que rode local/staging encosta mais no banco de produção.
 
 ## Migrations (mudou!)
 
-Toda migration roda **primeiro no staging**, valida, e só então em produção:
+Toda migration roda **primeiro no local isolado**, depois no staging, valida, e
+só então em produção:
 
 ```bash
+node scripts/msc-sql.mjs --local --file planning/sql-migrations/migration_x.sql     # cópia no Docker
 node scripts/msc-sql.mjs --staging --file planning/sql-migrations/migration_x.sql
 # validar no staging…
 node scripts/msc-sql.mjs --file planning/sql-migrations/migration_x.sql   # produção
@@ -32,6 +36,56 @@ node scripts/msc-sql.mjs --file planning/sql-migrations/migration_x.sql   # prod
 
 Edge functions idem: deploy no staging antes (`--project-ref alhqbpbekmxpoibrrnbi`),
 depois produção. Segredos de function: gerenciar nos DOIS projetos.
+
+## Ambiente local isolado (cópia do staging no Docker, desde 2026-09-15)
+
+Toda implementação ou conserto **começa** com `bun run local:copiar`: sobe o
+Supabase local (Docker, `supabase start`) e recria o banco dele do zero como
+cópia do staging. Aí o trabalho acontece no local, sem afetar o staging nem a
+suíte E2E de outra pessoa, e sem afetar ninguém validando em
+staging.marasandraconnect.com.
+
+```bash
+bun run local:copiar   # ~2,5 min; pode rodar de novo pra zerar o local
+bun run dev:local      # app em http://localhost:8080 no banco local
+bun run e2e:local      # suíte E2E no banco local (vite próprio na :8095)
+node scripts/msc-sql.mjs --local --file planning/sql-migrations/migration_x.sql
+bun run local:parar    # desliga a pilha (a cópia fica no volume do Docker)
+```
+
+Login: as mesmas contas do staging (`e2e+admin`, `e2e+interno`, `e2e+parceiro`
+e os sintéticos), senha `STAGING_SYNTH_PASSWORD`. Studio em
+http://127.0.0.1:55323, e-mails do Auth no Mailpit (http://127.0.0.1:55324).
+
+**O que vem igual ao staging** (conferido por fingerprint em 2026-09-15):
+esquema e dados de `public` e `ops` (inclusive o registro de migrations),
+funções (hash idêntico), policies, triggers, índices, constraints, grants e
+default privileges; `auth.users`/`auth.identities`; buckets, policies e
+trigger do Storage; segredos do vault; publicação do Realtime. O script confere
+as linhas de cada tabela contra o dump e testa login e edge function.
+
+**Como fica isolado:**
+- A leitura do staging usa credencial **temporária** da Management API (5 min,
+  só o `SUPABASE_ACCESS_TOKEN` do `.env.local`) em sessão read-only: o script
+  não consegue escrever no staging. Trava: a origem precisa ter o marcador
+  `ambiente=staging`.
+- O destino é sempre `127.0.0.1:55322`, e o banco local ganha o marcador
+  `ambiente=local`. `dev:local`, `e2e:local` e `msc-sql --local` recusam rodar
+  sem ele.
+- `app_config.edge_base_url` passa a apontar pras edge functions **locais**
+  (`http://kong:8000/functions/v1`, rede do Docker).
+- As edge functions locais (servidas pelo próprio `supabase start`) só têm as
+  variáveis da pilha: sem chave de IA, Resend, WhatsApp, Legalmail. Pra testar
+  uma integração de verdade, a chave vai em `supabase/functions/.env`
+  (gitignored; vale depois de reiniciar a pilha: `bun run local:parar` e
+  `bun run local:copiar`), sabendo que a chamada sai da máquina.
+- A pilha usa as portas 553xx (`supabase/config.toml`): outra pilha local do
+  Supabase pode estar nas 543xx padrão.
+
+**O que NÃO vem:** arquivos do Storage (o bucket vem vazio; download de
+documento antigo falha, como no staging), sessões do Auth, cron (o staging
+também não tem). O gateway local exige JWT nas edge functions (padrão da CLI);
+o app manda o token da sessão, então só chamada sem login toma 401 no local.
 
 ## Espelho produção → staging (dados realistas anonimizados)
 
