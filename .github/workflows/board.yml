@@ -9,8 +9,10 @@ name: board
 #
 #   PR aberto para a staging              -> issues ligadas (ou o PR) em
 #                                            "Em revisão"
-#   PR com issue mergeado na staging      -> issues ligadas em "Validar no
-#                                            staging"
+#   PR com issue fechado na staging       -> mergeado: issues ligadas em
+#                                            "Validar no staging"; sem merge: a
+#                                            issue que só ele segurava em "Em
+#                                            revisão" volta para "Lote atual"
 #   push na main (release), todo dia e manual
 #                                         -> "Validar no staging" vira "Produção"
 #                                            quando o commit do PR está na main
@@ -93,12 +95,13 @@ jobs:
           PR_NUMERO: ${{ github.event.pull_request.number }}
         run: node scripts/board-sync.mjs em-revisao "$PR_NUMERO"
 
-  validar-no-staging:
+  pr-fechado:
     # Mesmo cuidado do em-revisao: checkout da main, só o número da PR.
+    # Mergeado OU fechado sem merge: o script reavalia as issues ligadas (sem
+    # o caso "sem merge", a issue de um PR abandonado ficava em "Em revisão").
     if: >-
       github.event_name == 'pull_request_target' &&
       github.event.action == 'closed' &&
-      github.event.pull_request.merged &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -107,11 +110,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: PR mergeado -> issues em Validar no staging
+      - name: PR fechado -> reavalia as issues ligadas
         env:
           GH_TOKEN: ${{ secrets.BOARD_PROJECT_TOKEN }}
           PR_NUMERO: ${{ github.event.pull_request.number }}
-        run: node scripts/board-sync.mjs mergeado "$PR_NUMERO"
+        run: node scripts/board-sync.mjs fechado "$PR_NUMERO"
 
   release:
     if: github.event_name != 'pull_request_target'
