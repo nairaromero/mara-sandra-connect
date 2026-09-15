@@ -104,7 +104,7 @@ import { ComparecimentoPericia } from "@/components/tarefas/comparecimento-peric
 import { EnviarAvisoParceiro } from "@/components/tarefas/enviar-aviso-parceiro";
 import { EtapaCumprimentoExigencia } from "@/components/tarefas/etapa-cumprimento-exigencia";
 import { EtapaProtocoloRealizado } from "@/components/tarefas/etapa-protocolo-realizado";
-import { hojeChaveBR } from "@/lib/fuso";
+import { chaveDiaBR, hojeChaveBR } from "@/lib/fuso";
 import { useDestaque } from "@/lib/destaque/destaque-context";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
@@ -1006,6 +1006,10 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
               // do INSS). IA fora do ar ou sem chave → segue o texto do
               // template — nunca bloqueia a aplicação.
               let descricaoSolic = descSub || tituloSub;
+              // "Enviar até" do parceiro = fatal digitado no form − 3 (nunca o
+              // fatal cru): alimenta o kanban dele, o e-mail, os lembretes
+              // automáticos e a data da mensagem da IA.
+              const prazoParceiroAt = prazoFatal ? prazoParceiroDoFatal(prazoFatal) : null;
               if (
                 (item.meta as { mensagem_ia?: string } | undefined)?.mensagem_ia ===
                   "exigencia_judicial" &&
@@ -1018,7 +1022,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                       body: {
                         tipo: "judicial",
                         despacho: docsExigencia.trim(),
-                        prazo_fatal: prazoFatal || null,
+                        prazo_parceiro: prazoParceiroAt ? chaveDiaBR(prazoParceiroAt) : null,
                         nome_cliente: ctx?.cliente_nome ?? null,
                       },
                     },
@@ -1043,10 +1047,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                   solicitado_por: usuario?.id ?? null,
                   origem: `template:${tpl.nome}`,
                   data_solicitacao: new Date().toISOString(),
-                  // "Enviar até" do parceiro = fatal digitado no form − 3
-                  // (nunca o fatal cru): alimenta o kanban dele, o e-mail e
-                  // os lembretes automáticos.
-                  prazo_at: prazoFatal ? prazoParceiroDoFatal(prazoFatal) : null,
+                  prazo_at: prazoParceiroAt,
                 })
                 .select("id")
                 .single();
