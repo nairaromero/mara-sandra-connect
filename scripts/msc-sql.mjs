@@ -3,6 +3,7 @@
 //
 // Uso:
 //   node scripts/msc-sql.mjs "select 1;"
+//   node scripts/msc-sql.mjs --local --file caminho/para/migration.sql
 //   node scripts/msc-sql.mjs --file caminho/para/migration.sql
 //   node scripts/msc-sql.mjs --registrar caminho/para/migration.sql
 //   echo "select 1;" | node scripts/msc-sql.mjs
@@ -34,13 +35,32 @@ import os from "node:os";
 import path from "node:path";
 
 // --staging roda no projeto de STAGING (alhqbpbekmxpoibrrnbi). Sem a flag,
-// PRODUÇÃO. Toda migration deve rodar primeiro com --staging, validar, e só
-// então em produção (ver planning/AMBIENTES.md).
+// PRODUÇÃO. Toda migration deve rodar primeiro com --local (cópia do staging
+// no Docker, `bun run local:copiar`), depois --staging, validar, e só então
+// em produção (ver planning/AMBIENTES.md).
 const STAGING_REF = "alhqbpbekmxpoibrrnbi";
+// Sem flag de alvo = PRODUÇÃO. Flag desconhecida (ex.: `--locall`) não pode
+// cair calada nesse padrão.
+const FLAGS = new Set(["--staging", "--local", "--file", "--registrar"]);
+const flagDesconhecida = process.argv.slice(2).find((a) => a.startsWith("--") && !FLAGS.has(a));
+if (flagDesconhecida) {
+  console.error(`ERRO: flag desconhecida ${flagDesconhecida} (aceitas: ${[...FLAGS].join(", ")})`);
+  process.exit(1);
+}
 const ehStaging = process.argv.includes("--staging");
+// --local vai direto no Postgres da pilha local (scripts/ambiente-local.sh),
+// sem Management API. Endereço fixo, sem override: não tem como apontar pra
+// outro lugar, e o banco precisa estar marcado como `ambiente=local`.
+const ehLocal = process.argv.includes("--local");
+const LOCAL_DB_URL = "postgresql://postgres:postgres@127.0.0.1:55322/postgres";
+if (ehLocal && ehStaging) {
+  console.error("ERRO: --local e --staging são alvos diferentes; escolha um");
+  process.exit(1);
+}
 const PROJECT_REF =
   process.env.SUPABASE_PROJECT_REF || (ehStaging ? STAGING_REF : "llugytkdsfsrciavhrfw");
 if (ehStaging) console.error(`[msc-sql] alvo: STAGING (${PROJECT_REF})`);
+if (ehLocal) console.error("[msc-sql] alvo: LOCAL (127.0.0.1:55322)");
 
 function readEnvLocal(key) {
   try {
@@ -92,7 +112,34 @@ const PADRAO_MIGRATION = /^migration_[a-z0-9_]+\.sql$/;
 const TIMEOUT_QUERY_MS = 5 * 60_000;
 const TIMEOUT_REGISTRO_MS = 30_000;
 
+// Mesmo formato de resposta da Management API: as linhas do último comando.
+async function runQueryLocal(sql, timeoutMs) {
+  const { default: pg } = await import("pg");
+  const cliente = new pg.Client({ connectionString: LOCAL_DB_URL, query_timeout: timeoutMs });
+  try {
+    await cliente.connect();
+    const marcador = await cliente.query(
+      "select coalesce(obj_description('public'::regnamespace, 'pg_namespace'), '') as m",
+    );
+    if (marcador.rows[0].m !== "ambiente=local") {
+      return {
+        ok: false,
+        status: 0,
+        text: `o banco em 127.0.0.1:55322 não está marcado como ambiente=local (marcador='${marcador.rows[0].m}') — rode bun run local:copiar`,
+      };
+    }
+    const res = await cliente.query(sql);
+    const ultimo = Array.isArray(res) ? res[res.length - 1] : res;
+    return { ok: true, status: 200, text: JSON.stringify(ultimo?.rows ?? []) };
+  } catch (e) {
+    return { ok: false, status: 0, text: String(e?.message ?? e) };
+  } finally {
+    await cliente.end().catch(() => {});
+  }
+}
+
 async function runQuery(token, sql, timeoutMs) {
+  if (ehLocal) return runQueryLocal(sql, timeoutMs);
   const resp = await fetch(
     `https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query`,
     {
@@ -167,7 +214,7 @@ async function modoRegistrar(token, arquivo) {
 
 async function main() {
   const token = readEnvLocal("SUPABASE_ACCESS_TOKEN");
-  if (!token) {
+  if (!token && !ehLocal) {
     console.error("ERRO: SUPABASE_ACCESS_TOKEN não encontrado no .env.local");
     process.exit(1);
   }
@@ -226,7 +273,7 @@ async function main() {
         `  ${r.text.slice(0, 300)}\n` +
         "  O ops.migrations_aplicadas existe neste banco? (migration_registro_migrations.sql)\n" +
         "  Para registrar sem rodar de novo:\n" +
-        `    node scripts/msc-sql.mjs${ehStaging ? " --staging" : ""} --registrar ${arquivo}`,
+        `    node scripts/msc-sql.mjs${ehStaging ? " --staging" : ehLocal ? " --local" : ""} --registrar ${arquivo}`,
     );
     process.exit(3);
   }

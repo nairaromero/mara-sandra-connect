@@ -16,6 +16,10 @@
     "e2e:video": "PW_VIDEO=1 playwright test",
     "e2e:video:staging": "PW_VIDEO=1 PLAYWRIGHT_BASE_URL=https://staging.marasandraconnect.com playwright test",
     "e2e:clean": "rm -rf test-results playwright-report",
+    "local:copiar": "bash scripts/ambiente-local.sh copiar",
+    "local:parar": "bash scripts/ambiente-local.sh parar",
+    "dev:local": "bash scripts/ambiente-local.sh app",
+    "e2e:local": "bash scripts/ambiente-local.sh e2e",
     "format:check": "prettier --check ."
   },
   "dependencies": {
