@@ -35,30 +35,38 @@ const TIPOS = ["interna", "prazo", "pericia", "pos_protocolo", "contato_cliente"
 // signal aborta o fetch em si — nada fica rodando (nem cobrando) depois do limite.
 const IA_TIMEOUT_MS = 25_000;
 
+// Tamanho da resposta (#330). O tamanho certo vem do PROMPT, não do corte: o
+// que a IA gera já é cobrado, então cortar depois não economiza nada. Os
+// limites do prompt são os da tela (o popup mostra título + uma frase); o
+// `motivo` só é pedido quando NÃO há sugestão, que é o único caso em que a
+// tela o mostra. Com isso a saída cabe em ~100 tokens.
+const LIMITE_PROMPT = { titulo: 60, descricao: 140, motivo: 90 };
+// Rede de segurança acima do prompt: pequena folga para não cortar à toa.
+const LIMITE_CORTE = { titulo: 80, descricao: 180, motivo: 120 };
+const MAX_TOKENS_SAIDA = 200;
+
 // Prioridade na MESMA escala da tela (PRIORIDADE_LABEL): 1 Urgente, 2 Alta,
-// 3 Normal, 4 Baixa. Antes o prompt dizia 1=alta/2=média/3=baixa e toda
-// sugestão chegava um nível acima (média virava "Alta").
+// 3 Normal, 4 Baixa.
 const SYSTEM =
   "Voce e assistente de um escritorio de advocacia previdenciaria brasileiro " +
-  "(clientes segurados do INSS; processos administrativos no INSS e acoes na Justica).\n" +
-  "Uma tarefa do caso acabou de ser CONCLUIDA. Sugira a UNICA proxima tarefa de " +
-  "seguimento que mantem o caso andando, com base no contexto.\n" +
-  "No contexto, o nome do cliente aparece como [cliente] e CPF como [cpf].\n\n" +
+  "(segurados do INSS; processos no INSS e na Justica).\n" +
+  "Uma tarefa do caso foi CONCLUIDA. Sugira a UNICA proxima tarefa que mantem o caso andando.\n" +
+  "No contexto, o nome do cliente aparece como [cliente] e o CPF como [cpf].\n\n" +
   "REGRAS:\n" +
-  "1. Nao repita tarefa que ja esta aberta no caso. Se o proximo passo ja esta " +
-  "coberto por uma tarefa aberta, ou nao ha seguimento sensato, responda sugestao null.\n" +
-  "2. titulo: curto, verbo no infinitivo, SEM nome do cliente e sem os marcadores " +
-  "[cliente]/[cpf] (ex.: 'Acompanhar implantacao do beneficio').\n" +
-  "3. descricao: 1 a 2 frases objetivas do que fazer (diga 'o cliente', nunca [cliente]).\n" +
-  "4. tipo: um de interna | prazo | pericia | pos_protocolo | contato_cliente.\n" +
-  "5. prioridade: 1 (urgente), 2 (alta), 3 (normal) ou 4 (baixa).\n" +
+  "1. Se o proximo passo ja esta nas tarefas abertas, ou nao ha seguimento sensato, " +
+  `responda sugestao null com um motivo de ate ${LIMITE_PROMPT.motivo} caracteres.\n` +
+  `2. titulo: verbo no infinitivo, ate ${LIMITE_PROMPT.titulo} caracteres, sem nome do ` +
+  "cliente e sem [cliente]/[cpf] (ex.: 'Acompanhar implantacao do beneficio').\n" +
+  `3. descricao: UMA frase de ate ${LIMITE_PROMPT.descricao} caracteres com o que fazer; ` +
+  "nao repita o titulo; diga 'o cliente', nunca [cliente].\n" +
+  "4. tipo: interna | prazo | pericia | pos_protocolo | contato_cliente.\n" +
+  "5. prioridade: 1 urgente, 2 alta, 3 normal, 4 baixa.\n" +
   "6. prazo_dias_uteis: inteiro de 1 a 30 a partir de hoje.\n" +
-  "7. mesmo_processo: true se a tarefa e do mesmo processo da concluida.\n" +
-  "8. motivo: uma frase explicando por que esse e o proximo passo.\n\n" +
-  "RESPONDA APENAS com JSON neste formato exato:\n" +
-  '{"sugestao": {"titulo": string, "descricao": string, "tipo": string, ' +
-  '"prioridade": 1|2|3|4, "prazo_dias_uteis": number, "mesmo_processo": boolean} | null, ' +
-  '"motivo": string}';
+  "7. mesmo_processo: true se for do mesmo processo da concluida.\n\n" +
+  "Responda SO o JSON, sem markdown e sem texto fora dele, num destes formatos:\n" +
+  '{"sugestao":{"titulo":"...","descricao":"...","tipo":"...","prioridade":3,' +
+  '"prazo_dias_uteis":5,"mesmo_processo":true}}\n' +
+  '{"sugestao":null,"motivo":"..."}';
 
 const TZ = "America/Sao_Paulo";
 // Criados uma vez por isolate: Intl.DateTimeFormat é caro e o contexto formata
@@ -111,6 +119,20 @@ function criarMascara(cliente: string | null): (texto: unknown) => string {
 // A IA às vezes ecoa os marcadores mesmo instruída a não usar.
 const semMarcadores = (t: string) =>
   t.replace(/\s*\[cpf\]/gi, "").replace(/\[cliente\]/gi, "o cliente").trim();
+
+// Texto da IA pronto para a tela. Se passar bem do que o prompt pediu, corta em
+// fim de palavra (nunca no meio) e avisa no log: é sinal de que o prompt precisa
+// de ajuste, não um caminho normal.
+function aparar(valor: unknown, campo: keyof typeof LIMITE_CORTE): string {
+  if (typeof valor !== "string") return "";
+  const t = semMarcadores(valor);
+  const max = LIMITE_CORTE[campo];
+  if (t.length <= max) return t;
+  console.warn(`[sugerir-proxima-tarefa] ${campo} veio com ${t.length} caracteres (prompt pede ${LIMITE_PROMPT[campo]})`);
+  const base = t.slice(0, max - 1);
+  const espaco = base.lastIndexOf(" ");
+  return (espaco > max * 0.6 ? base.slice(0, espaco) : base).replace(/[\s,;:.-]+$/, "") + "…";
+}
 
 function semSugestao(motivo: string) {
   return jsonResponse({ sugestao: null, motivo });
@@ -232,11 +254,13 @@ serve(async (req) => {
     const apiKey = await decryptSecret(chave.api_key_cipher, chave.api_key_iv);
     const res = await chatWith(chave.provider, apiKey, chave.modelo, {
       system: SYSTEM,
-      maxTokens: 500,
+      maxTokens: MAX_TOKENS_SAIDA,
       tools: [],
       messages: [{ role: "user", content: contexto.slice(0, 12_000) }],
       signal: AbortSignal.timeout(IA_TIMEOUT_MS),
     });
+    // Gasto por chamada, para acompanhar nos logs da função (#330).
+    console.log(`[sugerir-proxima-tarefa] tokens entrada=${res.usage.input} saida=${res.usage.output}`);
     bruto = extrairJson(res.text || "");
   } catch (err) {
     console.warn("[sugerir-proxima-tarefa] IA falhou:", err);
@@ -245,10 +269,11 @@ serve(async (req) => {
   }
   if (!bruto) return semSugestao("A IA não devolveu uma sugestão válida.");
 
-  const motivo = typeof bruto.motivo === "string" ? semMarcadores(bruto.motivo).slice(0, 240) : null;
   const s = bruto.sugestao as Record<string, unknown> | null;
-  const titulo = typeof s?.titulo === "string" ? semMarcadores(s.titulo).slice(0, 120) : "";
-  if (!s || !titulo) return semSugestao(motivo ?? "A IA não viu próximo passo para este caso.");
+  const titulo = aparar(s?.titulo, "titulo");
+  if (!s || !titulo) {
+    return semSugestao(aparar(bruto.motivo, "motivo") || "A IA não viu próximo passo para este caso.");
+  }
 
   const tipo = TIPOS.includes(s.tipo as typeof TIPOS[number]) ? (s.tipo as string) : "interna";
   const prioridade = [1, 2, 3, 4].includes(Number(s.prioridade)) ? Number(s.prioridade) : 3;
@@ -258,7 +283,7 @@ serve(async (req) => {
   return jsonResponse({
     sugestao: {
       titulo: cliente ? `${titulo} - ${cliente}` : titulo,
-      descricao: typeof s.descricao === "string" ? semMarcadores(s.descricao).slice(0, 600) : null,
+      descricao: aparar(s.descricao, "descricao") || null,
       tipo,
       prioridade,
       due_at: vencimentoDiasUteis(hoje, dias),
@@ -267,6 +292,7 @@ serve(async (req) => {
       processo_admin_id: mesmoProcesso ? tarefa.processo_admin_id : null,
       processo_judicial_id: mesmoProcesso ? tarefa.processo_judicial_id : null,
     },
-    motivo,
+    // Com sugestão a tela não mostra motivo, e o prompt nem o pede.
+    motivo: null,
   });
 });
