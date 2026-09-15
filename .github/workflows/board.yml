@@ -5,7 +5,8 @@ name: board
 #
 # O card é a ISSUE: PR ligado a uma issue (`Closes #N` no corpo, em inglês,
 # ou o campo Development) move a issue e tem o próprio card arquivado. PR sem
-# issue ligada continua sendo o card.
+# issue ligada continua sendo o card. Em PR para a staging o GitHub não
+# registra o `Closes` do corpo; o script lê o corpo (board-sync-ligacoes.mjs).
 #
 #   PR aberto para a staging              -> issues ligadas (ou o PR) em
 #                                            "Em revisão"
