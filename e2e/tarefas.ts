@@ -31,3 +31,33 @@ export async function marcarFeito(page: Page) {
   await page.getByRole("combobox", { name: "Status" }).click();
   await page.getByRole("option", { name: "Feito", exact: true }).click();
 }
+
+// Resposta fixa da edge sugerir-proxima-tarefa. O staging tem chave de IA desde
+// 2026-09-15: sem isto, cada conclusão pelo popup chamava a IA de verdade (gasto
+// a cada rodada) e o teste dependia do que ela respondesse. Registrar de novo no
+// mesmo teste troca a resposta — a rota registrada por último vale primeiro.
+export const SEM_SUGESTAO = { sugestao: null, motivo: "A IA não viu próximo passo para este caso." };
+
+export async function simularSugestaoProxima(
+  page: Page,
+  corpo: object = SEM_SUGESTAO,
+  aoPedir?: (corpoDoPedido: unknown) => void,
+) {
+  await page.route("**/functions/v1/sugerir-proxima-tarefa", async (route) => {
+    const cors = {
+      "access-control-allow-origin": "*",
+      "access-control-allow-headers": "*",
+      "access-control-allow-methods": "POST, OPTIONS",
+    };
+    if (route.request().method() === "OPTIONS") {
+      await route.fulfill({ status: 204, headers: cors });
+      return;
+    }
+    aoPedir?.(route.request().postDataJSON());
+    await route.fulfill({
+      status: 200,
+      headers: { ...cors, "content-type": "application/json" },
+      body: JSON.stringify(corpo),
+    });
+  });
+}
