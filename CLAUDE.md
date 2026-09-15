@@ -38,17 +38,20 @@ feature branch  ──merge──▶  staging  ──merge (após validação)�
 
 1. Naira diz "implementar X".
 2. Crio branch `feat/x` saindo de `staging`.
-3. Commit, push, abro PR `feat/x → staging`.
+3. Commit, push, abro PR `feat/x → staging` com `Closes #N` (o card) no corpo.
 4. Naira valida (em staging.marasandraconnect.com, com a conta do papel certo, ou local) e merge.
 5. Quando um lote estiver validado: Naira merge `staging → main` → deploy prod.
    O PR de release abre **com o label `release`**
    (`gh pr create --base main --head staging --label release`) — assim ele fica fora do board.
 
 **Board ([Legal Connect](https://github.com/users/nairaromero/projects/1), desde 2026-09-10):** o trabalho aberto vive lá, não mais no `planning/TODO.md`. Colunas: Backlog · Lote atual · Em revisão · Validar no staging · Produção.
-- Automático: issue/PR novo → Backlog (nativo); PR aberto pra staging → Em revisão e release → Produção (`.github/workflows/board.yml` + `scripts/board-sync.mjs`); PR mergeado na staging → Validar no staging (nativo "Pull request merged").
+- **O card é a issue.** PR não vira card: o corpo do PR abre com `Closes #N` (**em inglês** — "Fecha #N" não liga) ou a issue é ligada no campo Development. Com essa ligação, o PR move a issue e o card dele (se entrar no board) é arquivado. PR sem issue ligada continua sendo o próprio card. Efeito do `Closes`: a issue **fecha sozinha** quando o release leva o PR pra `main` (merge na staging não fecha).
+- Automático: issue nova → Backlog (nativo); PR aberto pra staging → issue ligada em Em revisão; PR mergeado na staging → issue ligada em Validar no staging (a que ainda tem outro PR aberto fica em Em revisão); PR fechado sem merge → a issue que estava em Em revisão só por ele volta pra Lote atual (ou vai pra Validar no staging, se outro PR dela já foi mergeado; issue movida à mão para outra coluna fica onde está); release → Produção (`.github/workflows/board.yml` + `scripts/board-sync.mjs`). PR sem issue: nativo "Pull request merged" → Validar no staging. **Pendente de release (2026-09-14):** esse fluxo da issue (#314) só passa a rodar quando o `board.yml` chegar na `main`; até lá vale o antigo (o PR vira card e o nativo o move no merge).
 - Um card só vai pra Produção quando o commit está na `main` **e** as migrations do PR estão no registro de produção (ver DB). Card segurado anda sozinho na rodada diária depois que a migration é aplicada.
 - O `board.yml` roda **inteiro a partir da `main`** — inclusive o gatilho de PR (`pull_request_target` sempre usa a branch padrão). Mudança nele só vale depois do release que a leva pra `main`.
-- Teste local sem mexer em nada: `node scripts/board-sync.mjs release --dry-run`.
+- Workflows nativos ligados: Auto-add, Item added → Backlog, Pull request merged → Validar no staging, Auto-add sub-issues. "Item closed" fica **desligado**: fechar a issue no release não pode passar por cima da trava de migration.
+  - Filtro do Auto-add: **ainda** `is:issue,pr is:open -label:release`. No dia do release que levar o #314 pra `main`, trocar nas configurações do board para `is:issue is:open -label:release`, pra PR não entrar sozinho, e atualizar esta linha. Entre o release e a troca, o script arquiva o card do PR ligado que o Auto-add puxar.
+- Teste local sem mexer em nada: `node scripts/board-sync.mjs release --dry-run`; `em-revisao <pr> --dry-run` e `fechado <pr> --dry-run` mostram quais issues o PR move (esses dois nem leem o board).
 
 ## DB
 
@@ -64,7 +67,8 @@ feature branch  ──merge──▶  staging  ──merge (após validação)�
 
 - `usuarios.tipo` = modo de acesso (`interno` x `parceiro`). `usuarios.eh_parceiro` = papel comercial.
 - `usuarios.eh_admin` (desde 2026-08-19) = admin do escritório. **Só Naira e Mara.** No front: `const { isAdmin } = useAuth()`. No SQL: `public.is_admin()`.
-- Só admin vê: Equipe interna (`/equipe`), Webhooks, Auditoria, e em Configurações os cards Integração de IA / Conectar Claude / Integração Gmail. Convidar interno (edge `convidar-usuario`) exige admin. RLS de webhooks/auditoria usa `is_admin()`.
+- Só admin vê: Equipe interna (`/equipe`), Auditoria, e em Configurações as abas **Integrações** (Integração de IA / Conectar Claude / Integração Google) e **Webhooks**. Convidar interno (edge `convidar-usuario`) exige admin. RLS de webhooks/auditoria usa `is_admin()`.
+- Configurações (desde 2026-09-14) segue o layout de `/parceiros`: centralizada, abas com a ativa na URL (`?tab=seguranca|beneficios|integracoes|webhooks`; sem `tab` = Perfil). Aba fora do papel da pessoa cai em Perfil sem reescrever a URL. Webhooks saiu da sidebar; `/webhooks` só redireciona pra `?tab=webhooks`.
 - Gestão da equipe pela UI (`/equipe`, RPCs em migration_equipe_admin_desligar): `definir_admin`, `desligar_interno` (não apaga: `ativo=false` + ban no auth + tarefas abertas/agenda futura migram pra outra pessoa; histórico fica no nome), `reativar_interno`.
 - Autoria em tarefas (migration_tarefas_autoria): `created_by`, `status_alterado_por/_em` via trigger; exclusões vão pra `tarefas_excluidas`.
 
@@ -78,7 +82,10 @@ feature branch  ──merge──▶  staging  ──merge (após validação)�
 Pedido da Naira (2026-08-25), depois do code review que achou 10 bugs latentes
 no lote de agosto: **sempre olhar se nada quebrou no meio do caminho.**
 
-1. `bunx tsc --noEmit` + eslint nos arquivos tocados.
+1. `bunx tsc --noEmit` + eslint nos arquivos tocados. Desde 2026-09-14 o `tsc`
+   barra import, variável e parâmetro sem uso (`noUnusedLocals`/`noUnusedParameters`).
+   Parâmetro que a assinatura exige e o código não usa leva prefixo `_`
+   (`(_, i) => …`); o resto sem uso se apaga, não se silencia.
 2. Suíte E2E **completa** (`bunx playwright test`) antes do push — não só a spec da feature.
 3. Reler o próprio diff com lente de revisor, caçando os padrões que já morderam:
    - função de banco reescrita a partir de migration velha — partir SEMPRE do

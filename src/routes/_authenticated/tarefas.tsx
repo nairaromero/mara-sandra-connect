@@ -4,8 +4,10 @@
 //
 // A vista Kanban foi aposentada em 2026-09-09 (Naira): as colunas nunca
 // tiveram arrastar-e-soltar, e sem o menu "..." do card sobrava um quadro
-// só de leitura duplicando a lista. Criar, alterar e excluir tarefa é no
-// sheet — click no card abre; "Nova tarefa" abre vazia.
+// só de leitura duplicando a lista. Alterar e excluir tarefa é no sheet —
+// click no card abre. Sem botão "Nova tarefa" aqui desde 2026-09-14 (Naira):
+// tarefa nova nasce no caso (aba Atividades) ou na "Próxima tarefa do caso"
+// ao concluir.
 
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -14,7 +16,6 @@ import {
   ChevronDown,
   ChevronRight,
   Loader2,
-  Plus,
   Search,
   Ticket,
   X,
@@ -47,7 +48,7 @@ import {
 import { TarefaCard } from "@/components/tarefas/tarefa-card";
 import { TarefasParceiro } from "@/components/parceiro/tarefas-parceiro";
 import { useVerComoParceiro } from "@/hooks/use-ver-como-parceiro";
-import { TarefaSheet } from "@/components/tarefas/tarefa-sheet";
+import { TarefaSheet, type TarefaSheetModo } from "@/components/tarefas/tarefa-sheet";
 import { TarefasExcluidas } from "@/components/tarefas/tarefas-excluidas";
 import { SecoesPorMes } from "@/components/tarefas/secoes-por-mes";
 import { agruparPorMes } from "@/lib/tarefas/agrupar-mes";
@@ -105,10 +106,6 @@ const STATUS_ARQUIVADOS: TarefaStatus[] = ["feito"];
 function dataDeArquivamento(t: TarefaComJoins): string | null {
   return t.status_alterado_em ?? t.completed_at ?? t.updated_at ?? null;
 }
-
-type Modo =
-  | { kind: "criar"; casoIdInicial?: string | null }
-  | { kind: "editar"; tarefa: TarefaComJoins };
 
 // ---------------------------------------------------------------------------
 // Vista "Lista por prazo": secoes por bucket de vencimento. Compara so a
@@ -180,7 +177,9 @@ function TarefasPage() {
   const [filtroPri, setFiltroPri] = useState<string>("todos");
   const [somenteMinhas, setSomenteMinhas] = useState(false);
 
-  const [sheetModo, setSheetModo] = useState<Modo | null>(null);
+  // Tarefa nova aqui só nasce da "Próxima tarefa do caso" (vem do caso da
+  // tarefa concluída) — o "Nova tarefa" em branco saiu em 2026-09-14.
+  const [sheetModo, setSheetModo] = useState<TarefaSheetModo | null>(null);
   const [aba, setAba] = useState<"ativos" | "arquivados">("ativos");
   // Bump pra seção "Excluídas" (aba Arquivados) re-buscar após exclusão.
   const [versaoExcluidas, setVersaoExcluidas] = useState(0);
@@ -374,10 +373,6 @@ function TarefasPage() {
               abrir: é lá dentro que se muda o status, edita e exclui.
             </p>
           </div>
-          <Button onClick={() => setSheetModo({ kind: "criar" })}>
-            <Plus className="h-4 w-4" />
-            Nova tarefa
-          </Button>
         </div>
 
         {/* Radar: casos sem tarefa aberta nem evento futuro — ninguém é
@@ -733,7 +728,9 @@ function TarefasPage() {
           modo={sheetModo}
           onClose={() => setSheetModo(null)}
           onSaved={carregar}
-          onConcluida={(casoId) => setSheetModo({ kind: "criar", casoIdInicial: casoId })}
+          onConcluida={(casoId, sugestao) =>
+            setSheetModo({ kind: "criar", casoIdInicial: casoId, sugestao })
+          }
         />
       </div>
     </ClientOnly>

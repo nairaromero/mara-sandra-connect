@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { TarefaCard } from "@/components/tarefas/tarefa-card";
-import { TarefaSheet } from "@/components/tarefas/tarefa-sheet";
+import { TarefaSheet, type TarefaSheetModo } from "@/components/tarefas/tarefa-sheet";
 import { TarefasExcluidas } from "@/components/tarefas/tarefas-excluidas";
 import { AgendaSheet } from "@/components/agenda/agenda-sheet";
 import { listarTarefas } from "@/lib/tarefas/queries";
@@ -26,8 +26,6 @@ import { formatarBR, horaBR } from "@/lib/fuso";
 const STATUS_ATIVOS: TarefaStatus[] = ["a_fazer"];
 const STATUS_ARQUIVADOS: TarefaStatus[] = ["feito"];
 
-type Modo = { kind: "criar"; casoIdInicial: string } | { kind: "editar"; tarefa: TarefaComJoins };
-
 interface Props {
   casoId: string;
   // Avisa o parent (casos/$id) sempre que algo mudou aqui (ex: etapa
@@ -39,7 +37,7 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
   const [carregando, setCarregando] = useState(true);
   const [tarefas, setTarefas] = useState<TarefaComJoins[]>([]);
   const [eventos, setEventos] = useState<AgendaEventoComJoins[]>([]);
-  const [sheetModo, setSheetModo] = useState<Modo | null>(null);
+  const [sheetModo, setSheetModo] = useState<TarefaSheetModo | null>(null);
   const [agendaSheet, setAgendaSheet] = useState<{
     kind: "editar";
     evento: AgendaEventoComJoins;
@@ -222,7 +220,9 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
         modo={sheetModo}
         onClose={() => setSheetModo(null)}
         onSaved={carregar}
-        onConcluida={() => setSheetModo({ kind: "criar", casoIdInicial: casoId })}
+        onConcluida={(_caso, sugestao) =>
+          setSheetModo({ kind: "criar", casoIdInicial: casoId, sugestao })
+        }
       />
 
       <AgendaSheet modo={agendaSheet} onClose={() => setAgendaSheet(null)} onSaved={carregar} />

@@ -67,7 +67,7 @@ test("caso sem parceiro mostra os desfechos e a corrente continua", async ({ pag
   await expect(page.getByRole("heading", { name: "Concluir tarefa" })).toBeVisible();
   await expect(page.getByText("o desfecho da análise")).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Concluir tarefa e adicionar outra" }),
+    page.getByRole("button", { name: "Concluir tarefa", exact: true }),
   ).toHaveCount(0);
   await page.getByRole("button", { name: "Cancelar" }).click();
   await expect(page.getByRole("heading", { name: "Concluir tarefa" })).toHaveCount(0);

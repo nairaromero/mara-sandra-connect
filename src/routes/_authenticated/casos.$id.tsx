@@ -103,7 +103,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CasoTarefasTab } from "@/components/tarefas/caso-tarefas-tab";
@@ -287,17 +286,6 @@ interface AnaliseTecnica {
   created_at: string;
 }
 
-interface Mensagem {
-  // Legacy: tabela mensagens nao eh mais usada na UI - mantida no banco como
-  // historico. Comentarios (nova tabela) substituiu desde Fase 48.
-  id: string;
-  caso_id: string;
-  remetente_id: string;
-  texto: string;
-  lida: boolean;
-  created_at: string;
-}
-
 interface ComentarioRow {
   id: string;
   caso_id: string;
@@ -362,23 +350,6 @@ interface ProcessoJudicial {
   parent_tipo: "admin" | "judicial" | null;
   etapa_tipo: string | null;
 }
-
-// Etapas da cadeia de processos (lista fixa). "" = sem classificacao.
-const ETAPAS_ADMIN = [
-  "Requerimento inicial",
-  "Recurso ordinário",
-  "Prorrogação",
-  "Pedido de revisão",
-  "Cumprimento de exigência",
-  "Outro",
-];
-const ETAPAS_JUDICIAL = [
-  "Ação inicial",
-  "Recurso (apelação)",
-  "Embargos",
-  "Cumprimento de sentença",
-  "Outro",
-];
 
 // Tribunais relevantes para o previdenciario: Justica Federal (TRFs) + TJs.
 const TRIBUNAIS_FEDERAIS = [
@@ -575,12 +546,6 @@ const STATUS_REPASSE_LABEL: Record<string, string> = {
   pago: "Pago",
 };
 
-const STATUS_SOLICITACAO_LABEL: Record<string, string> = {
-  pendente: "Pendente",
-  atendido: "Atendido",
-  dispensado: "Dispensado",
-};
-
 const ORIGEM_SOLICITACAO_LABEL: Record<string, string> = {
   interna: "Interna (escritório)",
   externa: "Externa (parceiro/cliente)",
@@ -677,13 +642,6 @@ function sanitizeFileName(name: string): string {
     .replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
-function labelFromList(list: Array<{ value: string; label: string }>, value: string): string {
-  for (const item of list) {
-    if (item.value === value) return item.label;
-  }
-  return value;
-}
-
 // ===========================================================================
 // Componente principal
 // ===========================================================================
@@ -721,7 +679,6 @@ function CasoDetalhePage() {
   const [documentos, setDocumentos] = useState<Array<Documento>>([]);
   const [solicitacoes, setSolicitacoes] = useState<Array<SolicitacaoDocumento>>([]);
   const [analises, setAnalises] = useState<Array<AnaliseTecnica>>([]);
-  const [mensagens, setMensagens] = useState<Array<Mensagem>>([]);
   const [comentarios, setComentarios] = useState<Array<ComentarioRow>>([]);
   const [repasses, setRepasses] = useState<Array<Repasse>>([]);
   const [processosAdmin, setProcessosAdmin] = useState<Array<ProcessoAdmin>>([]);
@@ -885,11 +842,6 @@ function CasoDetalhePage() {
       if (analisesResp && !analisesResp.error) {
         setAnalises((analisesResp.data || []) as Array<AnaliseTecnica>);
       }
-
-      // Mensagens (legacy chat) nao sao mais carregadas. Substituido por
-      // comentarios desde Fase 48. Mantemos setMensagens vazio pra nao
-      // quebrar nada se algum codigo antigo referenciar.
-      setMensagens([]);
 
       if (!comentariosResp.error) {
         setComentarios((comentariosResp.data || []) as unknown as Array<ComentarioRow>);
@@ -1931,14 +1883,12 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
   }
 
   // ---- Dialog: Editar caso ----
-  const [abrirEditCaso, setAbrirEditCaso] = useState(false);
   const [csTipoBeneficio, setCsTipoBeneficio] = useState("");
   const [csInterno, setCsInterno] = useState(true);
   const [csParceiroId, setCsParceiroId] = useState("");
   const [csFase, setCsFase] = useState("");
   const [csStatus, setCsStatus] = useState("");
   const [csResponsavelId, setCsResponsavelId] = useState("");
-  const [csSalvando, setCsSalvando] = useState(false);
   // Equipe interna, pra escolher o dono do caso. Carrega uma vez, só pra
   // interno — parceiro não edita caso.
   const [internosCaso, setInternosCaso] = useState<
@@ -1950,55 +1900,6 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
       .then(setInternosCaso)
       .catch((e) => console.error("listarInternosAtivos:", e));
   }, [isInterno, internosCaso.length]);
-
-  function abrirDialogCaso() {
-    setCsTipoBeneficio(caso.tipo_beneficio);
-    setCsInterno(caso.parceiro_id === null);
-    setCsParceiroId(caso.parceiro_id || "");
-    setCsFase(caso.fase);
-    setCsStatus(caso.status);
-    setCsResponsavelId(caso.responsavel_id || "");
-    setAbrirEditCaso(true);
-  }
-
-  async function salvarCaso() {
-    if (!csTipoBeneficio) {
-      toast.error("Tipo de benefício obrigatório");
-      return;
-    }
-    if (!csInterno && !csParceiroId) {
-      toast.error("Selecione um parceiro indicador ou marque como cliente interno");
-      return;
-    }
-    setCsSalvando(true);
-    try {
-      const resp = await supabase
-        .from("casos")
-        .update({
-          tipo_beneficio: csTipoBeneficio,
-          parceiro_id: csInterno ? null : csParceiroId,
-          fase: csFase,
-          status: csStatus,
-          responsavel_id: csResponsavelId || null,
-        })
-        .eq("id", caso.id)
-        .select();
-      if (resp.error) throw resp.error;
-      if (!resp.data || resp.data.length === 0) {
-        toast.error("Atualização não foi aplicada. Possível bloqueio de RLS.");
-        return;
-      }
-      toast.success("Caso atualizado");
-      setAbrirEditCaso(false);
-      onChange();
-    } catch (err) {
-      console.error(err);
-      const errObj = err as { message?: string };
-      toast.error(errObj.message || "Erro ao atualizar caso");
-    } finally {
-      setCsSalvando(false);
-    }
-  }
 
   return (
     <div className="space-y-3">
@@ -2646,147 +2547,6 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
           )}
         </Card>
       </div>
-      {/* Dialog "Editar caso" - fora do grid pra ficar como overlay limpo.
-          Trigger fica no botao "Editar caso" no topo da TabVisaoGeral. */}
-      {isInterno && (
-        <Dialog open={abrirEditCaso} onOpenChange={setAbrirEditCaso}>
-          <DialogContent className="max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Editar caso</DialogTitle>
-              <DialogDescription>
-                Altere os dados do caso, parceiro indicador, fase, status e valores estimados.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-3">
-              <div>
-                <Label className="text-xs">Tipo de benefício</Label>
-                <Select value={csTipoBeneficio} onValueChange={setCsTipoBeneficio}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {csTipoBeneficio && !tiposBeneficio.includes(csTipoBeneficio) && (
-                      <SelectItem value={csTipoBeneficio}>{csTipoBeneficio} (atual)</SelectItem>
-                    )}
-                    {tiposBeneficio.map((t) => (
-                      <SelectItem key={t} value={t}>
-                        {t}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="border-t pt-3 space-y-2">
-                <div className="flex items-start gap-2">
-                  <input
-                    id="cs-interno"
-                    type="checkbox"
-                    checked={csInterno}
-                    onChange={(e) => {
-                      setCsInterno(e.target.checked);
-                      if (e.target.checked) setCsParceiroId("");
-                    }}
-                    className="h-4 w-4 mt-0.5"
-                  />
-                  <div>
-                    <Label htmlFor="cs-interno" className="text-sm">
-                      Cliente interno do escritório (sem parceiro indicador)
-                    </Label>
-                    <p className="text-xs text-muted-foreground">
-                      Marque se não há advogado parceiro captando este caso.
-                    </p>
-                  </div>
-                </div>
-                {!csInterno && (
-                  <div>
-                    <Label className="text-xs">Parceiro indicador</Label>
-                    <Select value={csParceiroId} onValueChange={setCsParceiroId}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecione um parceiro..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {parceirosDisponiveis.length === 0 && (
-                          <SelectItem value="__vazio__" disabled>
-                            Nenhum parceiro cadastrado
-                          </SelectItem>
-                        )}
-                        {parceirosDisponiveis.map((p) => (
-                          <SelectItem key={p.id} value={p.id}>
-                            {p.nome || p.email || "(sem nome)"}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-t pt-3">
-                <div>
-                  <Label className="text-xs">Fase</Label>
-                  <Select value={csFase} onValueChange={setCsFase}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {FASES_CASO.map((f) => (
-                        <SelectItem key={f.value} value={f.value}>
-                          {f.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label className="text-xs">Status</Label>
-                  <Select value={csStatus} onValueChange={setCsStatus}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {STATUS_CASO.map((s) => (
-                        <SelectItem key={s.value} value={s.value}>
-                          {s.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="border-t pt-3">
-                <Label className="text-xs">Responsável pelo caso</Label>
-                <Select
-                  value={csResponsavelId || "sem"}
-                  onValueChange={(v) => setCsResponsavelId(v === "sem" ? "" : v)}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="sem">Sem dono definido</SelectItem>
-                    {internosCaso.map((u) => (
-                      <SelectItem key={u.id} value={u.id}>
-                        {u.nome ?? u.email ?? "(sem nome)"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Tarefa automática deste caso (documento do parceiro, publicação, exigência) nasce para essa pessoa. Sem dono, vai para quem já cuida do caso — ou para o padrão do escritório.
-                </p>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="ghost" onClick={() => setAbrirEditCaso(false)} disabled={csSalvando}>
-                Cancelar
-              </Button>
-              <Button onClick={salvarCaso} disabled={csSalvando}>
-                {csSalvando && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
-                Salvar
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
     </div>
   );
 }
@@ -2920,7 +2680,6 @@ function TabAndamentos(props: TabAndamentosProps) {
   const [expandidosJud, setExpandidosJud] = useState<Set<string>>(new Set());
   // Accordions especiais "Sem processo" / "Sem vinculo" (1 unico bool cada)
   const [abertoSemProcessoAdmin, setAbertoSemProcessoAdmin] = useState(false);
-  const [abertoSemVinculoGerais, setAbertoSemVinculoGerais] = useState(false);
 
   // Qual andamento está aberto (expansão inline com texto completo).
   // Apenas UM andamento por vez. Click fora fecha automaticamente.
@@ -2983,8 +2742,6 @@ function TabAndamentos(props: TabAndamentosProps) {
       setExpandidosJud((prev) => new Set(prev).add(a.processo_judicial_id!));
     } else if (a.origem === "tramitacao") {
       setAbertoSemProcessoAdmin(true);
-    } else {
-      setAbertoSemVinculoGerais(true);
     }
   }, [focoId, andamentos]);
 
@@ -3103,18 +2860,6 @@ function TabAndamentos(props: TabAndamentosProps) {
     if (!processoUnico) return PROCESSO_NENHUM;
     if (processosAdmin.length === 1) return "admin:" + processosAdmin[0].id;
     return "judicial:" + processosJudiciais[0].id;
-  }
-
-  function descricaoProcesso(a: Andamento): string | null {
-    if (a.processo_admin_id) {
-      const p = processosAdmin.find((x) => x.id === a.processo_admin_id);
-      return "Admin: " + (p?.numero_requerimento || "(sem número)");
-    }
-    if (a.processo_judicial_id) {
-      const p = processosJudiciais.find((x) => x.id === a.processo_judicial_id);
-      return "Judicial: " + (p?.numero_processo || "(sem número)");
-    }
-    return null;
   }
 
   function abrirEdicao(a: Andamento) {
@@ -5025,64 +4770,6 @@ function TabDocumentos(props: TabDocumentosProps) {
       console.warn("[drive] falha ao apagar no Drive", d.nome_arquivo, err);
       return false;
     }
-  }
-
-  async function deletarTodos() {
-    if (lista.length === 0) return;
-    const ok = window.confirm(
-      "Tem certeza que deseja deletar TODOS os " +
-        lista.length +
-        " documento" +
-        (lista.length === 1 ? "" : "s") +
-        " deste caso?\n\n" +
-        "Essa ação remove TODOS os arquivos do storage e os registros do banco, e NÃO pode ser desfeita.\n\n" +
-        "Solicitações que estavam vinculadas a esses documentos podem ficar com link quebrado (precisará reanexar o documento).",
-    );
-    if (!ok) return;
-    let okCount = 0;
-    let errCount = 0;
-    let driveFailCount = 0;
-    const tid = toast.loading("Excluindo 1 de " + lista.length + "…");
-    for (let i = 0; i < lista.length; i++) {
-      const d = lista[i];
-      toast.loading("Excluindo " + (i + 1) + " de " + lista.length + "…", { id: tid });
-      try {
-        const storageResp = await supabase.storage.from("documentos").remove([d.storage_path]);
-        if (storageResp.error) {
-          console.error("Erro storage", d.nome_arquivo, storageResp.error);
-        }
-        const delResp = await supabase.from("documentos").delete().eq("id", d.id);
-        if (delResp.error) throw delResp.error;
-        const driveOk = await apagarNoDriveSeNecessario(d);
-        if (!driveOk) driveFailCount++;
-        okCount++;
-      } catch (err) {
-        console.error("erro deletar", d.nome_arquivo, err);
-        errCount++;
-      }
-    }
-    toast.dismiss(tid);
-    if (okCount > 0) {
-      toast.success(
-        okCount +
-          " documento" +
-          (okCount === 1 ? "" : "s") +
-          " deletado" +
-          (okCount === 1 ? "" : "s"),
-      );
-    }
-    if (driveFailCount > 0) {
-      toast.warning(
-        driveFailCount +
-          " não foram pra lixeira do Drive (apague manual lá). Ver console.",
-      );
-    }
-    if (errCount > 0) {
-      toast.error(
-        errCount + " documento" + (errCount === 1 ? "" : "s") + " falharam. Ver console.",
-      );
-    }
-    onChange();
   }
 
   async function deletarDoc(d: Documento) {
@@ -7275,8 +6962,6 @@ function TabComentarios(props: TabComentariosProps) {
     sugerido.current = true;
     setDestinatario(sugerirDestinatario(comentarios));
   }, [comentarios]);
-  const [respostaTexto, setRespostaTexto] = useState<Record<string, string>>({});
-  const [respondendoEm, setRespondendoEm] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [excluindoId, setExcluindoId] = useState<string | null>(null);
 
@@ -7358,9 +7043,6 @@ function TabComentarios(props: TabComentariosProps) {
       // Limpa input e recarrega lista
       if (parentId === null) {
         setNovoTexto("");
-      } else {
-        setRespostaTexto((prev) => ({ ...prev, [parentId]: "" }));
-        setRespondendoEm(null);
       }
       await recarregar();
       toast.success(parentId === null ? "Comentário enviado" : "Resposta enviada");

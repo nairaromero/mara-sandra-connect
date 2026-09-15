@@ -30,7 +30,6 @@ import {
 import {
   atualizarTarefa,
   criarTarefa,
-  excluirTarefaComMotivo,
   listarCasosResumo,
   listarInternosAtivos,
   listarProcessosDoCaso,
@@ -74,6 +73,7 @@ import {
 import {
   descreverAutoriaStatus,
   ehAnaliseInicial,
+  ehPericiaEmSi,
   formatarDataHoraCurtaBR,
   formatarDueAtCurto,
   inputDateTimeValueFromIso,
@@ -83,6 +83,7 @@ import {
   substituirPlaceholders,
 } from "@/lib/tarefas/helpers";
 import { ConcluirTarefaDialog } from "@/components/tarefas/concluir-tarefa-dialog";
+import type { SugestaoProximaTarefa } from "@/lib/tarefas/proxima-sugerida";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -113,23 +114,37 @@ type Modo =
       kind: "criar";
       casoIdInicial?: string | null;
       templateInicial?: string;        // nome do template a pré-selecionar
+      // Próxima tarefa sugerida pela IA ao concluir a anterior (card #306):
+      // só PREENCHE o formulário — a pessoa confere e salva.
+      sugestao?: SugestaoProximaTarefa | null;
     }
   | { kind: "editar"; tarefa: TarefaComJoins };
 
-// Export pra outras telas (ex: /clientes "+ Perícia") abrirem o sheet
-// com template pré-selecionado.
+// Export pra outras telas abrirem o sheet (ex: /clientes "+ Perícia" com
+// template pré-selecionado) sem redeclarar o Modo.
 export type TarefaSheetModo = Modo;
 
 interface Props {
   modo: Modo | null;                 // null = fechado
   onClose: () => void;
   onSaved: () => void;               // recarregar lista
-  // Chamado quando a tarefa foi CONCLUÍDA aqui (status -> feito): o pai abre a
-  // criação da próxima ("concluir e adicionar outra"). Opcional.
-  onConcluida?: (casoId: string | null) => void;
+  // Tarefa CONCLUÍDA aqui e a pessoa quer criar a próxima: o pai abre a criação,
+  // com a sugestão da IA (card #306) ou em branco. Sem ele, concluir só fecha —
+  // o popup não pede sugestão que não teria como virar tarefa.
+  onConcluida?: (casoId: string | null, sugestao: SugestaoProximaTarefa | null) => void;
 }
 
 const TIPOS: TarefaTipo[] = ["interna", "prazo", "pericia", "pos_protocolo", "contato_cliente"];
+
+// Valor único do select de processo: "" = nenhum, "admin:<id>" ou "judicial:<id>".
+function tokenDoProcesso(p: {
+  processo_admin_id: string | null;
+  processo_judicial_id: string | null;
+}): string {
+  if (p.processo_admin_id) return `admin:${p.processo_admin_id}`;
+  if (p.processo_judicial_id) return `judicial:${p.processo_judicial_id}`;
+  return "";
+}
 
 
 export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
@@ -321,7 +336,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   const [justificativa, setJustificativa] = useState("");
   // Popup de conclusão/exclusão: pôr Status em "Feito" (modo concluir) ou o
   // botão Excluir do rodapé (modo excluir) abrem o MESMO popup do card —
-  // inclusive nas tarefas de desfecho, onde ele oferece só editar/excluir.
+  // inclusive nas tarefas de desfecho, onde ele oferece só excluir com motivo.
   const [concluindoNoSheet, setConcluindoNoSheet] = useState<TarefaComJoins | null>(null);
   const [modoPopupSheet, setModoPopupSheet] = useState<"concluir" | "excluir">("concluir");
 
@@ -547,30 +562,29 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
       setPericiaEvento(true);
       setExtrasResp([]);
       setTemplateSelecionado(modo.templateInicial ?? "");
+      // Sugestão da IA: preenche o que ela trouxe; o resto segue o padrão.
+      const sug = modo.sugestao;
+      if (sug) {
+        setTitulo(sug.titulo);
+        setDescricao(sug.descricao ?? "");
+        setTipo(sug.tipo);
+        setPericiaEvento(ehPericiaEmSi(sug));
+        setPrioridade(sug.prioridade);
+        setResponsavelId(sug.responsavel_id);
+        setDueDate(inputDateTimeValueFromIso(sug.due_at));
+        setProcessoToken(tokenDoProcesso(sug));
+      }
     } else {
       const t = modo.tarefa;
       setTitulo(t.titulo);
       setDescricao(t.descricao ?? "");
       setTipo(t.tipo);
-      {
-        const flag = (t.metadata as { pericia_evento?: boolean } | null)?.pericia_evento;
-        setPericiaEvento(
-          flag !== undefined
-            ? !!flag
-            : !/(acompanh|contatar|resultado|ligar|compareceu|agendamento de)/i.test(t.titulo),
-        );
-      }
+      setPericiaEvento(ehPericiaEmSi(t));
       setPrioridade(t.prioridade);
       setStatus(t.status);
       setCasoId(t.caso_id);
       setTrocandoCaso(false);
-      setProcessoToken(
-        t.processo_admin_id
-          ? `admin:${t.processo_admin_id}`
-          : t.processo_judicial_id
-            ? `judicial:${t.processo_judicial_id}`
-            : "",
-      );
+      setProcessoToken(tokenDoProcesso(t));
       setResponsavelId(t.responsavel_id);
       setDueDate(inputDateTimeValueFromIso(t.due_at));
       setLocal("");
@@ -1158,7 +1172,14 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
 
   return (
     <Sheet open={aberto} onOpenChange={(o) => !o && fechar()}>
-      <SheetContent className="w-full sm:max-w-md overflow-y-auto">
+      <SheetContent
+        className="w-full sm:max-w-md overflow-y-auto"
+        // Nova tarefa não fecha por clique fora nem Esc: quem abriu (inclusive
+        // pelo "Próxima tarefa do caso") perdia o que digitou sem querer. Sair
+        // só pelo X ou pelo Cancelar. Na edição continua como antes.
+        onInteractOutside={editando ? undefined : (e) => e.preventDefault()}
+        onEscapeKeyDown={editando ? undefined : (e) => e.preventDefault()}
+      >
         <SheetHeader>
           <SheetTitle>{editando ? "Editar tarefa" : "Nova tarefa"}</SheetTitle>
           {editando && tarefa && (
@@ -1592,7 +1613,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                 value={status}
                 onValueChange={(v) => {
                   // "Feito" abre o popup de conclusão (não muda o status direto):
-                  // Concluir e adicionar outra / Editar / Excluir com motivo.
+                  // Concluir tarefa (→ próxima sugerida) / Excluir com motivo.
                   if (v === "feito" && tarefa && tarefa.status !== "feito") {
                     setModoPopupSheet("concluir");
                     setConcluindoNoSheet(tarefa);
@@ -1990,17 +2011,12 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
             throw new Error("A tarefa não foi salva — revise o painel.");
           }
         }}
-        onConcluidaEAdicionar={(t) => {
-          setConcluindoNoSheet(null);
-          onConcluida?.(t.caso_id);
-        }}
+        // O popup já se fecha (onClose acima) antes de chamar estes dois.
+        onCriarProxima={onConcluida && ((t, sugestao) => onConcluida(t.caso_id, sugestao))}
         onExcluida={() => {
-          setConcluindoNoSheet(null);
           onSaved();
           onClose();
         }}
-        // "Editar" não faz sentido aqui (já está no painel): só fecha o popup.
-        onEditar={() => setConcluindoNoSheet(null)}
       />
     </Sheet>
   );

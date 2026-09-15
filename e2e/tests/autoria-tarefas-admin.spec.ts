@@ -2,7 +2,8 @@
 // em Documentos pendentes e itens de admin escondidos pra interno comum.
 //
 // O usuário e2e interno NÃO é admin (eh_admin=false) — serve pra provar que
-// Equipe/Webhooks/Auditoria somem da sidebar e que a rota redireciona.
+// Equipe/Auditoria somem da sidebar e que as abas de admin das Configurações
+// (Integrações, Webhooks) não aparecem.
 
 import { test, expect } from "@playwright/test";
 import { STORAGE_INTERNO } from "../auth.setup";
@@ -70,7 +71,7 @@ test("concluir tarefa grava quem concluiu e o card mostra", async ({ page }) => 
   await expect(dialog.getByText("Editar tarefa")).toBeVisible();
   await dialog.getByRole("combobox").filter({ hasText: "A fazer" }).click();
   await page.getByRole("option", { name: "Feito", exact: true }).click();
-  await page.getByRole("button", { name: /Concluir tarefa e adicionar outra/ }).click();
+  await page.getByRole("button", { name: "Concluir tarefa", exact: true }).click();
 
   await expect
     .poll(
@@ -88,10 +89,9 @@ test("concluir tarefa grava quem concluiu e o card mostra", async ({ page }) => 
     )
     .toBe("ok");
 
-  // Concluir agora já abre a criação da PRÓXIMA tarefa ("e adicionar outra").
-  // Como aqui não vamos criar outra, cancela esse sheet.
-  await expect(page.getByRole("heading", { name: "Nova tarefa" })).toBeVisible({ timeout: 10_000 });
-  await page.getByRole("button", { name: "Cancelar" }).click();
+  // Concluir abre "Próxima tarefa do caso" (card #306). Aqui não vamos criar
+  // outra.
+  await page.getByRole("button", { name: "Concluir sem criar nova tarefa" }).click();
 
   // Aba Arquivados mostra "Concluída por <nome do e2e>".
   await page.getByRole("tab", { name: /Arquivados/ }).click();
@@ -148,10 +148,27 @@ test("interno comum não vê Equipe/Webhooks/Auditoria e é redirecionado", asyn
   await expect(page.getByRole("link", { name: "Webhooks" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Auditoria" })).toHaveCount(0);
 
+  // Webhooks virou aba das Configurações (2026-09-14). O /webhooks antigo leva
+  // pra lá com ?tab=webhooks, mas sem ser admin a aba nem existe: cai em Perfil.
   await page.goto("/webhooks");
-  await expect(page).not.toHaveURL(/\/webhooks$/, { timeout: 15_000 });
+  await expect(page).toHaveURL(/\/configuracoes/, { timeout: 15_000 });
+  await expect(page.getByRole("tab", { name: "Perfil" })).toHaveAttribute("data-state", "active");
+  await expect(page.getByRole("tab", { name: "Webhooks" })).toHaveCount(0);
+  await expect(page.getByRole("tab", { name: "Integrações" })).toHaveCount(0);
+  // Interno comum ainda gerencia os tipos de benefício.
+  await expect(page.getByRole("tab", { name: "Tipos de benefício" })).toBeVisible();
 
-  await page.goto("/configuracoes");
+  // Nem pela URL: ?tab=integracoes pra quem não é admin cai em Perfil e o card
+  // não monta. Pro admin, a mesma URL mostra o card (webhooks-configuracoes.spec).
+  // A espera pela aba Perfil ativa vem ANTES da contagem 0 — senão o 0 passaria
+  // com a tela ainda no spinner. E o texto é o título real do card: até
+  // 2026-09-14 este teste procurava /Integração Gmail/, que já não existia, e
+  // a contagem 0 passava pra qualquer usuário, admin incluso.
+  await page.goto("/configuracoes?tab=integracoes");
+  await expect(page.getByRole("tab", { name: "Perfil" })).toHaveAttribute("data-state", "active");
+  await expect(page.getByText(/Integração Google/)).toHaveCount(0);
+
+  // Sessão mora na aba Segurança.
+  await page.getByRole("tab", { name: "Segurança" }).click();
   await expect(page.getByText("Sessão", { exact: true })).toBeVisible();
-  await expect(page.getByText(/Integração Gmail/)).toHaveCount(0);
 });

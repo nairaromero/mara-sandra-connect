@@ -445,7 +445,10 @@ export const WRITE_TOOLS: ToolSpec[] = [
     name: "criar_comentario",
     tipo: "write",
     papeis: ["interno", "parceiro"],
-    description: "Adiciona um comentario (mensagem interna) a um caso.",
+    description:
+      "Adiciona um comentario a um caso. ATENCAO: o comentario fica VISIVEL para o parceiro do " +
+      "caso (alem da equipe). Nao use para nota interna: para registro so da equipe use " +
+      "criar_andamento com visivel_parceiro=false.",
     schema: {
       type: "object",
       properties: { caso_id: { type: "string" }, texto: { type: "string" } },
@@ -488,11 +491,18 @@ export const WRITE_TOOLS: ToolSpec[] = [
           type: "string",
           description: "Vincula a um processo judicial (ver listar_processos)",
         },
-        visivel_parceiro: { type: "boolean" },
+        visivel_parceiro: {
+          type: "boolean",
+          description:
+            "true (padrao, igual a tela do caso) = o parceiro do caso ve o andamento; " +
+            "false = so a equipe. Na duvida, pergunte antes de criar.",
+        },
       },
       required: ["caso_id", "titulo"],
     },
-    preview: (a) => "Andamento no caso " + a.caso_id + ": " + String(a.titulo ?? ""),
+    preview: (a) =>
+      "Andamento no caso " + a.caso_id + ": " + String(a.titulo ?? "") +
+      (a.visivel_parceiro === false ? " (so equipe)" : " (visivel ao parceiro)"),
     execute: async (client, args, ctx) => {
       const caso_id = reqUuid(args.caso_id, "caso_id");
       const titulo = reqStr(args.titulo, "titulo", 200);
@@ -517,7 +527,7 @@ export const WRITE_TOOLS: ToolSpec[] = [
         .select("id")
         .maybeSingle();
       if (error) throw new Error(error.message);
-      return { ok: true, id: data?.id };
+      return { ok: true, id: data?.id, visivel_parceiro: row.visivel_parceiro };
     },
   },
 
@@ -854,8 +864,9 @@ export const WRITE_TOOLS: ToolSpec[] = [
       "para onde o arquivo deve ser enviado via HTTP PUT (corpo = binario). O arquivo vai DIRETO para o " +
       "armazenamento, sem passar pela IA. Use quando quiserem anexar/enviar/juntar/subir um arquivo " +
       "(CNIS, laudo, procuracao, etc.) ao caso. Informe caso_id, tipo e nome do arquivo (com extensao). " +
-      "Se for RESPOSTA a um pedido, passe solicitacao_id: a solicitacao e marcada como ATENDIDA e o " +
-      "documento e vinculado a ela (use listar_solicitacoes_documento para achar o id).",
+      "Se for RESPOSTA a um pedido, passe solicitacao_id: o documento e vinculado a ela e a solicitacao " +
+      "e marcada como ATENDIDA AUTOMATICAMENTE QUANDO O ARQUIVO CHEGAR (nao na hora do link). " +
+      "Use listar_solicitacoes_documento para achar o id.",
     schema: {
       type: "object",
       properties: {
@@ -864,7 +875,8 @@ export const WRITE_TOOLS: ToolSpec[] = [
         nome_arquivo: { type: "string", description: "Nome do arquivo com extensao, ex.: cnis.pdf" },
         solicitacao_id: {
           type: "string",
-          description: "Se for resposta a um pedido: marca a solicitacao como atendida e vincula o doc",
+          description:
+            "Se for resposta a um pedido: vincula o doc; a solicitacao fecha sozinha quando o arquivo chegar",
         },
         visivel_parceiro: { type: "boolean" },
       },
@@ -882,11 +894,29 @@ export const WRITE_TOOLS: ToolSpec[] = [
         .replace(/[^a-zA-Z0-9._-]/g, "_");
       const path = caso_id + "/" + Date.now() + "_" + safe;
 
+      // 0) Valida a solicitacao ANTES de criar qualquer coisa: precisa existir e
+      //    ser deste caso (senao sobrava documento orfao ou fechava pedido de outro caso).
+      let sid: string | null = null;
+      if (args.solicitacao_id) {
+        sid = reqUuid(args.solicitacao_id, "solicitacao_id");
+        const { data: sol, error: solErr } = await client
+          .from("solicitacoes_documento")
+          .select("id")
+          .eq("id", sid)
+          .eq("caso_id", caso_id)
+          .maybeSingle();
+        if (solErr) throw new Error(solErr.message);
+        if (!sol) throw new Error("solicitacao_id nao encontrada neste caso");
+      }
+
       // 1) Link de upload assinado (arquivo vai direto ao Storage).
       const signed = await client.storage.from("documentos").createSignedUploadUrl(path);
       if (signed.error) throw new Error(signed.error.message);
 
       // 2) Registro do documento (aponta para o path; arquivo chega pelo link).
+      //    Com solicitacao_id, a solicitacao NAO fecha aqui: o gatilho
+      //    trg_upload_link_fecha_solicitacao (storage.objects) marca ATENDIDA
+      //    quando o arquivo realmente chega (migration_upload_link_fecha_solicitacao).
       const row: Record<string, unknown> = {
         caso_id,
         tipo,
@@ -895,24 +925,9 @@ export const WRITE_TOOLS: ToolSpec[] = [
         uploaded_by: ctx.uid,
         visivel_parceiro: args.visivel_parceiro === false ? false : true,
       };
+      if (sid) row.solicitacao_id = sid;
       const ins = await client.from("documentos").insert(row).select("id").maybeSingle();
       if (ins.error) throw new Error(ins.error.message);
-
-      // 3) Se em resposta a uma solicitacao: marca ATENDIDA + vincula o documento.
-      let solicitacao_atendida = false;
-      if (args.solicitacao_id) {
-        const sid = reqUuid(args.solicitacao_id, "solicitacao_id");
-        const up = await client
-          .from("solicitacoes_documento")
-          .update({
-            status: "atendido",
-            data_atendimento: new Date().toISOString(),
-            documento_id: ins.data?.id,
-          })
-          .eq("id", sid);
-        if (up.error) throw new Error(up.error.message);
-        solicitacao_atendida = true;
-      }
 
       const signedUrl = signed.data?.signedUrl ?? "";
       const pagina_upload =
@@ -923,14 +938,20 @@ export const WRITE_TOOLS: ToolSpec[] = [
       return {
         ok: true,
         documento_id: ins.data?.id,
-        solicitacao_atendida,
+        solicitacao_vinculada: sid,
+        solicitacao_fecha_quando_arquivo_chegar: !!sid,
         storage_path: path,
         pagina_upload,
         upload_url: signedUrl,
         instrucoes:
           "Compartilhe ou abra 'pagina_upload': uma pagina onde se escolhe o arquivo e ele e enviado " +
           "(serve para o advogado OU para o cliente). Alternativa tecnica: HTTP PUT direto em upload_url. " +
-          "O link expira em ~2h. Apos o upload, o documento aparece na aba Documentos do caso.",
+          "O link expira em ~2h. Apos o upload, o documento aparece na aba Documentos do caso." +
+          (sid
+            ? " A solicitacao continua PENDENTE ate o arquivo chegar e entao fecha sozinha. Quando o " +
+              "usuario disser que enviou, confira com listar_solicitacoes_documento (status) e leia o " +
+              "arquivo com ler_documentos_caso antes de continuar."
+            : ""),
       };
     },
   },
