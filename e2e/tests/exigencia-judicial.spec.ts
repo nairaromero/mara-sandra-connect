@@ -3,11 +3,18 @@
 // O fluxo da equipe: ler a publicação no Legalmail, colar o trecho no form,
 // informar o PRAZO FATAL e salvar. O template cria andamento visível ao
 // parceiro, solicitação de documento (IA reescreve em linguagem simples;
-// sem chave de IA cai no texto do template — nos dois casos a data do fatal
-// aparece), tarefa de acompanhamento e tarefa FATAL no dia útil anterior
-// ao fatal (regra da casa: vencer no fatal é perder o prazo).
+// sem chave de IA cai no texto do template), tarefa de acompanhamento e
+// tarefa FATAL no dia útil anterior ao fatal (regra da casa: vencer no fatal
+// é perder o prazo).
+//
+// O parceiro nunca vê o fatal: recebe o "enviar até" = fatal − 3 (regra da
+// casa de 2026-08-31). A resposta da edge mensagem-parceiro-exigencia é SEMPRE
+// simulada — o staging tem chave de IA desde 2026-09-15, e o teste dependia do
+// que a IA escrevesse. A data da mensagem de verdade é posta pela própria edge
+// (supabase/functions/mensagem-parceiro-exigencia/prazo.test.ts); aqui vale o
+// que o front manda pra ela e grava.
 
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { STORAGE_INTERNO } from "../auth.setup";
 import { cursorVisivel } from "../cursor";
 import { adminClient, cleanupE2E, seedClienteCaso } from "../supabase-admin";
@@ -17,15 +24,62 @@ test.use({ storageState: STORAGE_INTERNO });
 
 test.beforeEach(async ({ page }) => {
   await cursorVisivel(page);
+  await simularMensagemExigencia(page);
 });
+
+// Latência realista: a edge de verdade leva segundos (ver simularSugestaoProxima).
+const LATENCIA_SIMULADA_MS = 1200;
+
+/** Responde pela edge com uma mensagem que usa a data recebida no pedido. */
+async function simularMensagemExigencia(
+  page: Page,
+  aoPedir?: (corpoDoPedido: Record<string, unknown>) => void,
+) {
+  await page.route("**/functions/v1/mensagem-parceiro-exigencia", async (route) => {
+    const cors = {
+      "access-control-allow-origin": "*",
+      "access-control-allow-headers": "*",
+      "access-control-allow-methods": "POST, OPTIONS",
+    };
+    if (route.request().method() === "OPTIONS") {
+      await route.fulfill({ status: 204, headers: cors });
+      return;
+    }
+    const pedido = route.request().postDataJSON() as Record<string, unknown>;
+    aoPedir?.(pedido);
+    const data =
+      typeof pedido.prazo_parceiro === "string"
+        ? pedido.prazo_parceiro.split("-").reverse().join("/")
+        : "(sem data)";
+    await new Promise((r) => setTimeout(r, LATENCIA_SIMULADA_MS));
+    await route.fulfill({
+      status: 200,
+      headers: { ...cors, "content-type": "application/json" },
+      body: JSON.stringify({
+        mensagem:
+          "Olá! A Justiça pediu documentos para o processo (mensagem simulada no E2E).\n\n" +
+          "1. Envie o CNIS atualizado.\n2. Envie a carteira de trabalho.\n\n" +
+          `⚠️ Prazo para enviar os documentos ao escritório: *${data}*.\n\n` +
+          "Providencie o quanto antes.",
+      }),
+    });
+  });
+}
 
 const admin = adminClient();
 let casoId: string;
 let nomeCliente: string;
 
-// Fatal numa SEXTA com folga (>= 7 dias): o dia útil anterior é quinta,
-// determinístico pro assert — sem depender do dia em que o teste roda.
-function proximaSexta(): { fatal: string; vesperaBR: string; fatalBR: string } {
+// Fatal numa SEXTA com folga (>= 7 dias): o dia útil anterior é quinta e o
+// "enviar até" do parceiro (fatal − 3) é terça, sem cair em fim de semana —
+// determinístico pro assert, sem depender do dia em que o teste roda.
+function proximaSexta(): {
+  fatal: string;
+  vesperaBR: string;
+  fatalBR: string;
+  enviarAte: string;
+  enviarAteBR: string;
+} {
   const d = new Date();
   d.setHours(12, 0, 0, 0);
   d.setDate(d.getDate() + 7);
@@ -35,7 +89,15 @@ function proximaSexta(): { fatal: string; vesperaBR: string; fatalBR: string } {
   const br = (x: Date) => iso(x).split("-").reverse().join("/");
   const vespera = new Date(d);
   vespera.setDate(vespera.getDate() - 1);
-  return { fatal: iso(d), vesperaBR: br(vespera), fatalBR: br(d) };
+  const enviarAte = new Date(d);
+  enviarAte.setDate(enviarAte.getDate() - 3);
+  return {
+    fatal: iso(d),
+    vesperaBR: br(vespera),
+    fatalBR: br(d),
+    enviarAte: iso(enviarAte),
+    enviarAteBR: br(enviarAte),
+  };
 }
 
 test.beforeAll(async () => {
@@ -51,7 +113,11 @@ test.afterAll(async () => {
 test("exigência judicial cria solicitação com prazo e FATAL no dia útil anterior", async ({
   page,
 }) => {
-  const { fatal, vesperaBR, fatalBR } = proximaSexta();
+  const { fatal, vesperaBR, fatalBR, enviarAte, enviarAteBR } = proximaSexta();
+  let pedidoIa: Record<string, unknown> | null = null;
+  await simularMensagemExigencia(page, (pedido) => {
+    pedidoIa = pedido;
+  });
 
   await abrirNovaTarefaNoCaso(page, casoId);
   // Aberta no caso: Cliente já vem preenchido (grava caso_id).
@@ -114,25 +180,38 @@ test("exigência judicial cria solicitação com prazo e FATAL no dia útil ante
   );
   expect(aguardando, "tarefa de acompanhamento não criada").toBeTruthy();
 
-  // Solicitação ao parceiro: origem do template e data do fatal no texto
-  // (presente tanto no texto da IA quanto no fallback).
+  // A edge da mensagem recebe o "enviar até" do parceiro — o fatal não sai
+  // do front pra ela.
+  expect(pedidoIa, "a mensagem da IA não foi pedida").not.toBeNull();
+  expect(pedidoIa).toMatchObject({ tipo: "judicial", prazo_parceiro: enviarAte });
+  expect(pedidoIa).not.toHaveProperty("prazo_fatal");
+
+  // Solicitação ao parceiro: origem do template, texto da IA e prazo = enviar até.
   const { data: solics } = await admin
     .from("solicitacoes_documento")
-    .select("descricao, status, origem")
+    .select("descricao, status, origem, prazo_at")
     .eq("caso_id", casoId);
   expect(solics?.length).toBe(1);
   expect(solics![0].origem).toBe("template:exigencia_judicial");
   expect(solics![0].status).toBe("pendente");
-  expect(solics![0].descricao).toContain(fatalBR);
+  expect(solics![0].descricao).toContain("mensagem simulada no E2E");
+  expect(solics![0].descricao).toContain(enviarAteBR);
+  expect(solics![0].descricao).not.toContain(fatalBR);
+  const prazoBR = new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Sao_Paulo" }).format(
+    new Date(solics![0].prazo_at),
+  );
+  expect(prazoBR).toBe(enviarAte);
 
-  // Andamento visível ao parceiro.
+  // Andamento visível ao parceiro, sem o fatal
+  // (migration_exigencia_judicial_sem_fatal_parceiro).
   const { data: ands } = await admin
     .from("andamentos")
-    .select("titulo, visivel_parceiro")
+    .select("titulo, descricao, visivel_parceiro")
     .eq("caso_id", casoId);
   expect(ands?.length).toBe(1);
   expect(ands![0].visivel_parceiro).toBe(true);
   expect(ands![0].titulo).toContain("Exigência judicial");
+  expect(ands![0].descricao).not.toContain(fatalBR);
 });
 
 // Ciclo de ATENDIMENTO (depende do estado do 1º teste): quando o parceiro
