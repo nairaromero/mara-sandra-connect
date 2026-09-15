@@ -59,7 +59,10 @@ test("perícia e audiência não têm Concluir; reunião continua com o botão",
     await expect(painel.getByRole("button", { name: "Concluir", exact: true })).toHaveCount(0);
     await expect(painel.getByRole("button", { name: "Reabrir", exact: true })).toHaveCount(0);
     await painel.getByRole("button", { name: "Cancelar", exact: true }).click();
-    await expect(painel).toHaveCount(0);
+    // Espera o painel SAIR de vez, não só o título mudar: ao fechar, o título
+    // vira "Agendamentos" ainda na animação de saída, e o clique no próximo
+    // agendamento durante ela não abre nada.
+    await expect(page.getByRole("dialog")).toHaveCount(0);
   }
 
   // Contraprova: outro tipo segue com o botão.
