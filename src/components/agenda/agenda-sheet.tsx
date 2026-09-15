@@ -117,6 +117,11 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
   const { marcar: marcarDestaque } = useDestaque();
   const editando = modo?.kind === "editar";
   const evento = modo?.kind === "editar" ? modo.evento : null;
+  // Perícia e audiência se concluem pela tarefa delas (tarefa de perícia e tarefa
+  // de audiência), não pelo agendamento (#332): nesses tipos não há Concluir nem
+  // Reabrir aqui. Guichê, atendimento, reunião e interno continuam com o botão.
+  // Vale o tipo gravado, não o que está sendo editado no formulário.
+  const concluiPelaTarefa = evento?.tipo === "pericia" || evento?.tipo === "audiencia";
 
   const [tipo, setTipo] = useState<AgendaTipo>("pericia");
   const [titulo, setTitulo] = useState("");
@@ -732,7 +737,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
   // riscado. Consertar o "guiche que ja foi mas nao saiu da agenda" era isso —
   // evento nao tinha como ser dado por realizado.
   async function alternarConclusao() {
-    if (!editando || !evento) return;
+    if (!editando || !evento || concluiPelaTarefa) return;
     const marcando = !evento.concluido_em;
     setConcluindo(true);
     try {
@@ -1110,7 +1115,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
               Excluir
             </Button>
           )}
-          {editando && (
+          {editando && !concluiPelaTarefa && (
             <Button
               variant="outline"
               onClick={alternarConclusao}
