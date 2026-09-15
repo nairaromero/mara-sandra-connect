@@ -36,6 +36,8 @@ export async function marcarFeito(page: Page) {
 // 2026-09-15: sem isto, cada conclusão pelo popup chamava a IA de verdade (gasto
 // a cada rodada) e o teste dependia do que ela respondesse. Registrar de novo no
 // mesmo teste troca a resposta — a rota registrada por último vale primeiro.
+const LATENCIA_SIMULADA_MS = 1200;
+
 export const SEM_SUGESTAO = { sugestao: null, motivo: "A IA não viu próximo passo para este caso." };
 
 export async function simularSugestaoProxima(
@@ -54,6 +56,11 @@ export async function simularSugestaoProxima(
       return;
     }
     aoPedir?.(route.request().postDataJSON());
+    // Latência realista: a edge de verdade leva segundos. Resposta instantânea
+    // fazia o teste clicar em "Criar nova tarefa" enquanto o painel da tarefa
+    // ainda fechava, e reabrir no meio da animação deixava o fundo escurecido
+    // preso por cima do formulário (visto na Agenda em 2026-09-15).
+    await new Promise((r) => setTimeout(r, LATENCIA_SIMULADA_MS));
     await route.fulfill({
       status: 200,
       headers: { ...cors, "content-type": "application/json" },
