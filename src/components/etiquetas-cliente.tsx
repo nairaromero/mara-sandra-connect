@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
-import { ordenarEtiquetas } from "@/lib/etiquetas";
+import { ordenarEtiquetas, ordenarEtiquetasDoCliente } from "@/lib/etiquetas";
 
 interface Etiqueta {
   id: string;
@@ -48,7 +48,7 @@ export function EtiquetasCliente({ clienteId, isInterno }: Props) {
       const vincs = vincRows
         .map((r) => (Array.isArray(r.etiqueta) ? r.etiqueta[0] : r.etiqueta))
         .filter((e): e is Etiqueta => !!e);
-      setVinculadas(ordenarEtiquetas(vincs));
+      setVinculadas(ordenarEtiquetasDoCliente(vincs));
 
       if (isInterno) {
         const todasResp = await supabase
@@ -75,7 +75,7 @@ export function EtiquetasCliente({ clienteId, isInterno }: Props) {
         .from("clientes_etiquetas")
         .insert({ cliente_id: clienteId, etiqueta_id: e.id });
       if (error) throw error;
-      setVinculadas((prev) => ordenarEtiquetas([...prev, e]));
+      setVinculadas((prev) => ordenarEtiquetasDoCliente([...prev, e]));
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Falha ao adicionar.";
       toast.error(msg);
