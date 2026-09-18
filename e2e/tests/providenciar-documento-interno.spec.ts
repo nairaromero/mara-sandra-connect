@@ -10,7 +10,8 @@
 //  - o painel da tarefa mostra o pedido e o botão de cumprir;
 //  - cumprir pelo painel anexa o documento, fecha o pedido e conclui a tarefa
 //    sozinha;
-//  - o popup de "Feito" avisa quando o pedido continua aberto.
+//  - o popup de "Feito" avisa quando o pedido continua aberto;
+//  - o card da lista cumpre sem abrir a tarefa (Naira, 2026-09-18).
 
 import { test, expect } from "@playwright/test";
 import { STORAGE_INTERNO } from "../auth.setup";
@@ -27,6 +28,7 @@ const PDF_FAKE = Buffer.from(
 
 let casoId: string;
 let solicId: string;
+let solicCardId: string;
 let tarefaId: string;
 let internoId: string;
 
@@ -55,6 +57,22 @@ test.beforeAll(async () => {
     .single();
   if (error) throw new Error(`seed solicitação interna: ${error.message}`);
   solicId = solic.id as string;
+
+  // Segundo pedido, pro teste do card (cada teste cumpre o seu).
+  const { data: solic2, error: erro2 } = await admin
+    .from("solicitacoes_documento")
+    .insert({
+      caso_id: casoId,
+      tipo: "comprovante_residencia",
+      descricao: "[E2E] comprovante de residência atualizado",
+      status: "pendente",
+      origem: "interna",
+      responsavel_id: internoId,
+    })
+    .select("id")
+    .single();
+  if (erro2) throw new Error(`seed segunda solicitação interna: ${erro2.message}`);
+  solicCardId = solic2.id as string;
 });
 
 test.afterAll(async () => {
@@ -141,6 +159,70 @@ test("tarefa de providenciar abre no responsável e cumpre o pedido pelo painel"
           .from("tarefas")
           .select("status")
           .eq("id", tarefaId)
+          .single();
+        return data?.status;
+      },
+      { timeout: 20_000 },
+    )
+    .toBe("feito");
+});
+
+test("card da lista cumpre o pedido sem abrir a tarefa", async ({ page }) => {
+  const { data: tarefas, error } = await admin
+    .from("tarefas")
+    .select("id, titulo")
+    .eq("origem_ref", `solicitacao:${solicCardId}`);
+  expect(error, "erro ao ler a tarefa do segundo pedido").toBeFalsy();
+  expect(tarefas?.length).toBe(1);
+  const tarefaCardId = tarefas![0].id as string;
+  const titulo = tarefas![0].titulo as string;
+
+  await page.goto(`/casos/${casoId}`);
+  await page.getByText("Atividades", { exact: true }).first().click();
+  await expect(page.getByText(titulo).first()).toBeVisible({ timeout: 20_000 });
+
+  // O botão vive no próprio card — não precisa abrir a tarefa. São dois cards
+  // de "Providenciar documentos" no caso: mira o do comprovante.
+  const card = page
+    .locator("div.group")
+    .filter({ hasText: "comprovante de residência atualizado" })
+    .first();
+  await card.getByRole("button", { name: "Anexar documento e cumprir" }).click();
+
+  // Clicar no botão NÃO abre o painel da tarefa (stopPropagation).
+  await expect(page.getByRole("heading", { name: "Cumprir pedido de documento" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Editar tarefa" })).toHaveCount(0);
+
+  await page
+    .locator('input[type="file"]')
+    .last()
+    .setInputFiles([
+      { name: "comprovante-e2e.pdf", mimeType: "application/pdf", buffer: PDF_FAKE },
+    ]);
+  await page.getByRole("button", { name: "Anexar e cumprir" }).click();
+  await expect(page.getByText(/Pedido cumprido/)).toBeVisible({ timeout: 30_000 });
+
+  await expect
+    .poll(
+      async () => {
+        const { data } = await admin
+          .from("solicitacoes_documento")
+          .select("status")
+          .eq("id", solicCardId)
+          .single();
+        return data?.status;
+      },
+      { timeout: 20_000 },
+    )
+    .toBe("atendido");
+
+  await expect
+    .poll(
+      async () => {
+        const { data } = await admin
+          .from("tarefas")
+          .select("status")
+          .eq("id", tarefaCardId)
           .single();
         return data?.status;
       },

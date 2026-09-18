@@ -20,8 +20,12 @@ import { CumprirSolicitacaoDialog } from "@/components/documentos/cumprir-solici
 export function EtapaProvidenciarDocumento(props: {
   tarefa: TarefaComJoins;
   onUpdated: () => void;
+  /** no card da lista: sem moldura nem texto de apoio, só o botão. */
+  compacto?: boolean;
+  /** no card, clicar no botão não pode abrir o painel da tarefa. */
+  stopPropagation?: boolean;
 }) {
-  const { tarefa, onUpdated } = props;
+  const { tarefa, onUpdated, compacto = false, stopPropagation = false } = props;
   const pedido = usePedidoDaTarefa(tarefa.metadata);
   const [cumprindo, setCumprindo] = useState<string | null>(null);
   const [cumpridoAgora, setCumpridoAgora] = useState(false);
@@ -29,6 +33,40 @@ export function EtapaProvidenciarDocumento(props: {
   if (!pedido) return null;
 
   const resolvido = cumpridoAgora || pedido.status !== "pendente";
+
+  // Diálogo montado junto nos dois formatos: é ele que faz o cumprimento.
+  const dialogo = (
+    <CumprirSolicitacaoDialog
+      solicitacaoId={cumprindo}
+      onFechar={() => setCumprindo(null)}
+      onCumprida={() => {
+        setCumpridoAgora(true);
+        onUpdated();
+      }}
+    />
+  );
+
+  // No card da lista (Naira, 2026-09-18): cumprir sem precisar abrir a tarefa.
+  if (compacto) {
+    if (resolvido) return null;
+    return (
+      <div onClick={stopPropagation ? (e) => e.stopPropagation() : undefined}>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs"
+          onClick={(e) => {
+            if (stopPropagation) e.stopPropagation();
+            setCumprindo(pedido.id);
+          }}
+        >
+          <FileUp className="h-3.5 w-3.5 mr-1.5" />
+          Anexar documento e cumprir
+        </Button>
+        {dialogo}
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-md border p-3 space-y-2">
@@ -56,14 +94,7 @@ export function EtapaProvidenciarDocumento(props: {
           </p>
         </>
       )}
-      <CumprirSolicitacaoDialog
-        solicitacaoId={cumprindo}
-        onFechar={() => setCumprindo(null)}
-        onCumprida={() => {
-          setCumpridoAgora(true);
-          onUpdated();
-        }}
-      />
+      {dialogo}
     </div>
   );
 }
