@@ -102,6 +102,7 @@ import { AnaliseCasoNovo } from "@/components/tarefas/analise-caso-novo";
 import { AnaliseIndeferimento } from "@/components/tarefas/analise-indeferimento";
 import { ComparecimentoPericia } from "@/components/tarefas/comparecimento-pericia";
 import { EnviarAvisoParceiro } from "@/components/tarefas/enviar-aviso-parceiro";
+import { EtapaProvidenciarDocumento } from "@/components/tarefas/etapa-providenciar-documento";
 import { EtapaCumprimentoExigencia } from "@/components/tarefas/etapa-cumprimento-exigencia";
 import { EtapaProtocoloRealizado } from "@/components/tarefas/etapa-protocolo-realizado";
 import { chaveDiaBR, hojeChaveBR } from "@/lib/fuso";
@@ -1272,6 +1273,12 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
           {editando && tarefa &&
             (tarefa.metadata as { protocolo_realizado?: boolean })?.protocolo_realizado && (
               <EtapaProtocoloRealizado tarefa={tarefa} onUpdated={onSaved} />
+            )}
+
+          {editando && tarefa &&
+            (tarefa.metadata as { providenciar_documento?: boolean })
+              ?.providenciar_documento === true && (
+              <EtapaProvidenciarDocumento tarefa={tarefa} onUpdated={onSaved} />
             )}
 
           <div className="space-y-1.5">
