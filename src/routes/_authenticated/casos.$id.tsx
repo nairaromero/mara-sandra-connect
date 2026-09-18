@@ -6709,9 +6709,9 @@ function SolicitarDocBotao(props: {
           )}
           {origem === "externa" && internos.length > 0 && (
             <div>
-              <Label className="text-xs">Quem analisa quando voltar (opcional)</Label>
+              <Label className="text-xs">Quem cuida quando o documento voltar (opcional)</Label>
               <Select value={responsavelId || "auto"} onValueChange={(v) => setResponsavelId(v === "auto" ? "" : v)}>
-                <SelectTrigger aria-label="Quem analisa quando voltar">
+                <SelectTrigger aria-label="Quem cuida quando o documento voltar">
                   <SelectValue placeholder="Definir automaticamente" />
                 </SelectTrigger>
                 <SelectContent>
@@ -6724,7 +6724,8 @@ function SolicitarDocBotao(props: {
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground mt-1">
-                Quando o documento chegar, a tarefa de conferir abre no nome dessa pessoa.
+                A tarefa que nascer com o documento — analisar o que chegou ou cumprir a
+                exigência — abre no nome dessa pessoa.
               </p>
             </div>
           )}
