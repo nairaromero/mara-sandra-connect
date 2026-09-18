@@ -138,6 +138,10 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
     Array<{ id: string; nome: string | null; email: string | null }>
   >([]);
   const [processosDoCaso, setProcessosDoCaso] = useState<ProcessoDoCasoOpcao[]>([]);
+  // Falha/atraso ao ler os processos NÃO pode virar "caso sem processo": com o
+  // processo obrigatório em perícia e audiência (card #357), lista vazia por
+  // erro deixaria passar compromisso sem frente, calado.
+  const [processosProntos, setProcessosProntos] = useState(false);
   // Templates de agenda (com pelo menos 1 item destino=agenda).
   const [templates, setTemplates] = useState<TarefaTemplateRow[]>([]);
   const [templateSelecionado, setTemplateSelecionado] = useState<string>("");
@@ -339,11 +343,20 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
   useEffect(() => {
     if (!casoId) {
       setProcessosDoCaso([]);
+      setProcessosProntos(true); // sem caso não há frente a escolher
       return;
     }
+    setProcessosProntos(false);
     listarProcessosDoCaso(casoId)
-      .then(setProcessosDoCaso)
-      .catch(() => {});
+      .then((ps) => {
+        setProcessosDoCaso(ps);
+        setProcessosProntos(true);
+      })
+      .catch((e) => {
+        console.error("listarProcessosDoCaso:", e);
+        setProcessosDoCaso([]);
+        setProcessosProntos(false);
+      });
   }, [casoId]);
 
   // Sincroniza form com modo na abertura.
@@ -513,6 +526,12 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
     // Perícia e audiência SEMPRE correm dentro de um processo (Naira,
     // 2026-09-18, card #357) — e é o processo que decide a coluna em que o
     // parceiro vê o compromisso. Com frente no caso, escolher é obrigatório.
+    if ((tipo === "pericia" || tipo === "audiencia") && casoId && !processosProntos) {
+      toast.error("Não consegui carregar os processos do caso", {
+        description: "Perícia e audiência precisam do processo — tente de novo em instantes.",
+      });
+      return;
+    }
     if (processoObrigatorio && !processoToken) {
       toast.error(
         tipo === "audiencia"

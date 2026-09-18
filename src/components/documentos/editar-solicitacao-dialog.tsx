@@ -151,11 +151,11 @@ export function EditarSolicitacaoDialog(props: {
         ]);
       })
       .catch((e) => {
+        // Mantém `null` de propósito: erro de leitura não é "caso sem
+        // processo". Com [] aqui, o Salvar liberaria e o pedido ficaria sem
+        // frente sem ninguém perceber.
         console.error("frentes do caso:", e);
-        if (vivo) {
-          setFrentes([]);
-          toast.error("Não consegui carregar os processos do caso");
-        }
+        if (vivo) toast.error("Não consegui carregar os processos do caso");
       });
     return () => {
       vivo = false;

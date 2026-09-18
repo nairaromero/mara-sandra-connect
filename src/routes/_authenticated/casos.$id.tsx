@@ -687,6 +687,10 @@ function CasoDetalhePage() {
   const [repasses, setRepasses] = useState<Array<Repasse>>([]);
   const [processosAdmin, setProcessosAdmin] = useState<Array<ProcessoAdmin>>([]);
   const [processosJudiciais, setProcessosJudiciais] = useState<Array<ProcessoJudicial>>([]);
+  // Os dois SELECTs de processo deram certo? Com o processo obrigatório no
+  // pedido de documento (card #357), lista vazia por erro de leitura não pode
+  // passar por "cliente sem processo".
+  const [processosCarregados, setProcessosCarregados] = useState(false);
 
   const carregar = useCallback(async () => {
     // Primeira carga bloqueia a tela. Recarga depois de salvar mantem os dados
@@ -862,6 +866,8 @@ function CasoDetalhePage() {
       if (!procJudResp.error) {
         setProcessosJudiciais((procJudResp.data || []) as Array<ProcessoJudicial>);
       }
+
+      setProcessosCarregados(!procAdminResp.error && !procJudResp.error);
     } catch (err) {
       console.error(err);
       const errObj = err as { message?: string };
@@ -1044,6 +1050,7 @@ function CasoDetalhePage() {
               gdriveFolderName={caso.gdrive_folder_name ?? null}
               processosAdmin={processosAdmin}
               processosJudiciais={processosJudiciais}
+              processosCarregados={processosCarregados}
               focoId={search.foco}
               onChange={carregar}
             />
@@ -3944,6 +3951,8 @@ interface TabDocumentosProps {
   // — é isso que decide a coluna do kanban dele (card #357).
   processosAdmin: Array<ProcessoAdmin>;
   processosJudiciais: Array<ProcessoJudicial>;
+  /** false = os SELECTs de processo falharam; não é "caso sem processo". */
+  processosCarregados: boolean;
   isInterno: boolean;
   usuarioId: string | null;
   gdriveFolderId: string | null;
@@ -3963,6 +3972,7 @@ function TabDocumentos(props: TabDocumentosProps) {
     gdriveFolderName,
     processosAdmin,
     processosJudiciais,
+    processosCarregados,
     focoId,
     onChange,
   } = props;
@@ -5635,6 +5645,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                 usuarioId={usuarioId}
                 processosAdmin={processosAdmin}
                 processosJudiciais={processosJudiciais}
+                processosCarregados={processosCarregados}
                 onChange={onChange}
               />
             )}
@@ -6396,9 +6407,11 @@ function SolicitarDocBotao(props: {
   usuarioId: string | null;
   processosAdmin: Array<ProcessoAdmin>;
   processosJudiciais: Array<ProcessoJudicial>;
+  processosCarregados: boolean;
   onChange: () => void;
 }) {
-  const { casoId, usuarioId, processosAdmin, processosJudiciais, onChange } = props;
+  const { casoId, usuarioId, processosAdmin, processosJudiciais, processosCarregados, onChange } =
+    props;
   const [aberto, setAberto] = useState(false);
   const [tipo, setTipo] = useState("");
   const [tipoPersonalizado, setTipoPersonalizado] = useState("");
@@ -6464,7 +6477,9 @@ function SolicitarDocBotao(props: {
     (atualValido || adicionados.length > 0) &&
     (origem !== "interna" || !!responsavelId) &&
     // Com processo no caso, escolher a frente é obrigatório (card #357) —
-    // "Cliente sem processo" é uma das respostas.
+    // "Cliente sem processo" é uma das respostas. Se a leitura dos processos
+    // falhou, ninguém sabe se há frente: trava em vez de gravar no escuro.
+    processosCarregados &&
     (frentes.length === 0 || !!processoToken);
 
   function adicionarAtual() {
@@ -6663,6 +6678,12 @@ function SolicitarDocBotao(props: {
                 conclui sozinha quando a solicitação for atendida.
               </p>
             </div>
+          )}
+          {!processosCarregados && (
+            <p className="text-xs text-destructive">
+              Não consegui carregar os processos do caso — recarregue a página antes de pedir o
+              documento.
+            </p>
           )}
           {frentes.length > 0 && (
             <div>

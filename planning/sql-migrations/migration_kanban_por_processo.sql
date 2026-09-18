@@ -249,4 +249,12 @@ as $$
     );
 $$;
 
+-- Recriar a função RESSUSCITA o EXECUTE do PUBLIC (default do Postgres) e os
+-- grants padrão do Supabase. Em produção (conferido em 2026-09-19) só
+-- `authenticated` executa: anon e service_role estão negados. Reproduz isso
+-- aqui, senão o deploy abriria a função pro anônimo sem ninguém notar —
+-- conferir sempre com has_function_privilege, nunca pelo texto do proacl.
+revoke all on function public.agenda_do_parceiro(timestamptz, uuid) from public;
+revoke all on function public.agenda_do_parceiro(timestamptz, uuid) from anon;
+revoke all on function public.agenda_do_parceiro(timestamptz, uuid) from service_role;
 grant execute on function public.agenda_do_parceiro(timestamptz, uuid) to authenticated;

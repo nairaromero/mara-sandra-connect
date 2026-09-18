@@ -127,10 +127,10 @@ type CardKanban =
   | { kind: "solicitacao"; key: string; casoId: string; quando: string | null; s: SolicPendente }
   | { kind: "evento"; key: string; casoId: string; quando: string; e: EventoParceiro };
 
-// As 3 colunas do feedback + "Outros" pra fase finalizado/desconhecida. A
-// coluna Outros só aparece quando tem card: senão pendência de caso
-// finalizado sumia do board (mas seguia contada no menu) — o mesmo trap que
-// já mordeu em 2026-08-27.
+// As 3 colunas do feedback + "Casos encerrados" pra fase finalizado/
+// desconhecida. Essa quarta coluna só aparece quando tem card: senão pendência
+// de caso finalizado sumia do board (mas seguia contada no menu) — o mesmo
+// trap que já mordeu em 2026-08-27.
 const FASE_ANALISE = "analise";
 const FASE_ADMIN = "admin";
 const FASE_JUDICIAL = "judicial";
@@ -147,7 +147,7 @@ const FASE_OUTROS_TITULO = "Casos encerrados";
 const FASE_OUTROS_AJUDA = "Pedidos que continuam abertos em casos já encerrados.";
 
 // Fase do caso -> chave de coluna. Qualquer coisa fora das 3 conhecidas
-// (finalizado, nulo, valor novo) cai em "Outros" em vez de desaparecer.
+// (finalizado, nulo, valor novo) cai em "Casos encerrados" em vez de sumir.
 function colunaDaFase(fase: string | null | undefined): string {
   if (fase === FASE_ANALISE || fase === FASE_ADMIN || fase === FASE_JUDICIAL) return fase;
   return FASE_OUTROS;
@@ -160,7 +160,8 @@ function colunaDaFase(fase: string | null | undefined): string {
  * frentes aparece nas duas colunas, o que a fase do caso (uma só) não permitia.
  *
  * Sem processo ligado, cai na fase do caso: "Em análise" enquanto não há
- * processo, e "Outros" se o caso estiver finalizado — nada some do quadro.
+ * processo, e "Casos encerrados" se o caso estiver finalizado — nada some do
+ * quadro.
  */
 function colunaDoItem(item: {
   processo_admin_id: string | null;
@@ -331,7 +332,7 @@ export function TarefasParceiro() {
   // Monta as colunas: card de solicitação + card de evento, na coluna do
   // PROCESSO do item (card #357), ordenados pelo prazo/data mais próximo (sem
   // prazo vai pro fim). Nada é descartado: item sem processo cai na fase do
-  // caso, e fase desconhecida/finalizado cai em "Outros".
+  // caso, e fase desconhecida/finalizado cai em "Casos encerrados".
   const colunas = useMemo(() => {
     const porFase = new Map<string, CardKanban[]>(
       [...FASES_FIXAS.map((f) => f.fase), FASE_OUTROS].map((f) => [f, []]),
