@@ -165,6 +165,9 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   const [casoId, setCasoId] = useState<string | null>(null);
   const [trocandoCaso, setTrocandoCaso] = useState(false);
   // Único valor para processo: "" = nenhum, "admin:<id>" ou "judicial:<id>".
+  // "" = ainda não escolheu · SEM_PROCESSO = escolha consciente ·
+  // "admin:<id>"/"judicial:<id>" = frente do caso. O processo decide a coluna
+  // do kanban do parceiro (card #357), então escolher passou a ser obrigatório.
   const [processoToken, setProcessoToken] = useState<string>("");
   const [responsavelId, setResponsavelId] = useState<string | null>(null);
   const [dueDate, setDueDate] = useState<string>("");
@@ -599,6 +602,10 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
     onClose();
   }, [salvando, onClose]);
 
+  // Escolha consciente de "não tem processo ainda" — diferente de campo em
+  // branco, que agora é barrado no salvar.
+  const SEM_PROCESSO = "sem";
+
   function parseProcesso(): {
     processo_admin_id: string | null;
     processo_judicial_id: string | null;
@@ -641,6 +648,15 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
     const statusEfetivo = statusForcado ?? status;
     if (!titulo.trim()) {
       toast.error("Título é obrigatório.");
+      return false;
+    }
+    // O processo define em qual coluna o parceiro vê o item (card #357).
+    // Com processo no caso, escolher é obrigatório — inclusive "Cliente sem
+    // processo", que é uma resposta, não um campo esquecido.
+    if (casoId && processosDoCaso.length > 0 && !processoToken) {
+      toast.error("Escolha o processo da tarefa", {
+        description: 'Se ainda não há processo, marque "Cliente sem processo".',
+      });
       return false;
     }
     const dueCalculado = isoFromInputDateTime(dueDate);
@@ -1329,14 +1345,11 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
 
           {casoId && processosDoCaso.length > 0 && (
             <div className="space-y-1.5">
-              <Label>Processo (opcional)</Label>
-              <Select
-                value={processoToken || "sem"}
-                onValueChange={(v) => setProcessoToken(v === "sem" ? "" : v)}
-              >
-                <SelectTrigger><SelectValue placeholder="Nenhum" /></SelectTrigger>
+              <Label>Processo *</Label>
+              <Select value={processoToken} onValueChange={setProcessoToken}>
+                <SelectTrigger><SelectValue placeholder="Escolha o processo" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="sem">Sem processo específico</SelectItem>
+                  <SelectItem value={SEM_PROCESSO}>Cliente sem processo</SelectItem>
                   {processosDoCaso.map((p) => (
                     <SelectItem key={`${p.natureza}:${p.id}`} value={`${p.natureza}:${p.id}`}>
                       {p.rotulo}
@@ -1345,7 +1358,9 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Vincula a tarefa a um requerimento ou processo judicial específico.
+                É o processo que decide em qual coluna o parceiro vê a tarefa:
+                requerimento vai para Administrativo, ação para Judiciais. Sem processo
+                ainda, marque "Cliente sem processo".
               </p>
             </div>
           )}

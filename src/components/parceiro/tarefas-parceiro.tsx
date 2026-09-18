@@ -89,6 +89,9 @@ interface SolicPendente {
   // Quem da equipe abriu o pedido. Nulo quando veio do robô do e-mail INSS
   // (origem template:*) — descreverSolicitante() cobre os dois casos.
   solicitante: SolicitanteLite | null;
+  // Processo a que o pedido se refere — é ele que decide a coluna (card #357).
+  processo_admin_id: string | null;
+  processo_judicial_id: string | null;
   casos: {
     id: string;
     fase: string;
@@ -116,6 +119,8 @@ interface EventoParceiro {
   end_at: string;
   local: string | null;
   natureza: "admin" | "judicial" | null;
+  processo_admin_id: string | null;
+  processo_judicial_id: string | null;
 }
 
 type CardKanban =
@@ -143,6 +148,24 @@ const FASE_OUTROS_TITULO = "Outros";
 function colunaDaFase(fase: string | null | undefined): string {
   if (fase === FASE_ANALISE || fase === FASE_ADMIN || fase === FASE_JUDICIAL) return fase;
   return FASE_OUTROS;
+}
+
+/**
+ * Coluna do card (card #357, decisão da Naira em 2026-09-18): quem manda é o
+ * PROCESSO do item — a exigência do requerimento vai pra Administrativo, a
+ * perícia do processo judicial vai pra Judiciais. O cliente que corre nas duas
+ * frentes aparece nas duas colunas, o que a fase do caso (uma só) não permitia.
+ *
+ * Sem processo ligado, cai na fase do caso: "Em análise" enquanto não há
+ * processo, e "Outros" se o caso estiver finalizado — nada some do quadro.
+ */
+function colunaDoItem(item: {
+  processo_admin_id: string | null;
+  processo_judicial_id: string | null;
+}, faseDoCaso: string | null | undefined): string {
+  if (item.processo_judicial_id) return FASE_JUDICIAL;
+  if (item.processo_admin_id) return FASE_ADMIN;
+  return colunaDaFase(faseDoCaso);
 }
 
 // ---------------------------------------------------------------------------
@@ -251,7 +274,7 @@ export function TarefasParceiro() {
           let q = supabase
             .from("solicitacoes_documento")
             .select(
-              "id, caso_id, tipo, tipos, descricao, origem, prazo_at, data_solicitacao, documento_id, solicitante:usuarios!solicitacoes_documento_solicitado_por_fkey(id, nome), casos!inner(id, fase, parceiro_id, clientes(id, nome))",
+              "id, caso_id, tipo, tipos, descricao, origem, prazo_at, data_solicitacao, documento_id, processo_admin_id, processo_judicial_id, solicitante:usuarios!solicitacoes_documento_solicitado_por_fkey(id, nome), casos!inner(id, fase, parceiro_id, clientes(id, nome))",
             )
             .eq("status", "pendente")
             .neq("origem", "interna");
@@ -302,15 +325,16 @@ export function TarefasParceiro() {
     carregar();
   }, [carregar]);
 
-  // Monta as colunas: card de solicitação + card de evento, na coluna da FASE
-  // do caso, ordenados pelo prazo/data mais próximo (sem prazo vai pro fim).
-  // Nada é descartado: fase desconhecida/finalizado cai em "Outros".
+  // Monta as colunas: card de solicitação + card de evento, na coluna do
+  // PROCESSO do item (card #357), ordenados pelo prazo/data mais próximo (sem
+  // prazo vai pro fim). Nada é descartado: item sem processo cai na fase do
+  // caso, e fase desconhecida/finalizado cai em "Outros".
   const colunas = useMemo(() => {
     const porFase = new Map<string, CardKanban[]>(
       [...FASES_FIXAS.map((f) => f.fase), FASE_OUTROS].map((f) => [f, []]),
     );
     for (const s of solicitacoes) {
-      porFase.get(colunaDaFase(s.casos?.fase))!.push({
+      porFase.get(colunaDoItem(s, s.casos?.fase))!.push({
         kind: "solicitacao",
         key: `s:${s.id}`,
         casoId: s.caso_id,
@@ -320,7 +344,7 @@ export function TarefasParceiro() {
     }
     for (const e of eventos) {
       if (!e.caso_id) continue;
-      porFase.get(colunaDaFase(e.fase))!.push({
+      porFase.get(colunaDoItem(e, e.fase))!.push({
         kind: "evento",
         key: `e:${e.fonte}:${e.id}`,
         casoId: e.caso_id,
