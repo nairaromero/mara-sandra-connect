@@ -266,6 +266,10 @@ interface SolicitacaoDocumento {
   solicitante?: { id: string; nome: string | null } | null;
   data_solicitacao: string;
   data_atendimento: string | null;
+  // Frente do pedido e dono da tarefa que nasce dele (card #357).
+  processo_admin_id: string | null;
+  processo_judicial_id: string | null;
+  responsavel_id: string | null;
 }
 
 interface AnaliseTecnica {
@@ -1038,6 +1042,8 @@ function CasoDetalhePage() {
               usuarioId={usuario ? usuario.id : null}
               gdriveFolderId={caso.gdrive_folder_id ?? null}
               gdriveFolderName={caso.gdrive_folder_name ?? null}
+              processosAdmin={processosAdmin}
+              processosJudiciais={processosJudiciais}
               focoId={search.foco}
               onChange={carregar}
             />
@@ -3934,6 +3940,10 @@ interface TabDocumentosProps {
   casoId: string;
   documentos: Array<Documento>;
   solicitacoes: Array<SolicitacaoDocumento>;
+  // Processos do caso: o pedido ao parceiro precisa dizer de qual frente ele é
+  // — é isso que decide a coluna do kanban dele (card #357).
+  processosAdmin: Array<ProcessoAdmin>;
+  processosJudiciais: Array<ProcessoJudicial>;
   isInterno: boolean;
   usuarioId: string | null;
   gdriveFolderId: string | null;
@@ -3951,6 +3961,8 @@ function TabDocumentos(props: TabDocumentosProps) {
     usuarioId,
     gdriveFolderId,
     gdriveFolderName,
+    processosAdmin,
+    processosJudiciais,
     focoId,
     onChange,
   } = props;
@@ -5618,7 +5630,13 @@ function TabDocumentos(props: TabDocumentosProps) {
               </CardDescription>
             </div>
             {isInterno && (
-              <SolicitarDocBotao casoId={casoId} usuarioId={usuarioId} onChange={onChange} />
+              <SolicitarDocBotao
+                casoId={casoId}
+                usuarioId={usuarioId}
+                processosAdmin={processosAdmin}
+                processosJudiciais={processosJudiciais}
+                onChange={onChange}
+              />
             )}
           </div>
         </CardHeader>
@@ -6376,9 +6394,11 @@ function UploadDoc(props: {
 function SolicitarDocBotao(props: {
   casoId: string;
   usuarioId: string | null;
+  processosAdmin: Array<ProcessoAdmin>;
+  processosJudiciais: Array<ProcessoJudicial>;
   onChange: () => void;
 }) {
-  const { casoId, usuarioId, onChange } = props;
+  const { casoId, usuarioId, processosAdmin, processosJudiciais, onChange } = props;
   const [aberto, setAberto] = useState(false);
   const [tipo, setTipo] = useState("");
   const [tipoPersonalizado, setTipoPersonalizado] = useState("");
@@ -6401,12 +6421,17 @@ function SolicitarDocBotao(props: {
   // Interna: quem da equipe vai providenciar — o banco abre a tarefa pra
   // essa pessoa (Naira, 2026-08-26).
   const [responsavelId, setResponsavelId] = useState("");
+  // Frente do pedido: "" = não escolheu · "sem" = cliente sem processo ·
+  // "admin:<id>" / "judicial:<id>". Decide a coluna do kanban (card #357).
+  const [processoToken, setProcessoToken] = useState("");
   const [internos, setInternos] = useState<
     Array<{ id: string; nome: string | null; email: string | null }>
   >([]);
 
   useEffect(() => {
-    if (!aberto || origem !== "interna" || internos.length > 0) return;
+    // A lista serve pros dois casos: interna (quem providencia) e externa
+    // (quem analisa quando o documento voltar).
+    if (!aberto || internos.length > 0) return;
     listarInternosAtivos()
       .then(setInternos)
       .catch((e) => console.error("listarInternosAtivos:", e));
@@ -6415,9 +6440,32 @@ function SolicitarDocBotao(props: {
   const tiposOptions = TIPOS_DOCUMENTO_OPTIONS;
 
   const atualValido = !!tipo && (tipo !== "outro" || tipoPersonalizado.trim().length > 0);
+  // Frentes do caso pro seletor. Com uma só, já vem escolhida — ninguém
+  // precisa decidir o óbvio.
+  const frentes = useMemo(
+    () => [
+      ...processosAdmin.map((p) => ({
+        token: "admin:" + p.id,
+        rotulo: "Requerimento " + (p.numero_requerimento || "(sem número)"),
+      })),
+      ...processosJudiciais.map((p) => ({
+        token: "judicial:" + p.id,
+        rotulo: "Processo judicial " + (p.numero_processo || "(sem número)"),
+      })),
+    ],
+    [processosAdmin, processosJudiciais],
+  );
+  useEffect(() => {
+    if (!aberto) return;
+    setProcessoToken(frentes.length === 1 ? frentes[0].token : "");
+  }, [aberto, frentes]);
+
   const valido =
     (atualValido || adicionados.length > 0) &&
-    (origem !== "interna" || !!responsavelId);
+    (origem !== "interna" || !!responsavelId) &&
+    // Com processo no caso, escolher a frente é obrigatório (card #357) —
+    // "Cliente sem processo" é uma das respostas.
+    (frentes.length === 0 || !!processoToken);
 
   function adicionarAtual() {
     if (!atualValido) return;
@@ -6463,7 +6511,12 @@ function SolicitarDocBotao(props: {
           status: "pendente",
           origem: origem,
           solicitado_por: usuarioId,
-          responsavel_id: origem === "interna" ? responsavelId : null,
+          // Interna: quem providencia. Externa: quem analisa quando voltar.
+          responsavel_id: responsavelId || null,
+          processo_admin_id: processoToken.startsWith("admin:") ? processoToken.slice(6) : null,
+          processo_judicial_id: processoToken.startsWith("judicial:")
+            ? processoToken.slice(9)
+            : null,
           prazo_at: prazoIsoBase ? fimDoDiaBR(prazoIsoBase).toISOString() : null,
         })
         .select("id")
@@ -6608,6 +6661,49 @@ function SolicitarDocBotao(props: {
               <p className="text-xs text-muted-foreground mt-1">
                 A tarefa "Providenciar documentos" abre no nome dessa pessoa e se
                 conclui sozinha quando a solicitação for atendida.
+              </p>
+            </div>
+          )}
+          {frentes.length > 0 && (
+            <div>
+              <Label className="text-xs">Processo *</Label>
+              <Select value={processoToken} onValueChange={setProcessoToken}>
+                <SelectTrigger aria-label="Processo do pedido">
+                  <SelectValue placeholder="Escolha o processo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="sem">Cliente sem processo</SelectItem>
+                  {frentes.map((f) => (
+                    <SelectItem key={f.token} value={f.token}>
+                      {f.rotulo}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">
+                É o processo que decide em qual coluna o parceiro vê o pedido: requerimento
+                vai para Administrativo, ação para Judiciais.
+              </p>
+            </div>
+          )}
+          {origem === "externa" && internos.length > 0 && (
+            <div>
+              <Label className="text-xs">Quem analisa quando voltar (opcional)</Label>
+              <Select value={responsavelId || "auto"} onValueChange={(v) => setResponsavelId(v === "auto" ? "" : v)}>
+                <SelectTrigger aria-label="Quem analisa quando voltar">
+                  <SelectValue placeholder="Definir automaticamente" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Definir automaticamente</SelectItem>
+                  {internos.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.nome || u.email || u.id}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">
+                Quando o documento chegar, a tarefa de conferir abre no nome dessa pessoa.
               </p>
             </div>
           )}

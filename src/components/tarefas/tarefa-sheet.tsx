@@ -1064,6 +1064,11 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                   origem: `template:${tpl.nome}`,
                   data_solicitacao: new Date().toISOString(),
                   prazo_at: prazoParceiroAt,
+                  // O pedido herda a frente escolhida na tarefa: é ela que
+                  // decide a coluna do kanban do parceiro (card #357). Sem
+                  // isto, exigência de requerimento caía em Judiciais quando o
+                  // caso também tinha ação (achado do teste da Naira, 18/09).
+                  ...proc,
                 })
                 .select("id")
                 .single();

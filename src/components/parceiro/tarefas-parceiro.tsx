@@ -141,7 +141,10 @@ const FASES_FIXAS: Array<{ fase: string; titulo: string }> = [
   { fase: FASE_ADMIN, titulo: "Administrativo" },
   { fase: FASE_JUDICIAL, titulo: "Judiciais" },
 ];
-const FASE_OUTROS_TITULO = "Outros";
+// "Outros" dizia pouco (Naira, 2026-09-18): quem cai aqui é pendência de caso
+// encerrado — e ela não pode sumir do quadro, senão o contador do menu diverge.
+const FASE_OUTROS_TITULO = "Casos encerrados";
+const FASE_OUTROS_AJUDA = "Pedidos que continuam abertos em casos já encerrados.";
 
 // Fase do caso -> chave de coluna. Qualquer coisa fora das 3 conhecidas
 // (finalizado, nulo, valor novo) cai em "Outros" em vez de desaparecer.
@@ -585,13 +588,25 @@ export function TarefasParceiro() {
             {colunasVisiveis.map((f) => {
               const cards = colunas.get(f.fase) ?? [];
               return (
-                <div key={f.fase} className="rounded-lg bg-muted/40 p-2 min-w-0">
-                  <p className="text-sm font-medium text-muted-foreground px-2 py-1.5">
+                <div
+                  key={f.fase}
+                  className={
+                    f.fase === FASE_OUTROS
+                      ? "rounded-lg border border-dashed border-warning/60 bg-warning/10 p-2 min-w-0"
+                      : "rounded-lg bg-muted/40 p-2 min-w-0"
+                  }
+                >
+                  <p className="text-sm font-medium text-muted-foreground px-2 pt-1.5">
                     {f.titulo}
                     <span className="ml-1.5 text-xs text-muted-foreground/70">
                       {cards.length}
                     </span>
                   </p>
+                  {f.fase === FASE_OUTROS && (
+                    <p className="px-2 pb-1.5 text-xs text-muted-foreground/80">
+                      {FASE_OUTROS_AJUDA}
+                    </p>
+                  )}
                   {/* Mostra ~5 cards e rola o resto dentro da própria coluna:
                       com muitas exigências a coluna não empurra a página toda
                       pra baixo. */}
