@@ -491,6 +491,10 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
     return { processo_admin_id: null, processo_judicial_id: null };
   }
 
+  // Perícia/audiência com frente cadastrada no caso: processo obrigatório.
+  const processoObrigatorio =
+    (tipo === "pericia" || tipo === "audiencia") && !!casoId && processosDoCaso.length > 0;
+
   async function salvar() {
     if (!titulo.trim()) {
       toast.error("Título é obrigatório.");
@@ -504,6 +508,18 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
     const endIso = inputDatetimeToIso(endInput);
     if (new Date(endIso).getTime() < new Date(startIso).getTime()) {
       toast.error("Fim não pode ser antes do início.");
+      return;
+    }
+    // Perícia e audiência SEMPRE correm dentro de um processo (Naira,
+    // 2026-09-18, card #357) — e é o processo que decide a coluna em que o
+    // parceiro vê o compromisso. Com frente no caso, escolher é obrigatório.
+    if (processoObrigatorio && !processoToken) {
+      toast.error(
+        tipo === "audiencia"
+          ? "Escolha o processo da audiência"
+          : "Escolha o processo da perícia",
+        { description: "Toda perícia ou audiência corre dentro de um processo." },
+      );
       return;
     }
     setSalvando(true);
@@ -818,16 +834,18 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
 
           {casoId && processosDoCaso.length > 0 && (
             <div className="space-y-1.5">
-              <Label>Processo (opcional)</Label>
+              <Label>{processoObrigatorio ? "Processo *" : "Processo (opcional)"}</Label>
               <Select
                 value={processoToken || "sem"}
                 onValueChange={(v) => setProcessoToken(v === "sem" ? "" : v)}
               >
-                <SelectTrigger>
-                  <SelectValue placeholder="Nenhum" />
+                <SelectTrigger aria-label="Processo do compromisso">
+                  <SelectValue placeholder={processoObrigatorio ? "Escolha o processo" : "Nenhum"} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="sem">Sem processo específico</SelectItem>
+                  {!processoObrigatorio && (
+                    <SelectItem value="sem">Sem processo específico</SelectItem>
+                  )}
                   {processosDoCaso.map((p) => (
                     <SelectItem key={`${p.natureza}:${p.id}`} value={`${p.natureza}:${p.id}`}>
                       {p.rotulo}

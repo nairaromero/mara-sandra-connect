@@ -1008,6 +1008,10 @@ async function processarMensagem(
           origem: `template:${templateFinal}`,
           data_solicitacao: new Date().toISOString(),
           prazo_at: prazoParceiroBrasiliaISO(27),
+          // Mesmo critério das tarefas: o requerimento casado pelo protocolo
+          // é a frente do pedido, e é ela que decide a coluna do kanban do
+          // parceiro (card #357). Sem match por protocolo fica null.
+          processo_admin_id: match.processo_admin_id,
         });
       if (errSolic) {
         res.erros.push(`solicitacao[${i}] insert: ${errSolic.message}`);

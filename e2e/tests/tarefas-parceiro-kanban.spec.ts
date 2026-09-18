@@ -214,11 +214,12 @@ test("agenda do parceiro mostra a audiência no calendário", async ({ page }) =
 });
 
 // HIGH-1 (regressão): pendência em caso FINALIZADO não pode sumir do board —
-// vai pra coluna "Outros", senão o contador do menu diverge do que aparece.
+// vai pra coluna "Casos encerrados" (ex-"Outros"), senão o contador do menu
+// diverge do que aparece.
 // O caso é finalizado DEPOIS da pendência: pedido novo em caso finalizado
 // reabre o caso (card #357), então esta é a única forma de a combinação
 // existir — e ela existe (equipe encerra o caso com o parceiro ainda devendo).
-test("pendência em caso finalizado aparece em Outros (não some do board)", async ({ page }) => {
+test("pendência em caso finalizado aparece em Casos encerrados (não some do board)", async ({ page }) => {
   const sufixo = `Kanban Finalizado ${Date.now()}`;
   const nome = `[E2E] ${sufixo}`;
   const { casoId } = await seedClienteCaso(admin, { sufixo, parceiroId: await parceiraId() });
@@ -226,10 +227,8 @@ test("pendência em caso finalizado aparece em Outros (não some do board)", asy
   await admin.from("casos").update({ fase: "finalizado" }).eq("id", casoId);
 
   await page.goto("/tarefas");
-  // Mira o CABEÇALHO da coluna ("Outros" + contagem). getByText("Outros") solto
-  // casava com qualquer card cujo documento é "Outro" seguido de um texto que
-  // começa com "s" — o textContent junta os blocos sem espaço ("OutroSolicitado").
-  await expect(page.getByText(/^Outros\s*\d+$/)).toBeVisible();
+  // Mira o CABEÇALHO da coluna (título + contagem), não um card solto.
+  await expect(page.getByText(/^Casos encerrados\s*\d+$/)).toBeVisible();
   await expect(page.getByText(nome)).toBeVisible();
 });
 
@@ -266,7 +265,7 @@ test("parceiro não consegue burlar prazo/origem/status via API (guard)", async 
 });
 
 // Card #357: pedido novo em caso finalizado REABRE o caso, e o card aparece na
-// coluna da frente do pedido — não fica escondido em "Outros".
+// coluna da frente do pedido — não fica escondido em "Casos encerrados".
 test("pedido novo em caso finalizado reabre e o card volta pra coluna da frente", async ({ page }) => {
   const sufixo = `Kanban Reabre ${Date.now()}`;
   const nome = `[E2E] ${sufixo}`;
