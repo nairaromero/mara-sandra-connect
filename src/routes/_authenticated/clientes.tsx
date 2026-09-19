@@ -52,7 +52,7 @@ import {
 } from "@/components/ui/popover";
 import { ImportarClientesExcelDialog } from "@/components/importar-clientes-excel-dialog";
 import { exportarClientesExcel } from "@/lib/clientes-excel";
-import { beneficiosDasEtiquetas, ordenarEtiquetas } from "@/lib/etiquetas";
+import { beneficiosDasEtiquetas, ordenarEtiquetasDoCliente } from "@/lib/etiquetas";
 import { TarefaSheet, type TarefaSheetModo } from "@/components/tarefas/tarefa-sheet";
 
 export const Route = createFileRoute("/_authenticated/clientes")({
@@ -264,7 +264,7 @@ function ClientesPage() {
           mapa.set(row.cliente_id, lista);
         }
         for (const [cid, lista] of mapa) {
-          mapa.set(cid, ordenarEtiquetas(lista));
+          mapa.set(cid, ordenarEtiquetasDoCliente(lista));
         }
         setEtiquetasPorCliente(mapa);
       }
