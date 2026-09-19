@@ -403,7 +403,12 @@ Registrada aqui pra não se perder o raciocínio de 2026-08-23:
   parametrizados por ref). Recomendação atual: **(b) enquanto os clientes se
   contarem em dezenas**; revisitar (a) além de ~20-30 tenants.
 
-Quando a decisão for tomada, ela vira o D23 com o formato padrão.
+Quando a decisão for tomada, ela vira o D23 com o formato padrão. O plano de execução
+completo — auditoria do que existe hoje, comparação (a) × (b) com números medidos, desenho
+de RBAC e as fases de migração — está em [MULTI_TENANT_RBAC.md](MULTI_TENANT_RBAC.md)
+(14/09/2026, revisto em 19/09). Ele **recomenda (a)**, pool com portabilidade para silo, e
+explica por que a conta de 23/08 mudou: o silo multiplica o drift de grants e policies que a
+auditoria encontrou entre os dois projetos que já existem.
 
 ---
 
