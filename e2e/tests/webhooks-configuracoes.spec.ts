@@ -79,7 +79,7 @@ test("admin: webhooks saíram da sidebar e /webhooks abre a aba nas Configuraç�
   // Trocar de aba atualiza a URL (deep-link) e mostra o conteúdo certo.
   await clicar(page, page.getByRole("tab", { name: "Integrações" }));
   await expect(page).toHaveURL(/\/configuracoes\?tab=integracoes/);
-  await expect(page.getByText(/Integração Google/).first()).toBeVisible();
+  await expect(page.getByText(/Integração Gmail/).first()).toBeVisible();
   await clicar(page, page.getByRole("tab", { name: "Perfil" }));
   await expect(page).toHaveURL(/\/configuracoes$/);
   await expect(page.getByText("Meu perfil", { exact: true })).toBeVisible();
@@ -91,7 +91,7 @@ test("admin: webhooks saíram da sidebar e /webhooks abre a aba nas Configuraç�
     "data-state",
     "active",
   );
-  await expect(page.getByText(/Integração Google/).first()).toBeVisible();
+  await expect(page.getByText(/Integração Gmail/).first()).toBeVisible();
 });
 
 // Alguma face da Inter (Google Fonts) já carregou?
