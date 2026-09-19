@@ -73,11 +73,6 @@ export const ENV = {
   // staging e não tem o que fazer aqui.
   cfAccessClientId: ehLocal ? "" : pega("CF_ACCESS_CLIENT_ID", false),
   cfAccessClientSecret: ehLocal ? "" : pega("CF_ACCESS_CLIENT_SECRET", false),
-  // Token da Management API (mesmo do scripts/msc-sql.mjs). Opcional: só o spec
-  // de primeiro acesso usa, pra zerar a senha de um usuário e simular convite.
-  // No local o SQL vai direto no Postgres da pilha (localDbUrl).
-  accessToken: ehLocal ? "" : pega("SUPABASE_ACCESS_TOKEN", false),
-  localDbUrl: ehLocal ? pega("LOCAL_DB_URL") : "",
 };
 
 // Ref do projeto extraído da URL — usado no nome da chave do localStorage
