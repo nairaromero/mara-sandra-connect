@@ -69,8 +69,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Le auth.users.encrypted_password via RPC SECURITY DEFINER — o client nao
-  // enxerga o schema auth. Se o RPC nao existir (ambiente sem a migration),
+  // Pergunta ao banco (RPC SECURITY DEFINER) se a conta veio de convite e ainda
+  // nao tem senha propria — quem responde e usuarios.senha_definida_em, nao o
+  // auth.users.encrypted_password: o Supabase preenche esse campo sozinho no
+  // aceite do convite (#362). Se o RPC nao existir (ambiente sem a migration),
   // assume false: melhor deixar entrar do que travar todo mundo na tela de
   // senha por causa de migration atrasada.
   async function loadPrecisaSenha() {

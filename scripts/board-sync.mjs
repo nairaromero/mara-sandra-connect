@@ -4,9 +4,12 @@
 //
 // O card é a ISSUE (o pedido). PR ligado a uma issue não é card: ele move a
 // issue e, se tiver entrado no board, é arquivado. PR sem issue ligada (ex.:
-// correção avulsa) continua sendo o próprio card. "Ligado" é a ligação do
-// GitHub — `Closes #N` no corpo do PR (a palavra tem que ser em inglês:
-// "Fecha #N" não liga) ou o campo Development da issue.
+// correção avulsa) continua sendo o próprio card. "Ligado" é `Closes #N` no
+// corpo do PR (a palavra tem que ser em inglês: "Fecha #N" não liga) ou o
+// campo Development da issue. O GitHub só registra o `Closes #N` de PR para a
+// branch padrão (main); como todo PR daqui aponta para a staging, quem lê o
+// corpo é este script (board-sync-ligacoes.mjs), nos dois sentidos: as issues
+// que o PR fecha e os PRs que fecham uma issue.
 //
 //   node scripts/board-sync.mjs em-revisao <pr> [--dry-run]
 //       PR aberto para a staging -> issues ligadas (ou o PR) em "Em revisão".
@@ -54,6 +57,8 @@ import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+
+import { issuesFechadasPeloCorpo } from "./board-sync-ligacoes.mjs";
 
 const OWNER = "nairaromero";
 const PROJECT_NUMBER = 1;
@@ -225,6 +230,56 @@ const CAMPOS_PR = `
   files(first: 100) { totalCount nodes { path changeType } }
 `;
 
+// Os PRs ligados a uma issue, com os `campos` pedidos (tem que incluir
+// `number`): os do campo Development — e de PR para a main, que o GitHub liga
+// sozinho — mais os PRs para a staging cujo corpo fecha a issue. Esses últimos
+// o GitHub não liga; aparecem na linha do tempo da issue como referência
+// cruzada, e o corpo diz se é "Closes" ou só uma menção.
+async function prsLigadosAIssue(issueNumero, campos) {
+  const d = await gql(
+    `query($o: String!, $r: String!, $n: Int!) {
+      repository(owner: $o, name: $r) {
+        issue(number: $n) {
+          closedByPullRequestsReferences(first: 20, includeClosedPrs: true) { nodes { ${campos} } }
+        }
+      }
+    }`,
+    { o: REPO_OWNER, r: REPO_NAME, n: issueNumero },
+  );
+  const porNumero = new Map(d.repository.issue.closedByPullRequestsReferences.nodes.map((p) => [p.number, p]));
+
+  let cursor = null;
+  do {
+    const t = await gql(
+      `query($o: String!, $r: String!, $n: Int!, $c: String) {
+        repository(owner: $o, name: $r) {
+          issue(number: $n) {
+            timelineItems(first: 100, after: $c, itemTypes: [CROSS_REFERENCED_EVENT]) {
+              pageInfo { hasNextPage endCursor }
+              nodes {
+                ... on CrossReferencedEvent {
+                  source {
+                    ... on PullRequest { body baseRefName repository { nameWithOwner } ${campos} }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }`,
+      { o: REPO_OWNER, r: REPO_NAME, n: issueNumero, c: cursor },
+    );
+    const pagina = t.repository.issue.timelineItems;
+    for (const { source: pr } of pagina.nodes) {
+      if (!pr?.number || porNumero.has(pr.number)) continue;
+      if (pr.repository.nameWithOwner !== REPO || pr.baseRefName !== "staging") continue;
+      if (issuesFechadasPeloCorpo(pr.body, REPO).includes(issueNumero)) porNumero.set(pr.number, pr);
+    }
+    cursor = pagina.pageInfo.hasNextPage ? pagina.pageInfo.endCursor : null;
+  } while (cursor);
+  return [...porNumero.values()];
+}
+
 // Os PRs que decidem um card: o próprio PR, ou os PRs vinculados à issue.
 async function prsDoCard(card) {
   if (card.tipo === "PullRequest") {
@@ -236,19 +291,7 @@ async function prsDoCard(card) {
     );
     return [d.repository.pullRequest];
   }
-  const d = await gql(
-    `query($o: String!, $r: String!, $n: Int!) {
-      repository(owner: $o, name: $r) {
-        issue(number: $n) {
-          closedByPullRequestsReferences(first: 10, includeClosedPrs: true) {
-            nodes { ${CAMPOS_PR} }
-          }
-        }
-      }
-    }`,
-    { o: REPO_OWNER, r: REPO_NAME, n: card.numero },
-  );
-  return d.repository.issue.closedByPullRequestsReferences.nodes;
+  return prsLigadosAIssue(card.numero, CAMPOS_PR);
 }
 
 function migrationsDoPr(pr) {
@@ -340,14 +383,15 @@ async function lerRegistro(nomes, { staging }) {
 
 const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// PR + as issues abertas ligadas a ele. Só escopo de repositório: dá para
-// rodar em --dry-run com um token sem acesso ao board.
+// PR + as issues abertas ligadas a ele: as do campo Development (e de PR para
+// a main) mais as que o corpo fecha. Só escopo de repositório: dá para rodar
+// em --dry-run com um token sem acesso ao board.
 async function lerPrELigacoes(numero) {
   const d = await gql(
     `query($o: String!, $r: String!, $n: Int!) {
       repository(owner: $o, name: $r) {
         pullRequest(number: $n) {
-          id isDraft baseRefName state merged
+          id isDraft baseRefName state merged body
           closingIssuesReferences(first: 20) {
             nodes { id number state repository { nameWithOwner } }
           }
@@ -357,9 +401,26 @@ async function lerPrELigacoes(numero) {
     { o: REPO_OWNER, r: REPO_NAME, n: numero },
   );
   const pr = d.repository.pullRequest;
-  const issues = pr.closingIssuesReferences.nodes.filter(
-    (i) => i.state === "OPEN" && i.repository.nameWithOwner === REPO,
+  const porNumero = new Map(
+    pr.closingIssuesReferences.nodes
+      .filter((i) => i.repository.nameWithOwner === REPO)
+      .map((i) => [i.number, i]),
   );
+  const doCorpo = issuesFechadasPeloCorpo(pr.body, REPO).filter((n) => !porNumero.has(n));
+  if (doCorpo.length) {
+    // Um "#N" pode ser PR, não issue: fica de fora.
+    const campos = doCorpo
+      .map((n, i) => `r${i}: issueOrPullRequest(number: ${n}) { __typename ... on Issue { id number state } }`)
+      .join("\n");
+    const r = await gql(
+      `query($o: String!, $r: String!) { repository(owner: $o, name: $r) { ${campos} } }`,
+      { o: REPO_OWNER, r: REPO_NAME },
+    );
+    for (const item of Object.values(r.repository)) {
+      if (item?.__typename === "Issue") porNumero.set(item.number, item);
+    }
+  }
+  const issues = [...porNumero.values()].filter((i) => i.state === "OPEN");
   return { pr, issues };
 }
 
@@ -381,17 +442,7 @@ async function itemDoConteudo(board, contentId) {
 // Os outros PRs ligados à issue (fora o `exceto`): quais seguem abertos e se
 // algum já foi mergeado. PR fechado sem merge não conta pra nada.
 async function outrosPrsDaIssue(issueNumero, exceto) {
-  const d = await gql(
-    `query($o: String!, $r: String!, $n: Int!) {
-      repository(owner: $o, name: $r) {
-        issue(number: $n) {
-          closedByPullRequestsReferences(first: 20, includeClosedPrs: true) { nodes { number state merged } }
-        }
-      }
-    }`,
-    { o: REPO_OWNER, r: REPO_NAME, n: issueNumero },
-  );
-  const outros = d.repository.issue.closedByPullRequestsReferences.nodes.filter((p) => p.number !== exceto);
+  const outros = (await prsLigadosAIssue(issueNumero, "number state merged")).filter((p) => p.number !== exceto);
   return {
     abertos: outros.filter((p) => p.state === "OPEN").map((p) => p.number),
     algumMergeado: outros.some((p) => p.merged),

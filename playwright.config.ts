@@ -4,12 +4,15 @@ import { ENV } from "./e2e/env";
 // E2E do MaraSandraConnect (ver e2e/README.md).
 //
 // - Local: sobe o vite dev na :8085 sozinho (webServer abaixo).
+// - Banco local (`bun run e2e:local`, ver scripts/ambiente-local.sh): vite
+//   próprio na :8095 (E2E_PORTA), apontando pro Supabase do Docker.
 // - Staging: `bun run e2e:staging` aponta PLAYWRIGHT_BASE_URL pra
 //   staging.marasandraconnect.com — aí o webServer não é usado.
 //
 // Segredos (service role, senha do usuário e2e) vêm do .env.local via
 // e2e/env.ts — nunca ficam em código.
-const baseURL = process.env.PLAYWRIGHT_BASE_URL || "http://localhost:8085";
+const porta = process.env.E2E_PORTA || "8085";
+const baseURL = process.env.PLAYWRIGHT_BASE_URL || `http://localhost:${porta}`;
 // Cloudflare Access na frente do staging: com CF_ACCESS_CLIENT_ID/SECRET no
 // .env.local (service token), todo request do browser leva os headers e o
 // Access deixa passar sem tela de login. Sem as vars, não manda nada.
@@ -57,9 +60,11 @@ export default defineConfig({
   webServer: process.env.PLAYWRIGHT_BASE_URL
     ? undefined
     : {
-        command: "bun run dev --port 8085",
-        url: "http://localhost:8085",
-        reuseExistingServer: true,
+        command: `bun run dev --port ${porta}`,
+        url: `http://localhost:${porta}`,
+        // No banco local, nunca reaproveita: um vite que já estivesse na porta
+        // podia estar apontando pro staging.
+        reuseExistingServer: !ENV.local,
         timeout: 90_000,
       },
 });

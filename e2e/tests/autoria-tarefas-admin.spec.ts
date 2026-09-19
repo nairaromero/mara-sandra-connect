@@ -9,6 +9,7 @@ import { test, expect } from "@playwright/test";
 import { STORAGE_INTERNO } from "../auth.setup";
 import { ENV } from "../env";
 import { adminClient, cleanupE2E, seedClienteCaso, seedSolicitacao } from "../supabase-admin";
+import { simularSugestaoProxima } from "../tarefas";
 
 test.use({ storageState: STORAGE_INTERNO });
 
@@ -62,6 +63,8 @@ test.afterAll(async () => {
 });
 
 test("concluir tarefa grava quem concluiu e o card mostra", async ({ page }) => {
+  // A "Próxima tarefa do caso" não é o assunto aqui: resposta simulada, sem gastar IA.
+  await simularSugestaoProxima(page);
   await page.goto(`/casos/${casoId}`);
   await page.getByRole("tab", { name: /Atividades|Tarefas/ }).click();
 

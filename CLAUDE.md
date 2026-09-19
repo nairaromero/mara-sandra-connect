@@ -34,10 +34,28 @@ feature branch  ──merge──▶  staging  ──merge (após validação)�
 - Spec que derruba sessão (ex.: `parceiro-desligar`) cria o próprio usuário descartável (`e2e+desligar@…`) e apaga no fim — nunca usa a conta do storageState.
 - Se o staging ficar atrás do Cloudflare Access: `CF_ACCESS_CLIENT_ID`/`CF_ACCESS_CLIENT_SECRET` (service token) no `.env.local` — o `playwright.config.ts` manda os headers sozinho.
 
+## Ambiente local isolado (início de TODA implementação ou conserto)
+
+Pedido da Naira (2026-09-15): antes de mexer em código, recriar o banco local
+como cópia do staging e trabalhar/testar nele, isolado. Detalhes em
+planning/AMBIENTES.md ("Ambiente local isolado").
+
+```bash
+bun run local:copiar   # sobe o Supabase no Docker e copia o staging (~2,5 min)
+bun run dev:local      # app em :8080 no banco local
+bun run e2e:local      # suíte E2E no banco local (vite na :8095)
+node scripts/msc-sql.mjs --local --file planning/sql-migrations/migration_x.sql
+```
+
+- Rodar `local:copiar` no começo de cada tarefa (e de novo sempre que quiser zerar o local). Precisa do Docker aberto.
+- Login local: as contas do staging, senha `STAGING_SYNTH_PASSWORD`.
+- O script só LÊ o staging (credencial temporária, sessão read-only). O local nunca chama o staging: edge functions, triggers e e-mail ficam na máquina.
+- Edge function local roda sem chave de IA/Resend/WhatsApp. Integração de verdade: testar no staging depois do deploy de staging.
+
 ## Rotina deploy
 
 1. Naira diz "implementar X".
-2. Crio branch `feat/x` saindo de `staging`.
+2. Crio branch `feat/x` saindo de `staging` e rodo `bun run local:copiar`.
 3. Commit, push, abro PR `feat/x → staging` com `Closes #N` (o card) no corpo.
 4. Naira valida (em staging.marasandraconnect.com, com a conta do papel certo, ou local) e merge.
 5. Quando um lote estiver validado: Naira merge `staging → main` → deploy prod.
@@ -45,7 +63,9 @@ feature branch  ──merge──▶  staging  ──merge (após validação)�
    (`gh pr create --base main --head staging --label release`) — assim ele fica fora do board.
 
 **Board ([Legal Connect](https://github.com/users/nairaromero/projects/1), desde 2026-09-10):** o trabalho aberto vive lá, não mais no `planning/TODO.md`. Colunas: Backlog · Lote atual · Em revisão · Validar no staging · Produção.
-- **O card é a issue.** PR não vira card: o corpo do PR abre com `Closes #N` (**em inglês** — "Fecha #N" não liga) ou a issue é ligada no campo Development. Com essa ligação, o PR move a issue e o card dele (se entrar no board) é arquivado. PR sem issue ligada continua sendo o próprio card. Efeito do `Closes`: a issue **fecha sozinha** quando o release leva o PR pra `main` (merge na staging não fecha).
+- **O card é a issue.** PR não vira card: o corpo do PR abre com `Closes #N` (**em inglês** — "Fecha #N" não liga) ou a issue é ligada no campo Development. Com essa ligação, o PR move a issue e o card dele (se entrar no board) é arquivado. PR sem issue ligada continua sendo o próprio card.
+  - Em PR pra `staging` o GitHub **não** registra o `Closes` do corpo (só faz isso em PR pra `main`; conferido em 2026-09-15). Quem lê o corpo é o `board-sync` (`scripts/board-sync-ligacoes.mjs`, mesmas regras do GitHub), nos dois sentidos. Vale a partir do release que levar isso pra `main`; antes, mover a issue à mão.
+  - A issue **fecha sozinha** quando um commit com `Closes #N` **na mensagem** chega na `main` (foi assim que a #299 fechou). O corpo do PR não fecha nada: sem o `Closes` num commit, fechar à mão depois da Produção.
 - Automático: issue nova → Backlog (nativo); PR aberto pra staging → issue ligada em Em revisão; PR mergeado na staging → issue ligada em Validar no staging (a que ainda tem outro PR aberto fica em Em revisão); PR fechado sem merge → a issue que estava em Em revisão só por ele volta pra Lote atual (ou vai pra Validar no staging, se outro PR dela já foi mergeado; issue movida à mão para outra coluna fica onde está); release → Produção (`.github/workflows/board.yml` + `scripts/board-sync.mjs`). PR sem issue: nativo "Pull request merged" → Validar no staging. Em vigor desde o release de 2026-09-15 (#324).
 - Um card só vai pra Produção quando o commit está na `main` **e** as migrations do PR estão no registro de produção (ver DB). Card segurado anda sozinho na rodada diária depois que a migration é aplicada.
 - O `board.yml` roda **inteiro a partir da `main`** — inclusive o gatilho de PR (`pull_request_target` sempre usa a branch padrão). Mudança nele só vale depois do release que a leva pra `main`.
@@ -55,7 +75,7 @@ feature branch  ──merge──▶  staging  ──merge (após validação)�
 ## DB
 
 - Toda alteração via migration em `planning/sql-migrations/migration_*.sql`.
-- Apply: `node scripts/msc-sql.mjs --staging --file <arq>` (staging primeiro), depois sem a flag (produção).
+- Apply: `node scripts/msc-sql.mjs --local --file <arq>` (cópia local primeiro), depois `--staging`, depois sem a flag (produção).
 - Migrations devem ser idempotentes quando possível.
 - **Registro de migrations (desde 2026-09-11):** o `--file` grava toda `migration_*.sql` que roda sem erro em `ops.migrations_aplicadas` do banco-alvo. É esse registro — não inferência pelo `pg_proc` — que responde "já rodou em produção?", e o workflow do board depende dele. O que foi aplicado antes de 2026-09-11 não está lá.
   - Aplicou por outro caminho (SQL editor, antes do registro)? `node scripts/msc-sql.mjs [--staging] --registrar <arq>` — grava sem executar.
@@ -68,6 +88,7 @@ feature branch  ──merge──▶  staging  ──merge (após validação)�
 - `usuarios.eh_admin` (desde 2026-08-19) = admin do escritório. **Só Naira e Mara.** No front: `const { isAdmin } = useAuth()`. No SQL: `public.is_admin()`.
 - Só admin vê: Equipe interna (`/equipe`), Auditoria, e em Configurações as abas **Integrações** (Integração de IA / Conectar Claude / Integração Google) e **Webhooks**. Convidar interno (edge `convidar-usuario`) exige admin. RLS de webhooks/auditoria usa `is_admin()`.
 - Configurações (desde 2026-09-14) segue o layout de `/parceiros`: centralizada, abas com a ativa na URL (`?tab=seguranca|beneficios|integracoes|webhooks`; sem `tab` = Perfil). Aba fora do papel da pessoa cai em Perfil sem reescrever a URL. Webhooks saiu da sidebar; `/webhooks` só redireciona pra `?tab=webhooks`.
+- **Convite (desde 2026-09-18, #362):** quem é convidado cria senha antes de usar o sistema. Quem decide é `usuarios.senha_definida_em` (nulo = ainda não criou), marcado pelo gatilho `trg_senha_definida` em `auth.users` — nunca pelo front. Não voltar a inferir por `auth.users.encrypted_password`: o Supabase preenche esse campo sozinho quando a pessoa abre o link do convite.
 - Gestão da equipe pela UI (`/equipe`, RPCs em migration_equipe_admin_desligar): `definir_admin`, `desligar_interno` (não apaga: `ativo=false` + ban no auth + tarefas abertas/agenda futura migram pra outra pessoa; histórico fica no nome), `reativar_interno`.
 - Autoria em tarefas (migration_tarefas_autoria): `created_by`, `status_alterado_por/_em` via trigger; exclusões vão pra `tarefas_excluidas`.
 
@@ -85,7 +106,9 @@ no lote de agosto: **sempre olhar se nada quebrou no meio do caminho.**
    barra import, variável e parâmetro sem uso (`noUnusedLocals`/`noUnusedParameters`).
    Parâmetro que a assinatura exige e o código não usa leva prefixo `_`
    (`(_, i) => …`); o resto sem uso se apaga, não se silencia.
-2. Suíte E2E **completa** (`bunx playwright test`) antes do push — não só a spec da feature.
+2. Suíte E2E **completa** antes do push — não só a spec da feature. Padrão: `bun run e2e:local`
+   (banco local, isolado). Contra o staging (`bunx playwright test`) quando a mudança depende do
+   que só existe lá (edge function com segredo, IA de verdade) — depois do deploy de staging.
 3. Reler o próprio diff com lente de revisor, caçando os padrões que já morderam:
    - função de banco reescrita a partir de migration velha — partir SEMPRE do
      `pg_get_functiondef` da produção e comparar hash staging×prod antes/depois;
@@ -114,5 +137,7 @@ node scripts/debug-storage-rls.mjs
 bunx supabase functions deploy <nome> --no-verify-jwt --project-ref llugytkdsfsrciavhrfw
 
 # Dev local
-bun dev    # vite em :8080
+bun run local:copiar   # início de toda tarefa: banco local = cópia do staging
+bun run dev:local      # vite em :8080 no banco local
+bun dev                # vite em :8080 no banco de STAGING (.env.local)
 ```

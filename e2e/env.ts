@@ -37,35 +37,42 @@ const supabaseUrl = pega("VITE_SUPABASE_URL");
 // senha dos usuários sintéticos são as do projeto de staging. Se algum dia o
 // VITE_SUPABASE_URL local voltar pra produção, os testes seguem coerentes.
 const ehStaging = supabaseUrl.includes("alhqbpbekmxpoibrrnbi");
+// Ambiente LOCAL (`bun run e2e:local`): Supabase no Docker com a cópia do
+// staging feita por scripts/ambiente-local.sh, que exporta a URL e as chaves
+// da pilha. Os usuários são os do staging, com a mesma senha dos sintéticos.
+const hostSupabase = new URL(supabaseUrl).hostname;
+const ehLocal = hostSupabase === "127.0.0.1" || hostSupabase === "localhost";
+const senhaSintetica = ehStaging || ehLocal;
 
 export const ENV = {
   supabaseUrl,
+  local: ehLocal,
   anonKey: pega("VITE_SUPABASE_PUBLISHABLE_KEY"),
-  serviceRoleKey: ehStaging
-    ? pega("STAGING_SERVICE_ROLE_KEY")
-    : pega("SUPABASE_SERVICE_ROLE_KEY"),
+  serviceRoleKey: ehLocal
+    ? pega("LOCAL_SERVICE_ROLE_KEY")
+    : ehStaging
+      ? pega("STAGING_SERVICE_ROLE_KEY")
+      : pega("SUPABASE_SERVICE_ROLE_KEY"),
   // Usuário interno dedicado aos testes (criado pelo auth.setup se não existir).
   internoEmail: process.env.E2E_INTERNO_EMAIL ?? "e2e+interno@marasandraconnect.com",
   // No staging todos os usuários sintéticos usam a mesma senha do espelho.
-  internoPassword: ehStaging ? pega("STAGING_SYNTH_PASSWORD") : pega("E2E_INTERNO_PASSWORD"),
+  internoPassword: senhaSintetica ? pega("STAGING_SYNTH_PASSWORD") : pega("E2E_INTERNO_PASSWORD"),
   // Parceiro sintetico de teste (seed-staging-contas), login por senha. Ate
   // 2026-08-23 era a Isabella por magic link — quebrou quando o e-mail dela
   // em producao mudou e o espelho passou a mascara-lo. Com senha definida,
   // o auth.setup loga por senha; sem senha (alvo = producao), magic link.
   parceiroEmail: process.env.E2E_PARCEIRO_EMAIL ?? "e2e+parceiro@marasandraconnect.com",
-  parceiroPassword: ehStaging ? pega("STAGING_SYNTH_PASSWORD") : pega("E2E_PARCEIRO_PASSWORD", false),
+  parceiroPassword: senhaSintetica ? pega("STAGING_SYNTH_PASSWORD") : pega("E2E_PARCEIRO_PASSWORD", false),
   // Admin sintetico (eh_admin=true). So existe no staging — criado por
   // scripts/seed-staging-contas.mjs, mesma senha dos demais sinteticos.
   adminEmail: process.env.E2E_ADMIN_EMAIL ?? "e2e+admin@marasandraconnect.com",
-  adminPassword: ehStaging ? pega("STAGING_SYNTH_PASSWORD") : pega("E2E_ADMIN_PASSWORD", false),
+  adminPassword: senhaSintetica ? pega("STAGING_SYNTH_PASSWORD") : pega("E2E_ADMIN_PASSWORD", false),
   // Cloudflare Access (service token) na frente do staging: quando os dois
   // estiverem definidos, o Playwright manda os headers CF-Access-Client-*.
-  // Sem eles, nada muda (staging aberto ou ambiente local).
-  cfAccessClientId: pega("CF_ACCESS_CLIENT_ID", false),
-  cfAccessClientSecret: pega("CF_ACCESS_CLIENT_SECRET", false),
-  // Token da Management API (mesmo do scripts/msc-sql.mjs). Opcional: só o spec
-  // de primeiro acesso usa, pra zerar a senha de um usuário e simular convite.
-  accessToken: pega("SUPABASE_ACCESS_TOKEN", false),
+  // Sem eles, nada muda (staging aberto). No local não vão: o token é do
+  // staging e não tem o que fazer aqui.
+  cfAccessClientId: ehLocal ? "" : pega("CF_ACCESS_CLIENT_ID", false),
+  cfAccessClientSecret: ehLocal ? "" : pega("CF_ACCESS_CLIENT_SECRET", false),
 };
 
 // Ref do projeto extraído da URL — usado no nome da chave do localStorage

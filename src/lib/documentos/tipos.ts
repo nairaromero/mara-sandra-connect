@@ -8,13 +8,16 @@
 
 export const TIPOS_DOCUMENTO_LABEL: Record<string, string> = {
   cnis: "CNIS",
+  cnis_resumido: "CNIS resumido",
   rg_cpf: "RG / CPF",
   comprovante_residencia: "Comprovante de residência",
   ctps: "CTPS",
   holerite: "Holerite / contracheque",
   ppp: "PPP",
   laudo_medico: "Laudo médico",
+  laudo_inss: "Laudo INSS (SABI / perícia federal)",
   ltcat: "LTCAT",
+  pgr_ppra: "PGR / PPRA",
   atestado_medico: "Atestado médico",
   cat: "CAT",
   carne_gps: "Carnê de contribuição (GPS)",
@@ -31,6 +34,11 @@ export const TIPOS_DOCUMENTO_LABEL: Record<string, string> = {
   contrato_honorarios: "Contrato de honorários",
   declaracao_hipossuficiencia: "Declaração de hipossuficiência",
   declaracao_ausencia_duplicidade: "Declaração de ausência de duplicidade de ação",
+  termo_representacao: "Termo de representação e autorização (INSS)",
+  autodeclaracao_veracidade: "Autodeclaração de autenticidade e veracidade",
+  termo_renuncia_teto: "Termo de renúncia ao teto dos JEF",
+  termo_responsabilidade: "Termo de responsabilidade",
+  cnpj_empregadora: "CNPJ (empresa empregadora)",
   outro: "Outro",
 };
 

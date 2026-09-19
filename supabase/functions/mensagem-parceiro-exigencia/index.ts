@@ -8,8 +8,11 @@
 // fluxo manual do INSS depois.
 //
 // Entrada (POST, JWT de usuário interno):
-//   { tipo: "judicial", despacho: string, prazo_fatal?: "aaaa-mm-dd",
+//   { tipo: "judicial", despacho: string, prazo_parceiro: "aaaa-mm-dd" | null,
 //     nome_cliente?: string }
+// prazo_parceiro é o "enviar até" do parceiro (fatal − 3, regra da casa), o
+// mesmo prazo_at da solicitação. O fatal real não entra aqui: nunca chega ao
+// parceiro. A data na mensagem é posta por esta função, não pela IA (prazo.ts).
 //
 // Saída SEMPRE 200 com { mensagem: string | null, motivo?: string }.
 // mensagem null = quem chamou usa o texto padrão do template. A IA nunca
@@ -21,6 +24,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { chatWith } from "../_shared/ia-providers.ts";
 import { decryptSecret } from "../_shared/crypto.ts";
 import { carregarIntegracao } from "../_shared/ia-integracao.ts";
+import { MARCADOR_PRAZO, montarMensagem } from "./prazo.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -46,8 +50,7 @@ Você receberá o trecho de uma publicação/intimação judicial em que o juiz 
 Regras de conteúdo:
 - Comece com "Olá!" e uma frase curta explicando o que a Justiça pediu (em palavras simples, sem jargão; se houver termo técnico, explique).
 - Liste o que o cliente/parceiro deve fazer em passos numerados (1., 2., 3., ...), um passo por linha, frases curtas.
-- Destaque o prazo com "⚠️" e a data entre asteriscos, assim: *DD/MM/AAAA*. Use exatamente a data informada como PRAZO FATAL no input; não invente. Peça que os documentos cheguem ao escritório alguns dias antes dessa data, porque quem faz o protocolo no processo é o escritório e isso leva tempo.
-- Se o input disser que o prazo não foi informado, não invente data: diga que o prazo é curto e que o escritório confirmará a data.
+- PRAZO: depois dos passos, escreva numa linha sozinha exatamente ${MARCADOR_PRAZO} — o sistema troca esse marcador pelo prazo certo, com a data. Não escreva data, dia da semana nem quantidade de dias em nenhum lugar da mensagem, nem os do trecho da publicação.
 - Avise que, se os documentos não chegarem a tempo, o juiz pode decidir o processo sem eles, o que pode prejudicar o caso.
 - Termine pedindo que providencie o quanto antes e envie ao escritório para fazermos a juntada no processo.
 - Não mencione número do processo, vara, nome do juiz, artigos de lei nem sites de tribunal (quem peticiona é o escritório).
@@ -55,15 +58,10 @@ Regras de conteúdo:
 - Documentos em foto/digitalização devem estar coloridos, legíveis e completos (frente e verso quando houver).
 
 Regras de formato (importante — o texto é exibido como texto puro):
-- Separe os blocos com UMA linha em branco: saudação/explicação, lista de passos, prazo, fechamento.
+- Separe os blocos com UMA linha em branco: saudação/explicação, lista de passos, ${MARCADOR_PRAZO}, fechamento.
 - Um item numerado por linha.
-- Sem markdown além dos asteriscos da data (nada de #, **, listas com -, blocos de código).
+- Sem markdown (nada de *, #, listas com -, blocos de código).
 - Responda SOMENTE com a mensagem final, sem comentários.`;
-
-function dataBR(iso: string): string {
-  const [y, m, d] = iso.split("-");
-  return `${d}/${m}/${y}`;
-}
 
 // Provedor de IA pendurado não pode segurar a UI até o gateway estourar 504 —
 // depois do limite, cai no catch e o template segue com o texto padrão. O
@@ -85,7 +83,7 @@ serve(async (req) => {
   let body: {
     tipo?: string;
     despacho?: string;
-    prazo_fatal?: string | null;
+    prazo_parceiro?: string | null;
     nome_cliente?: string | null;
   };
   try {
@@ -122,6 +120,16 @@ serve(async (req) => {
     return jsonResponse({ error: "apenas usuario interno" }, 403);
   }
 
+  // Front anterior a 2026-09-15 mandava o fatal cru, que não pode ir pro
+  // parceiro: sem o "enviar até", a IA fica de fora e vale o texto padrão.
+  if (!("prazo_parceiro" in body)) {
+    return jsonResponse({ mensagem: null, motivo: "sem_prazo_parceiro" });
+  }
+  const prazoParceiro = body.prazo_parceiro ?? null;
+  if (prazoParceiro !== null && !/^\d{4}-\d{2}-\d{2}$/.test(prazoParceiro)) {
+    return jsonResponse({ error: "prazo_parceiro deve ser aaaa-mm-dd" }, 400);
+  }
+
   const resIntegracao = await carregarIntegracao(admin, usuarioId);
   if (!resIntegracao.ok) {
     // Sem IA configurada não é erro do fluxo: o template segue com o texto padrão.
@@ -133,10 +141,6 @@ serve(async (req) => {
       resIntegracao.integ.api_key_cipher,
       resIntegracao.integ.api_key_iv,
     );
-    const hoje = new Date(Date.now() - 3 * 3600_000).toLocaleDateString("pt-BR");
-    const prazoLinha = body.prazo_fatal
-      ? `PRAZO FATAL: ${dataBR(body.prazo_fatal)}`
-      : "PRAZO FATAL: não informado";
     const res = await chatWith(
       resIntegracao.integ.provider,
       apiKey,
@@ -148,9 +152,7 @@ serve(async (req) => {
         messages: [{
           role: "user",
           content:
-            `Data de hoje: ${hoje}\n` +
-            `Cliente: ${body.nome_cliente || "(sem nome)"}\n` +
-            `${prazoLinha}\n\n` +
+            `Cliente: ${body.nome_cliente || "(sem nome)"}\n\n` +
             `Trecho da publicação/despacho judicial:\n${despacho}`,
         }],
         signal: AbortSignal.timeout(IA_TIMEOUT_MS),
@@ -161,7 +163,14 @@ serve(async (req) => {
     if (texto.length < 40) {
       return jsonResponse({ mensagem: null, motivo: "resposta_curta" });
     }
-    return jsonResponse({ mensagem: texto });
+    const montagem = montarMensagem(texto, prazoParceiro);
+    if (!montagem.ok) {
+      console.warn(
+        `[mensagem-parceiro-exigencia] IA escreveu prazo por conta própria (${montagem.achados.join(" | ")}); vai o texto padrão`,
+      );
+      return jsonResponse({ mensagem: null, motivo: montagem.motivo });
+    }
+    return jsonResponse({ mensagem: montagem.mensagem });
   } catch (err) {
     console.warn("[mensagem-parceiro-exigencia] falha na IA:", err);
     return jsonResponse({ mensagem: null, motivo: "falha_ia" });

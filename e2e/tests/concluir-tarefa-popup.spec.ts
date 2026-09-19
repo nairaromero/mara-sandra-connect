@@ -10,13 +10,19 @@
 // por clique fora nem Esc — só Cancelar/X. Na Agenda, concluir a perícia
 // também oferece a próxima.
 //
-// O staging não tem chave de IA: o caminho sem sugestão é o real; o com
-// sugestão simula a resposta da edge sugerir-proxima-tarefa.
+// A resposta da edge sugerir-proxima-tarefa é sempre simulada (o staging tem
+// chave de IA desde 2026-09-15): "sem sugestão" por padrão, e o teste com
+// sugestão registra a dele. Nenhum teste gasta IA nem depende do que ela diz.
 
 import { test, expect, type Page } from "@playwright/test";
 import { STORAGE_INTERNO } from "../auth.setup";
 import { adminClient, cleanupE2E, seedClienteCaso } from "../supabase-admin";
-import { abrirNovaTarefaNoCaso, abrirTarefaNoCaso, marcarFeito } from "../tarefas";
+import {
+  abrirNovaTarefaNoCaso,
+  abrirTarefaNoCaso,
+  marcarFeito,
+  simularSugestaoProxima,
+} from "../tarefas";
 
 test.use({ storageState: STORAGE_INTERNO });
 
@@ -67,6 +73,10 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   // Leva junto o log de exclusões (tarefas_excluidas por caso_id).
   await cleanupE2E(admin);
+});
+
+test.beforeEach(async ({ page }) => {
+  await simularSugestaoProxima(page);
 });
 
 test("clicar Feito abre popup; excluir exige motivo e registra no log", async ({ page }) => {
@@ -214,36 +224,24 @@ test("com sugestão da IA: Editar tarefa sugerida abre o formulário preenchido"
     .single();
   if (erroEu) throw new Error(`usuario e2e+interno: ${erroEu.message}`);
 
-  await page.route("**/functions/v1/sugerir-proxima-tarefa", async (route) => {
-    const cors = {
-      "access-control-allow-origin": "*",
-      "access-control-allow-headers": "*",
-      "access-control-allow-methods": "POST, OPTIONS",
-    };
-    if (route.request().method() === "OPTIONS") {
-      await route.fulfill({ status: 204, headers: cors });
-      return;
-    }
-    expect(route.request().postDataJSON()).toEqual({ tarefa_id: id });
-    await route.fulfill({
-      status: 200,
-      headers: { ...cors, "content-type": "application/json" },
-      body: JSON.stringify({
-        sugestao: {
-          titulo: tituloSugerido,
-          descricao: "Conferir a carta de concessão e o primeiro pagamento.",
-          tipo: "contato_cliente",
-          prioridade: 2,
-          due_at: vence.toISOString(),
-          responsavel_id: eu.id,
-          responsavel_nome: eu.nome,
-          processo_admin_id: null,
-          processo_judicial_id: null,
-        },
-        motivo: "benefício deferido",
-      }),
-    });
-  });
+  await simularSugestaoProxima(
+    page,
+    {
+      sugestao: {
+        titulo: tituloSugerido,
+        descricao: "Conferir a carta de concessão e o primeiro pagamento.",
+        tipo: "contato_cliente",
+        prioridade: 2,
+        due_at: vence.toISOString(),
+        responsavel_id: eu.id,
+        responsavel_nome: eu.nome,
+        processo_admin_id: null,
+        processo_judicial_id: null,
+      },
+      motivo: null,
+    },
+    (corpo) => expect(corpo).toEqual({ tarefa_id: id }),
+  );
 
   const proxima = await concluirPeloPopup(page, titulo);
   await expect(proxima.getByText("Após essa tarefa, a outra tarefa para seguimento seria:")).toBeVisible();
