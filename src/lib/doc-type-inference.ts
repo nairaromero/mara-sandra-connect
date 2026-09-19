@@ -18,7 +18,7 @@ function normalize(s: string): string {
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
     // separadores comuns viram espaco
-    .replace(/[_\-\.]+/g, " ")
+    .replace(/[_\-.]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -40,7 +40,23 @@ export function inferirTipoPorNome(filename: string): string {
   // === Documentos super-especificos primeiro ===
   if (hasWord("hiscre")) return "hiscre";
   if (hasWord("ltcat")) return "ltcat";
+  if (hasWord("pgr") || hasWord("ppra")) return "pgr_ppra";
+  // "CNIS resumido" antes do CNIS generico: sao documentos diferentes.
+  if (hasWord("cnis") && has("resumido")) return "cnis_resumido";
   if (hasWord("cnis")) return "cnis";
+  // SABI/PMF/pericia federal = laudo do INSS, antes do "laudo" generico.
+  if (hasWord("sabi") || hasWord("pmf") || (has("laudo") && has("inss")) || has("pericia federal")) {
+    return "laudo_inss";
+  }
+  if (has("cnpj") || has("cartao cnpj")) return "cnpj_empregadora";
+  if (has("representacao e autorizacao") || has("termo de representacao")) {
+    return "termo_representacao";
+  }
+  if (has("autodeclaracao") || (has("autenticidade") && has("veracidade"))) {
+    return "autodeclaracao_veracidade";
+  }
+  if (has("renuncia") && (has("teto") || has("jef"))) return "termo_renuncia_teto";
+  if (has("termo de responsabilidade")) return "termo_responsabilidade";
   if (hasWord("ppp") || has("perfil profissiografico")) return "ppp";
   if (has("substabelecimento")) return "substabelecimento";
   if (has("hipossuficiencia") || has("hipossuficiente")) {
