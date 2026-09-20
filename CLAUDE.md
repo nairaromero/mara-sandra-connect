@@ -24,6 +24,14 @@ feature branch  ──merge──▶  staging  ──merge (após validação)�
 - Produção: projeto Supabase `llugytkdsfsrciavhrfw`. Staging/dev/E2E: projeto `alhqbpbekmxpoibrrnbi` (espelho anonimizado semanal).
 - Migrations: rodar PRIMEIRO `node scripts/msc-sql.mjs --staging --file ...`, validar, depois sem a flag (produção).
 - Edge functions: deploy no staging (`--project-ref alhqbpbekmxpoibrrnbi`) antes de produção.
+- **Quem pode chamar edge function** (desde 2026-09-20): toda function começa com
+  `exigirUsuario` (sessão de pessoa, já conferindo `ativo`) ou `exigirSistema`
+  (cron/gatilho/n8n, por assinatura HMAC) do `supabase/functions/_shared/auth.ts`.
+  `verify_jwt` fica declarado por function no `supabase/config.toml` — nunca na linha
+  de comando. Lembrando que `verify_jwt=true` **não** fecha nada sozinho: a chave
+  publicável do site é um JWT válido; quem fecha é a checagem dentro da função.
+  Chamada de sistema precisa do segredo `msc_system_secret` (Vault) espelhado em
+  `MSC_SYSTEM_SECRET` nos segredos das functions do mesmo projeto.
 - Build de branch ≠ main no Cloudflare aponta pro banco de staging automaticamente (vite.config.ts).
 
 **Contas de staging (uma por papel, senha = `STAGING_SYNTH_PASSWORD`):**
@@ -133,8 +141,9 @@ node scripts/msc-sql.mjs "SELECT ..."
 # Debug RLS de storage
 node scripts/debug-storage-rls.mjs
 
-# Deploy edge function
-bunx supabase functions deploy <nome> --no-verify-jwt --project-ref llugytkdsfsrciavhrfw
+# Deploy edge function (NUNCA com --no-verify-jwt: a flag sobrepoe o
+# verify_jwt declarado em supabase/config.toml)
+bunx supabase functions deploy <nome> --project-ref llugytkdsfsrciavhrfw
 
 # Dev local
 bun run local:copiar   # início de toda tarefa: banco local = cópia do staging

@@ -12,6 +12,7 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
+import { exigirUsuario, fetchT } from "../_shared/auth.ts";
 
 const TI_BASE_URL = "https://planilha.tramitacaointeligente.com.br/api/v1";
 const TI_TOKEN = Deno.env.get("TI_TOKEN");
@@ -62,7 +63,7 @@ async function buscarTodosClientesTI(): Promise<Array<TICustomer>> {
   let page = 1;
   const perPage = 100;
   while (true) {
-    const resp = await fetch(
+    const resp = await fetchT(
       `${TI_BASE_URL}/clientes?page=${page}&per_page=${perPage}`,
       { headers: headersTI },
     );
@@ -87,6 +88,12 @@ serve(async (req) => {
   if (req.method !== "POST") {
     return jsonResponse({ error: "metodo nao permitido" }, 405);
   }
+  // Sem esta linha, qualquer pessoa com a chave publicável do site (que está
+  // no bundle) recebia a base inteira do Tramitação: nome, CPF, e-mail,
+  // telefone e data de nascimento.
+  const quem = await exigirUsuario(req, { tipo: "interno" });
+  if (quem instanceof Response) return quem;
+
   if (!TI_TOKEN) return jsonResponse({ error: "TI_TOKEN nao configurado" }, 500);
   if (!SUPABASE_URL || !SERVICE_ROLE) {
     return jsonResponse({ error: "supabase env vars ausentes" }, 500);

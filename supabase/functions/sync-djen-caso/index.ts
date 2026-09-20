@@ -17,6 +17,7 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
+import { exigirUsuario, fetchT } from "../_shared/auth.ts";
 
 const COMUNICA_BASE = "https://comunicaapi.pje.jus.br/api/v1";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -85,7 +86,7 @@ async function fetchPorProcesso(cnjDigits: string, pagina: number): Promise<ComI
   const url =
     `${COMUNICA_BASE}/comunicacao?numeroProcesso=${cnjDigits}` +
     `&itensPorPagina=${ITENS_POR_PAGINA}&pagina=${pagina}`;
-  const resp = await fetch(url, {
+  const resp = await fetchT(url, {
     headers: { Accept: "application/json", "User-Agent": "MaraSandraConnect/1.0 (djen-caso)" },
     signal: AbortSignal.timeout(30000),
   });
@@ -98,6 +99,11 @@ async function fetchPorProcesso(cnjDigits: string, pagina: number): Promise<ComI
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return jsonResponse({ error: "metodo nao permitido" }, 405);
+
+  // Antes daqui não havia checagem: qualquer pessoa com a chave publicável do
+  // site escrevia no `caso_id` que mandasse no corpo.
+  const quem = await exigirUsuario(req, { tipo: "interno" });
+  if (quem instanceof Response) return quem;
   if (!SUPABASE_URL || !SERVICE_ROLE) {
     return jsonResponse({ error: "supabase env vars ausentes" }, 500);
   }
@@ -108,7 +114,8 @@ serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({}));
     casoId = String(body.caso_id || "");
-    if (body.usuario_id) usuarioId = String(body.usuario_id);
+    // Autoria vem da sessão, não do corpo.
+    usuarioId = quem.uid;
     if (body.dry_run === true) dryRun = true;
   } catch (err) {
     return jsonResponse({ error: "body invalido", detail: String(err) }, 400);
