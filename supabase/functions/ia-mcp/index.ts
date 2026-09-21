@@ -119,7 +119,7 @@ serve(async (req) => {
   // chamada MCP passa por aqui.
   const { data: tok, error: tokErr } = await admin
     .from("ia_tokens")
-    .select("id,usuario_id,escopo,expira_em,revogado_em,ultimo_uso,usuarios(tipo,ativo,desligado_em)")
+    .select("id,usuario_id,escopo,expira_em,revogado_em,ultimo_uso,usuarios(tipo,ativo,desligado_em,eh_admin)")
     .eq("token_hash", hash)
     .maybeSingle();
   // Falha de banco NAO e token invalido: com 401 o mcp-remote tenta login OAuth
@@ -134,9 +134,19 @@ serve(async (req) => {
 
   // O token nao passa pelo login: quem foi desligado/desativado e barrado aqui
   // (o client e service-role, entao nenhuma RLS faria isso por nos).
-  const perfil = tok.usuarios as { tipo: string; ativo: boolean; desligado_em: string | null } | null;
+  const perfil = tok.usuarios as
+    | { tipo: string; ativo: boolean; desligado_em: string | null; eh_admin: boolean }
+    | null;
   if (!perfil || !perfil.ativo || perfil.desligado_em) {
     return httpJson({ error: "usuario desativado" }, 403);
+  }
+  // O token e o controle de acesso ao MCP e so admin libera o uso (decisao de
+  // 2026-09-21). Hoje o admin so gera token para si, entao o dono tem que
+  // SEGUIR admin: quem perde o papel perde o MCP na hora, sem precisar revogar.
+  // Liberar para outra pessoa (token emitido em nome de interno/parceiro) e a
+  // #385 — la esta checagem passa a olhar o emissor.
+  if (perfil.eh_admin !== true) {
+    return httpJson({ error: "o MCP esta liberado so para administradores" }, 403);
   }
   const tipo: "interno" | "parceiro" = perfil.tipo === "interno" ? "interno" : "parceiro";
 

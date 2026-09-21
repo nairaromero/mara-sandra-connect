@@ -208,7 +208,8 @@ serve(async (req) => {
 
     if (action === "token_criar") {
       // So admin gera token do MCP: o card ja e so de admin, aqui garante no
-      // servidor (o token roda com service-role no ia-mcp).
+      // servidor. O token e o controle de acesso ao MCP (roda com a sessao do
+      // dono, e o ia-mcp exige que ele siga admin). Emitir para outra pessoa: #385.
       const { data: perfil, error: perfilErr } = await admin
         .from("usuarios")
         .select("eh_admin,ativo")
