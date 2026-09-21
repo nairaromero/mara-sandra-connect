@@ -255,6 +255,75 @@ export async function exigirUsuarioOuSistema(
   return await exigirUsuario(req, opts);
 }
 
+/** A sessão da pessoa não abriu: a chamada tem que falhar, não degradar. */
+export class SessaoIndisponivel extends Error {}
+
+export interface SessaoDePessoa {
+  /** Client com a sessão da pessoa: RLS e Storage valem como no app. */
+  client: SupabaseClient;
+  /** Revoga a sessão (best-effort). Chamar ao fim do request. */
+  encerrar: () => Promise<void>;
+}
+
+/**
+ * Abre uma sessão de verdade em nome de `uid`, para quem autentica a pessoa por
+ * outro meio que não o login — hoje, o token pessoal do ia-mcp (#374).
+ *
+ * Antes o ia-mcp cunhava um JWT HS256 com SUPABASE_JWT_SECRET. O Supabase não
+ * injeta mais esse segredo (os projetos assinam com ES256), e o código caía
+ * calado para service role. Aqui: a Admin API gera um link mágico (NÃO envia
+ * e-mail) e o token dele é trocado na hora por uma sessão — o access token sai
+ * assinado pela chave atual do projeto, com o `sub` da pessoa, e a RLS vale.
+ *
+ * Efeitos, conferidos no local em 2026-09-21: cria uma linha em auth.sessions
+ * (removida por `encerrar`), atualiza `last_sign_in_at` (o app não usa) e não
+ * dispara e-mail nem o gatilho de senha. O access token continua válido até
+ * expirar (1h), mas nunca sai da function.
+ *
+ * Qualquer falha vira `SessaoIndisponivel`: sem sessão, nada roda.
+ */
+export async function abrirSessaoDe(uid: string): Promise<SessaoDePessoa> {
+  const comTempo: typeof fetch = (entrada, init) => fetchT(entrada, { ...init, timeoutMs: 15_000 });
+  const opcoes = { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: comTempo } };
+  const admin = createClient(SUPABASE_URL, SERVICE_ROLE, opcoes);
+
+  const { data: u, error: erroUser } = await admin.auth.admin.getUserById(uid);
+  const email = u?.user?.email;
+  if (erroUser || !email) {
+    throw new SessaoIndisponivel(`usuário ${uid} sem e-mail no Auth: ${erroUser?.message ?? "vazio"}`);
+  }
+
+  // O e-mail vem do próprio usuário do Auth, nunca de fora: com um e-mail que
+  // não existe, o generateLink de magiclink CRIARIA um usuário (conferido no
+  // código do GoTrue, admin/generate_link — que também não envia e-mail nenhum).
+  const { data: link, error: erroLink } = await admin.auth.admin.generateLink({ type: "magiclink", email });
+  const hash = link?.properties?.hashed_token;
+  if (erroLink || !hash) {
+    throw new SessaoIndisponivel(`link de sessão não gerado: ${erroLink?.message ?? "sem token"}`);
+  }
+
+  const anon = createClient(SUPABASE_URL, ANON, opcoes);
+  const { data: v, error: erroVerif } = await anon.auth.verifyOtp({ type: "magiclink", token_hash: hash });
+  const jwt = v?.session?.access_token;
+  if (erroVerif || !jwt || v?.user?.id !== uid) {
+    throw new SessaoIndisponivel(`sessão não aberta: ${erroVerif?.message ?? "usuário diferente"}`);
+  }
+
+  // Prazo maior que o do Auth: ferramenta como ler_documentos_caso baixa PDFs.
+  const dadosComTempo: typeof fetch = (entrada, init) => fetchT(entrada, { ...init, timeoutMs: 30_000 });
+  const client = createClient(SUPABASE_URL, ANON, {
+    ...opcoes,
+    global: { fetch: dadosComTempo, headers: { Authorization: `Bearer ${jwt}` } },
+  });
+  return {
+    client,
+    encerrar: async () => {
+      const { error } = await admin.auth.admin.signOut(jwt, "local");
+      if (error) console.error("não consegui encerrar a sessão de", uid, error.message);
+    },
+  };
+}
+
 /**
  * `fetch` com timeout. Sem isso, uma API externa pendurada segura a function
  * até o gateway derrubar em 150s — e a fila do cron atrás dela.
