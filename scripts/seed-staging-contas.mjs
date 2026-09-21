@@ -92,16 +92,48 @@ async function usuariosAuthPorEmail() {
   return mapa;
 }
 
-async function garantirAuth(conta, existente) {
+// Perfil que já existe com o e-mail de cada conta. O espelho copia
+// public.usuarios da produção, e lá sobrou um e2e+interno da época do banco
+// único (criado em 31/07, desligado em 16/09). Se o Auth nascer com outro id,
+// o upsert do perfil bate no UNIQUE(email) e a conta não loga — em 21/09 isso
+// ainda derrubou o e2e+parceiro, que vinha depois no laço.
+async function perfisPorEmail() {
+  const { data, error } = await admin
+    .from("usuarios")
+    .select("id, email")
+    .in("email", CONTAS.map((c) => c.email));
+  if (error) throw new Error(`usuarios: ${error.message}`);
+  return new Map((data ?? []).map((u) => [u.email.toLowerCase(), u.id]));
+}
+
+async function garantirAuth(conta, existente, perfilId) {
+  // Auth com id diferente do perfil: sobra de um seed que parou no meio. Sem
+  // perfil próprio, nada depende dele — recria com o id do perfil, para o
+  // histórico do staging (tarefas, comentários) continuar ligado à conta.
+  if (existente && perfilId && existente.id !== perfilId) {
+    const { data: temPerfil, error: erroPerfil } = await admin
+      .from("usuarios")
+      .select("id")
+      .eq("id", existente.id)
+      .maybeSingle();
+    if (erroPerfil) throw new Error(`usuarios ${conta.email}: ${erroPerfil.message}`);
+    if (temPerfil) {
+      throw new Error(`${conta.email}: dois perfis (${existente.id} e ${perfilId}) — resolver à mão`);
+    }
+    const { error } = await admin.auth.admin.deleteUser(existente.id);
+    if (error) throw new Error(`deleteUser ${conta.email}: ${error.message}`);
+    existente = null;
+  }
   if (!existente) {
     const { data, error } = await admin.auth.admin.createUser({
+      id: perfilId,
       email: conta.email,
       password: SENHA,
       email_confirm: true,
       user_metadata: { nome: conta.nome },
     });
     if (error) throw new Error(`createUser ${conta.email}: ${error.message}`);
-    return { id: data.user.id, acao: "criado" };
+    return { id: data.user.id, acao: perfilId ? "criado (id do perfil)" : "criado" };
   }
   // Existe: garante senha sintetica, e-mail confirmado e sem ban (o
   // desligar_interno bane; o seed desfaz pra conta voltar a servir).
@@ -148,12 +180,19 @@ async function provarLogin(conta) {
 
 console.error(`[seed-staging-contas] alvo: ${REF} (staging)`);
 const porEmail = await usuariosAuthPorEmail();
+const perfis = await perfisPorEmail();
 const linhas = [];
 for (const conta of CONTAS) {
-  const { id, acao } = await garantirAuth(conta, porEmail.get(conta.email));
-  await garantirPerfil(conta, id);
-  const login = await provarLogin(conta);
-  linhas.push({ email: conta.email, papel: conta.eh_admin ? "admin" : conta.tipo, auth: acao, login });
+  const papel = conta.eh_admin ? "admin" : conta.tipo;
+  // Uma conta com problema não pode impedir as outras de existirem.
+  try {
+    const { id, acao } = await garantirAuth(conta, porEmail.get(conta.email), perfis.get(conta.email));
+    await garantirPerfil(conta, id);
+    const login = await provarLogin(conta);
+    linhas.push({ email: conta.email, papel, auth: acao, login });
+  } catch (e) {
+    linhas.push({ email: conta.email, papel, auth: "ERRO", login: `FALHOU: ${e.message}` });
+  }
 }
 console.table(linhas);
 if (linhas.some((l) => l.login !== "ok")) process.exit(1);
