@@ -266,7 +266,13 @@ existem papéis de sistema.
 | `comercial:gerenciar` | todos | todos | — | — | — |
 | `repasses:ler` | todos | todos | — | todos | proprios |
 | `ia:usar` | todos | todos | todos | — | — |
+| `ia:mcp_conceder` | todos | — | — | — | — |
 | `etiquetas:gerenciar` · `templates:gerenciar` | todos | todos | — | — | — |
+
+**Acesso ao MCP não é permissão de papel.** É concessão individual: quem tem
+`ia:mcp_conceder` escolhe a pessoa e emite o token dela (§4.4.1). Por isso não há linha
+`ia:mcp` na matriz — ninguém ganha o MCP por ter um papel, e ninguém precisa virar admin
+para usá-lo.
 
 **Mudanças de comportamento deliberadas, a aprovar:** excluir cliente e excluir parceiro
 passam a ser só de admin (hoje qualquer interno); contato do cliente e `download_parceiro`
@@ -314,6 +320,24 @@ reassinam ao trocar de escritório; `postgres_changes` não aplica RLS em DELETE
 evento vale como "só a chave". Um job por rotina, iterando escritórios em lotes (pg_cron roda
 no máximo 8 simultâneos). Notificações sem destinatário deixam de ser "todos os internos" e
 passam a ser "membros com a permissão, neste escritório".
+
+#### 4.4.1 Tokens do MCP: concessão individual (#385)
+
+O token do MCP é o controle de acesso ao conector do Claude/ChatGPT (decisão de 21/09). Hoje
+o admin só gera token para si — para dar o MCP a alguém, seria preciso torná-lo admin. No
+modelo-alvo **o token é a própria concessão**:
+
+| Etapa | Regra |
+|---|---|
+| Emitir | Quem tem `ia:mcp_conceder` escolhe na lista um **membro ativo** do escritório (interno ou parceiro), o escopo (leitura/completo) e a validade. Grava `ia_tokens(escritorio_id, membro_id, emitido_por, escopo, expira_em, token_hash)` — só o hash, como hoje |
+| Entregar | O admin envia o token à pessoa. **Recomendado:** o sistema manda um link de uso único e o token só aparece para o dono — o admin nunca vê uma credencial que age como outra pessoa, e a auditoria não fica ambígua. Alternativa: o admin copia o token (mostrado uma vez) e envia por fora. **A decidir** |
+| Usar | O `ia-mcp` confere: token válido, **vínculo do dono ativo** e **emissor ainda com `ia:mcp_conceder` neste escritório**. As ferramentas rodam com a sessão do dono (#384), então papel, escopo (`indicados` do parceiro) e escritório dele valem sozinhos — o MCP nunca enxerga mais do que a pessoa enxerga no app |
+| Revogar | O emissor revoga os que emitiu; desativar o vínculo revoga; o emissor perder a permissão (ou o vínculo) derruba na hora os tokens que ele emitiu. Um admin não vê nem revoga tokens de outro admin (decisão de 21/09) |
+| Auditar | `ia_acoes` registra dono **e** emissor |
+
+Até esta seção existir, o `ia-mcp` exige que o dono do token seja admin ativo (#384): é o
+equivalente de hoje, em que emissor e dono são a mesma pessoa. A regra do emissor substitui
+essa checagem.
 
 ### 4.5 Frontend e resolução de escritório
 
@@ -506,6 +530,10 @@ Storage, Realtime e RPCs; diff de visibilidade do escritório 1 idêntico; teste
   `executor_email` dos templates vira id de membro ou papel funcional.
 - `desligar_*` sobre o vínculo; tokens MCP presos ao vínculo e revogados com ele — o PR #297
   já fez isso para o MCP e serve de molde.
+- MCP como concessão individual (§4.4.1, #385): `ia_tokens.membro_id` + `emitido_por`, card
+  com a lista de membros, regra do emissor no `ia-mcp`. Depende de `membros` (Fase 2); se o
+  escritório precisar antes, dá para entregar sobre `usuarios` com `eh_admin` no lugar de
+  `ia:mcp_conceder` e trocar só a checagem aqui.
 - Fechar os dois furos de ciclo de vida do mesmo tipo: `update-parceiro` (interno comum troca
   o e-mail de login de um parceiro) e o `digest-diario`, que ainda envia para interno
   desligado (#291).
