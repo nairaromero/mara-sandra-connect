@@ -106,6 +106,47 @@ export function hojeChaveBR(): string {
   return chaveDiaBR(new Date());
 }
 
+// Coluna `date` chega como "YYYY-MM-DD": é um dia de calendário, sem fuso.
+// new Date() leria isso como meia-noite UTC, que em Brasília é a véspera.
+const SO_DATA_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+const DMA: Intl.DateTimeFormatOptions = { day: "2-digit", month: "2-digit", year: "numeric" };
+
+/** "dd/mm/aaaa" do dia em Brasília. "YYYY-MM-DD" (coluna date) sai como está. */
+export function dataBR(iso: string | Date): string {
+  const so = typeof iso === "string" ? SO_DATA_RE.exec(iso) : null;
+  if (so) return `${so[3]}/${so[2]}/${so[1]}`;
+  return formatarBR(iso, DMA);
+}
+
+/** "dd/mm/aaaa HH:mm" em Brasília. */
+export function dataHoraBR(iso: string | Date): string {
+  return `${formatarBR(iso, DMA)} ${horaBR(iso)}`;
+}
+
+/**
+ * `andamentos.data_evento` é timestamptz, mas DJEN, Legalmail e a importação
+ * de planilha gravam nele só a DATA — que o banco guarda como meia-noite UTC
+ * e que em Brasília cairia às 21h da véspera. Meia-noite UTC exata nessa
+ * coluna é, então, data pura. (Não vale pra coluna qualquer: um evento de
+ * agenda às 21h de Brasília também é 00:00Z.)
+ */
+function soDataDoEvento(iso: string): string | null {
+  const d = new Date(iso);
+  if (isNaN(d.getTime()) || d.getTime() % 86_400_000 !== 0) return null;
+  return d.toISOString().slice(0, 10);
+}
+
+/** Chave de dia "YYYY-MM-DD" de `andamentos.data_evento` (ver soDataDoEvento). */
+export function diaDoEventoBR(iso: string): string {
+  return soDataDoEvento(iso) ?? chaveDiaBR(iso);
+}
+
+/** "HH:mm" (Brasília) de `andamentos.data_evento`; null quando só tem a data. */
+export function horaDoEventoBR(iso: string): string | null {
+  return soDataDoEvento(iso) ? null : horaBR(iso);
+}
+
 // Teto de segurança: uma data absurda no banco não pode travar a renderização.
 const MAX_DIAS_EVENTO = 400;
 

@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { iaTokens, IA_MCP_URL, type IaToken } from "@/lib/ia/client";
+import { dataBR } from "@/lib/fuso";
 
 function copiar(texto: string, msg = "Copiado") {
   navigator.clipboard.writeText(texto).then(
@@ -196,10 +197,10 @@ export function ConexaoClaudeCard() {
                     <p className="truncate text-xs text-muted-foreground">
                       {t.prefixo}... -{" "}
                       {t.expira_em
-                        ? "expira " + new Date(t.expira_em).toLocaleDateString("pt-BR")
+                        ? "expira " + dataBR(t.expira_em)
                         : "sem expiração"}
                       {t.ultimo_uso
-                        ? " - usado " + new Date(t.ultimo_uso).toLocaleDateString("pt-BR")
+                        ? " - usado " + dataBR(t.ultimo_uso)
                         : " - nunca usado"}
                     </p>
                   </div>

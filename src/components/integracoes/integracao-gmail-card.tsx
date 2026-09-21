@@ -16,6 +16,7 @@ import { Loader2, Mail, Plug, Unplug, CheckCircle2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
+import { formatarBR } from "@/lib/fuso";
 import { useAuth } from "@/hooks/use-auth";
 
 interface VinculoGmail {
@@ -140,11 +141,11 @@ export function IntegracaoGmailCard() {
                   <strong className="font-medium">{vinculo.email_conectado}</strong>
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  Desde {new Date(vinculo.connected_at).toLocaleString("pt-BR")}
+                  Desde {formatarBR(vinculo.connected_at, { dateStyle: "short", timeStyle: "medium" })}
                   {vinculo.last_used_at && (
                     <>
                       {" · "}último uso{" "}
-                      {new Date(vinculo.last_used_at).toLocaleString("pt-BR")}
+                      {formatarBR(vinculo.last_used_at, { dateStyle: "short", timeStyle: "medium" })}
                     </>
                   )}
                 </div>

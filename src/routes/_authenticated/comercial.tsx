@@ -16,6 +16,12 @@ import {
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import {
+  dataBR,
+  formatarBR,
+  inputDateTimeBRParaIso,
+  isoParaInputDateTimeBR,
+} from "@/lib/fuso";
 import { criarTarefa } from "@/lib/tarefas/queries";
 import { ClientOnly } from "@/components/client-only";
 import { Badge } from "@/components/ui/badge";
@@ -181,11 +187,11 @@ function tempoDesde(iso: string) {
   if (h < 24) return `há ${h} h`;
   const d = Math.floor(h / 24);
   if (d < 30) return `há ${d} d`;
-  return new Date(iso).toLocaleDateString("pt-BR");
+  return dataBR(iso);
 }
 
 function dataHora(iso: string) {
-  return new Date(iso).toLocaleDateString("pt-BR", {
+  return formatarBR(iso, {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -875,28 +881,26 @@ function AgendarConsultaDialog({
   const [convidado, setConvidado] = useState("__ninguem__");
   const [salvando, setSalvando] = useState(false);
 
+  // Data e hora digitadas são de Brasília, como na agenda (o evento vai pra lá).
   useEffect(() => {
     if (lead) {
-      const base = lead.consulta_em ? new Date(lead.consulta_em) : null;
-      setData(base ? base.toISOString().slice(0, 10) : "");
-      setHora(
-        base
-          ? `${String(base.getHours()).padStart(2, "0")}:${String(base.getMinutes()).padStart(2, "0")}`
-          : "10:00",
-      );
+      const [d, h] = isoParaInputDateTimeBR(lead.consulta_em).split("T");
+      setData(d ?? "");
+      setHora(h ?? "10:00");
       setConvidado("__ninguem__");
     }
   }, [lead]);
 
   async function agendar() {
     if (!lead || !usuarioId) return;
-    if (!data || !hora) {
+    const inicioIso = inputDateTimeBRParaIso(`${data}T${hora}`);
+    if (!inicioIso) {
       toast.error("Escolha a data e a hora da consulta.");
       return;
     }
     setSalvando(true);
     try {
-      const inicio = new Date(`${data}T${hora}:00`);
+      const inicio = new Date(inicioIso);
       const fim = new Date(inicio.getTime() + Number(duracao) * 60000);
       const restrito = [usuarioId, ...(convidado !== "__ninguem__" ? [convidado] : [])];
 
@@ -1182,7 +1186,7 @@ function ConverterClienteDialog({
           nome: lead.nome,
           cpf: cpfDigitos,
           telefone: telefone || null,
-          observacoes: `Origem: lead do site (${lead.origem}) em ${new Date(lead.criado_em).toLocaleDateString("pt-BR")}.`,
+          observacoes: `Origem: lead do site (${lead.origem}) em ${dataBR(lead.criado_em)}.`,
         })
         .select("id")
         .single();

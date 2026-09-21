@@ -10,6 +10,7 @@
 
 import * as XLSX from "xlsx";
 import { supabase } from "@/lib/supabase";
+import { dataBR, diaDoEventoBR, hojeChaveBR } from "@/lib/fuso";
 
 const FASES_LABEL: Record<string, string> = {
   analise: "Em análise",
@@ -71,11 +72,9 @@ function formatCpfBr(cpf: string | null | undefined): string {
 
 function formatDateBr(iso: string | null | undefined): string {
   if (!iso) return "";
-  // Aceita 'YYYY-MM-DD' ou ISO completo
-  const d = iso.length === 10 ? iso + "T00:00:00" : iso;
-  const dt = new Date(d);
-  if (isNaN(dt.getTime())) return iso;
-  return dt.toLocaleDateString("pt-BR");
+  if (isNaN(new Date(iso).getTime())) return iso;
+  // 'YYYY-MM-DD' (nascimento) ou data_evento — que pode ser só a data.
+  return dataBR(diaDoEventoBR(iso));
 }
 
 /** Converte data BR (DD/MM/AAAA) ou ISO pra YYYY-MM-DD. Vazio = null. */
@@ -86,7 +85,7 @@ export function parseDataBr(s: string | null | undefined): string | null {
   // ISO ja
   if (/^\d{4}-\d{2}-\d{2}/.test(t)) return t.slice(0, 10);
   // BR DD/MM/AAAA
-  const m = t.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})/);
+  const m = t.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})/);
   if (m) {
     const dd = m[1].padStart(2, "0");
     const mm = m[2].padStart(2, "0");
@@ -243,7 +242,7 @@ export async function exportarClientesExcel(clienteIds: Set<string>): Promise<vo
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Clientes");
 
-  const stamp = new Date().toISOString().slice(0, 10);
+  const stamp = hojeChaveBR();
   XLSX.writeFile(wb, "clientes_" + stamp + ".xlsx");
 }
 
