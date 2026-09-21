@@ -100,6 +100,36 @@ node scripts/msc-sql.mjs --local --file planning/sql-migrations/migration_x.sql
 - Gestão da equipe pela UI (`/equipe`, RPCs em migration_equipe_admin_desligar): `definir_admin`, `desligar_interno` (não apaga: `ativo=false` + ban no auth + tarefas abertas/agenda futura migram pra outra pessoa; histórico fica no nome), `reativar_interno`.
 - Autoria em tarefas (migration_tarefas_autoria): `created_by`, `status_alterado_por/_em` via trigger; exclusões vão pra `tarefas_excluidas`.
 
+## RBAC multi-tenant (branch `feat/rbac-multi-tenant`, só local por enquanto)
+
+Desenho em planning/MULTI_TENANT_RBAC.md (§0 = estado real), decisões D23–D25, teste em
+planning/RBAC_TESTE_LOCAL.md. Enquanto não chega ao staging, o resto deste arquivo descreve
+o sistema em produção. Quando chegar, vale o seguinte:
+
+- **Escritório ativo** = header `x-escritorio-id` que o front manda em toda chamada
+  (`src/lib/supabase.ts`), conferido no banco por `private.escritorio_ativo()` contra
+  `membros`. Header inválido → NULL (nada visível), nunca fallback. Nada é lido do JWT.
+- **Fonte da verdade de papel/status é `membros`** (admin/advogado/assistente/financeiro/
+  parceiro × 26 permissões). `usuarios.tipo/eh_admin/ativo` continuam sincronizados por
+  gatilho pro código antigo, mas nenhuma decisão de acesso deve ler deles. No front:
+  `const { pode, escritorio, vinculos } = useAuth()`; `pode("casos:editar")`. No SQL:
+  `tem_permissao('casos:editar')`, `is_admin()`, `is_interno()` (todos sobre o vínculo ativo).
+- **Tabela nova de domínio** precisa de `escritorio_id not null` + FK + policy restritiva
+  `isolamento_escritorio` + gatilho `aa_herdar_escritorio` — a `migration_rbac_02` é o
+  molde (`private.tabelas_de_dominio()` lista quem fica de fora e por quê).
+- **RPC `SECURITY DEFINER`** que recebe id de linha começa com
+  `private.exigir_no_escritorio('tabela'::regclass, p_id)` — o `postgres` tem BYPASSRLS.
+- **Edge function**: `exigirUsuario(req, { permissao: "x:y" })` resolve papel e escritório
+  via `meu_contexto()`; `exigirRecurso(quem, tabela, id)` antes de tocar em linha; client de
+  service role sempre `escopado(sb, escritorioId)`. Integrações de sistema (INSS, DJEN,
+  WhatsApp) são do escritório `padrao_sistema` na v1.
+- **QG (superadmin)** vive em `qg.<domínio>` (`qg.localhost:8080` local), rotas `/qg/*`,
+  staff em `plataforma_staff`, funções `qg_*` — só metadados e contagens. Conteúdo de
+  cliente só por `acessos_suporte` aprovado pelo admin do escritório (somente leitura,
+  com prazo, auditado). Eliminar dados exige segunda pessoa.
+- Setup local: `bun run local:copiar && bun run local:rbac` (seed idempotente com o
+  escritório Canário e as contas de teste). Nova edge function local → `supabase stop/start`.
+
 ## IA (importante)
 
 - IA fica disponível só pra usuários `tipo='interno'`. Parceiros não veem launcher de IA, integrações, nem assistant panel.

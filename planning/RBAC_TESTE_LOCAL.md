@@ -1,0 +1,213 @@
+# RBAC multi-tenant — como testar no ambiente local
+
+Branch `feat/rbac-multi-tenant`. **Tudo aqui é local**: nada foi aplicado no staging nem em
+produção. O desenho está em [MULTI_TENANT_RBAC.md](MULTI_TENANT_RBAC.md); o que foi construído,
+os desvios e o que falta estão no fim deste arquivo.
+
+## 1. Subir o ambiente
+
+Docker aberto. Da raiz do repositório:
+
+```bash
+bun run local:copiar   # banco local = cópia do staging (~3 min). Só se quiser zerar.
+bun run local:rbac     # aplica as 5 migrations do RBAC + cria escritório canário, contas e QG
+bun run dev:local      # app em http://localhost:8080
+```
+
+`local:rbac` é idempotente — pode rodar de novo a qualquer momento. Depois de um
+`local:copiar` ele é obrigatório (a cópia vem do staging, que ainda não tem as migrations).
+
+Dois endereços, **duas sessões separadas** (o navegador guarda o login por endereço):
+
+| Endereço | O que é |
+|---|---|
+| http://localhost:8080 | o sistema do escritório |
+| http://qg.localhost:8080 | o QG da plataforma (superadmin) — `*.localhost` já resolve sozinho |
+
+## 2. Contas
+
+**Senha de todas:** o valor de `STAGING_SYNTH_PASSWORD` no `.env.local`.
+
+### Escritório 1 — Mara Vian Advocacia (os dados de sempre, 453 casos)
+
+| Conta | Papel | Para ver |
+|---|---|---|
+| `e2e+admin@marasandraconnect.com` | Administrador | tudo, inclusive Equipe e Auditoria |
+| `e2e+interno@marasandraconnect.com` | Advogado | o interno de hoje |
+| `rbac+assistente@marasandraconnect.com` | **Assistente** (novo) | vê os casos; só mexe nas tarefas dele |
+| `rbac+financeiro@marasandraconnect.com` | **Financeiro** (novo) | lê casos e repasses; não edita |
+| `e2e+parceiro@marasandraconnect.com` | Parceiro | só os casos que indicou |
+
+### Escritório 2 — Canário Advocacia (criado pelo QG, 4 clientes fictícios)
+
+| Conta | Papel |
+|---|---|
+| `canario+admin@marasandraconnect.com` | Administrador |
+| `canario+advogado@marasandraconnect.com` | Advogado |
+| `canario+assistente@marasandraconnect.com` | Assistente |
+| `canario+financeiro@marasandraconnect.com` | Financeiro |
+| `canario+parceiro@marasandraconnect.com` | Parceiro (2 dos 4 casos) |
+
+### Nos dois escritórios
+
+| Conta | Papel |
+|---|---|
+| `rbac+duplo@marasandraconnect.com` | Parceira no escritório 1 **e** no Canário — é quem mostra o seletor |
+
+### QG da plataforma — entrar em http://qg.localhost:8080
+
+| Conta | Papel no QG |
+|---|---|
+| `qg+dono@marasandraconnect.com` | Dono (com break-glass) |
+| `qg+dono2@marasandraconnect.com` | Dono — a **segunda pessoa** que a eliminação exige |
+| `qg+suporte@marasandraconnect.com` | Suporte (vê painéis e pede acesso; não gerencia) |
+
+Staff do QG **não é membro de escritório nenhum**: em `localhost:8080` essas contas caem na
+tela "Você não tem acesso a nenhum escritório" — é o esperado.
+
+> **Não use `e2e+interno` enquanto a suíte E2E roda** (duas sessões na mesma conta se derrubam).
+
+## 3. Lista de conferência
+
+Marque conforme for testando. Onde diz "não pode", o esperado é a tela não oferecer **e**, se
+você forçar pela URL/console, o banco recusar.
+
+### A. O escritório de sempre não mudou
+
+- [ ] Entrar como `e2e+admin`: Tarefas, Clientes (453), Agenda, Publicações, Parceiros, Equipe e Auditoria abrem como antes.
+- [ ] No cabeçalho aparece **"Mara Vian Advocacia"** e o papel **"Administrador"** (antes dizia "interno").
+- [ ] Abrir um caso, criar uma tarefa, concluir, criar um andamento — tudo grava.
+- [ ] Entrar como `e2e+parceiro`: só os casos dele; kanban de Tarefas normal.
+
+### B. Isolamento entre escritórios
+
+- [ ] Entrar como `canario+advogado`: **4 clientes** (Helena, Ivo, Joana, Kleber). Nenhum cliente do escritório 1.
+- [ ] Buscar em Clientes por um nome que só existe no escritório 1 → nada.
+- [ ] Copiar a URL de um caso do escritório 1 (logado como `e2e+admin`) e abrir logado como `canario+advogado` → **"Caso não encontrado"**.
+- [ ] Em Equipe (como `canario+admin`): só as 4 pessoas do Canário.
+- [ ] Em Parceiros (como `canario+admin`): Gilda e a [RBAC] Parceira — nenhum parceiro do escritório 1.
+- [ ] Cadastrar um cliente no Canário com o **mesmo CPF** de um cliente do escritório 1 → aceita (o CPF é único por escritório).
+
+### C. Papéis novos
+
+- [ ] `canario+financeiro`: o menu **não tem** Comercial, Processos, Publicações, Parceiros, Etiquetas; **não há** botão "Novo caso" nem "Importar Excel". Vê os 4 clientes.
+- [ ] `canario+financeiro`: abrir um caso e tentar criar tarefa/andamento → o banco recusa (erro na tela).
+- [ ] `canario+assistente`: consegue alterar uma tarefa **atribuída a ele**; numa tarefa do Diego, salvar não tem efeito.
+- [ ] `canario+advogado`: **não** vê Equipe nem Auditoria no menu.
+
+### D. Equipe (como `canario+admin`, em /equipe)
+
+- [ ] A lista mostra o papel de cada um (admin, assistente, financeiro).
+- [ ] Menu ⋮ da Elisa → "Tornar financeiro" → o selo muda. Voltar para "Tornar assistente".
+- [ ] No seu próprio ⋮, as opções de papel ficam desabilitadas ("não de si").
+- [ ] Convidar alguém com papel "Assistente" → aparece na lista (o e-mail do convite fica em http://127.0.0.1:55324).
+- [ ] Convidar o e-mail `e2e+interno@marasandraconnect.com` (já tem conta no escritório 1) → "já tinha conta: foi adicionado(a) a este escritório". Entrando com essa conta, aparece o **seletor**.
+- [ ] Desligar o Diego (precisa escolher quem assume as tarefas) → ele some dos ativos; Reativar devolve.
+- [ ] Tentar rebaixar/desligar o **único admin** → recusado ("o escritório precisa de pelo menos um administrador ativo").
+
+### E. Pessoa em dois escritórios (`rbac+duplo`)
+
+- [ ] No cabeçalho aparece o **seletor de escritório** com os dois.
+- [ ] Trocar para o Canário → a página recarrega e mostra só o que é do Canário (o caso do Kleber). Trocar de volta → só o do escritório 1.
+- [ ] Abrir duas abas, uma em cada escritório → cada aba fica no seu (o escritório vale por aba).
+
+### F. QG — http://qg.localhost:8080 (como `qg+dono`)
+
+- [ ] **Escritórios**: lista os dois, com status, equipe, casos e último acesso. Nenhum nome de cliente em lugar nenhum.
+- [ ] Abrir o **Canário**: cadastro, "Uso" (só contagens) e "Quem usa o sistema" (equipe e parceiros — **nunca clientes**).
+- [ ] Editar o nome ou o plano → Salvar.
+- [ ] **Novo escritório** (nome, slug, nome e e-mail do primeiro admin) → aparece na lista como Ativo; o convite do admin está em http://127.0.0.1:55324; ele nasce com templates e tipos de benefício padrão.
+- [ ] **Suspender** o Canário (motivo obrigatório) → em outra janela, `canario+advogado` passa a ver **"Canário Advocacia está suspenso"**. **Reativar** → volta ao normal.
+- [ ] **Operação**: abas Saúde, Suporte, Aprovações e Auditoria. A Auditoria lista o que você acabou de fazer.
+- [ ] **Equipe do QG**: os três; trocar o papel do suporte e voltar; não dá para rebaixar a si mesma.
+- [ ] Entrar no QG como `canario+admin` → **"Acesso restrito à equipe da plataforma"** (admin de escritório não é staff).
+- [ ] Entrar no QG como `qg+suporte` → vê tudo, mas **não há** botões de Suspender/Encerrar/Novo escritório.
+- [ ] Abrir `http://localhost:8080/qg` (host do produto) → "O QG fica em outro endereço".
+- [ ] Abrir `http://qg.localhost:8080/tarefas` → volta para o QG (o produto não abre lá).
+
+### G. Suporte: conteúdo só com aprovação do escritório
+
+- [ ] No QG (como `qg+suporte`), abrir o Canário → **Pedir acesso de suporte** (motivo, 1 h).
+- [ ] Em `localhost:8080`, entrar como `qg+suporte` → ainda **sem acesso** a nada.
+- [ ] Entrar como `canario+admin` → por enquanto a aprovação é por RPC (a tela ainda não existe — ver "O que falta"):
+      `node scripts/msc-sql.mjs --local "select id, motivo, status from acessos_suporte"` para ver o pedido; aprovar pelo console do navegador logado como `canario+admin`:
+      `await supabase.rpc("suporte_responder", { p_id: "<id>", p_aprovar: true })`
+- [ ] Voltar como `qg+suporte` em `localhost:8080` → o Canário abre, com a **faixa âmbar "Sessão de suporte — somente leitura"**. Tentar salvar qualquer coisa → recusado.
+- [ ] Como `canario+admin`, em Auditoria/banco: aparecem o pedido, a aprovação e **cada tela que o suporte abriu**.
+- [ ] No QG → Operação → Suporte → **Encerrar** → o acesso some na hora.
+
+### H. Encerrar e eliminar (só com escritório descartável!)
+
+- [ ] Criar um escritório de teste pelo QG. **Encerrar** (motivo) → sai do ar.
+- [ ] **Pedir eliminação dos dados** → vai para Operação → Aprovações. Como `qg+dono`, o botão diz "aguarda outra pessoa".
+- [ ] Entrar no QG como `qg+dono2` → **Aprovar e eliminar** → some da lista. (No local a carência é 0 dias; em produção, 30.)
+- [ ] O escritório padrão (Mara Vian) **não** tem botão de Suspender nem de Encerrar.
+
+### I. Provas automáticas (rodar e conferir os números)
+
+```bash
+bun run e2e:local                                         # suíte inteira: 92 testes
+bun run e2e:local e2e/tests/rbac-isolamento.spec.ts       # 16 ataques entre os dois escritórios
+bun run e2e:local e2e/tests/rbac-edge-functions.spec.ts   # 7 ataques nas edge functions
+```
+
+- [ ] 92 passam. Os 23 do RBAC são ataques via API com a sessão real de cada papel: header
+      forjado, filho apontando para pai de outro escritório (inclusive com service role), RPC
+      com id alheio, vínculo desativado com o JWT ainda válido, staff lendo tabela de domínio,
+      suporte escrevendo, eliminação sem segunda pessoa.
+
+## 4. O que foi construído
+
+| Camada | O quê |
+|---|---|
+| Banco — `migration_rbac_01…05` | `escritorios`, `membros`, 5 papéis × 26 permissões (matriz §4.3); `escritorio_id NOT NULL` em 41 tabelas com herança por gatilho; 41 policies restritivas de isolamento + 58 de permissão; helpers de papel sobre o vínculo; guard de escritório nas RPCs; equipe sobre vínculos (`definir_papel`); QG (`plataforma_staff`, `acessos_suporte`, `auditoria`, `ops.*`, 22 funções `qg_*`) |
+| Front | header `x-escritorio-id` em toda chamada; escritório ativo, vínculos e permissões no `useAuth` (`pode()`); seletor; faixa de suporte; tela "sem escritório"; menu por permissão; Equipe por papéis; QG em `/qg` (só no host `qg.`) |
+| Edge functions | `exigirUsuario` por vínculo e escritório; `exigirRecurso`; client de service role preso ao escritório (`escopado`) no digest, e-mails do INSS e DJEN; convite por escritório e papel; MCP no escritório do token; `qg-escritorios` |
+| Provas | `rbac-isolamento` (16), `rbac-edge-functions` (7), `scripts/rbac-diff-visibilidade.mjs` (o escritório 1 vê exatamente as mesmas linhas de antes) |
+
+### Como funciona, em uma frase
+
+O navegador diz em que escritório está (`x-escritorio-id`); o banco **confere o vínculo** e só então
+aceita — `private.escritorio_ativo()`. Uma policy restritiva por tabela prende toda consulta a esse
+escritório, e as 143 policies que já existiam continuam decidindo o resto, intactas. Por isso o
+escritório 1 não mudou, e forjar o header não abre nada.
+
+### Desvios do plano (decididos com a suíte E2E na mão)
+
+1. **FK simples + gatilho, em vez de FK composta.** O PostgREST não resolve embed por nome de
+   coluna (`cliente:cliente_id(...)`, ~35 usos) sobre FK composta, e a simples ao lado da composta
+   deixa ambíguo todo embed por tabela. O gatilho de herança valida o pai em INSERT e UPDATE, para
+   qualquer role — mesma garantia. Volta a ser FK composta quando os embeds migrarem para hint.
+2. **Escritório ativo por header**, e não "todos os meus escritórios": as telas ficam escopadas
+   sem tocar nas ~100 consultas do front, e trocar de escritório é trocar o header.
+3. **Funções do QG em `public` com prefixo `qg_`**, e não num schema `plataforma` exposto — para
+   não depender de configuração do PostgREST por ambiente. Continua sendo só função, nenhuma tabela.
+
+### Falhas antigas que apareceram e foram fechadas no caminho
+
+- `aplicar_template` não conferia **nada**: criava tarefa em qualquer `caso_id`.
+- 10 policies (agenda, comentários, tarefas, templates) e 6 edge functions decidiam por
+  `usuarios.tipo` **sem olhar `ativo`** — pessoa desligada ainda passava.
+- `excluir_cliente` e as três RPCs da senha do MEU INSS, idem.
+- Compartilhar a chave de IA descompartilhava a de todo mundo (sem filtro); a chave compartilhada
+  era "a do banco", não a do escritório.
+
+## 5. O que falta (não bloqueia o teste local)
+
+| Item | Por quê ficou |
+|---|---|
+| **Tela do escritório para aprovar suporte** e aba de transparência em Auditoria | As RPCs existem e estão testadas (`suporte_pedidos`, `suporte_responder`, policy de `auditoria`); falta a tela |
+| **Integrações por escritório** (Gmail INSS, DJEN, WhatsApp, Legalmail/TI) | v1: são do escritório padrão. As rotinas já filtram por ele; um segundo escritório não tem essas integrações ainda (Fase 6) |
+| **Marca por escritório** | O Canário ainda mostra o logo Mara Sandra Vian. `escritorio_config.marca` existe, a tela não usa |
+| **MFA (AAL2) no QG** | Ligado por `app_config.qg_exigir_aal2 = 'true'`; no local está `false` para dar para testar. Em produção tem que ser `true` — e ainda não há tela de cadastro do segundo fator |
+| **Token do MCP emitido para outra pessoa** (#385) | O banco já prende o token ao escritório; a emissão em nome de terceiro fica para a issue |
+| **Botões que a tela ainda oferece a papéis novos** | O banco barra (testado), mas o financeiro ainda vê, por exemplo, "Perícia" na linha do cliente. A limpeza fina das telas é o codemod da Fase 5 |
+| **Colunas antigas de `usuarios`** (`tipo`, `eh_admin`, `ativo`…) | Seguem sincronizadas para o código antigo; nenhuma decisão de acesso as lê mais. Sair é a Fase 7 |
+| **pgTAP no CI** | As provas estão em Playwright (API). O harness pgTAP e o CI obrigatório são a Fase 1 do plano |
+
+## 6. Antes de ir para o staging
+
+Nada disto foi aplicado fora do local. Para o staging: as 5 migrations com
+`node scripts/msc-sql.mjs --staging --file …` **na ordem**, deploy das 26 edge functions alteradas
+(+ `qg-escritorios`), e só então o front. Como a #02 mexe em 41 tabelas, vale ensaiar de novo numa
+cópia fresca (`bun run local:copiar && bun run local:rbac`) no dia — leva ~4 min.
