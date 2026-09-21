@@ -181,6 +181,10 @@ async function abrirEstudio(nomeRoteiro) {
       const ctx = await browser.newContext({
         storageState: AUTH[papel] ?? papel,
         viewport: { width: 1280, height: 800 },
+        // O filme mostra o que o escritório vê: relógio e formato de Brasília,
+        // seja qual for o fuso da máquina que filma.
+        timezoneId: "America/Sao_Paulo",
+        locale: "pt-BR",
         recordVideo: { dir: videoDir, size: { width: 1280, height: 800 } },
       });
       const page = await ctx.newPage();
