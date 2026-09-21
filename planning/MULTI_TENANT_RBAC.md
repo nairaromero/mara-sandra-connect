@@ -423,7 +423,7 @@ Advisor zerados ou justificados um a um.
 - **Diff de visibilidade**: script que grava, por conta de papel e por tabela, as chaves
   visíveis. É a linha de base de todas as fases.
 - **Menos superfície** (#285): `mensagens` (ainda referenciada em `excluir-parceiro`),
-  `intake_trello_runs` (só no staging), buckets mortos, webhooks sem destino, o client
+  ~~`intake_trello_runs`~~ (removida do staging em 21/09), buckets mortos, webhooks sem destino, o client
   service-role morto em `src/integrations/supabase/` e o react-query montado sem uso.
 - D23 registrada em DECISOES; alertas para falha de cron, espelho e edge function.
 
