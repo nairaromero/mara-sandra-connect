@@ -15,9 +15,19 @@
 --      pessoa e sem pai) cai no escritório padrão. `escritorio_id` não muda
 --      depois de gravado, e não pode discordar do pai;
 --   3. tira o default, NOT NULL, FK para `escritorios`, índice;
---   4. `unique (escritorio_id, id)` nos pais + FK COMPOSTA em cada filho: o
---      filho não consegue apontar para o pai de outro escritório — nem com
---      service role ou SECURITY DEFINER, que ignoram RLS;
+--   4. o MESMO gatilho valida o pai em todo INSERT e em todo UPDATE das colunas
+--      de pai: o filho não consegue apontar para o pai de outro escritório —
+--      nem com service role ou SECURITY DEFINER, que ignoram RLS (gatilho vale
+--      para todos). `unique (escritorio_id, id)` nos pais fica pronto para o dia
+--      em que as FKs puderem ser compostas.
+--
+--      DESVIO DO PLANO (§4.2 pedia FK composta), decidido em 22/09 com a suíte
+--      E2E na mão: o PostgREST não resolve embed por NOME DE COLUNA
+--      (`cliente:cliente_id(...)`, ~35 usos no front e nas edge functions) sobre
+--      FK composta, e manter a simples AO LADO da composta deixa ambíguo todo
+--      embed por nome de tabela (`casos(..., clientes(nome))`). As duas formas
+--      quebram telas inteiras. A FK composta volta quando os embeds forem
+--      migrados para hint (`clientes!casos_cliente_id_fkey`).
 --   5. unicidade de negócio por escritório (CPF, etiqueta, template, tipo de
 --      benefício, OAB, número de processo, chave de IA compartilhada).
 --
@@ -42,7 +52,7 @@ language sql stable set search_path = '' as $$
      and c.relname not in (
        'usuarios', 'aceites_termos', 'usuario_gmail_oauth', 'app_config', 'webhook_config',
        'escritorios', 'escritorio_config', 'permissoes', 'papeis', 'papel_permissoes', 'membros',
-       'plataforma_staff', 'acessos_suporte')
+       'plataforma_staff', 'acessos_suporte', 'auditoria')  -- mesma lista da migration_rbac_05
    order by c.relname
 $$;
 
@@ -56,6 +66,7 @@ create or replace function private.tg_herdar_escritorio() returns trigger
 language plpgsql security definer set search_path = '' as $$
 declare
   v_linha jsonb;
+  v_antes jsonb;
   v_arg   text;
   v_col   text;
   v_tab   text;
@@ -69,11 +80,27 @@ begin
       raise exception 'escritorio_id não pode ser alterado (%.%)', tg_table_schema, tg_table_name
         using errcode = '42501';
     end if;
+    -- Pai trocado depois de gravado: tem que ser do mesmo escritório.
+    v_linha := to_jsonb(new);
+    v_antes := to_jsonb(old);
+    foreach v_arg in array coalesce(tg_argv, '{}'::text[]) loop
+      v_col := split_part(v_arg, '=', 1);
+      v_tab := split_part(v_arg, '=', 2);
+      v_val := v_linha ->> v_col;
+      continue when v_tab = 'usuarios' or v_val is null or v_val is not distinct from (v_antes ->> v_col);
+      execute format('select escritorio_id from public.%I where id = $1', v_tab)
+         into v_pai using v_val::uuid;
+      if v_pai is not null and v_pai <> new.escritorio_id then
+        raise exception '%: % aponta para outro escritório', tg_table_name, v_col
+          using errcode = '42501';
+      end if;
+    end loop;
     return new;
   end if;
 
   v_linha := to_jsonb(new);
-  foreach v_arg in array tg_argv loop
+  -- Tabela-raiz não tem pai: TG_ARGV vem NULO (não vazio), e FOREACH não aceita nulo.
+  foreach v_arg in array coalesce(tg_argv, '{}'::text[]) loop
     v_col := split_part(v_arg, '=', 1);
     v_tab := split_part(v_arg, '=', 2);
     v_val := v_linha ->> v_col;
@@ -132,6 +159,7 @@ declare
   v_nome   text;
   v_esc1   uuid := private.escritorio_padrao();
   v_args   text;
+  v_cols   text;
   v_tem    boolean;
 begin
   if v_esc1 is null then
@@ -160,10 +188,14 @@ begin
       into v_args
       from pg_constraint k
       join pg_class cf on cf.oid = k.confrelid
-      join pg_attribute a on a.attrelid = k.conrelid and a.attnum = k.conkey[1]
+      -- a coluna do pai: a única da FK simples, ou a que NÃO é escritorio_id na
+      -- composta (depois do passo 3 as FKs entre tabelas de domínio são compostas)
+      join pg_attribute a on a.attrelid = k.conrelid and a.attnum = any (k.conkey)
+                         and a.attname <> 'escritorio_id'
      where k.conrelid = t
        and k.contype = 'f'
-       and array_length(k.conkey, 1) = 1
+       and array_length(k.conkey, 1) <= 2
+       and cf.relname <> 'escritorios'
        and cf.relnamespace = 'public'::regnamespace
        and cf.oid <> t                                                  -- auto-referência herda do mesmo caso
        and (
@@ -177,11 +209,17 @@ begin
       v_args := concat_ws(', ', quote_literal('caso_id=casos'), v_args);
     end if;
 
+    -- colunas de pai (fortes) desta tabela: o UPDATE delas revalida o escritório
+    select string_agg(distinct quote_ident(split_part(trim(both '''' from x), '=', 1)), ', ')
+      into v_cols
+      from unnest(string_to_array(coalesce(v_args, ''), ', ')) x
+     where x <> '' and split_part(trim(both '''' from x), '=', 2) <> 'usuarios';
+
     execute format('drop trigger if exists aa_herdar_escritorio on %s', t);
     execute format(
-      'create trigger aa_herdar_escritorio before insert or update of escritorio_id on %s
+      'create trigger aa_herdar_escritorio before insert or update of %s on %s
          for each row execute function private.tg_herdar_escritorio(%s)',
-      t, coalesce(v_args, ''));
+      concat_ws(', ', 'escritorio_id', v_cols), t, coalesce(v_args, ''));
   end loop;
 
   -- 2c. enforce
@@ -207,7 +245,7 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------
--- 3. unique (escritorio_id, id) nos pais + FK composta nos filhos
+-- 3. unique (escritorio_id, id) nos pais (as FKs seguem simples — ver cabeçalho)
 -- ---------------------------------------------------------------------------
 do $$
 declare
@@ -230,32 +268,22 @@ begin
     end if;
   end loop;
 
-  -- FK composta espelhando a ação da FK simples (CASCADE continua CASCADE;
-  -- SET NULL anula só a coluna do pai — escritorio_id é NOT NULL).
+  -- Rodada anterior desta migration (22/09) chegou a trocar as FKs simples por
+  -- compostas: desfaz, com o mesmo nome e a mesma ação.
   for k in
-    select c.conrelid::regclass as filho, c.conname, cf.oid::regclass as pai,
-           a.attname as coluna, c.confdeltype
+    select c.conrelid::regclass as filho, c.conname, c.confrelid::regclass as pai, a.attname as coluna, c.confdeltype
       from pg_constraint c
-      join pg_class cf on cf.oid = c.confrelid
-      join pg_attribute a  on a.attrelid  = c.conrelid  and a.attnum  = c.conkey[1]
-      join pg_attribute af on af.attrelid = c.confrelid and af.attnum = c.confkey[1]
-     where c.contype = 'f'
-       and array_length(c.conkey, 1) = 1
-       and af.attname = 'id'
+      join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any (c.conkey) and a.attname <> 'escritorio_id'
+     where c.contype = 'f' and array_length(c.conkey, 1) = 2
        and c.conrelid  in (select private.tabelas_de_dominio())
        and c.confrelid in (select private.tabelas_de_dominio())
-       and not exists (select 1 from pg_constraint x
-                        where x.conrelid = c.conrelid and x.conname = left(c.conname, 55) || '_esc')
   loop
-    v_acao := case k.confdeltype
-      when 'c' then 'on delete cascade'
-      when 'n' then format('on delete set null (%I)', k.coluna)
-      when 'r' then 'on delete restrict'
-      else '' end;
-    execute format(
-      'alter table %s add constraint %I foreign key (escritorio_id, %I) references %s (escritorio_id, id) %s not valid',
-      k.filho, left(k.conname, 55) || '_esc', k.coluna, k.pai, v_acao);
-    execute format('alter table %s validate constraint %I', k.filho, left(k.conname, 55) || '_esc');
+    v_acao := case k.confdeltype when 'c' then 'on delete cascade' when 'n' then 'on delete set null'
+                                 when 'r' then 'on delete restrict' else '' end;
+    execute format('alter table %s drop constraint %I', k.filho, k.conname);
+    execute format('alter table %s add constraint %I foreign key (%I) references %s (id) %s not valid',
+                   k.filho, k.conname, k.coluna, k.pai, v_acao);
+    execute format('alter table %s validate constraint %I', k.filho, k.conname);
   end loop;
 end $$;
 
@@ -336,6 +364,10 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------
+-- O PostgREST precisa reler as relações.
+notify pgrst, 'reload schema';
+
+-- ---------------------------------------------------------------------------
 -- Conferência (portão da Fase 3)
 -- ---------------------------------------------------------------------------
 do $$
@@ -359,6 +391,7 @@ select
     where a.attname = 'escritorio_id' and a.attnotnull and not a.attisdropped
       and a.attrelid in (select private.tabelas_de_dominio())) as com_escritorio_id_not_null,
   (select count(*) from pg_trigger where tgname = 'aa_herdar_escritorio') as gatilhos_de_heranca,
-  (select count(*) from pg_constraint where conname like '%\_esc' and contype = 'f' and convalidated) as fks_compostas_validas,
-  (select count(*) from pg_constraint where conname like '%\_esc' and contype = 'f' and not convalidated) as fks_compostas_invalidas,
+  (select count(*) from pg_constraint c where c.contype = 'f' and array_length(c.conkey, 1) = 2
+      and c.conrelid in (select private.tabelas_de_dominio())) as fks_compostas_tem_que_ser_0,
+  (select count(*) from pg_trigger t where t.tgname = 'aa_herdar_escritorio' and t.tgnargs > 0) as gatilhos_que_validam_pai,
   (select count(*) from pg_constraint where conname like '%\_esc\_id\_uk') as pais_com_unique;
