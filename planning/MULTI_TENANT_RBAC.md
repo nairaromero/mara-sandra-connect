@@ -32,6 +32,9 @@ Onde este documento divergir do banco, vale o banco — e corrija aqui
 - **O maior risco não está nas policies**: as 93 funções `SECURITY DEFINER` e as 29 edge
   functions com service role ignoram RLS. Cada uma será reescrita a partir da definição de
   produção e coberta por teste.
+- **QG da plataforma (superadmin)**: cria, edita, suspende e encerra escritórios e monitora
+  saúde, uso, segurança e cobrança de todos — sem ver o conteúdo dos clientes. Conteúdo só com
+  acesso de suporte aprovado pelo escritório, com prazo e registro (§4.6, decisão de 21/09).
 - **Oito fases aditivas**, cada uma com portão de saída e rollback. Nenhuma fase muda o que
   o escritório 1 vê até a matriz de testes entre dois escritórios estar verde, e o primeiro
   cliente externo só entra depois do DPA e do runbook de incidente.
@@ -146,7 +149,8 @@ escritório e parceira em outro. `usuarios` fica só com a identidade.
 | `papeis` · `papel_permissoes` | Papéis e o que concedem | Papel de sistema (`escritorio_id` nulo) ou do escritório. Cada concessão tem escopo: `todos`, `atribuidos`, `indicados`, `proprios` |
 | `convites` | Entrada no escritório | Só o hash do token, expiração, papel. Convite para e-mail já cadastrado cria vínculo em vez de erro |
 | `auditoria` | Trilha legal | Só INSERT. Ator, tipo do ator (membro, suporte, sistema), ação, recurso, escritório. Referências e hashes, nunca o conteúdo |
-| `plataforma_staff` · `acessos_suporte` | Equipe do SaaS | Fora de `membros`. Sem acesso a dado de cliente, exceto suporte temporário aprovado pelo escritório (§4.6) |
+| `plataforma_staff` · `acessos_suporte` · `ops.aprovacoes_plataforma` | QG da plataforma (superadmin) | Fora de `membros`. Vê e gerencia a operação de todos os escritórios, não o conteúdo; conteúdo só com suporte aprovado pelo escritório ou break-glass (§4.6) |
+| `ops.execucoes` · `ops.metricas_diarias` | Saúde e uso por escritório | Só códigos, estados e contagens — alimentam o QG sem tocar em dado de cliente (§4.6.3) |
 
 ```sql
 -- esboço: vínculo e helpers de autorização (schema private, fora da API)
@@ -358,21 +362,117 @@ essa checagem.
 - `marasandraconnect.com` continua servindo o escritório 1; o site institucional em `/` sai da
   raiz do produto. A escolha do domínio do produto se cruza com a issue #244.
 
-### 4.6 Acesso da equipe da plataforma
+### 4.6 QG da plataforma (superadmin)
 
-Hoje quem desenvolve tem acesso total a produção (service role, PAT de Management API). Num
-SaaS jurídico isso precisa virar exceção registrada.
+**Decisão de 21/09: o QG vê e gerencia toda a operação, não o conteúdo.** Escritórios, planos,
+membros, uso, saúde das rotinas e integrações, cobrança e auditoria — tudo. Clientes, casos,
+documentos e publicações de um escritório, não: esses só com acesso de suporte aprovado pelo
+admin daquele escritório, com prazo e registro, ou por break-glass em incidente (§4.6.3).
 
-- **Admin da plataforma ≠ admin do escritório.** `plataforma_staff` não aparece em nenhuma
-  policy de tabela de domínio. O console vê escritórios, uso e status; não vê clientes.
-- **Suporte com prazo.** `acessos_suporte` com motivo, ticket, escopo (padrão: leitura),
-  aprovação de um admin do próprio escritório e expiração. `meus_escritorios()` só inclui o
-  escritório enquanto o acesso é válido; cada leitura nesse modo vai para `auditoria`. O "ver
-  como parceiro" atual passa a exigir `parceiros:ver_como` no escritório do parceiro.
-- **Break-glass.** Duas contas nominais com MFA forte, alerta a cada uso, post-mortem
-  registrado e teste trimestral.
-- **MFA (AAL2)** obrigatório para admin de escritório e staff, por policy restritiva nas
-  tabelas administrativas (`(select auth.jwt()->>'aal') = 'aal2'`). Fecha a issue #261.
+Por quê: cada escritório será **controlador** dos dados dos clientes dele e a plataforma,
+**operadora** (§9) — trata o dado só nos limites das instruções do escritório. O conteúdo
+inclui dado de saúde e material coberto por sigilo profissional, e um fornecedor com acesso
+permanente aos arquivos de clientes de todos os escritórios é o que um escritório cliente
+menos aceita. É também o padrão de mercado: acesso a dado de cliente por quem opera um SaaS
+exige motivo, prazo, registro e consentimento de quem é dono do dado.
+
+No escritório 1 nada muda na prática: Naira e Mara continuam vendo tudo **como membros**
+(admin do escritório), no domínio do produto. O QG é outra porta, para outra função.
+
+#### 4.6.1 Quem entra
+
+`plataforma_staff` é uma lista nominal, fora de `membros` — ninguém entra no QG por ser admin
+de escritório, e ninguém vira membro de escritório por estar no QG. A mesma pessoa pode ser as
+duas coisas, com sessões separadas (§4.6.3). MFA forte (AAL2) é obrigatório para qualquer
+permissão `plataforma:*`, e o último dono não pode ser removido nem rebaixado.
+
+| Permissão | Dono | Operação | Suporte | Leitura |
+|---|---|---|---|---|
+| `plataforma:ver` — painéis, lista de escritórios, métricas, alertas | ✓ | ✓ | ✓ | ✓ |
+| `plataforma:escritorios_gerenciar` — criar, editar, plano, limites, flags, suspender, reativar | ✓ | ✓ | — | — |
+| `plataforma:escritorios_encerrar` — encerrar e eliminar (dupla confirmação) | ✓ | — | — | — |
+| `plataforma:membros_operar` — reenviar convite, trocar titular, desativar vínculo em incidente, resetar MFA | ✓ | ✓ | — | — |
+| `plataforma:suporte_solicitar` — pedir acesso de suporte a um escritório | ✓ | ✓ | ✓ | — |
+| `plataforma:break_glass` — acesso de emergência sem aprovação prévia | 2 contas nominais | — | — | — |
+| `plataforma:cobranca` — plano, faturas, limites contratados | ✓ | ✓ | — | — |
+| `plataforma:staff_gerenciar` — quem está no QG e com que papel | ✓ | — | — | — |
+
+#### 4.6.2 O que o QG faz
+
+**Escritórios — ciclo de vida.** `provisionando → ativo ⇄ suspenso → encerrado → eliminado`.
+
+| Ação | O que acontece |
+|---|---|
+| Criar | `criar_escritorio`: escritório, `escritorio_config` padrão, papéis de sistema, convite do primeiro admin e o conjunto padrão de templates, etiquetas e tipos de benefício — sem nenhum nome, e-mail ou responsável do escritório 1. Nasce `provisionando` e vira `ativo` quando o primeiro admin aceita |
+| Editar | Dados cadastrais (nome, CNPJ, slug, contato do encarregado), plano, limites (membros, Storage, IA) e flags de funcionalidade. Integrações: o QG vê só o **status** (conectada, falhando, última sincronização) — nunca o segredo |
+| Suspender / reativar | Suspenso: membros veem um aviso em vez do sistema, rotinas e integrações param, os dados ficam intactos, e o admin do escritório continua podendo **exportar**. Motivo obrigatório; o admin do escritório é avisado |
+| Encerrar | Export completo entregue ao escritório (linhas + prefixo do Storage) → **carência de 30 dias** → eliminação definitiva, confirmada por uma segunda pessoa do QG, com verificação de 0 linhas e 0 objetos e certificado de eliminação para o escritório (LGPD art. 16). Nunca direto pela tela |
+| Trocar titular | Quando o admin do escritório sai sem deixar sucessor: promove um membro indicado pelo escritório, com registro e aviso a todos os admins dele |
+
+**Membros — visão operacional.** Por escritório: nome, e-mail, papel, status, MFA e último
+acesso de quem **usa** o sistema (equipe e parceiros) — dado necessário para operar o
+contrato. Os clientes do escritório, as pessoas atendidas, nunca aparecem. As ações seguem a
+tabela de permissões, cada uma registrada e avisada ao admin do escritório.
+
+**Monitoramento — só contagens e estados.**
+
+| Painel | O que mostra |
+|---|---|
+| Saúde | Por escritório e rotina: última execução, sucesso/falha e código do erro (inss-email, DataJud, DJEN, digest, lembretes, rotinas de perícia); integrações (Gmail INSS, Drive, Legalmail, TI, WhatsApp) com última sincronização; filas (webhooks, pg_net) com pendentes e falhas; taxa de erro das edge functions |
+| Uso | Membros ativos, casos, documentos e bytes no Storage, chamadas e custo de IA, e-mails enviados, tokens MCP ativos — por escritório e no total |
+| Segurança | Admins sem MFA, logins falhos, sessões de suporte e break-glass, eventos de auditoria por tipo, picos de 401/403 |
+| Alertas | Rotina parada além do horário, integração falhando, limite de uso perto do teto, pico de erro, break-glass usado |
+
+**Suporte.** Quem tem `plataforma:suporte_solicitar` abre um pedido (motivo, ticket, escopo —
+padrão leitura —, duração). Um admin **do próprio escritório** aprova no app dele. Durante a
+janela, a pessoa de suporte entra com a **própria identidade** — nunca como o usuário do
+escritório —, com faixa visível de "sessão de suporte", e tudo que abre fica registrado.
+Expirou, sai sozinho.
+
+**Transparência.** Em Configurações → Auditoria, o escritório vê tudo que a plataforma fez
+nele: ações do QG, sessões de suporte (quem, quando, motivo, o que abriu) e break-glass. É o
+que o DPA vai prometer (§9).
+
+#### 4.6.3 Como é construído — para o QG não virar porta dos fundos
+
+- **Host próprio.** `qg.<domínio do produto>`, mesmo código, com a árvore de rotas `/qg` que só
+  existe nesse host. O Supabase guarda a sessão por origem, então a sessão do QG (com AAL2) é
+  separada da sessão de membro no domínio do produto — trocar de chapéu é trocar de aba.
+- **Leitura só por funções do schema `plataforma`.** Funções `SECURITY DEFINER` (schema exposto
+  só com funções, sem tabelas) que começam por `plataforma.exigir_staff('<permissão>')` —
+  confere a lista nominal e `aal2` — e devolvem **metadados e contagens de uma lista fechada de
+  colunas**. Escrita (criar escritório, suspender, convites) por edge functions `qg-*` com
+  `exigirStaff(req, permissão)` em `_shared/auth.ts`, irmão do `exigirMembro`.
+- **Nenhuma policy de domínio conhece o QG.** `plataforma_staff` e o schema `plataforma` não
+  aparecem em nenhuma policy de tabela de domínio. Staff sem vínculo e sem sessão de suporte
+  lê 0 linhas em toda tabela — provado pela matriz cruzada (§7).
+- **Métricas próprias, sem conteúdo.** `ops.execucoes(escritorio_id, rotina, inicio, fim,
+  status, erro_codigo)` gravada pelas rotinas e edge functions — código do erro, nunca a
+  mensagem com dado —, e `ops.metricas_diarias(escritorio_id, dia, metrica, valor)` preenchida
+  por job. Os logs do Supabase (Management API) são da plataforma inteira e ficam para
+  investigação, não para o painel.
+- **Sessão de suporte no banco.** `acessos_suporte(escritorio_id, staff_id, motivo, ticket,
+  escopo, inicio, fim, aprovado_por, status)`. `meus_escritorios()` inclui o escritório só
+  enquanto o acesso é válido; uma policy **restritiva** de escrita barra INSERT/UPDATE/DELETE
+  quando a sessão é de suporte com escopo leitura. Registro de abertura, fim e cada tela ou
+  recurso aberto; pgAudit numa role dedicada, se o custo compensar.
+- **Break-glass.** Duas contas nominais, AAL2, sem aprovação prévia, para incidente grave que
+  afeta o escritório; alerta imediato ao admin do escritório e à Naira, post-mortem registrado
+  e teste trimestral.
+- **Destrutivo pede duas pessoas.** Eliminar escritório, remover dono do QG e trocar titular
+  passam por `ops.aprovacoes_plataforma`: quem pede não aprova.
+- **Tudo auditado.** Toda ação do QG grava `auditoria` com `tipo_ator = 'plataforma'` e o
+  escritório alvo.
+
+#### 4.6.4 Entrega por fase
+
+| Fase | O que do QG entra |
+|---|---|
+| 1 | `plataforma_staff` com AAL2 (#261); **painel de saúde v0** só do escritório 1 — rotinas, integrações, filas e erros das edge functions — sobre `ops.execucoes`. É a tela dos "alertas para falha de cron, espelho e edge function" que a Fase 1 já prevê |
+| 2 | Com `escritorios` e `membros`: o QG lista escritórios e membros; catálogo `plataforma:*`; host `qg.` |
+| 5 | Auditoria com `tipo_ator`; a aba de transparência no app do escritório |
+| 6 | Ciclo de vida completo (criar, editar, suspender, encerrar, eliminar), suporte com prazo, uso e quota, métricas por escritório, plano e limites |
+| 7 | Break-glass ensaiado; o acesso da plataforma descrito no DPA e revisado por especialista |
 
 ---
 
@@ -449,7 +549,8 @@ Advisor zerados ou justificados um a um.
 - **Menos superfície** (#285): `mensagens` (ainda referenciada em `excluir-parceiro`),
   ~~`intake_trello_runs`~~ (removida do staging em 21/09), buckets mortos, webhooks sem destino, o client
   service-role morto em `src/integrations/supabase/` e o react-query montado sem uso.
-- D23 registrada em DECISOES; alertas para falha de cron, espelho e edge function.
+- D23 registrada em DECISOES; alertas para falha de cron, espelho e edge function — com tela:
+  `plataforma_staff` com AAL2 e o **painel de saúde v0** do QG sobre `ops.execucoes` (§4.6.4).
 
 **Portão de saída:** CI bloqueia merge; baseline recria a cópia local sem diferença; restore
 ensaiado e cronometrado; PITR ativo; diff de visibilidade gerado para admin, interno e
@@ -465,6 +566,7 @@ parceiro; registros de migration iguais entre local, staging e produção.
 - `private.meus_escritorios()` e `private.escritorios_com()` com testes próprios — as duas
   camadas dependem delas.
 - Sincronização temporária entre `usuarios` e `membros` enquanto o código antigo existir.
+- QG: lista de escritórios e membros, catálogo `plataforma:*` e host `qg.` (§4.6.4).
 - Policies sombra: comparar o que as regras novas permitiriam com o que as atuais permitem,
   sem anexá-las às tabelas.
 - `escritorio_config` recebe o que hoje está chumbado: responsável padrão, triagem DJE,
@@ -540,6 +642,8 @@ Storage, Realtime e RPCs; diff de visibilidade do escritório 1 idêntico; teste
 - Front: `EscritorioProvider`, `pode()`, guards, sidebar declarativa, codemod das checagens;
   segurança que hoje é só de tela passa para o banco.
 - Tela Equipe vira gestão de papéis; assistente e financeiro liberados.
+- `auditoria` com `tipo_ator` (membro, suporte, plataforma, sistema) e a aba de transparência
+  no app do escritório: tudo que a plataforma fez nele (§4.6.2).
 
 **Portão de saída:** diff de visibilidade idêntico para admin, interno e parceiro, exceto as
 mudanças deliberadas de §4.3, listadas e aprovadas; nenhuma `SECURITY DEFINER` em schema
@@ -556,8 +660,9 @@ parceiro B, `visivel_parceiro` e `analises_tecnicas`.
 - Onboarding: `criar_escritorio` (staff) cria escritório, config, papéis e convite do dono,
   com templates, etiquetas e tipos de benefício de um conjunto padrão — sem e-mails da equipe
   atual.
-- Convites multi-vínculo; seletor de escritório; console da plataforma; suporte com prazo;
-  auditoria.
+- Convites multi-vínculo; seletor de escritório; **QG completo** (§4.6): ciclo de vida do
+  escritório, suporte com prazo, métricas, plano e limites; auditoria com transparência para o
+  escritório.
 - Export por escritório (linhas + prefixo do Storage) e eliminação; uso e quota por escritório
   (degrau 2 do D22).
 - Espelho de staging: só o escritório 1, com base legal registrada, mais sintéticos; restore e
@@ -578,6 +683,8 @@ também em produção.
 - Limpar o que sobrou: react-query sem uso, `src/integrations/supabase/` morto e a quebra de
   `casos.$id.tsx`, ainda com 8.590 linhas (#284).
 - Portão de compliance de §9 cumprido.
+- Break-glass ensaiado (duas contas nominais, alerta, post-mortem) e acesso da plataforma
+  descrito no DPA (§4.6).
 - Piloto com um escritório parceiro: contrato e DPA assinados, carga inicial assistida,
   acompanhamento diário por duas semanas.
 
@@ -621,6 +728,7 @@ prova passa a rodar.
 | Revogação | Com o JWT ainda válido, desativar o vínculo → 0 linhas; token MCP revogado junto | CI |
 | E2E com 2 escritórios | Ataques via supabase-js (ler por id, signed URL alheia, Realtime), troca de escritório sem sobra de cache, parceiro A × parceiro B | Staging; canário em produção |
 | Edge functions | Sem credencial → 401; JWT do canário com id do escritório 1 → 403/404; cron sem HMAC → 401 | Staging; canário em produção |
+| QG da plataforma | Staff sem vínculo e sem suporte lê 0 linhas em toda tabela de domínio; nenhuma policy de domínio cita `plataforma_staff`/`plataforma.`; cada função `plataforma.*` recusa não-staff e staff sem `aal2`, e devolve só colunas da lista fechada; suporte expirado → 0 linhas; sessão de suporte de leitura não grava; eliminação exige segunda pessoa e deixa 0 linhas e 0 objetos | CI (pgTAP) e staging |
 | Desempenho | EXPLAIN ANALYZE das consultas mais frequentes com a restritiva; `index_advisor` | Ensaio |
 
 ```sql
@@ -670,6 +778,8 @@ mesma fase.
 | Branch longa diverge de `staging` | Alta | Médio | PRs pequenos por fase e por domínio, atrás de flag |
 | Estimativa estoura e o trabalho de produto para | Alta | Médio | Fases 0 e 1 entregam valor sozinhas; recalibrar ao fim da Fase 1 |
 | Sessões derrubadas no corte (#243) | Média | Médio | Auto-reload pós-deploy resolvido antes da Fase 4 |
+| Conta do QG comprometida (suspende ou elimina escritórios) | Baixa | Crítico | AAL2 obrigatório; destrutivo com segunda pessoa e carência; alerta a cada ação sensível; lista nominal curta |
+| Função do QG devolve conteúdo de cliente | Média | Alto | Schema `plataforma` só com funções; retorno conferido contra a lista fechada de colunas no CI; nenhuma policy de domínio conhece o QG |
 
 ---
 
@@ -710,6 +820,8 @@ consulta à OAB-SP.
 - [ ] Termos separados — plataforma ↔ usuário e escritório ↔ parceiro — versionados por
       escritório; corrigir as promessas atuais de "somente link mágico" e "hospedagem no
       Brasil".
+- [ ] DPA descreve o acesso da plataforma: QG sem conteúdo, suporte só com aprovação do
+      escritório, prazo e registro, break-glass com aviso, e a aba de transparência (§4.6).
 - [ ] MFA para admins e staff (#261), retenção e descarte (#258), direitos do titular por
       escritório (#263), DPA dos provedores de IA com não-treinamento (#256; Recomendação
       CFOAB 001/2024).
