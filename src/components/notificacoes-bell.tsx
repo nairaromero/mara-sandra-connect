@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Bell, ClipboardList, Tag, Trash2, UserPlus } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { dataBR } from "@/lib/fuso";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -48,7 +49,7 @@ function tempoRelativo(iso: string): string {
   if (h < 24) return `${h}h`;
   const dias = Math.floor(h / 24);
   if (dias < 30) return `${dias}d`;
-  return new Date(iso).toLocaleDateString("pt-BR");
+  return dataBR(iso);
 }
 
 function iconeTipo(tipo: string) {

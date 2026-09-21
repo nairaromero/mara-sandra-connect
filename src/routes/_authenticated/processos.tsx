@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { dataBR, diaDoEventoBR } from "@/lib/fuso";
 import { ClientOnly } from "@/components/client-only";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -100,10 +101,10 @@ interface ProcessoRow {
   tarefasPendentes: number;
 }
 
+// Coluna date (início) ou data_evento — que pode ser só a data (diaDoEventoBR).
 function fmtData(iso: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso.length <= 10 ? iso + "T00:00:00" : iso);
-  return d.toLocaleDateString("pt-BR");
+  if (!iso || isNaN(new Date(iso).getTime())) return "—";
+  return dataBR(diaDoEventoBR(iso));
 }
 
 function diasDesde(iso: string | null): number | null {

@@ -16,6 +16,7 @@ import {
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { dataBR, formatarBR, horaBR } from "@/lib/fuso";
 import { notificarEquipe } from "@/lib/notificar";
 import { ClientOnly } from "@/components/client-only";
 import { Input } from "@/components/ui/input";
@@ -107,17 +108,13 @@ function formatRelativo(iso: string): string {
   if (horas < 24) return horas + "h atrás";
   const dias = Math.floor(horas / 24);
   if (dias < 7) return dias + "d atrás";
-  return d.toLocaleDateString("pt-BR");
+  return dataBR(d);
 }
 
 function formatHora(iso: string): string {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "";
-  return (
-    d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) +
-    " " +
-    d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
-  );
+  return formatarBR(d, { day: "2-digit", month: "2-digit" }) + " " + horaBR(d);
 }
 
 function truncar(texto: string, max: number): string {

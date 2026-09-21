@@ -5,6 +5,7 @@ import { Loader2, ShieldCheck, ShieldAlert, RefreshCw } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { formatarBR } from "@/lib/fuso";
 import { ClientOnly } from "@/components/client-only";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,7 +54,7 @@ interface AcessoRow {
 function formatDataHora(iso: string): string {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "-";
-  return d.toLocaleString("pt-BR", {
+  return formatarBR(d, {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",

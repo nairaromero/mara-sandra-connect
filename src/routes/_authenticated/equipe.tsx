@@ -17,6 +17,7 @@ import {
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { dataBR } from "@/lib/fuso";
 import { ClientOnly } from "@/components/client-only";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -446,7 +447,7 @@ function EquipePage() {
                           </p>
                           <p className="text-xs text-muted-foreground truncate">
                             {u.email} · desligado(a) em{" "}
-                            {new Date(u.desligado_em!).toLocaleDateString("pt-BR")}
+                            {dataBR(u.desligado_em!)}
                           </p>
                         </div>
                         <Button
