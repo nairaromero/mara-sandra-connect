@@ -191,7 +191,7 @@ function StatusBadge({ status }: { status: string | null }) {
 // ===========================================================================
 
 function ClientesPage() {
-  const { usuario } = useAuth();
+  const { usuario, pode } = useAuth();
   const isInterno = usuario?.tipo === "interno";
   const navigate = useNavigate();
   const [casos, setCasos] = useState<Array<CasoRow>>([]);
@@ -501,15 +501,19 @@ function ClientesPage() {
               )}
               Exportar Excel
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setImportarDialogAberto(true)}
-              title="Importa clientes de um Excel"
-            >
-              <Upload className="h-4 w-4 mr-1" />
-              Importar Excel
-            </Button>
+            {/* Importar cria cliente e caso: só para quem tem casos:editar (o
+                financeiro só lê). O banco barraria de qualquer jeito. */}
+            {pode("casos:editar") && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setImportarDialogAberto(true)}
+                title="Importa clientes de um Excel"
+              >
+                <Upload className="h-4 w-4 mr-1" />
+                Importar Excel
+              </Button>
+            )}
           </div>
         )}
       </div>

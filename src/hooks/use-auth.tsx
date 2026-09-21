@@ -217,8 +217,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error) throw new Error(error.message);
     setEscritorioAtivoId(escritorioId);
     // Reload completo: nenhum estado, cache ou canal de Realtime do escritório
-    // anterior sobrevive.
-    window.location.assign("/");
+    // anterior sobrevive. Para /casos — "/" é o site institucional.
+    window.location.assign("/casos");
   }
 
   async function loadUsuario(userId: string) {

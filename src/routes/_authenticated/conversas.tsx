@@ -160,7 +160,7 @@ function ConversasPage() {
     let vivo = true;
     (async () => {
       const r = await supabase
-        .from("usuarios")
+        .from("usuarios_escritorio")
         .select("id, nome")
         .eq("tipo", "interno")
         .eq("ativo", true)

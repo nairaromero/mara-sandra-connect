@@ -725,7 +725,7 @@ function CasoDetalhePage() {
         supabase.from("casos").select("*").eq("id", casoId).maybeSingle(),
         // Lista de parceiros disponiveis (para edicao do caso). So interno usa.
         supabase
-          .from("usuarios")
+          .from("usuarios_escritorio")
           .select("id, nome, email")
           .eq("eh_parceiro", true)
           .order("nome", { ascending: true }),

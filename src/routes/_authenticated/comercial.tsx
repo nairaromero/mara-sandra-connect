@@ -243,7 +243,7 @@ function ComercialPage() {
     if (!isInterno) return;
     carregar();
     supabase
-      .from("usuarios")
+      .from("usuarios_escritorio")
       .select("id, nome, email")
       .eq("tipo", "interno")
       .eq("ativo", true)

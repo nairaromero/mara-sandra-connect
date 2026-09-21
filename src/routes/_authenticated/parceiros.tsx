@@ -506,7 +506,7 @@ function ParceirosPage() {
   async function loadParceiros() {
     setLoading(true);
     const { data, error } = await supabase
-      .from("usuarios")
+      .from("usuarios_escritorio")
       .select(
         "id, nome, email, emails_copia, oab, telefone, percentual_parceiro, ativo, desligado_em, created_at, onboarded_em, tipo",
       )

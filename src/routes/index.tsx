@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { ehHostQG } from "@/lib/qg/host";
 import { LeadForm, type LeadTab } from "@/components/comercial/lead-form";
 import {
   MessageCircle,
@@ -248,6 +249,12 @@ function SectionHead({
 }
 
 function HomePage() {
+  // No host do QG (qg.<domínio>) a raiz é o painel da plataforma, não o site.
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (ehHostQG()) navigate({ to: "/qg" });
+  }, [navigate]);
+
   const [contatoTab, setContatoTab] = useState<LeadTab>("cliente");
   const irParaFormParceiro = () => setContatoTab("parceiro");
   return (

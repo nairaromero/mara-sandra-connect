@@ -176,7 +176,7 @@ export function ImportarClientesExcelDialog(
     const map = new Map<string, string>();
     if (set.size === 0) return map;
     const resp = await supabase
-      .from("usuarios")
+      .from("usuarios_escritorio")
       .select("id, nome")
       .eq("eh_parceiro", true)
       .in("nome", Array.from(set));

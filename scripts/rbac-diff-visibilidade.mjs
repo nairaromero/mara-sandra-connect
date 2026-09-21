@@ -20,15 +20,20 @@ const LOCAL_DB_URL = "postgresql://postgres:postgres@127.0.0.1:55322/postgres";
 
 // Contas de papel. A de parceiro é a que tem mais casos (mais sinal no diff);
 // a de interno comum é a primeira ativa que não é admin.
+//
+// Sempre do ESCRITÓRIO PADRÃO quando o RBAC já existe no banco: "o primeiro
+// admin por e-mail" passou a ser o admin do canário assim que o segundo
+// escritório nasceu, e o diff comparava a visão de duas pessoas diferentes
+// (22/09). `__DO_PADRAO__` vira o filtro, ou nada em banco sem `membros`.
 const CONTAS_SQL = `
   (select 'admin' as papel, u.id, u.email from public.usuarios u join auth.users a on a.id = u.id
-    where u.tipo = 'interno' and u.eh_admin and u.ativo order by u.email limit 1)
+    where u.tipo = 'interno' and u.eh_admin and u.ativo __DO_PADRAO__ order by u.email limit 1)
   union all
   (select 'interno', u.id, u.email from public.usuarios u join auth.users a on a.id = u.id
-    where u.tipo = 'interno' and not coalesce(u.eh_admin, false) and u.ativo order by u.email limit 1)
+    where u.tipo = 'interno' and not coalesce(u.eh_admin, false) and u.ativo __DO_PADRAO__ order by u.email limit 1)
   union all
   (select 'parceiro', u.id, u.email from public.usuarios u join auth.users a on a.id = u.id
-    where u.tipo = 'parceiro' and u.ativo and u.desligado_em is null
+    where u.tipo = 'parceiro' and u.ativo and u.desligado_em is null __DO_PADRAO__
     order by (select count(*) from public.casos c where c.parceiro_id = u.id) desc, u.email limit 1)
   union all
   (select 'parceiro_desligado', u.id, u.email from public.usuarios u join auth.users a on a.id = u.id
@@ -45,7 +50,12 @@ async function gravar(arquivo) {
     throw new Error("o banco em 127.0.0.1:55322 não está marcado como ambiente=local");
   }
 
-  const { rows: contas } = await db.query(CONTAS_SQL);
+  const temRbac = (await db.query("select to_regclass('public.membros') is not null as tem")).rows[0].tem;
+  const doPadrao = temRbac
+    ? `and exists (select 1 from public.membros m join public.escritorios e on e.id = m.escritorio_id and e.padrao_sistema
+                    where m.usuario_id = u.id and m.status = 'ativo')`
+    : "";
+  const { rows: contas } = await db.query(CONTAS_SQL.replaceAll("__DO_PADRAO__", doPadrao));
   const { rows: tabelas } = await db.query(`
     select c.relname as tabela,
            (select string_agg(quote_ident(a.attname), ', ' order by k.ord)
@@ -79,7 +89,7 @@ async function gravar(arquivo) {
         await db.query("rollback");
       }
     }
-    saida.contas[conta.papel] = { visao };
+    saida.contas[conta.papel] = { email: conta.email, visao };
   }
   await db.end();
   fs.writeFileSync(arquivo, JSON.stringify(saida, null, 1));
@@ -94,6 +104,13 @@ function comparar(a, b) {
   const depois = JSON.parse(fs.readFileSync(b, "utf8"));
   let diferencas = 0;
   for (const papel of Object.keys(antes.contas)) {
+    const ea = antes.contas[papel].email;
+    const ed = depois.contas[papel]?.email;
+    if (ea && ed && ea !== ed) {
+      console.log(`DIF  ${papel}: a conta medida mudou (${ea} → ${ed}) — a comparação deste papel não vale`);
+      diferencas++;
+      continue;
+    }
     const va = antes.contas[papel].visao;
     const vd = depois.contas[papel]?.visao ?? {};
     for (const tabela of Object.keys(va)) {

@@ -85,7 +85,7 @@ export async function aplicarTemplateProgramatico(input: {
   const emailParaId = new Map<string, string>();
   if (itens.some((i) => i.executor_email)) {
     const { data: internos } = await supabase
-      .from("usuarios")
+      .from("usuarios_escritorio")
       .select("id, email")
       .eq("tipo", "interno")
       .eq("ativo", true);

@@ -604,6 +604,36 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------
+-- 4c. `usuarios_escritorio`: as pessoas DO ESCRITÓRIO ATIVO, com papel e status
+--     do vínculo
+-- ---------------------------------------------------------------------------
+-- As listas do front (responsáveis, destinatários, parceiros) filtram
+-- `usuarios` por tipo/ativo/eh_parceiro — colunas antigas, que espelham o
+-- vínculo PRINCIPAL da pessoa. Para quem atua em dois escritórios com papéis
+-- diferentes, a lista de um mostraria o papel do outro. A view tem OS MESMOS
+-- NOMES de coluna, calculados pelo vínculo do escritório ativo: troca direta.
+-- security_invoker: vale a RLS de quem consulta.
+create or replace view public.usuarios_escritorio with (security_invoker = on) as
+select u.id, u.nome, u.email, u.oab, u.oab_uf, u.telefone, u.avatar_url, u.documento, u.endereco,
+       u.emails_copia, u.created_at, u.updated_at, u.onboarded_em, u.aceitou_termos_em,
+       p.tipo_acesso::public.tipo_usuario                     as tipo,
+       (m.status <> 'desativado')                             as ativo,
+       (p.chave = 'admin')                                    as eh_admin,
+       m.recebe_repasse                                       as eh_parceiro,
+       coalesce(m.percentual_parceiro, u.percentual_parceiro) as percentual_parceiro,
+       coalesce(m.termos_versao, u.termos_versao)             as termos_versao,
+       m.desativado_em                                        as desligado_em,
+       m.desativado_por                                       as desligado_por,
+       p.chave as papel, p.nome as papel_nome, m.status as membro_status, m.escritorio_id
+  from public.usuarios u
+  join public.membros m on m.usuario_id = u.id
+                       and m.escritorio_id = (select private.escritorio_ativo())
+  join public.papeis p on p.id = m.papel_id;
+
+revoke all on public.usuarios_escritorio from public, anon;
+grant select on public.usuarios_escritorio to authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
 -- 5. O que as edge functions perguntam (`_shared/auth.ts`, exigirUsuario)
 -- ---------------------------------------------------------------------------
 -- Uma chamada só: escritório ativo, papel e permissões de quem está chamando.

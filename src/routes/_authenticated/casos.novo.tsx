@@ -313,7 +313,7 @@ function NovoCasoPage() {
     if (!isInterno) return;
     (async () => {
       const { data, error } = await supabase
-        .from("usuarios")
+        .from("usuarios_escritorio")
         .select("id, nome, email")
         .eq("eh_parceiro", true)
         .order("nome", { ascending: true });

@@ -3,6 +3,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
+import { ehHostQG } from "@/lib/qg/host";
 import { consumirMotivoLogout } from "@/lib/auth/session-policy";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,7 +26,7 @@ function LoginPage() {
 
   useEffect(() => {
     if (!authLoading && session) {
-      navigate({ to: "/casos" });
+      navigate({ to: ehHostQG() ? "/qg" : "/casos" });
     }
   }, [authLoading, session, navigate]);
 
@@ -54,7 +55,7 @@ function LoginPage() {
       return;
     }
     toast.success("Bem-vindo(a)!");
-    navigate({ to: "/casos" });
+    navigate({ to: ehHostQG() ? "/qg" : "/casos" });
   }
 
   async function handleMagicLink() {

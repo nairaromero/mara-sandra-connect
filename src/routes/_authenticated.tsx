@@ -21,6 +21,7 @@ import { SessionTimeoutGuard } from "@/components/session-timeout-guard";
 import { SeletorEscritorio } from "@/components/seletor-escritorio";
 import { supabase } from "@/lib/supabase";
 import { dataHoraBR } from "@/lib/fuso";
+import { ehHostQG } from "@/lib/qg/host";
 import { useAuth } from "@/hooks/use-auth";
 import { TERMOS_VERSAO } from "@/lib/legal/termos";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -41,6 +42,12 @@ function AuthenticatedLayout() {
       navigate({ to: "/login" });
     }
   }, [loading, session, navigate]);
+
+  // No host do QG (qg.<domínio>) o produto não existe: a sessão de lá é a da
+  // equipe da plataforma, que não é membro de escritório nenhum.
+  useEffect(() => {
+    if (ehHostQG()) navigate({ to: "/qg" });
+  }, [navigate]);
 
   // Primeiro acesso: quem chegou por convite/magic link e ainda nao tem senha
   // cria a senha antes de qualquer outra coisa — inclusive antes do onboarding
