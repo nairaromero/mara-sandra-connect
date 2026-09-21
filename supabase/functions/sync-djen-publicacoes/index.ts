@@ -35,7 +35,7 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
-import { exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
+import { escopado, escritorioDoSistema, exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
 
 const COMUNICA_BASE = "https://comunicaapi.pje.jus.br/api/v1";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -48,7 +48,7 @@ const MAX_PAGINAS = 50;
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-escritorio-id",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -192,7 +192,14 @@ serve(async (req) => {
     return jsonResponse({ error: "body invalido", detail: String(err) }, 400);
   }
 
-  const supabase = createClient(SUPABASE_URL, SERVICE_ROLE);
+  // v1: as OABs monitoradas e o casamento com processos são do escritório do
+  // sistema. Sem o escopo, a publicação de um escritório casaria com o processo
+  // de outro (o número do processo é único POR escritório).
+  const supabaseBruto = createClient(SUPABASE_URL, SERVICE_ROLE);
+  const supabase = escopado(
+    supabaseBruto,
+    quem.tipo === "pessoa" ? quem.perfil.escritorio_id : await escritorioDoSistema(supabaseBruto),
+  );
 
   // --- OABs alvo ---
   let oabs: OabAlvo[];

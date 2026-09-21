@@ -54,8 +54,50 @@ async function encerrarSessaoMorta(confirmar: boolean) {
   }
 }
 
+// Escritório ativo (RBAC multi-tenant). Vai no header `x-escritorio-id` de TODA
+// chamada à API: é por ele que o banco sabe em que escritório a pessoa está
+// trabalhando (`private.escritorio_ativo()` confere o vínculo — forjar o header
+// não abre nada). Mora no localStorage porque a sessão do Supabase também, e é
+// lido na carga do módulo para que a PRIMEIRA consulta já vá com ele.
+const CHAVE_ESCRITORIO = "msc:escritorio_ativo";
+
+function lerEscritorioSalvo(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(CHAVE_ESCRITORIO);
+  } catch {
+    return null;
+  }
+}
+
+let escritorioAtivoId: string | null = lerEscritorioSalvo();
+
+export function getEscritorioAtivoId(): string | null {
+  return escritorioAtivoId;
+}
+
+export function setEscritorioAtivoId(id: string | null) {
+  escritorioAtivoId = id;
+  if (typeof window === "undefined") return;
+  try {
+    if (id) window.localStorage.setItem(CHAVE_ESCRITORIO, id);
+    else window.localStorage.removeItem(CHAVE_ESCRITORIO);
+  } catch {
+    // modo privado sem storage: o header segue valendo enquanto a aba viver
+  }
+}
+
+function comEscritorio(input: RequestInfo | URL, init?: RequestInit): RequestInit | undefined {
+  if (!escritorioAtivoId) return init;
+  const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+  if (!url.startsWith(SUPABASE_URL) || url.includes("/auth/v1/")) return init;
+  const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+  headers.set("x-escritorio-id", escritorioAtivoId);
+  return { ...init, headers };
+}
+
 const fetchComSessao: typeof fetch = async (input, init) => {
-  const resp = await fetch(input, init);
+  const resp = await fetch(input, comEscritorio(input, init));
   if (resp.status === 401 && typeof window !== "undefined") {
     const url =
       typeof input === "string" ? input : input instanceof URL ? input.href : input.url;

@@ -20,6 +20,7 @@ import { encryptSecret, decryptSecret, hintFor } from "../_shared/crypto.ts";
 import { chatWith, PROVIDERS } from "../_shared/ia-providers.ts";
 import { carregarIntegracao } from "../_shared/ia-integracao.ts";
 import { generateToken, sha256Hex } from "../_shared/tokens.ts";
+import { exigirUsuario } from "../_shared/auth.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -39,12 +40,13 @@ serve(async (req) => {
 
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
 
-  // ---- Autorizacao ----
-  const jwt = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
-  if (!jwt) return jsonResponse({ error: "nao autenticado" }, 401);
-  const { data: userData, error: userErr } = await admin.auth.getUser(jwt);
-  if (userErr || !userData?.user) return jsonResponse({ error: "sessao invalida" }, 401);
-  const uid = userData.user.id;
+  // ---- Autorizacao: pessoa ATIVA no escritório ativo ----
+  const quem = await exigirUsuario(req);
+  if (quem instanceof Response) return quem;
+  const uid = quem.uid;
+  // Chave de IA e token do MCP pertencem a UM escritório (nulo só em banco sem
+  // as migrations do RBAC).
+  const escritorioId = quem.perfil.escritorio_id;
 
   // ---- Body ----
   let body: Record<string, unknown>;
@@ -125,6 +127,9 @@ serve(async (req) => {
 
       const { cipher, iv } = await encryptSecret(apiKey);
       const ativo = body.ativo === false ? false : true;
+      // `escritorio_id` só no INSERT: depois de gravado ele não muda (a chave é
+      // do escritório onde foi configurada), e mandar no UPDATE seria recusado.
+      const { data: jaTem } = await admin.from("ia_integracoes").select("usuario_id").eq("usuario_id", uid).maybeSingle();
       const { error } = await admin.from("ia_integracoes").upsert(
         {
           usuario_id: uid,
@@ -134,6 +139,7 @@ serve(async (req) => {
           api_key_iv: iv,
           api_key_hint: hintFor(apiKey),
           ativo,
+          ...(!jaTem && escritorioId ? { escritorio_id: escritorioId } : {}),
         },
         { onConflict: "usuario_id" },
       );
@@ -158,12 +164,7 @@ serve(async (req) => {
     if (action === "compartilhar") {
       const compartilhada = body.compartilhada === true;
 
-      const { data: perfil } = await admin
-        .from("usuarios")
-        .select("tipo")
-        .eq("id", uid)
-        .maybeSingle();
-      if (perfil?.tipo !== "interno") {
+      if (quem.perfil.tipo !== "interno") {
         return jsonResponse({ error: "apenas interno pode compartilhar a chave" }, 403);
       }
 
@@ -177,11 +178,15 @@ serve(async (req) => {
       }
 
       if (compartilhada) {
-        const { error: errLimpa } = await admin
+        // Uma compartilhada POR ESCRITÓRIO: sem o filtro, compartilhar a chave
+        // aqui descompartilhava a de todos os outros escritórios.
+        let limpa = admin
           .from("ia_integracoes")
           .update({ compartilhada: false })
           .eq("compartilhada", true)
           .neq("usuario_id", uid);
+        if (escritorioId) limpa = limpa.eq("escritorio_id", escritorioId);
+        const { error: errLimpa } = await limpa;
         if (errLimpa) return jsonResponse({ error: errLimpa.message }, 400);
       }
 
@@ -195,11 +200,13 @@ serve(async (req) => {
 
     // ---- Tokens da Superficie B (Claude/ChatGPT) ----
     if (action === "token_listar") {
-      const { data, error } = await admin
+      // Os tokens DESTE escritório (quem atua em dois vê cada lista no seu).
+      let lista = admin
         .from("ia_tokens")
         .select("id,nome,prefixo,escopo,expira_em,ultimo_uso,revogado_em,criado_em")
-        .eq("usuario_id", uid)
-        .order("criado_em", { ascending: false });
+        .eq("usuario_id", uid);
+      if (escritorioId) lista = lista.eq("escritorio_id", escritorioId);
+      const { data, error } = await lista.order("criado_em", { ascending: false });
       // Falha de banco nao pode virar "voce nao tem tokens" (o card sumiria com
       // tokens ativos, que continuam valendo no MCP).
       if (error) return jsonResponse({ error: "falha ao listar tokens" }, 500);
@@ -210,13 +217,9 @@ serve(async (req) => {
       // So admin gera token do MCP: o card ja e so de admin, aqui garante no
       // servidor. O token e o controle de acesso ao MCP (roda com a sessao do
       // dono, e o ia-mcp exige que ele siga admin). Emitir para outra pessoa: #385.
-      const { data: perfil, error: perfilErr } = await admin
-        .from("usuarios")
-        .select("eh_admin,ativo")
-        .eq("id", uid)
-        .maybeSingle();
-      if (perfilErr) return jsonResponse({ error: "falha ao verificar permissao" }, 500);
-      if (!perfil?.eh_admin || !perfil.ativo) {
+      // Admin DO ESCRITÓRIO ATIVO (o vínculo decide; exigirUsuario já conferiu
+      // que está ativo).
+      if (!quem.perfil.eh_admin) {
         return jsonResponse({ error: "apenas administradores geram tokens do MCP" }, 403);
       }
       const nome = String(body.nome || "").trim() || "Token";
@@ -234,6 +237,8 @@ serve(async (req) => {
         prefixo,
         escopo,
         expira_em: expira,
+        // O token vale NESTE escritório: o ia-mcp abre a sessão do dono aqui.
+        ...(escritorioId ? { escritorio_id: escritorioId } : {}),
       });
       if (error) return jsonResponse({ error: error.message }, 400);
       // O token em claro so e retornado AQUI, uma unica vez.

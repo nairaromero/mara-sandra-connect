@@ -44,7 +44,7 @@ const DIAS_JANELA_DEFAULT = 10;
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-region",
+    "authorization, x-client-info, apikey, content-type, x-region, x-escritorio-id",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -186,6 +186,9 @@ serve(async (req) => {
     .is("metadata->>ia_resumo", null)
     .gte("data_evento", new Date(Date.now() - dias * 86400000).toISOString().slice(0, 10));
   if (casosFiltro) pendQ = pendQ.in("caso_id", casosFiltro);
+  // Service role lê tudo: a triagem é dos andamentos do escritório de quem
+  // pediu — e é a chave de IA DELE que paga.
+  if (quem.perfil.escritorio_id) pendQ = pendQ.eq("escritorio_id", quem.perfil.escritorio_id);
   const { data: pendentes, error: pendErr } = await pendQ
     .order("created_at", { ascending: false })
     .limit(limite);

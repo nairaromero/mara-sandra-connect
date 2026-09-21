@@ -34,7 +34,7 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
-import { exigirUsuario, fetchT } from "../_shared/auth.ts";
+import { exigirRecurso, exigirUsuario, fetchT } from "../_shared/auth.ts";
 
 const LM_BASE = "https://app.legalmail.com.br";
 const LM_TOKEN = Deno.env.get("LEGALMAIL_TOKEN");
@@ -44,7 +44,7 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-escritorio-id",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -209,6 +209,9 @@ serve(async (req) => {
   if (idprocessos.length === 0) {
     return jsonResponse({ error: "idprocessos vazio" }, 400);
   }
+  // A função grava com service role: o caso tem que ser visível a quem pediu.
+  const semAcesso = await exigirRecurso(quem, "casos", casoId);
+  if (semAcesso) return semAcesso;
 
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE);
 

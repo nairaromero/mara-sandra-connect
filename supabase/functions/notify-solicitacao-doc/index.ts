@@ -30,7 +30,7 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
-import { exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
+import { exigirRecurso, exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -43,7 +43,7 @@ const FROM_EMAIL = "Mara Vian Advocacia <noreply@marasandraconnect.com>";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-escritorio-id",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -265,6 +265,10 @@ serve(async (req) => {
   if (!solicitacaoId) {
     return jsonResponse({ error: "solicitacao_id obrigatorio" }, 400);
   }
+  // Chamada de pessoa: só notifica sobre o que ela mesma enxerga. (Chamada de
+  // sistema — gatilho, cron — passa: exigirRecurso ignora.)
+  const semAcesso = await exigirRecurso(quem, "solicitacoes_documento", solicitacaoId);
+  if (semAcesso) return semAcesso;
   if (lembrete && !(lembrete in LEMBRETE_FRASE)) {
     return jsonResponse({ error: "lembrete invalido (7d|3d|0d)" }, 400);
   }

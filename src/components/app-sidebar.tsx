@@ -33,17 +33,22 @@ import { useVerComoParceiro } from "@/hooks/use-ver-como-parceiro";
 
 // "/" e o site publico (landing). Ninguem tem "Inicio": /casos redireciona
 // interno pra /tarefas e parceiro pra /clientes (home de cada um).
-const itemsBase = [
+// `permissao` (RBAC): o item só aparece para quem a tem no escritório ativo. O
+// banco é quem barra de verdade — aqui é só para o menu não oferecer o que a
+// pessoa não pode abrir. Admin, advogado e parceiro têm as mesmas de sempre.
+type ItemMenu = { title: string; url: string; icon: typeof UserCircle; permissao?: string };
+
+const itemsBase: Array<ItemMenu> = [
   { title: "Clientes", url: "/clientes", icon: UserCircle },
   { title: "Conversas", url: "/conversas", icon: MessagesSquare },
   { title: "Documentos pendentes", url: "/documentos", icon: FileWarning },
-  { title: "Publicações", url: "/publicacoes", icon: Newspaper },
+  { title: "Publicações", url: "/publicacoes", icon: Newspaper, permissao: "publicacoes:ler" },
   // "Repasses" removida da sidebar mas a rota /repasses continua existindo
   // no codigo - decisao de produto pendente.
 ];
 
 // Tarefas/Agenda no topo: sao o dia a dia do interno (Tarefas e a "home").
-const itemsInternosTopo = [
+const itemsInternosTopo: Array<ItemMenu> = [
   { title: "Tarefas", url: "/tarefas", icon: ListTodo },
   { title: "Agenda", url: "/agenda", icon: Calendar },
 ];
@@ -51,31 +56,31 @@ const itemsInternosTopo = [
 // Parceiro: /tarefas e /agenda renderizam visões restritas aos casos dele.
 // "Tarefas" = kanban de pendências por fase (feedback de parceiro, 2026-08-31);
 // "Agenda" (ex-"Perícias") = calendário de perícias E audiências.
-const itemsParceiroTopo = [
+const itemsParceiroTopo: Array<ItemMenu> = [
   { title: "Tarefas", url: "/tarefas", icon: ListTodo },
   { title: "Agenda", url: "/agenda", icon: Calendar },
 ];
 
-const itemsInternos = [
-  { title: "Comercial", url: "/comercial", icon: Handshake },
-  { title: "Processos", url: "/processos", icon: Briefcase },
-  { title: "Parceiros", url: "/parceiros", icon: Users },
-  { title: "Etiquetas", url: "/etiquetas", icon: Tag },
+const itemsInternos: Array<ItemMenu> = [
+  { title: "Comercial", url: "/comercial", icon: Handshake, permissao: "comercial:gerenciar" },
+  { title: "Processos", url: "/processos", icon: Briefcase, permissao: "processos:ler" },
+  { title: "Parceiros", url: "/parceiros", icon: Users, permissao: "parceiros:gerenciar" },
+  { title: "Etiquetas", url: "/etiquetas", icon: Tag, permissao: "etiquetas:gerenciar" },
 ];
 
 // Só admin (Naira/Mara): gestão da equipe e auditoria. As rotas também se
 // protegem sozinhas (redirect) — aqui é só pra não aparecer. Webhooks saiu
 // daqui em 2026-09-14: virou aba das Configurações.
-const itemsAdmin = [
+const itemsAdmin: Array<ItemMenu> = [
   { title: "Equipe", url: "/equipe", icon: UserCog },
   { title: "Auditoria", url: "/auditoria", icon: ShieldCheck },
 ];
 
-const itemsFooter = [{ title: "Configurações", url: "/configuracoes", icon: Settings }];
+const itemsFooter: Array<ItemMenu> = [{ title: "Configurações", url: "/configuracoes", icon: Settings }];
 
 export function AppSidebar() {
   const { state, isMobile, setOpenMobile } = useSidebar();
-  const { usuario, isAdmin } = useAuth();
+  const { usuario, isAdmin, pode } = useAuth();
   const { verComo } = useVerComoParceiro();
   const emVerComo = !!verComo;
   // Em "ver como", o admin enxerga a visão do parceiro — então NÃO é interno
@@ -95,7 +100,7 @@ export function AppSidebar() {
   // "Ver como parceiro" (admin, leitura): só as telas escopadas — Tarefas e
   // Agenda. As demais mostrariam dado do admin (não escopado), então ficam de
   // fora do modo.
-  const items = emVerComo
+  const itemsDoPapel: Array<ItemMenu> = emVerComo
     ? itemsParceiroTopo
     : isInterno
     ? [
@@ -113,6 +118,7 @@ export function AppSidebar() {
         ...itemsBase.filter((i) => i.url !== "/documentos"),
         ...itemsFooter,
       ];
+  const items = itemsDoPapel.filter((i) => !i.permissao || pode(i.permissao));
 
   // Badge de publicacoes novas (DJEN) desde a ultima visita. RLS escopa por
   // usuario (interno ve todas; parceiro so as dos casos dele).

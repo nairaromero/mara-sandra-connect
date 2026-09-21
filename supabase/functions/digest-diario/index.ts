@@ -23,7 +23,7 @@
 //   para    — override de destinatário (string ou array; teste)
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
-import { exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
+import { escritorioDoSistema, exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -38,7 +38,7 @@ const MAX_ITENS_SECAO = 25;
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-region",
+    "authorization, x-client-info, apikey, content-type, x-region, x-escritorio-id",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -144,13 +144,21 @@ serve(async (req) => {
   }
 
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE);
+  // O resumo é de UM escritório: o de quem pediu, ou — no cron — o do sistema.
+  // Service role lê tudo; sem este filtro o e-mail juntaria todos os escritórios.
+  const escritorioId = quem.tipo === "pessoa"
+    ? quem.perfil.escritorio_id
+    : await escritorioDoSistema(supabase);
+  // deno-lint-ignore no-explicit-any
+  const doEscritorio = <Q extends { eq: (c: string, v: string) => any }>(q: Q): Q =>
+    escritorioId ? q.eq("escritorio_id", escritorioId) : q;
   const cutoff = new Date(Date.now() - horas * 3600000).toISOString();
   const hoje = hojeBrasilia();
 
   // --- 1. Movimentações DataJud novas -------------------------------------
-  const { data: movs, error: movErr } = await supabase
+  const { data: movs, error: movErr } = await doEscritorio(supabase
     .from("andamentos")
-    .select("id, titulo, data_evento, caso_id, metadata, casos:caso_id(clientes(nome))")
+    .select("id, titulo, data_evento, caso_id, metadata, casos:caso_id(clientes(nome))"))
     .eq("origem", "datajud")
     .gt("created_at", cutoff)
     .order("data_evento", { ascending: false })
@@ -170,11 +178,11 @@ serve(async (req) => {
   });
 
   // --- 2. Publicações DJEN novas (vinculadas) ------------------------------
-  const { data: pubs, error: pubErr } = await supabase
+  const { data: pubs, error: pubErr } = await doEscritorio(supabase
     .from("publicacoes_dje")
     .select(
       "id, numero_processo, sigla_tribunal, tipo_comunicacao, status, caso_id, andamento_id, created_at, casos:caso_id(clientes(nome))",
-    )
+    ))
     .gt("created_at", cutoff)
     .order("created_at", { ascending: false })
     .limit(200);
@@ -213,9 +221,9 @@ serve(async (req) => {
   }));
 
   // --- 4. Tarefas atrasadas / vencendo hoje --------------------------------
-  const { data: tarefas, error: tarErr } = await supabase
+  const { data: tarefas, error: tarErr } = await doEscritorio(supabase
     .from("tarefas")
-    .select("id, titulo, due_at, status, caso_id, casos:caso_id(clientes(nome))")
+    .select("id, titulo, due_at, status, caso_id, casos:caso_id(clientes(nome))"))
     .eq("status", "a_fazer")
     .not("due_at", "is", null)
     .lte("due_at", hoje + "T23:59:59-03:00")
@@ -290,15 +298,30 @@ serve(async (req) => {
   } else {
     // `ativo` e `desligado_em` no filtro: sem eles o resumo do dia continuava
     // chegando para quem saiu do escritório (issue #291).
-    const { data: internos, error: intErr } = await supabase
-      .from("usuarios")
-      .select("email")
-      .eq("tipo", "interno")
-      .eq("ativo", true)
-      .is("desligado_em", null)
-      .not("email", "is", null);
-    if (intErr) return jsonResponse({ error: "usuarios: " + intErr.message }, 500);
-    destinos = (internos || []).map((u) => String(u.email)).filter(Boolean);
+    // Com RBAC: a equipe interna ATIVA deste escritório (pelo vínculo). Sem as
+    // migrations: a regra antiga, pelas colunas de `usuarios`.
+    if (escritorioId) {
+      const { data: equipe, error: eqErr } = await supabase
+        .from("membros")
+        .select("usuario:usuarios!membros_usuario_id_fkey(email), papel:papeis!inner(tipo_acesso)")
+        .eq("escritorio_id", escritorioId)
+        .eq("status", "ativo")
+        .eq("papel.tipo_acesso", "interno");
+      if (eqErr) return jsonResponse({ error: "membros: " + eqErr.message }, 500);
+      destinos = (equipe || [])
+        .map((m) => String((m.usuario as { email?: string } | null)?.email ?? ""))
+        .filter(Boolean);
+    } else {
+      const { data: internos, error: intErr } = await supabase
+        .from("usuarios")
+        .select("email")
+        .eq("tipo", "interno")
+        .eq("ativo", true)
+        .is("desligado_em", null)
+        .not("email", "is", null);
+      if (intErr) return jsonResponse({ error: "usuarios: " + intErr.message }, 500);
+      destinos = (internos || []).map((u) => String(u.email)).filter(Boolean);
+    }
   }
   if (destinos.length === 0) {
     return jsonResponse({ enviado: false, motivo: "sem destinatarios", totais });

@@ -13,6 +13,7 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
+import { exigirRecurso, exigirUsuario } from "../_shared/auth.ts";
 import { decryptSecret } from "../_shared/crypto.ts";
 import { carregarIntegracao } from "../_shared/ia-integracao.ts";
 import { chatWith, type Attachment } from "../_shared/ia-providers.ts";
@@ -121,22 +122,13 @@ serve(async (req) => {
   if (req.method !== "POST") return jsonResponse({ error: "metodo nao permitido" }, 405);
   if (!SUPABASE_URL || !SERVICE_ROLE) return jsonResponse({ error: "env ausente" }, 500);
 
+  // Quem chama: interno ATIVO do escritório ativo, com permissão de IA. O
+  // preâmbulo antigo lia `usuarios.tipo` sem conferir `ativo` — pessoa desligada
+  // com token válido ainda gerava análise.
+  const quem = await exigirUsuario(req, { tipo: "interno", permissao: "ia:usar" });
+  if (quem instanceof Response) return quem;
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
-
-  const jwt = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
-  if (!jwt) return jsonResponse({ error: "nao autenticado" }, 401);
-  const { data: userData, error: userErr } = await admin.auth.getUser(jwt);
-  if (userErr || !userData?.user) return jsonResponse({ error: "sessao invalida" }, 401);
-  const uid = userData.user.id;
-
-  const { data: perfil } = await admin
-    .from("usuarios")
-    .select("tipo")
-    .eq("id", uid)
-    .maybeSingle();
-  if (perfil?.tipo !== "interno") {
-    return jsonResponse({ error: "apenas interno pode gerar analise" }, 403);
-  }
+  const uid = quem.uid;
 
   // Chave própria; sem ela, cai na compartilhada do escritório (se houver).
   const resIntegracao = await carregarIntegracao(admin, uid);
@@ -156,6 +148,10 @@ serve(async (req) => {
   }
   const casoId = String(body.caso_id || "");
   if (!/^[0-9a-f-]{36}$/i.test(casoId)) return jsonResponse({ error: "caso_id invalido" }, 400);
+  // O contexto é lido com service role: o caso tem que ser visível a quem pediu
+  // (outro escritório = "não encontrado").
+  const semAcesso = await exigirRecurso(quem, "casos", casoId);
+  if (semAcesso) return semAcesso;
 
   // ---- Reune o contexto do caso (service-role; interno ve tudo) ----
   const { data: caso } = await admin

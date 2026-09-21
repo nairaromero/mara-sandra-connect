@@ -45,7 +45,7 @@
 //   }
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
-import { exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
+import { escopado, escritorioDoSistema, exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { decryptSecret } from "../_shared/crypto.ts";
 import { chatWith } from "../_shared/ia-providers.ts";
@@ -84,7 +84,7 @@ function prazoParceiroBrasiliaISO(diasAFrente: number): string {
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-escritorio-id",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -1191,9 +1191,13 @@ serve(async (req) => {
       ? body.message_ids
       : null;
 
-  const sb = createClient(SUPABASE_URL, SERVICE_ROLE, {
+  // v1: a caixa do INSS é do escritório do sistema. O client sai PRESO a ele:
+  // achar cliente por nome ou CPF não pode casar com cliente de outro escritório
+  // (o CPF é único POR escritório).
+  const sbBruto = createClient(SUPABASE_URL, SERVICE_ROLE, {
     auth: { persistSession: false },
   });
+  const sb = escopado(sbBruto, await escritorioDoSistema(sbBruto));
 
   if (body.preview_mensagem_parceiro) {
     const pv = body.preview_mensagem_parceiro;

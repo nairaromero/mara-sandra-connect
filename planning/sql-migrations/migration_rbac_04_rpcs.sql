@@ -277,6 +277,11 @@ begin
   if not (v_era_admin and old.status = 'ativo') then
     return coalesce(new, old);
   end if;
+  -- Escritório encerrado (a caminho da eliminação) não precisa de admin: sem
+  -- isto o QG não conseguia eliminar um escritório que tivesse equipe.
+  if not exists (select 1 from public.escritorios e where e.id = old.escritorio_id and e.status <> 'encerrado') then
+    return coalesce(new, old);
+  end if;
 
   if tg_op = 'UPDATE' then
     select p.chave = 'admin' into v_segue from public.papeis p where p.id = new.papel_id;
@@ -568,6 +573,50 @@ $$;
 revoke execute on function public.definir_papel(uuid, text), public.vincular_pessoa(text, text) from public, anon;
 grant execute on function public.definir_papel(uuid, text), public.vincular_pessoa(text, text) to authenticated, service_role;
 -- (as demais já tinham o grant certo; `create or replace` preserva a ACL.)
+
+-- ---------------------------------------------------------------------------
+-- 4b. Chave de IA compartilhada: a do ESCRITÓRIO da pessoa, nunca a de outro
+-- ---------------------------------------------------------------------------
+-- `ia_integracao_efetiva` devolvia "a" chave compartilhada do banco para
+-- qualquer interno. Com dois escritórios, a equipe de um gastaria a chave (e a
+-- conta) do outro. Agora: a compartilhada de um escritório em que a pessoa é
+-- interna ativa — o informado, ou o único dela.
+-- Reescrita a partir da definição do banco: só o segundo SELECT muda.
+do $$
+declare
+  v_def text;
+  c_achar constant text :=
+    E'      join public.usuarios u on u.id = p_usuario\n     where i.compartilhada\n       and i.ativo\n       and u.tipo = ''interno''\n     limit 1;';
+  c_trocar constant text :=
+    E'     where i.compartilhada\n       and i.ativo\n       and private.eh_interno_ativo_em(p_usuario, i.escritorio_id)\n     order by (i.escritorio_id = (select u.escritorio_ativo_id from public.usuarios u where u.id = p_usuario)) desc nulls last\n     limit 1;';
+begin
+  select pg_get_functiondef(p.oid) into v_def from pg_proc p
+   where p.pronamespace = 'public'::regnamespace and p.proname = 'ia_integracao_efetiva';
+  if v_def is null then
+    raise warning 'ia_integracao_efetiva não existe — pulada';
+  elsif position('eh_interno_ativo_em' in v_def) > 0 then
+    null;
+  elsif position(c_achar in v_def) = 0 then
+    raise exception 'ia_integracao_efetiva: o SELECT da chave compartilhada mudou — revisar o remendo';
+  else
+    execute replace(v_def, c_achar, c_trocar);
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 5. O que as edge functions perguntam (`_shared/auth.ts`, exigirUsuario)
+-- ---------------------------------------------------------------------------
+-- Uma chamada só: escritório ativo, papel e permissões de quem está chamando.
+-- Zero linhas = sem escritório ativo (sem vínculo, desligada ou suspenso).
+create or replace function public.meu_contexto()
+returns table (escritorio_id uuid, papel text, tipo_acesso text, permissoes text[])
+language sql stable security definer set search_path = '' as $$
+  select v.escritorio_id, v.papel, v.tipo_acesso,
+         array(select distinct pp.permissao from public.papel_permissoes pp where pp.papel_id = v.papel_id)
+    from private.meu_vinculo() v
+$$;
+revoke execute on function public.meu_contexto() from public, anon;
+grant execute on function public.meu_contexto() to authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
 -- Conferência

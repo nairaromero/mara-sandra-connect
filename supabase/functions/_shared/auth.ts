@@ -32,9 +32,16 @@ export interface PerfilUsuario {
   id: string;
   nome: string | null;
   email: string | null;
+  /** Modo de acesso NO ESCRITÓRIO ATIVO (vem do vínculo, não de `usuarios.tipo`). */
   tipo: "interno" | "parceiro";
+  /** Admin do escritório ativo. */
   eh_admin: boolean;
   ativo: boolean;
+  /** RBAC multi-tenant: o escritório desta chamada. Nulo só em banco sem as migrations. */
+  escritorio_id: string | null;
+  /** admin, advogado, assistente, financeiro, parceiro — ou "suporte". */
+  papel: string | null;
+  permissoes: string[];
 }
 
 export interface ChamadorPessoa {
@@ -96,7 +103,7 @@ async function hmacHex(chave: string, dados: string): Promise<string> {
  */
 export async function exigirUsuario(
   req: Request,
-  opts: { tipo?: "interno" | "parceiro"; admin?: boolean } = {},
+  opts: { tipo?: "interno" | "parceiro"; admin?: boolean; permissao?: string } = {},
 ): Promise<ChamadorPessoa | Response> {
   const header = req.headers.get("Authorization") ?? "";
   const jwt = header.replace(/^Bearer\s+/i, "").trim();
@@ -127,28 +134,92 @@ export async function exigirUsuario(
     return jsonResponse({ error: "falha ao verificar o usuário" }, 503);
   }
   if (!perfil) return jsonResponse({ error: "usuário sem perfil no sistema" }, 403);
-  if (perfil.ativo === false || perfil.desligado_em) {
-    return jsonResponse({ error: "usuário desligado" }, 403);
+
+  // O client da pessoa leva o MESMO escritório que o navegador mandou: é por
+  // esse header que o banco sabe em que escritório ela está (e confere o
+  // vínculo — forjar não abre nada).
+  const escritorioHeader = req.headers.get("x-escritorio-id") ?? "";
+  const rls = createClient(SUPABASE_URL, ANON, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: {
+      headers: {
+        Authorization: `Bearer ${jwt}`,
+        ...(escritorioHeader ? { "x-escritorio-id": escritorioHeader } : {}),
+      },
+    },
+  });
+
+  // Papel e status vêm do VÍNCULO no escritório ativo. Zero linhas = sem
+  // escritório (sem vínculo, desligada, ou escritório suspenso).
+  const { data: ctx, error: erroCtx } = await rls.rpc("meu_contexto");
+  let efetivo: PerfilUsuario;
+  if (erroCtx) {
+    // Banco sem as migrations do RBAC (function publicada antes do banco):
+    // vale a regra antiga, pelas colunas de `usuarios`. Qualquer OUTRA falha é
+    // incidente, não "sem permissão".
+    const semRbac = erroCtx.code === "PGRST202" || /meu_contexto/.test(erroCtx.message ?? "");
+    if (!semRbac) {
+      console.error("falha ao ler o contexto de", uid, erroCtx.message);
+      return jsonResponse({ error: "falha ao verificar o usuário" }, 503);
+    }
+    if (perfil.ativo === false || perfil.desligado_em) {
+      return jsonResponse({ error: "usuário desligado" }, 403);
+    }
+    efetivo = { ...(perfil as PerfilUsuario), escritorio_id: null, papel: null, permissoes: [] };
+  } else {
+    const c = (Array.isArray(ctx) ? ctx[0] : ctx) as
+      | { escritorio_id: string; papel: string; tipo_acesso: "interno" | "parceiro"; permissoes: string[] }
+      | undefined;
+    if (!c?.escritorio_id) {
+      return jsonResponse({ error: "sem acesso a um escritório ativo" }, 403);
+    }
+    efetivo = {
+      id: perfil.id,
+      nome: perfil.nome,
+      email: perfil.email,
+      ativo: true,
+      tipo: c.tipo_acesso,
+      eh_admin: c.papel === "admin",
+      escritorio_id: c.escritorio_id,
+      papel: c.papel,
+      permissoes: c.permissoes ?? [],
+    };
+    if (opts.permissao && !efetivo.permissoes.includes(opts.permissao)) {
+      return jsonResponse({ error: "sem permissão para esta ação" }, 403);
+    }
   }
-  if (opts.tipo && perfil.tipo !== opts.tipo) {
+
+  if (opts.tipo && efetivo.tipo !== opts.tipo) {
     return jsonResponse({ error: `apenas usuário ${opts.tipo}` }, 403);
   }
-  if (opts.admin && perfil.eh_admin !== true) {
+  if (opts.admin && efetivo.eh_admin !== true) {
     return jsonResponse({ error: "apenas administradores" }, 403);
   }
 
-  const rls = createClient(SUPABASE_URL, ANON, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${jwt}` } },
-  });
+  return { tipo: "pessoa", uid, perfil: efetivo, rls, admin };
+}
 
-  return {
-    tipo: "pessoa",
-    uid,
-    perfil: perfil as PerfilUsuario,
-    rls,
-    admin,
-  };
+/**
+ * O recurso que veio no corpo é de quem está chamando?
+ *
+ * As functions leem e gravam com service role, que ignora RLS — então um `id`
+ * de outro escritório (ou de um caso que o parceiro não alcança) passaria
+ * direto. Aqui a pergunta é feita COM A SESSÃO DA PESSOA: se a RLS dela não
+ * mostra a linha, a resposta é 404, igual a um id que não existe.
+ */
+export async function exigirRecurso(
+  quem: ChamadorPessoa | ChamadorSistema,
+  tabela: string,
+  id: string | null | undefined,
+): Promise<Response | null> {
+  if (quem.tipo === "sistema" || !id) return null;
+  const { data, error } = await quem.rls.from(tabela).select("id").eq("id", id).maybeSingle();
+  if (error) {
+    console.error(`exigirRecurso ${tabela}`, error.message);
+    return jsonResponse({ error: "falha ao verificar o acesso ao registro" }, 503);
+  }
+  if (!data) return jsonResponse({ error: "registro não encontrado" }, 404);
+  return null;
 }
 
 
@@ -255,6 +326,70 @@ export async function exigirUsuarioOuSistema(
   return await exigirUsuario(req, opts);
 }
 
+/**
+ * O escritório das rotinas de SISTEMA (v1).
+ *
+ * As integrações ainda são de um escritório só — uma caixa Gmail do INSS, as
+ * OABs do DJEN, um WhatsApp —, e ele é o marcado `padrao_sistema`. Toda rotina
+ * que lê com service role filtra por ele: sem isso, o resumo do dia juntaria
+ * os casos de todos os escritórios e mandaria para a equipe de um só.
+ *
+ * Devolve `null` em banco sem as migrations do RBAC (rotina segue como antes);
+ * falha de leitura LANÇA — "não sei qual é o escritório" não pode virar "todos".
+ */
+export async function escritorioDoSistema(admin: SupabaseClient): Promise<string | null> {
+  const { data, error } = await admin.from("escritorios").select("id").eq("padrao_sistema", true).maybeSingle();
+  if (error) {
+    if (error.code === "42P01" || error.code === "PGRST205" || /escritorios/.test(error.message ?? "")) return null;
+    throw new Error(`escritório do sistema: ${error.message}`);
+  }
+  return (data?.id as string | undefined) ?? null;
+}
+
+/** Tabelas sem `escritorio_id`: identidade e configuração do sistema. */
+const TABELAS_GLOBAIS = new Set([
+  "usuarios", "aceites_termos", "usuario_gmail_oauth", "app_config", "webhook_config",
+  "escritorios", "permissoes", "papeis", "papel_permissoes", "plataforma_staff",
+]);
+
+/**
+ * Client de service role PRESO a um escritório.
+ *
+ * Service role ignora RLS. Numa rotina grande (o processador de e-mails do INSS
+ * tem 1.200 linhas e acha cliente por nome e por CPF), lembrar do filtro em
+ * cada consulta é o tipo de disciplina que falha em silêncio — e o erro é
+ * casar o e-mail de um escritório com o cliente de outro. Aqui todo
+ * `select`/`update`/`delete` em tabela de domínio já sai com
+ * `escritorio_id = <id>`. `insert`/`upsert` não precisam: o gatilho de herança
+ * decide pelo pai, ou cai no escritório do sistema.
+ *
+ * Sem id (banco sem as migrations do RBAC) devolve o próprio client.
+ */
+export function escopado(sb: SupabaseClient, escritorioId: string | null): SupabaseClient {
+  if (!escritorioId) return sb;
+  return new Proxy(sb, {
+    get(alvo, prop, receptor) {
+      if (prop !== "from") {
+        const v = Reflect.get(alvo, prop, receptor);
+        return typeof v === "function" ? v.bind(alvo) : v;
+      }
+      return (tabela: string) => {
+        const qb = alvo.from(tabela);
+        if (TABELAS_GLOBAIS.has(tabela)) return qb;
+        return new Proxy(qb, {
+          get(q, metodo, r) {
+            const v = Reflect.get(q, metodo, r);
+            if (typeof v !== "function") return v;
+            if (metodo !== "select" && metodo !== "update" && metodo !== "delete") return v.bind(q);
+            // deno-lint-ignore no-explicit-any
+            return (...args: any[]) => (v as any).apply(q, args).eq("escritorio_id", escritorioId);
+          },
+        });
+      };
+    },
+  }) as SupabaseClient;
+}
+
 /** A sessão da pessoa não abriu: a chamada tem que falhar, não degradar. */
 export class SessaoIndisponivel extends Error {}
 
@@ -282,7 +417,7 @@ export interface SessaoDePessoa {
  *
  * Qualquer falha vira `SessaoIndisponivel`: sem sessão, nada roda.
  */
-export async function abrirSessaoDe(uid: string): Promise<SessaoDePessoa> {
+export async function abrirSessaoDe(uid: string, escritorioId?: string | null): Promise<SessaoDePessoa> {
   const comTempo: typeof fetch = (entrada, init) => fetchT(entrada, { ...init, timeoutMs: 15_000 });
   const opcoes = { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: comTempo } };
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE, opcoes);
@@ -311,9 +446,14 @@ export async function abrirSessaoDe(uid: string): Promise<SessaoDePessoa> {
 
   // Prazo maior que o do Auth: ferramenta como ler_documentos_caso baixa PDFs.
   const dadosComTempo: typeof fetch = (entrada, init) => fetchT(entrada, { ...init, timeoutMs: 30_000 });
+  // `escritorioId`: o escritório em que a sessão trabalha (RBAC multi-tenant) —
+  // vai no mesmo header que o navegador manda, e o banco confere o vínculo.
   const client = createClient(SUPABASE_URL, ANON, {
     ...opcoes,
-    global: { fetch: dadosComTempo, headers: { Authorization: `Bearer ${jwt}` } },
+    global: {
+      fetch: dadosComTempo,
+      headers: { Authorization: `Bearer ${jwt}`, ...(escritorioId ? { "x-escritorio-id": escritorioId } : {}) },
+    },
   });
   return {
     client,

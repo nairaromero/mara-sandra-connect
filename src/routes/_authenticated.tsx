@@ -6,7 +6,7 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 import { useEffect } from "react";
-import { Eye, Loader2, LogOut, Plus, X } from "lucide-react";
+import { Building2, Eye, LifeBuoy, Loader2, LogOut, Plus, X } from "lucide-react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { DestaqueProvider } from "@/lib/destaque/destaque-context";
 import {
@@ -18,6 +18,9 @@ import { NotificacoesBell } from "@/components/notificacoes-bell";
 import { MovimentacoesParceiroBell } from "@/components/movimentacoes-parceiro-bell";
 import { IaLauncher } from "@/components/ia/ia-launcher";
 import { SessionTimeoutGuard } from "@/components/session-timeout-guard";
+import { SeletorEscritorio } from "@/components/seletor-escritorio";
+import { supabase } from "@/lib/supabase";
+import { dataHoraBR } from "@/lib/fuso";
 import { useAuth } from "@/hooks/use-auth";
 import { TERMOS_VERSAO } from "@/lib/legal/termos";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -29,7 +32,7 @@ export const Route = createFileRoute("/_authenticated")({
 });
 
 function AuthenticatedLayout() {
-  const { session, usuario, loading, precisaSenha, signOut } = useAuth();
+  const { session, usuario, loading, precisaSenha, signOut, semEscritorio, vinculos } = useAuth();
   const navigate = useNavigate();
   const currentPath = useRouterState({ select: (r) => r.location.pathname });
 
@@ -78,6 +81,39 @@ function AuthenticatedLayout() {
     );
   }
 
+  // RBAC multi-tenant: sem escritório ativo não há o que mostrar — toda consulta
+  // voltaria vazia e a pessoa veria um sistema "zerado" sem explicação.
+  if (semEscritorio) {
+    const suspenso = vinculos.find((v) => v.escritorio_status === "suspenso");
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background p-6">
+        <div className="max-w-md space-y-4 text-center">
+          <Building2 className="mx-auto h-10 w-10 text-muted-foreground" />
+          <h1 className="text-xl font-semibold">
+            {semEscritorio === "suspenso"
+              ? `${suspenso?.escritorio_nome ?? "Seu escritório"} está suspenso`
+              : "Você não tem acesso a nenhum escritório"}
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            {semEscritorio === "suspenso"
+              ? "O acesso ao sistema foi pausado pela plataforma. Os dados estão preservados. Fale com quem administra o escritório."
+              : "Sua conta existe, mas não está vinculada a um escritório ativo. Peça a quem administra o escritório para convidar você de novo."}
+          </p>
+          <Button
+            variant="outline"
+            onClick={async () => {
+              await signOut();
+              navigate({ to: "/login" });
+            }}
+          >
+            <LogOut className="h-4 w-4 mr-2" />
+            Sair
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   const displayName = usuario?.nome ?? session.user.email ?? "Usuário";
   const initials = displayName
     .split(" ")
@@ -111,8 +147,16 @@ function ConteudoAutenticado(props: {
   onSignOut: () => void;
 }) {
   const { displayName, initials, signOut, onSignOut } = props;
-  const { usuario } = useAuth();
+  const { usuario, emSuporte, escritorio, pode } = useAuth();
   const { verComo, sairVerComo } = useVerComoParceiro();
+  const rota = useRouterState({ select: (r) => r.location.pathname });
+
+  // Sessão de suporte da plataforma: o escritório vê, na auditoria dele, cada
+  // tela que o suporte abriu.
+  useEffect(() => {
+    if (!emSuporte) return;
+    void supabase.rpc("suporte_registrar", { p_recurso: rota });
+  }, [emSuporte, rota]);
 
   return (
     <>
@@ -135,7 +179,17 @@ function ConteudoAutenticado(props: {
           </Button>
         </div>
       )}
-      <div className={"flex min-h-screen w-full bg-muted/20" + (verComo ? " pt-9" : "")}>
+      {emSuporte && (
+        <div className="fixed inset-x-0 top-0 z-30 flex items-center justify-center gap-2 bg-amber-500 px-4 py-1.5 text-sm font-medium text-black">
+          <LifeBuoy className="h-4 w-4 shrink-0" />
+          <span className="truncate">
+            Sessão de suporte em <strong>{escritorio?.escritorio_nome}</strong> — somente leitura
+            {escritorio?.suporte_fim ? ` · até ${dataHoraBR(escritorio.suporte_fim)}` : ""}. Tudo que você abre fica
+            registrado para o escritório.
+          </span>
+        </div>
+      )}
+      <div className={"flex min-h-screen w-full bg-muted/20" + (verComo || emSuporte ? " pt-9" : "")}>
         <AppSidebar />
         {/* min-w-0 permite o conteudo encolher abaixo da largura intrinseca
             (senao tabs/tabelas largas forcam scroll horizontal da pagina toda
@@ -160,12 +214,15 @@ function ConteudoAutenticado(props: {
               </Link>
             </div>
             <div className="flex items-center gap-3">
-              <Button size="sm" asChild>
-                <Link to="/casos/novo">
-                  <Plus className="h-4 w-4 sm:mr-2" />
-                  <span className="hidden sm:inline">Novo caso</span>
-                </Link>
-              </Button>
+              <SeletorEscritorio />
+              {pode("casos:editar") && !emSuporte && (
+                <Button size="sm" asChild>
+                  <Link to="/casos/novo">
+                    <Plus className="h-4 w-4 sm:mr-2" />
+                    <span className="hidden sm:inline">Novo caso</span>
+                  </Link>
+                </Button>
+              )}
               {usuario?.tipo === "interno" && <NotificacoesBell />}
               {usuario?.tipo === "parceiro" && <MovimentacoesParceiroBell />}
               {usuario?.tipo && (
@@ -175,7 +232,7 @@ function ConteudoAutenticado(props: {
                   variant="outline"
                   className="capitalize bg-gold-soft/40 border-gold/40 text-foreground"
                 >
-                  {usuario.tipo}
+                  {escritorio?.papel_nome ?? usuario.tipo}
                 </Badge>
               )}
               {/* Avatar + nome viram link pro perfil/configuracoes do
@@ -206,7 +263,7 @@ function ConteudoAutenticado(props: {
             <Outlet />
           </main>
         </div>
-        {usuario?.tipo === "interno" && !verComo && <IaLauncher />}
+        {usuario?.tipo === "interno" && pode("ia:usar") && !verComo && !emSuporte && <IaLauncher />}
       </div>
     </>
   );

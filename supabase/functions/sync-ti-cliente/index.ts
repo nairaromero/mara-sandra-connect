@@ -40,7 +40,7 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
-import { exigirUsuario, fetchT } from "../_shared/auth.ts";
+import { exigirRecurso, exigirUsuario, fetchT } from "../_shared/auth.ts";
 
 const TI_BASE_URL = "https://planilha.tramitacaointeligente.com.br/api/v1";
 const TI_TOKEN = Deno.env.get("TI_TOKEN");
@@ -50,7 +50,7 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-escritorio-id",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -238,6 +238,10 @@ serve(async (req) => {
   }
 
   if (!cpf) return jsonResponse({ error: "cpf obrigatorio" }, 400);
+  if (casoId) {
+    const semAcesso = await exigirRecurso(quem, "casos", casoId);
+    if (semAcesso) return semAcesso;
+  }
   const cpfNorm = normalizeCPF(cpf);
   if (cpfNorm.length !== 11) {
     return jsonResponse({ error: "cpf deve ter 11 digitos" }, 400);
@@ -262,11 +266,14 @@ serve(async (req) => {
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE);
 
   console.log("vou consultar cliente local com cpf:", cpfNorm);
-  const { data: clienteLocal, error: selErr } = await supabase
+  // CPF é único POR ESCRITÓRIO: sem o filtro, o mesmo CPF em dois escritórios
+  // faria o maybeSingle estourar — ou pior, atualizar o cliente do outro.
+  let qCliente = supabase
     .from("clientes")
     .select("id, nome, email, telefone, data_nascimento, tags, ti_customer_id")
-    .eq("cpf", cpfNorm)
-    .maybeSingle();
+    .eq("cpf", cpfNorm);
+  if (quem.perfil.escritorio_id) qCliente = qCliente.eq("escritorio_id", quem.perfil.escritorio_id);
+  const { data: clienteLocal, error: selErr } = await qCliente.maybeSingle();
 
   console.log("resultado select:", { clienteLocal, selErr });
 

@@ -208,3 +208,8 @@ verify_jwt = true
 
 [functions.sync-djen-publicacoes]
 verify_jwt = true
+
+# QG da plataforma (superadmin): cria escritório + convida o primeiro admin.
+# Quem pode chamar é conferido no banco (private.exigir_staff, nas RPCs qg_*).
+[functions.qg-escritorios]
+verify_jwt = true

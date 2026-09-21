@@ -227,7 +227,12 @@ alter table public.usuarios
 alter table public.usuarios
   add column if not exists escritorio_origem_id uuid references public.escritorios (id) on delete set null;
 
--- Backfill: cada usuário vira um vínculo no escritório 1.
+-- Backfill: cada usuário vira um vínculo no escritório 1 — SÓ NA PRIMEIRA
+-- INSTALAÇÃO (tabela vazia). Depois disso quem cria vínculo é o convite, e
+-- "usuário sem vínculo" passa a ser um estado legítimo: a equipe da plataforma
+-- (QG) não é membro de escritório nenhum. Reaplicar esta migration sem a
+-- guarda devolvia ao staff acesso aos dados do escritório 1 — pego pela
+-- matriz cruzada em 22/09.
 insert into public.membros
   (escritorio_id, usuario_id, papel_id, status, recebe_repasse, percentual_parceiro,
    termos_versao, desativado_em, desativado_por, created_at)
@@ -244,7 +249,7 @@ select e.id, u.id, p.id,
    and p.chave = case when u.tipo = 'parceiro' then 'parceiro'
                       when coalesce(u.eh_admin, false) then 'admin'
                       else 'advogado' end
- where not exists (select 1 from public.membros m where m.usuario_id = u.id);
+ where not exists (select 1 from public.membros);
 
 -- ---------------------------------------------------------------------------
 -- 4. Helpers (schema private)
@@ -254,9 +259,19 @@ language sql stable security definer set search_path = '' as $$
   select id from public.escritorios where padrao_sistema
 $$;
 
--- A pessoa pode abrir este escritório? (migration_rbac_05 acrescenta o suporte.)
+-- A pessoa pode abrir este escritório? A migration_rbac_05 REDEFINE esta função
+-- (acrescenta a sessão de suporte). Reaplicar só a 01 depois da 05 não pode
+-- desfazer isso em silêncio: se a versão com suporte já existe, fica.
+do $guarda$
+begin
+  if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'private' and p.proname = 'pode_entrar' and p.prosrc like '%suporte_valido%') then
+    raise notice 'private.pode_entrar já é a versão com suporte (migration_rbac_05) — mantida';
+    return;
+  end if;
+  execute $f$
 create or replace function private.pode_entrar(p_usuario uuid, p_escritorio uuid) returns boolean
-language sql stable security definer set search_path = '' as $$
+language sql stable security definer set search_path = '' as $body$
   select exists (
     select 1
       from public.membros m
@@ -266,7 +281,9 @@ language sql stable security definer set search_path = '' as $$
        and m.status = 'ativo'
        and e.status = 'ativo'
   )
-$$;
+$body$;
+  $f$;
+end $guarda$;
 
 create or replace function private.escritorio_ativo() returns uuid
 language plpgsql stable security definer set search_path = '' as $$
@@ -321,17 +338,28 @@ language sql stable security definer set search_path = '' as $$
    where m.usuario_id = (select auth.uid()) and m.status = 'ativo'
 $$;
 
--- O vínculo ativo da pessoa no escritório desta requisição.
+-- O vínculo ativo da pessoa no escritório desta requisição. Também redefinida
+-- pela migration_rbac_05 (suporte = leitura de advogado): mesma guarda.
+do $guarda$
+begin
+  if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'private' and p.proname = 'meu_vinculo' and p.prosrc like '%em_suporte%') then
+    raise notice 'private.meu_vinculo já é a versão com suporte (migration_rbac_05) — mantida';
+    return;
+  end if;
+  execute $f$
 create or replace function private.meu_vinculo()
 returns table (membro_id uuid, escritorio_id uuid, papel_id uuid, papel text, tipo_acesso text)
-language sql stable security definer set search_path = '' as $$
+language sql stable security definer set search_path = '' as $body$
   select m.id, m.escritorio_id, p.id, p.chave, p.tipo_acesso
     from public.membros m
     join public.papeis p on p.id = m.papel_id
    where m.usuario_id = (select auth.uid())
      and m.status = 'ativo'
      and m.escritorio_id = (select private.escritorio_ativo())
-$$;
+$body$;
+  $f$;
+end $guarda$;
 
 -- 'interno' | 'parceiro' | nulo — substitui o `select tipo from usuarios`.
 create or replace function private.meu_tipo() returns text
@@ -462,7 +490,8 @@ begin
                                                   where x.usuario_id = new.usuario_id and x.status <> 'desativado')
                                     then null else coalesce(u.desligado_por, v_principal.desativado_por) end,
          eh_parceiro         = v_principal.recebe_repasse,
-         percentual_parceiro = v_principal.percentual_parceiro
+         -- usuarios.percentual_parceiro é NOT NULL DEFAULT 30; o do vínculo pode ser nulo
+         percentual_parceiro = coalesce(v_principal.percentual_parceiro, u.percentual_parceiro)
    where u.id = new.usuario_id;
 
   perform set_config('msc.sincronizando', '', true);
@@ -607,7 +636,8 @@ select
   (select count(*) from public.usuarios) as usuarios,
   (select count(*) from public.membros) as membros,
   (select count(*) from public.usuarios u
-    where not exists (select 1 from public.membros m where m.usuario_id = u.id)) as usuarios_sem_vinculo,
+    where not exists (select 1 from public.membros m where m.usuario_id = u.id)
+      and not exists (select 1 from pg_class where relname = 'plataforma_staff')) as usuarios_sem_vinculo_na_instalacao,
   (select count(*) from public.permissoes) as permissoes,
   (select string_agg(p.chave || '=' || (select count(*) from public.papel_permissoes pp where pp.papel_id = p.id), ', ' order by p.ordem)
      from public.papeis p where p.escritorio_id is null) as matriz;

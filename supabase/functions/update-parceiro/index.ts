@@ -34,6 +34,7 @@
 //   - APP_BASE_URL (do convite original)
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
+import { exigirRecurso, exigirUsuario } from "../_shared/auth.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -44,7 +45,7 @@ const APP_BASE_URL = Deno.env.get("APP_BASE_URL") ||
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-escritorio-id",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -69,49 +70,13 @@ serve(async (req) => {
   // ---------------------------------------------------------------------------
   // 1) Valida JWT do caller e que eh interno
   // ---------------------------------------------------------------------------
-  const authHeader = req.headers.get("Authorization") || "";
-  const jwt = authHeader.replace(/^Bearer\s+/i, "");
-  if (!jwt) {
-    return jsonResponse({ error: "sem authorization header" }, 401);
-  }
-
+  // Editar parceiro é de ADMIN do escritório ativo. Era de qualquer interno, e
+  // como a função troca o e-mail de login com `email_confirm: true` e manda o
+  // magic link para o endereço novo, isso era sequestro de conta a um clique
+  // (demonstrado no staging em 2026-09-20).
+  const quem = await exigirUsuario(req, { tipo: "interno", admin: true });
+  if (quem instanceof Response) return quem;
   const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE);
-
-  // Decodifica JWT pra pegar user_id
-  const { data: userResp, error: userErr } = await supabaseAdmin.auth.getUser(
-    jwt,
-  );
-  if (userErr || !userResp.user) {
-    return jsonResponse({ error: "jwt invalido" }, 401);
-  }
-  const callerId = userResp.user.id;
-
-  // Confirma que caller eh interno
-  const { data: caller, error: callerErr } = await supabaseAdmin
-    .from("usuarios")
-    .select("tipo, eh_admin, ativo")
-    .eq("id", callerId)
-    .maybeSingle();
-  if (callerErr) {
-    return jsonResponse(
-      { error: "erro ao verificar tipo do caller", detail: callerErr.message },
-      500,
-    );
-  }
-  // Editar parceiro é de ADMIN. Era de qualquer interno, e como a função troca
-  // o e-mail de login com `email_confirm: true` e manda o magic link para o
-  // endereço novo, isso era sequestro de conta a um clique (demonstrado no
-  // staging em 2026-09-20).
-  const perfilCaller = caller as { tipo?: string; eh_admin?: boolean; ativo?: boolean } | null;
-  if (
-    !perfilCaller || perfilCaller.tipo !== "interno" ||
-    perfilCaller.ativo === false || perfilCaller.eh_admin !== true
-  ) {
-    return jsonResponse(
-      { error: "apenas administradores podem editar parceiros" },
-      403,
-    );
-  }
 
   // ---------------------------------------------------------------------------
   // 2) Parse body
@@ -137,6 +102,11 @@ serve(async (req) => {
   if (!usuarioId) {
     return jsonResponse({ error: "usuario_id obrigatorio" }, 400);
   }
+  // Multi-tenant: o alvo tem que ser gente DO MEU escritório (a RLS de
+  // `usuarios` só mostra quem é). Sem isto, o admin de um escritório trocava o
+  // e-mail de login de uma pessoa de outro — o mesmo sequestro, atravessado.
+  const semAcesso = await exigirRecurso(quem, "usuarios", usuarioId);
+  if (semAcesso) return semAcesso;
 
   // Busca estado atual pra comparar
   const { data: atual, error: atualErr } = await supabaseAdmin
@@ -179,6 +149,19 @@ serve(async (req) => {
     : undefined;
 
   const emailMudou = novoEmail !== a.email;
+  // Identidade é da pessoa, não do escritório: quem atua também em OUTRO
+  // escritório não tem o login trocado por terceiros.
+  if (emailMudou && quem.perfil.escritorio_id) {
+    const { count, error: outrosErr } = await supabaseAdmin
+      .from("membros").select("id", { count: "exact", head: true })
+      .eq("usuario_id", usuarioId).neq("escritorio_id", quem.perfil.escritorio_id);
+    if (outrosErr) return jsonResponse({ error: "falha ao verificar os vínculos da pessoa" }, 503);
+    if ((count ?? 0) > 0) {
+      return jsonResponse({
+        error: "esta pessoa também atua em outro escritório: só ela troca o próprio e-mail de login",
+      }, 409);
+    }
+  }
   // enviar_link=true forca reenvio mesmo sem mudanca de email (ex.: parceiro
   // perdeu o email); default continua sendo enviar so quando o email muda.
   // E-mails de cópia: normaliza, tira vazio/duplicado e o próprio principal

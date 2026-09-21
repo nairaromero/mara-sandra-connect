@@ -46,7 +46,7 @@ const ULTIMO_USO_INTERVALO_MS = 5 * 60_000;
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, content-type, mcp-protocol-version",
+  "Access-Control-Allow-Headers": "authorization, content-type, mcp-protocol-version, x-escritorio-id",
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
 };
 
@@ -119,7 +119,7 @@ serve(async (req) => {
   // chamada MCP passa por aqui.
   const { data: tok, error: tokErr } = await admin
     .from("ia_tokens")
-    .select("id,usuario_id,escopo,expira_em,revogado_em,ultimo_uso,usuarios(tipo,ativo,desligado_em,eh_admin)")
+    .select("*,usuarios(tipo,ativo,desligado_em,eh_admin)")
     .eq("token_hash", hash)
     .maybeSingle();
   // Falha de banco NAO e token invalido: com 401 o mcp-remote tenta login OAuth
@@ -145,7 +145,27 @@ serve(async (req) => {
   // SEGUIR admin: quem perde o papel perde o MCP na hora, sem precisar revogar.
   // Liberar para outra pessoa (token emitido em nome de interno/parceiro) e a
   // #385 — la esta checagem passa a olhar o emissor.
-  if (perfil.eh_admin !== true) {
+  // RBAC multi-tenant: o token vale no escritório em que foi gerado, e o dono
+  // tem que seguir admin ATIVO NAQUELE escritório — o vínculo decide, não as
+  // colunas antigas de `usuarios`. (`escritorio_id` só não existe em banco sem
+  // as migrations; aí vale a checagem antiga.)
+  const escritorioDoToken = (tok as { escritorio_id?: string | null }).escritorio_id ?? null;
+  if (escritorioDoToken) {
+    const { data: vinc, error: vincErr } = await admin
+      .from("membros")
+      .select("status, papel:papeis!inner(chave), escritorio:escritorios!inner(status)")
+      .eq("escritorio_id", escritorioDoToken)
+      .eq("usuario_id", tok.usuario_id)
+      .maybeSingle();
+    if (vincErr) return httpJson({ error: "falha ao validar o token, tente de novo" }, 503);
+    const v = vinc as { status?: string; papel?: { chave?: string }; escritorio?: { status?: string } } | null;
+    if (!v || v.status !== "ativo" || v.escritorio?.status !== "ativo") {
+      return httpJson({ error: "usuario desativado" }, 403);
+    }
+    if (v.papel?.chave !== "admin") {
+      return httpJson({ error: "o MCP esta liberado so para administradores" }, 403);
+    }
+  } else if (perfil.eh_admin !== true) {
     return httpJson({ error: "o MCP esta liberado so para administradores" }, 403);
   }
   const tipo: "interno" | "parceiro" = perfil.tipo === "interno" ? "interno" : "parceiro";
@@ -174,7 +194,7 @@ serve(async (req) => {
   // do servidor: validar o token, marcar uso e gravar a auditoria.
   let sessao: SessaoDePessoa | null = null;
   async function getClient() {
-    sessao ??= await abrirSessaoDe(tok.usuario_id);
+    sessao ??= await abrirSessaoDe(tok.usuario_id, escritorioDoToken);
     return sessao.client;
   }
 

@@ -24,7 +24,7 @@ import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { decryptSecret } from "../_shared/crypto.ts";
 import { chatWith } from "../_shared/ia-providers.ts";
 import { extrairJson } from "../_shared/documento-campos.ts";
-import { exigirUsuario } from "../_shared/auth.ts";
+import { exigirRecurso, exigirUsuario } from "../_shared/auth.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -155,6 +155,9 @@ serve(async (req) => {
     return jsonResponse({ error: "body invalido" }, 400);
   }
   if (!UUID_RE.test(tarefaId)) return jsonResponse({ error: "tarefa_id invalido" }, 400);
+  // Daqui em diante é service role: a tarefa tem que ser visível a quem pediu.
+  const semAcesso = await exigirRecurso(quem, "tarefas", tarefaId);
+  if (semAcesso) return semAcesso;
 
   const admin = quem.admin;
 
@@ -167,13 +170,13 @@ serve(async (req) => {
       .select("id, titulo, descricao, tipo, caso_id, responsavel_id, processo_admin_id, processo_judicial_id, metadata")
       .eq("id", tarefaId)
       .maybeSingle(),
-    admin
-      .from("ia_integracoes")
-      .select("provider, modelo, api_key_cipher, api_key_iv")
-      .eq("compartilhada", true)
-      .eq("ativo", true)
-      .limit(1)
-      .maybeSingle(),
+    // A chave compartilhada é por escritório: a equipe de um não gasta a do outro.
+    (quem.perfil.escritorio_id
+      ? admin.from("ia_integracoes").select("provider, modelo, api_key_cipher, api_key_iv")
+          .eq("compartilhada", true).eq("ativo", true).eq("escritorio_id", quem.perfil.escritorio_id)
+      : admin.from("ia_integracoes").select("provider, modelo, api_key_cipher, api_key_iv")
+          .eq("compartilhada", true).eq("ativo", true)
+    ).limit(1).maybeSingle(),
   ]);
   if (resTarefa.error) return jsonResponse({ error: "falha ao ler a tarefa" }, 500);
   const tarefa = resTarefa.data;

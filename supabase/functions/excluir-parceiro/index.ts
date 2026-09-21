@@ -22,6 +22,7 @@
 //   - SUPABASE_SERVICE_ROLE_KEY (automatico)
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
+import { escopado, exigirUsuario } from "../_shared/auth.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -30,7 +31,7 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-escritorio-id",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -55,32 +56,15 @@ serve(async (req) => {
   // ---------------------------------------------------------------------------
   // 1) Valida JWT do caller e que eh interno
   // ---------------------------------------------------------------------------
-  const authHeader = req.headers.get("Authorization") || "";
-  const jwt = authHeader.replace(/^Bearer\s+/i, "");
-  if (!jwt) {
-    return jsonResponse({ error: "sem authorization header" }, 401);
-  }
-
-  const supabase = createClient(SUPABASE_URL, SERVICE_ROLE);
-
-  const { data: userResp, error: userErr } = await supabase.auth.getUser(jwt);
-  if (userErr || !userResp.user) {
-    return jsonResponse({ error: "jwt invalido" }, 401);
-  }
-  const callerId = userResp.user.id;
-
-  const { data: caller } = await supabase
-    .from("usuarios")
-    .select("tipo")
-    .eq("id", callerId)
-    .maybeSingle();
-
-  if (!caller || (caller as { tipo: string }).tipo !== "interno") {
-    return jsonResponse(
-      { error: "apenas usuarios internos podem excluir parceiros" },
-      403,
-    );
-  }
+  // Interno ATIVO do escritório ativo, com permissão de excluir parceiro. (O
+  // preâmbulo antigo lia `usuarios.tipo` sem conferir `ativo`.)
+  const quem = await exigirUsuario(req, { tipo: "interno", permissao: "parceiros:excluir" });
+  if (quem instanceof Response) return quem;
+  const escritorioId = quem.perfil.escritorio_id;
+  // Service role ignora RLS: o client sai PRESO ao escritório de quem pediu —
+  // desvincular casos e apagar andamentos do parceiro só AQUI, nunca no outro
+  // escritório em que ele também possa atuar.
+  const supabase = escopado(createClient(SUPABASE_URL, SERVICE_ROLE), escritorioId);
 
   // ---------------------------------------------------------------------------
   // 2) Parse body
@@ -109,7 +93,24 @@ serve(async (req) => {
   if (!alvo) {
     return jsonResponse({ error: "parceiro nao encontrado" }, 404);
   }
-  if ((alvo as { tipo: string }).tipo !== "parceiro") {
+  // Com RBAC quem decide é o VÍNCULO: tem que ser parceiro DESTE escritório.
+  let outrosVinculos = 0;
+  if (escritorioId) {
+    const { data: vinc, error: vincErr } = await supabase
+      .from("membros")
+      .select("id, papel:papeis!inner(tipo_acesso)")
+      .eq("usuario_id", usuarioId)
+      .maybeSingle();
+    if (vincErr) return jsonResponse({ error: "falha ao verificar o vínculo" }, 503);
+    if (!vinc) return jsonResponse({ error: "parceiro nao encontrado" }, 404);
+    if ((vinc.papel as { tipo_acesso?: string } | null)?.tipo_acesso !== "parceiro") {
+      return jsonResponse({ error: "este endpoint so exclui parceiros" }, 400);
+    }
+    const { count } = await createClient(SUPABASE_URL, SERVICE_ROLE)
+      .from("membros").select("id", { count: "exact", head: true })
+      .eq("usuario_id", usuarioId).neq("escritorio_id", escritorioId);
+    outrosVinculos = count ?? 0;
+  } else if ((alvo as { tipo: string }).tipo !== "parceiro") {
     return jsonResponse(
       { error: "este endpoint so exclui parceiros" },
       400,
@@ -192,6 +193,16 @@ serve(async (req) => {
       .eq("remetente_id", usuarioId);
   } catch {
     // Ignora se ja foi removida ou nao tem
+  }
+
+  // A pessoa também atua em OUTRO escritório: sai só daqui. A conta, o login e
+  // o histórico dela no outro escritório não são nossos para apagar.
+  if (outrosVinculos > 0) {
+    const delVinc = await supabase.from("membros").delete().eq("usuario_id", usuarioId);
+    if (delVinc.error) {
+      return jsonResponse({ error: "erro ao remover o vínculo", detail: delVinc.error.message, erros_cascade: erros }, 500);
+    }
+    return jsonResponse({ ok: true, conta_preservada: true, erros_cascade: erros });
   }
 
   // ---------------------------------------------------------------------------
