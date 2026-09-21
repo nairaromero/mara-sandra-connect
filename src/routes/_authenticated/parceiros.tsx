@@ -25,6 +25,7 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { useVerComoParceiro } from "@/hooks/use-ver-como-parceiro";
 import { supabase } from "@/lib/supabase";
+import { formatarBR } from "@/lib/fuso";
 import { formatarTelefone } from "@/lib/telefone";
 import { ClientOnly } from "@/components/client-only";
 import { Button } from "@/components/ui/button";
@@ -118,7 +119,7 @@ interface AceiteRow {
 function fmtDataHora(iso: string | null): string {
   if (!iso) return "—";
   try {
-    return new Date(iso).toLocaleString("pt-BR");
+    return formatarBR(iso, { dateStyle: "short", timeStyle: "medium" });
   } catch {
     return iso;
   }

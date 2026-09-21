@@ -12,6 +12,7 @@ import { toast } from "sonner";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { chaveDiaBR, diaDoEventoBR, hojeChaveBR, horaDoEventoBR } from "@/lib/fuso";
 import { ClientOnly } from "@/components/client-only";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,13 +45,13 @@ const RELEVANCIA_BADGE: Record<string, { label: string; cls: string }> = {
 
 function chaveDia(iso: string | null): string {
   if (!iso) return "";
-  return iso.slice(0, 10);
+  return diaDoEventoBR(iso);
 }
 
+// `dia` é chave de calendário ("YYYY-MM-DD"), já no dia de Brasília: a data
+// é montada e formatada no fuso local, que não desloca nada.
 function labelDia(dia: string): string {
-  const hoje = new Date();
-  const fmt = (d: Date) => d.toISOString().slice(0, 10);
-  const ontem = new Date(hoje.getTime() - 86400000);
+  const ontem = chaveDiaBR(new Date(Date.now() - 86400000));
   const data = new Date(dia + "T00:00:00");
   const ddmm = data.toLocaleDateString("pt-BR", {
     day: "2-digit",
@@ -59,17 +60,14 @@ function labelDia(dia: string): string {
   });
   const semana = data.toLocaleDateString("pt-BR", { weekday: "long" });
   let sufixo = "";
-  if (dia === fmt(hoje)) sufixo = " · hoje";
-  else if (dia === fmt(ontem)) sufixo = " · ontem";
+  if (dia === hojeChaveBR()) sufixo = " · hoje";
+  else if (dia === ontem) sufixo = " · ontem";
   return `${ddmm} — ${semana}${sufixo}`;
 }
 
 function hora(iso: string | null): string {
-  if (!iso || iso.length <= 10) return "";
-  return new Date(iso).toLocaleTimeString("pt-BR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  if (!iso) return "";
+  return horaDoEventoBR(iso) ?? "";
 }
 
 function MovimentacoesPage() {

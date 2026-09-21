@@ -29,7 +29,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { descreverSolicitante } from "@/lib/documentos/solicitante";
 import { listarInternosAtivos } from "@/lib/tarefas/queries";
 import { supabase } from "@/lib/supabase";
-import { diasCorridosBR } from "@/lib/fuso";
+import { dataBR, diasCorridosBR } from "@/lib/fuso";
 import { notificarEquipe } from "@/lib/notificar";
 import { validateFileSize } from "@/lib/upload-limits";
 import { ClientOnly } from "@/components/client-only";
@@ -150,7 +150,7 @@ function formatDate(iso: string | null): string {
   if (!iso) return "-";
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "-";
-  return d.toLocaleDateString("pt-BR");
+  return dataBR(d);
 }
 
 function diasDesde(iso: string | null): number | null {

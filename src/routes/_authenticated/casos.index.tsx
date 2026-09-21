@@ -2,6 +2,7 @@ import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { dataBR } from "@/lib/fuso";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -108,7 +109,7 @@ function MetricCard({
 function formatDate(iso: string | null) {
   if (!iso) return "-";
   try {
-    return new Date(iso).toLocaleDateString("pt-BR");
+    return dataBR(iso);
   } catch {
     return "-";
   }

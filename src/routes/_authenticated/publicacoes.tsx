@@ -15,6 +15,7 @@ import { toast } from "sonner";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { dataBR, diaDoEventoBR } from "@/lib/fuso";
 import { ClientOnly } from "@/components/client-only";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,10 +65,10 @@ interface CasoOption {
   tipo_beneficio: string | null;
 }
 
+// Coluna date (DJE) ou data_evento — que pode ser só a data (diaDoEventoBR).
 function fmt(iso: string | null): string {
-  if (!iso) return "-";
-  const d = new Date(iso.length <= 10 ? iso + "T00:00:00" : iso);
-  return d.toLocaleDateString("pt-BR");
+  if (!iso || isNaN(new Date(iso).getTime())) return "-";
+  return dataBR(diaDoEventoBR(iso));
 }
 
 function parseData(iso: string | null): Date | null {
@@ -286,7 +287,7 @@ function PublicacoesPage() {
         rec.push(p);
         continue;
       }
-      const key = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+      const key = diaDoEventoBR(p.data!).slice(0, 7);
       const arr = map.get(key) || [];
       arr.push(p);
       map.set(key, arr);
