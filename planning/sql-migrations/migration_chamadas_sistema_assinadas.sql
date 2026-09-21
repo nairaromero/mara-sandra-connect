@@ -136,13 +136,30 @@ end $$;
 -- ---------------------------------------------------------------------------
 -- 4. Os jobs de cron passam a assinar
 -- ---------------------------------------------------------------------------
+-- Os jobs NÃO escrevem os headers todos iguais: os três do DataJud mandam
+-- x-region, mas msc-digest-diario e msc-inss-email nasceram só com
+-- Content-Type (conferido no cron.job de produção em 2026-09-21, antes do
+-- release). Staging e local não têm pg_cron, então essa diferença só aparece
+-- aqui: sem reconhecer as duas formas, os dois jobs ficavam de fora, sem
+-- assinatura, e passavam a tomar 401 da function nova.
+--
+-- `ops.headers_sistema` sempre inclui x-region sa-east-1, então digest e inss
+-- passam a rodar em São Paulo, como os outros — mesma região do banco; nada
+-- neles depende de onde a function roda.
 do $$
 declare
   j record;
   v_cmd text;
   v_job text;
-  v_antigo constant text :=
-    '''{"Content-Type": "application/json", "x-region": "sa-east-1"}''::jsonb';
+  v_lit text;
+  v_antigo text;
+  -- Do mais longo pro mais curto: o curto não é pedaço do longo, mas a ordem
+  -- deixa isso fora de questão.
+  v_antigos constant text[] := array[
+    '''{"Content-Type": "application/json", "x-region": "sa-east-1"}''::jsonb',
+    '''{"Content-Type": "application/json"}''::jsonb'
+  ];
+  v_sem_assinatura int;
 begin
   -- Só produção tem pg_cron: no staging e na cópia local os jobs não existem,
   -- e esta parte vira no-op (a mesma migration roda nos três ambientes).
@@ -171,8 +188,16 @@ begin
       continue;
     end if;
 
-    if position(v_antigo in j.command) = 0 then
-      raise warning 'job % não tem o literal de headers esperado; NÃO foi alterado', j.jobname;
+    v_antigo := null;
+    foreach v_lit in array v_antigos loop
+      if position(v_lit in j.command) > 0 then
+        v_antigo := v_lit;
+        exit;
+      end if;
+    end loop;
+
+    if v_antigo is null then
+      raise warning 'job % não tem nenhum dos literais de headers conhecidos; NÃO foi alterado', j.jobname;
       continue;
     end if;
 
@@ -180,6 +205,18 @@ begin
     execute format('select cron.schedule(%L, %L, %L)', j.jobname, j.schedule, v_cmd);
     raise notice 'job % passou a assinar como %', j.jobname, v_job;
   end loop;
+
+  -- Job que chama function e ficou sem assinar vai tomar 401 depois do deploy:
+  -- isso tem que aparecer na saída, não passar calado.
+  execute $q$ select count(*) from cron.job
+               where command like '%functions/v1/%'
+                 and position('ops.headers_sistema' in command) = 0 $q$
+    into v_sem_assinatura;
+  if v_sem_assinatura > 0 then
+    raise warning '% job(s) de cron chamam edge function SEM assinatura — conferir antes do deploy', v_sem_assinatura;
+  else
+    raise notice 'todos os jobs de cron que chamam edge function assinam';
+  end if;
 end $$;
 
 -- ---------------------------------------------------------------------------
