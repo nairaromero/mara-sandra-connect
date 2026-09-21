@@ -25,6 +25,7 @@ import { chatWith } from "../_shared/ia-providers.ts";
 import { decryptSecret } from "../_shared/crypto.ts";
 import { carregarIntegracao } from "../_shared/ia-integracao.ts";
 import { MARCADOR_PRAZO, montarMensagem } from "./prazo.ts";
+import { exigirUsuario } from "../_shared/auth.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -76,6 +77,10 @@ serve(async (req) => {
   if (req.method !== "POST") {
     return jsonResponse({ error: "metodo nao permitido" }, 405);
   }
+
+  // A checagem vinha DEPOIS de ler o corpo: com corpo vazio a função respondia 200 sem saber quem chamou. Agora é a primeira coisa.
+  const quem = await exigirUsuario(req, { tipo: "interno" });
+  if (quem instanceof Response) return quem;
   if (!SUPABASE_URL || !SERVICE_ROLE) {
     return jsonResponse({ error: "secrets ausentes na funcao" }, 500);
   }
@@ -97,29 +102,7 @@ serve(async (req) => {
     return jsonResponse({ mensagem: null, motivo: "sem_despacho" });
   }
 
-  const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
-
-  // Só usuário interno logado — a chave de IA cobrada é a dele (ou a
-  // compartilhada do escritório).
-  const authHeader = req.headers.get("authorization") || "";
-  const jwt = authHeader.replace(/^Bearer\s+/i, "");
-  let usuarioId: string | null = null;
-  if (jwt) {
-    const { data: u } = await admin.auth.getUser(jwt);
-    if (u?.user?.id) usuarioId = u.user.id;
-  }
-  if (!usuarioId) {
-    return jsonResponse({ error: "JWT valido obrigatorio" }, 401);
-  }
-  const { data: perfil } = await admin
-    .from("usuarios")
-    .select("tipo")
-    .eq("id", usuarioId)
-    .maybeSingle();
-  if (perfil?.tipo !== "interno") {
-    return jsonResponse({ error: "apenas usuario interno" }, 403);
-  }
-
+  const admin = quem.admin;
   // Front anterior a 2026-09-15 mandava o fatal cru, que não pode ir pro
   // parceiro: sem o "enviar até", a IA fica de fora e vale o texto padrão.
   if (!("prazo_parceiro" in body)) {
@@ -130,7 +113,7 @@ serve(async (req) => {
     return jsonResponse({ error: "prazo_parceiro deve ser aaaa-mm-dd" }, 400);
   }
 
-  const resIntegracao = await carregarIntegracao(admin, usuarioId);
+  const resIntegracao = await carregarIntegracao(admin, quem.uid);
   if (!resIntegracao.ok) {
     // Sem IA configurada não é erro do fluxo: o template segue com o texto padrão.
     return jsonResponse({ mensagem: null, motivo: resIntegracao.code });

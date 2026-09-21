@@ -34,6 +34,7 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
+import { exigirUsuario, fetchT } from "../_shared/auth.ts";
 
 const LM_BASE = "https://app.legalmail.com.br";
 const LM_TOKEN = Deno.env.get("LEGALMAIL_TOKEN");
@@ -155,7 +156,7 @@ interface LMMovimentacao {
 async function fetchLM(path: string): Promise<unknown> {
   const sep = path.includes("?") ? "&" : "?";
   const url = `${LM_BASE}${path}${sep}api_key=${LM_TOKEN}`;
-  const resp = await fetch(url, { headers: { Accept: "application/json" } });
+  const resp = await fetchT(url, { headers: { Accept: "application/json" } });
   if (resp.status === 429) {
     throw new Error("rate_limit");
   }
@@ -172,6 +173,11 @@ serve(async (req) => {
   if (req.method !== "POST") {
     return jsonResponse({ error: "metodo nao permitido" }, 405);
   }
+
+  // Antes daqui não havia checagem: qualquer pessoa com a chave publicável do
+  // site escrevia no `caso_id` que mandasse no corpo.
+  const quem = await exigirUsuario(req, { tipo: "interno" });
+  if (quem instanceof Response) return quem;
   if (!LM_TOKEN) {
     return jsonResponse({ error: "LEGALMAIL_TOKEN nao configurado" }, 500);
   }
@@ -185,7 +191,8 @@ serve(async (req) => {
   try {
     const body = await req.json();
     casoId = String(body.caso_id || "");
-    if (body.usuario_id) usuarioId = String(body.usuario_id);
+    // Autoria vem da sessão, não do corpo.
+    usuarioId = quem.uid;
     const raw = body.idprocessos;
     if (!Array.isArray(raw)) throw new Error("idprocessos deve ser array");
     idprocessos = raw.map((x: unknown) => Number(x)).filter((n) => !isNaN(n));

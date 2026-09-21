@@ -35,6 +35,7 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
+import { exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
 
 const COMUNICA_BASE = "https://comunicaapi.pje.jus.br/api/v1";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -126,7 +127,7 @@ async function fetchComunica(
     pagina: String(pagina),
   });
   const url = `${COMUNICA_BASE}/comunicacao?${qs.toString()}`;
-  const resp = await fetch(url, {
+  const resp = await fetchT(url, {
     headers: {
       Accept: "application/json",
       "User-Agent": "MaraSandraConnect/1.0 (sync-djen)",
@@ -151,6 +152,10 @@ serve(async (req) => {
   if (req.method !== "POST") {
     return jsonResponse({ error: "metodo nao permitido" }, 405);
   }
+
+  // Chamada pelo n8n (service role) e pela tela de publicações.
+  const quem = await exigirUsuarioOuSistema(req, "n8n:djen-sync", { tipo: "interno" });
+  if (quem instanceof Response) return quem;
   if (!SUPABASE_URL || !SERVICE_ROLE) {
     return jsonResponse({ error: "supabase env vars ausentes" }, 500);
   }

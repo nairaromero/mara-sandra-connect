@@ -24,6 +24,7 @@ import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { decryptSecret } from "../_shared/crypto.ts";
 import { chatWith } from "../_shared/ia-providers.ts";
 import { extrairJson } from "../_shared/documento-campos.ts";
+import { exigirUsuario } from "../_shared/auth.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -141,6 +142,10 @@ function semSugestao(motivo: string) {
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return jsonResponse({ error: "metodo nao permitido" }, 405);
+
+  // Checagem no topo: antes ela vinha depois das variáveis de ambiente e do corpo, então a função respondia (400/500, e até 200) sem saber quem chamou. `exigirUsuario` também confere `ativo`, que faltava aqui.
+  const quem = await exigirUsuario(req, { tipo: "interno" });
+  if (quem instanceof Response) return quem;
   if (!SUPABASE_URL || !SERVICE_ROLE) return jsonResponse({ error: "secrets ausentes" }, 500);
 
   let tarefaId = "";
@@ -151,20 +156,8 @@ serve(async (req) => {
   }
   if (!UUID_RE.test(tarefaId)) return jsonResponse({ error: "tarefa_id invalido" }, 400);
 
-  const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
+  const admin = quem.admin;
 
-  // Só interno ativo.
-  const jwt = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
-  if (!jwt) return jsonResponse({ error: "JWT obrigatorio" }, 401);
-  const { data: auth } = await admin.auth.getUser(jwt);
-  const usuarioId = auth?.user?.id;
-  if (!usuarioId) return jsonResponse({ error: "JWT invalido" }, 401);
-  const { data: perfil, error: errPerfil } = await admin
-    .from("usuarios").select("tipo, ativo").eq("id", usuarioId).maybeSingle();
-  if (errPerfil) return jsonResponse({ error: "falha ao ler o usuario" }, 500);
-  if (perfil?.tipo !== "interno" || perfil?.ativo !== true) {
-    return jsonResponse({ error: "apenas usuario interno" }, 403);
-  }
 
   // A chave não depende da tarefa: as duas leituras saem juntas, e sem chave a
   // função responde antes de ler o contexto do caso (o staging não tem chave).
