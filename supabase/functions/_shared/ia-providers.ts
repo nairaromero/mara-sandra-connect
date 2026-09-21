@@ -185,7 +185,10 @@ async function anthropicChat(
       "content-type": "application/json",
     },
     body: JSON.stringify(body),
-    signal: opts.signal,
+    // Timeout mesmo quando o chamador não passa `signal`: 6 dos 9 chamadores
+    // não passavam, e uma chamada de LLM pendurada segurava a function até o
+    // gateway derrubar em 150s.
+    signal: opts.signal ?? AbortSignal.timeout(90_000),
   });
 
   if (!resp.ok) {
@@ -257,7 +260,10 @@ async function openaiChat(
       "content-type": "application/json",
     },
     body: JSON.stringify(body),
-    signal: opts.signal,
+    // Timeout mesmo quando o chamador não passa `signal`: 6 dos 9 chamadores
+    // não passavam, e uma chamada de LLM pendurada segurava a function até o
+    // gateway derrubar em 150s.
+    signal: opts.signal ?? AbortSignal.timeout(90_000),
   });
 
   if (!resp.ok) {

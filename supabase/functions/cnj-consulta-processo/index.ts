@@ -29,6 +29,7 @@
 //   }
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
+import { exigirUsuario, fetchT } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -124,7 +125,7 @@ async function consultarMunicipio(
   codigoIBGE: number,
 ): Promise<{ nome: string | null; uf: string | null }> {
   try {
-    const r = await fetch(
+    const r = await fetchT(
       `https://servicodados.ibge.gov.br/api/v1/localidades/municipios/${codigoIBGE}`,
     );
     if (!r.ok) return { nome: null, uf: null };
@@ -146,6 +147,10 @@ async function consultarMunicipio(
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return jsonResponse({ error: "method not allowed" }, 405);
+
+  // Consulta paga/limitada ao DataJud: só quem é do escritório.
+  const quem = await exigirUsuario(req, { tipo: "interno" });
+  if (quem instanceof Response) return quem;
 
   let numero = "";
   try {
@@ -169,7 +174,7 @@ serve(async (req) => {
   let hit: DataJudHit | null = null;
   try {
     const url = `https://api-publica.datajud.cnj.jus.br/${cfg.endpoint}/_search`;
-    const resp = await fetch(url, {
+    const resp = await fetchT(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

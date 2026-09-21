@@ -34,6 +34,7 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
+import { exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -161,6 +162,10 @@ serve(async (req) => {
   if (req.method !== "POST") {
     return jsonResponse({ error: "metodo nao permitido" }, 405);
   }
+
+  // Chamada pelos três jobs de cron e pela tela de processos.
+  const quem = await exigirUsuarioOuSistema(req, "cron:datajud", { tipo: "interno" });
+  if (quem instanceof Response) return quem;
   if (!SUPABASE_URL || !SERVICE_ROLE) {
     return jsonResponse({ error: "supabase env vars ausentes" }, 500);
   }
@@ -261,7 +266,7 @@ serve(async (req) => {
     try {
       // Alguns endpoints do DataJud penduram; sem timeout um processo lento
       // come o orçamento inteiro da execução.
-      const resp = await fetch(`${DATAJUD_BASE}/${cfg.endpoint}/_search`, {
+      const resp = await fetchT(`${DATAJUD_BASE}/${cfg.endpoint}/_search`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

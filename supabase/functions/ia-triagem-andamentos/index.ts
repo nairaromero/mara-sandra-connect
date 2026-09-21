@@ -28,6 +28,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
 import { chatWith, type ToolDef } from "../_shared/ia-providers.ts";
 import { decryptSecret } from "../_shared/crypto.ts";
+import { exigirUsuario } from "../_shared/auth.ts";
 import { carregarIntegracao } from "../_shared/ia-integracao.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -134,7 +135,6 @@ serve(async (req) => {
   let limite = LIMITE_DEFAULT;
   let dias = DIAS_JANELA_DEFAULT;
   let dryRun = false;
-  let usuarioId: string | null = null;
   let casosFiltro: string[] | null = null;
   try {
     const body = await req.json().catch(() => ({}));
@@ -143,7 +143,6 @@ serve(async (req) => {
     }
     if (typeof body.dias === "number" && body.dias > 0) dias = body.dias;
     if (body.dry_run === true) dryRun = true;
-    if (body.usuario_id) usuarioId = String(body.usuario_id);
     // Escopo opcional: só triar andamentos destes casos (demo controlada,
     // sem tocar em outros clientes). Sem o filtro, roda em todos (cron).
     if (Array.isArray(body.casos) && body.casos.length > 0) {
@@ -153,26 +152,16 @@ serve(async (req) => {
     return jsonResponse({ error: "body invalido", detail: String(err) }, 400);
   }
 
-  const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
-
-  // --- Quem é o usuário (JWT do front tem prioridade; cron manda usuario_id) --
-  const authHeader = req.headers.get("authorization") || "";
-  const jwt = authHeader.replace(/^Bearer\s+/i, "");
-  if (jwt && jwt.split(".").length === 3) {
-    const { data: u } = await admin.auth.getUser(jwt);
-    if (u?.user?.id) usuarioId = u.user.id;
-  }
-  if (!usuarioId) {
-    return jsonResponse({ error: "usuario_id obrigatorio (ou JWT valido)" }, 401);
-  }
-  const { data: perfil } = await admin
-    .from("usuarios")
-    .select("tipo")
-    .eq("id", usuarioId)
-    .maybeSingle();
-  if (perfil?.tipo !== "interno") {
-    return jsonResponse({ error: "apenas usuario interno" }, 403);
-  }
+  // --- Quem chamou ----------------------------------------------------------
+  // Antes: `usuario_id` do corpo era preenchido ANTES da validação, então o
+  // 401 nunca disparava e o "apenas usuario interno" validava o UUID enviado,
+  // não quem chamou — qualquer pessoa rodava a triagem em nome de um interno.
+  // O cron que justificava esse atalho está comentado desde o lote de setembro
+  // (migration_cron_processos.sql), então o fallback sai inteiro.
+  const quem = await exigirUsuario(req, { tipo: "interno" });
+  if (quem instanceof Response) return quem;
+  const usuarioId = quem.uid;
+  const admin = quem.admin;
 
   // --- Integração de IA do usuário (mesma do assistente) --------------------
   // Chave própria; sem ela, cai na compartilhada do escritório (se houver).

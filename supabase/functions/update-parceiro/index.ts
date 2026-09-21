@@ -89,7 +89,7 @@ serve(async (req) => {
   // Confirma que caller eh interno
   const { data: caller, error: callerErr } = await supabaseAdmin
     .from("usuarios")
-    .select("tipo")
+    .select("tipo, eh_admin, ativo")
     .eq("id", callerId)
     .maybeSingle();
   if (callerErr) {
@@ -98,9 +98,17 @@ serve(async (req) => {
       500,
     );
   }
-  if (!caller || (caller as { tipo: string }).tipo !== "interno") {
+  // Editar parceiro é de ADMIN. Era de qualquer interno, e como a função troca
+  // o e-mail de login com `email_confirm: true` e manda o magic link para o
+  // endereço novo, isso era sequestro de conta a um clique (demonstrado no
+  // staging em 2026-09-20).
+  const perfilCaller = caller as { tipo?: string; eh_admin?: boolean; ativo?: boolean } | null;
+  if (
+    !perfilCaller || perfilCaller.tipo !== "interno" ||
+    perfilCaller.ativo === false || perfilCaller.eh_admin !== true
+  ) {
     return jsonResponse(
-      { error: "apenas usuarios internos podem editar parceiros" },
+      { error: "apenas administradores podem editar parceiros" },
       403,
     );
   }

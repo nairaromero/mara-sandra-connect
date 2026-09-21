@@ -21,6 +21,7 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
+import { exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -196,6 +197,12 @@ serve(async (req) => {
   if (req.method !== "POST") {
     return jsonResponse({ error: "metodo nao permitido" }, 405);
   }
+
+  // Chamada pelo front (interno ou parceiro), por outra function com service
+  // role e por gatilho. Antes daqui, qualquer um disparava e-mail em nome do
+  // escritório.
+  const quem = await exigirUsuarioOuSistema(req, "pgnet:notify-novo-andamento");
+  if (quem instanceof Response) return quem;
   if (!RESEND_API_KEY) {
     return jsonResponse({ error: "RESEND_API_KEY nao configurado" }, 500);
   }
@@ -293,7 +300,7 @@ serve(async (req) => {
     linkCaso,
   });
 
-  const resp = await fetch("https://api.resend.com/emails", {
+  const resp = await fetchT("https://api.resend.com/emails", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${RESEND_API_KEY}`,

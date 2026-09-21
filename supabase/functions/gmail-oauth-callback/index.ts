@@ -13,6 +13,7 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { encryptSecret, verifyPayload } from "../_shared/crypto.ts";
+import { fetchT } from "../_shared/auth.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -68,7 +69,7 @@ serve(async (req) => {
     redirect_uri: GMAIL_REDIRECT_URI,
     grant_type: "authorization_code",
   });
-  const r = await fetch("https://oauth2.googleapis.com/token", {
+  const r = await fetchT("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
@@ -99,7 +100,7 @@ serve(async (req) => {
   // O profile do Gmail responde com o escopo `gmail.readonly`, que já temos.
   let emailConectado = "";
   try {
-    const pr = await fetch(
+    const pr = await fetchT(
       "https://gmail.googleapis.com/gmail/v1/users/me/profile",
       { headers: { Authorization: `Bearer ${tok.access_token}` } },
     );
@@ -111,7 +112,7 @@ serve(async (req) => {
   // Reserva: userinfo, caso o escopo de e-mail tenha sido concedido.
   if (!emailConectado) {
     try {
-      const ui = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+      const ui = await fetchT("https://www.googleapis.com/oauth2/v2/userinfo", {
         headers: { Authorization: `Bearer ${tok.access_token}` },
       });
       if (ui.ok) {
