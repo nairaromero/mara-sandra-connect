@@ -19,6 +19,7 @@ import { MovimentacoesParceiroBell } from "@/components/movimentacoes-parceiro-b
 import { IaLauncher } from "@/components/ia/ia-launcher";
 import { SessionTimeoutGuard } from "@/components/session-timeout-guard";
 import { SeletorEscritorio } from "@/components/seletor-escritorio";
+import { AvisoSuportePendente } from "@/components/aviso-suporte-pendente";
 import { supabase } from "@/lib/supabase";
 import { dataHoraBR } from "@/lib/fuso";
 import { ehHostQG } from "@/lib/qg/host";
@@ -266,6 +267,7 @@ function ConteudoAutenticado(props: {
               </Button>
             </div>
           </header>
+          <AvisoSuportePendente />
           <main className="flex-1 p-4 md:p-6">
             <Outlet />
           </main>

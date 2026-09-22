@@ -1,13 +1,14 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, ShieldCheck, ShieldAlert, RefreshCw } from "lucide-react";
+import { LifeBuoy, Loader2, ShieldCheck, ShieldAlert, RefreshCw } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import { Paginador } from "@/components/paginador";
-import { usePorPagina } from "@/hooks/use-lista-paginada";
-import { formatarBR } from "@/lib/fuso";
+import { useListaPaginada, usePorPagina } from "@/hooks/use-lista-paginada";
+import { ROTULO_TIPO_ATOR, rotuloAcao } from "@/lib/suporte/rotulos";
+import { dataHoraBR, formatarBR } from "@/lib/fuso";
 import { ClientOnly } from "@/components/client-only";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -261,11 +262,12 @@ function AuditoriaPage() {
         <div>
           <h1 className="font-serif text-3xl font-semibold tracking-tight flex items-center gap-2">
             <ShieldCheck className="h-7 w-7 text-[var(--gold)]" />
-            Auditoria de senhas MEU INSS
+            Auditoria
           </h1>
           <p className="text-sm text-muted-foreground">
-            Registro imutável de todo acesso (leitura, escrita ou remoção) à senha do MEU INSS dos
-            clientes. Obrigatório para conformidade LGPD.
+            Registro imutável de quem fez o quê neste escritório: acessos à senha do MEU INSS dos clientes
+            (leitura, escrita ou remoção) e tudo que a plataforma ou uma sessão de suporte fez aqui.
+            Obrigatório para conformidade LGPD.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => load()} disabled={loading}>
@@ -454,7 +456,81 @@ function AuditoriaPage() {
           onPorPagina={setPorPagina}
           nome="acessos"
         />
+
+        <TrilhaPlataforma />
       </ClientOnly>
     </div>
+  );
+}
+
+// O que a plataforma, o suporte e os administradores fizeram NESTE escritorio
+// (tabela auditoria, via RPC que resolve o nome de quem fez). So metadado.
+interface LinhaTrilha {
+  id: number;
+  quando: string;
+  tipo_ator: string;
+  ator_nome: string | null;
+  acao: string;
+  recurso: string | null;
+  recurso_id: string | null;
+  detalhes: Record<string, unknown>;
+  total: number;
+}
+
+function TrilhaPlataforma() {
+  const lista = useListaPaginada<LinhaTrilha>(
+    (offset, limite) => supabase.rpc("auditoria_plataforma", { p_limite: limite, p_offset: offset }),
+    "trilha",
+    { porPagina: 25, persistencia: "auditoria-plataforma" },
+  );
+  return (
+    <Card data-trilha-plataforma>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <LifeBuoy className="h-5 w-5 text-[var(--gold)]" />
+          Plataforma e suporte neste escritório
+        </CardTitle>
+        <CardDescription>
+          Cada pedido, aprovação e encerramento de acesso de suporte, cada tela que uma sessão de suporte abriu e
+          cada ação da equipe da plataforma sobre o escritório. Nada disso acontece sem ficar aqui.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="p-0">
+        {lista.erro && <p className="px-6 py-4 text-sm text-red-700">Não consegui carregar a trilha: {lista.erro}</p>}
+        {!lista.erro && !lista.carregando && lista.itens.length === 0 && (
+          <p className="px-6 py-8 text-center text-sm text-muted-foreground">Nenhuma ação da plataforma registrada.</p>
+        )}
+        {lista.itens.length > 0 && (
+          <ul className="divide-y">
+            {lista.itens.map((l) => (
+              <li key={l.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-6 py-3 text-sm">
+                <span className="w-36 shrink-0 tabular-nums text-muted-foreground">{dataHoraBR(l.quando)}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="font-medium">{l.ator_nome ?? ROTULO_TIPO_ATOR[l.tipo_ator] ?? l.tipo_ator}</span>
+                  <span className="text-muted-foreground"> · {ROTULO_TIPO_ATOR[l.tipo_ator] ?? l.tipo_ator}</span>
+                  <span className="block">
+                    {rotuloAcao(l.acao)}
+                    {l.acao === "suporte.abrir" && l.recurso ? (
+                      <code className="ml-1 rounded bg-muted px-1 text-xs">{l.recurso}</code>
+                    ) : null}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <Paginador
+          pagina={lista.pagina}
+          porPagina={lista.porPagina}
+          total={lista.total}
+          temMais={lista.temMais}
+          carregando={lista.carregando && lista.itens.length > 0}
+          onPagina={lista.irPara}
+          onPorPagina={lista.setPorPagina}
+          nome="registros"
+          className="border-t"
+        />
+      </CardContent>
+    </Card>
   );
 }

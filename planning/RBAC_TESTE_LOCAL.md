@@ -10,7 +10,7 @@ Docker aberto. Da raiz do repositório:
 
 ```bash
 bun run local:copiar   # banco local = cópia do staging (~3 min). Só se quiser zerar.
-bun run local:rbac     # aplica as 6 migrations do RBAC + cria escritório canário, contas e QG
+bun run local:rbac     # aplica as 7 migrations do RBAC + cria escritório canário, contas e QG
 bun run dev:local      # app em http://localhost:8080
 ```
 
@@ -129,12 +129,18 @@ você forçar pela URL/console, o banco recusar.
 
 - [ ] No QG (como `qg+suporte`), abrir o Canário → **Pedir acesso de suporte** (motivo, 1 h).
 - [ ] Em `localhost:8080`, entrar como `qg+suporte` → ainda **sem acesso** a nada.
-- [ ] Entrar como `canario+admin` → por enquanto a aprovação é por RPC (a tela ainda não existe — ver "O que falta"):
-      `node scripts/msc-sql.mjs --local "select id, motivo, status from acessos_suporte"` para ver o pedido; aprovar pelo console do navegador logado como `canario+admin`:
-      `await supabase.rpc("suporte_responder", { p_id: "<id>", p_aprovar: true })`
-- [ ] Voltar como `qg+suporte` em `localhost:8080` → o Canário abre, com a **faixa âmbar "Sessão de suporte — somente leitura"**. Tentar salvar qualquer coisa → recusado.
-- [ ] Como `canario+admin`, em Auditoria/banco: aparecem o pedido, a aprovação e **cada tela que o suporte abriu**.
-- [ ] No QG → Operação → Suporte → **Encerrar** → o acesso some na hora.
+- [ ] Entrar como `canario+admin` → aparece a **faixa âmbar no topo** "A equipe da plataforma pediu acesso de
+      suporte a este escritório · Ver pedido". (`canario+advogado` não vê a faixa nem a aba.)
+- [ ] "Ver pedido" leva a **Configurações → aba Suporte**: o pedido com quem pediu, motivo, ticket e prazo.
+      **Aprovar por 1 h** → passa para "Acessos em andamento" (desde/até); a faixa do topo some na hora.
+- [ ] Voltar como `qg+suporte` em `localhost:8080` → o Canário abre, com a **faixa âmbar "Sessão de suporte —
+      somente leitura"**. Tentar salvar qualquer coisa → recusado.
+- [ ] Como `canario+admin`, **Auditoria** → card "Plataforma e suporte neste escritório": o pedido, a aprovação
+      e **cada tela que o suporte abriu** (ex.: `/casos`), com o nome de quem fez.
+- [ ] Configurações → Suporte → **Encerrar agora** → o acesso some na hora para o suporte (recarregar como
+      `qg+suporte`: sem escritório); o pedido vai para o Histórico como "encerrado" e a Auditoria registra.
+- [ ] Novo pedido → **Recusar** → Histórico "recusado"; suporte continua sem nada. (No QG → Operação → Suporte
+      o staff também pode encerrar o próprio acesso.)
 
 ### H. Encerrar e eliminar (só com escritório descartável!)
 
@@ -187,15 +193,16 @@ o tamanho escolhido fica lembrado por lista neste navegador.
 ### I. Provas automáticas (rodar e conferir os números)
 
 ```bash
-bun run e2e:local                                         # suíte inteira: 100 testes
+bun run e2e:local                                         # suíte inteira: 102 testes
 bun run e2e:local e2e/tests/rbac-isolamento.spec.ts       # 16 ataques entre os dois escritórios
 bun run e2e:local e2e/tests/rbac-edge-functions.spec.ts   # 7 ataques nas edge functions
 bun run e2e:local e2e/tests/glossario.spec.ts             # 3: busca, permissões do banco, parceiro
 bun run e2e:local e2e/tests/qg-paginacao.spec.ts          # 2: página/total/busca na API e na tela do QG
 bun run e2e:local e2e/tests/listas-carregar-mais.spec.ts  # 3: 1.100 processos contados; publicações e conversas paginadas
+bun run e2e:local e2e/tests/suporte-escritorio.spec.ts    # 2: aviso + aba Suporte (aprovar/encerrar/recusar) e trilha na Auditoria
 ```
 
-- [ ] 100 passam. Os 23 do RBAC são ataques via API com a sessão real de cada papel: header
+- [ ] 102 passam. Os 23 do RBAC são ataques via API com a sessão real de cada papel: header
       forjado, filho apontando para pai de outro escritório (inclusive com service role), RPC
       com id alheio, vínculo desativado com o JWT ainda válido, staff lendo tabela de domínio,
       suporte escrevendo, eliminação sem segunda pessoa.
@@ -205,7 +212,7 @@ bun run e2e:local e2e/tests/listas-carregar-mais.spec.ts  # 3: 1.100 processos c
 | Camada | O quê |
 |---|---|
 | Banco — `migration_rbac_01…05` | `escritorios`, `membros`, 5 papéis × 26 permissões (matriz §4.3); `escritorio_id NOT NULL` em 41 tabelas com herança por gatilho; 41 policies restritivas de isolamento + 58 de permissão; helpers de papel sobre o vínculo; guard de escritório nas RPCs; equipe sobre vínculos (`definir_papel`); QG (`plataforma_staff`, `acessos_suporte`, `auditoria`, `ops.*`, 22 funções `qg_*`) |
-| Front | header `x-escritorio-id` em toda chamada; escritório ativo, vínculos e permissões no `useAuth` (`pode()`); seletor; faixa de suporte; tela "sem escritório"; menu por permissão; Equipe por papéis; QG em `/qg` (só no host `qg.`) |
+| Front | header `x-escritorio-id` em toda chamada; escritório ativo, vínculos e permissões no `useAuth` (`pode()`); seletor; faixa de suporte; tela "sem escritório"; menu por permissão; Equipe por papéis; QG em `/qg` (só no host `qg.`); **Configurações → Suporte** (aprovar/recusar/encerrar acesso de suporte) + aviso no topo para o admin + trilha "Plataforma e suporte" na Auditoria (`migration_rbac_07`) |
 | Edge functions | `exigirUsuario` por vínculo e escritório; `exigirRecurso`; client de service role preso ao escritório (`escopado`) no digest, e-mails do INSS e DJEN; convite por escritório e papel; MCP no escritório do token; `qg-escritorios` |
 | Paginação | `<Paginador>` (1–25 de N · « ‹ 1 2 › » · itens por página) + `useListaPaginada`/`usePaginaLocal`: QG (escritórios e pessoas, 10, busca sem acento e filtro no banco — `migration_rbac_06`), Publicações (50), Conversas (25 threads, RPC `conversas_threads`), Movimentações, Auditoria, Processos e Clientes; `/processos` carrega até o fim e reduz o último andamento no banco (`processos_ultimo_andamento`) — nada mais usa `.limit(n)` fixo pra listar tudo |
 | Glossário | `/glossario` (produto) e `/qg/glossario` (QG): busca por nome, sinônimo, definição e permissão; os cards de papel mostram as permissões **lidas do banco**; termos em `src/lib/glossario/termos.ts` (76), com público por termo (todos / equipe / QG) |
@@ -242,7 +249,6 @@ escritório 1 não mudou, e forjar o header não abre nada.
 
 | Item | Por quê ficou |
 |---|---|
-| **Tela do escritório para aprovar suporte** e aba de transparência em Auditoria | As RPCs existem e estão testadas (`suporte_pedidos`, `suporte_responder`, policy de `auditoria`); falta a tela |
 | **Integrações por escritório** (Gmail INSS, DJEN, WhatsApp, Legalmail/TI) | v1: são do escritório padrão. As rotinas já filtram por ele; um segundo escritório não tem essas integrações ainda (Fase 6) |
 | **Marca por escritório** | O Canário ainda mostra o logo Mara Sandra Vian. `escritorio_config.marca` existe, a tela não usa |
 | **MFA (AAL2) no QG** | Ligado por `app_config.qg_exigir_aal2 = 'true'`; no local está `false` para dar para testar. Em produção tem que ser `true` — e ainda não há tela de cadastro do segundo fator |
@@ -253,7 +259,7 @@ escritório 1 não mudou, e forjar o header não abre nada.
 
 ## 6. Antes de ir para o staging
 
-Nada disto foi aplicado fora do local. Para o staging: as 6 migrations com
+Nada disto foi aplicado fora do local. Para o staging: as 7 migrations com
 `node scripts/msc-sql.mjs --staging --file …` **na ordem**, deploy das 26 edge functions alteradas
 (+ `qg-escritorios`), e só então o front. Como a #02 mexe em 41 tabelas, vale ensaiar de novo numa
 cópia fresca (`bun run local:copiar && bun run local:rbac`) no dia — leva ~4 min.

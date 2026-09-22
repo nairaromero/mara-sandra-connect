@@ -594,7 +594,7 @@ export const TERMOS: Array<Termo> = [
     sinonimos: ["sessão de suporte", "suporte da plataforma"],
     categoria: "plataforma",
     definicao:
-      "O único caminho para alguém da plataforma ver o conteúdo de um escritório. A pessoa pede pelo QG, com motivo e prazo (até 72 horas); o administrador do escritório aprova ou recusa. Aprovado, o acesso é somente leitura, com uma faixa âmbar na tela, e cada tela aberta fica na auditoria do escritório. Encerra sozinho no prazo, ou antes, pelo QG.",
+      "O único caminho para alguém da plataforma ver o conteúdo de um escritório. A pessoa pede pelo QG, com motivo e prazo (até 72 horas); o administrador do escritório vê o aviso no topo e aprova ou recusa em Configurações → Suporte. Aprovado, o acesso é somente leitura, com uma faixa âmbar na tela, e cada tela aberta fica na auditoria do escritório. Encerra sozinho no prazo, ou antes — pelo administrador (Configurações → Suporte) ou pelo QG.",
     veja: ["admin", "auditoria", "qg"],
   },
   {

@@ -14,10 +14,11 @@ import {
   Plug,
   Webhook,
   type LucideIcon,
-} from "lucide-react";
+ LifeBuoy } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { AbaSuporte } from "@/components/suporte/aba-suporte";
 import { formatarTelefone } from "@/lib/telefone";
 import { ClientOnly } from "@/components/client-only";
 import { IntegracaoIaCard } from "@/components/ia/integracao-ia-card";
@@ -323,7 +324,7 @@ function ConfiguracoesPage() {
     "perfil",
     "seguranca",
     ...(ehInterno ? ["beneficios"] : []),
-    ...(isAdmin ? ["integracoes", "webhooks"] : []),
+    ...(isAdmin ? ["integracoes", "webhooks", "suporte"] : []),
   ];
   const tab = search.tab && abas.includes(search.tab) ? search.tab : "perfil";
   function irParaAba(v: string) {
@@ -399,6 +400,12 @@ function ConfiguracoesPage() {
                   ativa={tab === "webhooks"}
                   icone={Webhook}
                   rotulo="Webhooks"
+                />
+                <AbaConfig
+                  value="suporte"
+                  ativa={tab === "suporte"}
+                  icone={LifeBuoy}
+                  rotulo="Suporte"
                 />
               </>
             )}
@@ -669,6 +676,12 @@ function ConfiguracoesPage() {
                   não é consultada em toda visita às Configurações. */}
               <TabsContent value="webhooks">
                 <WebhooksCard />
+              </TabsContent>
+
+              {/* Suporte: pedidos de acesso da plataforma a este escritorio
+                  (aprovar / recusar / encerrar). So admin, como manda o RBAC. */}
+              <TabsContent value="suporte">
+                <AbaSuporte />
               </TabsContent>
             </>
           )}

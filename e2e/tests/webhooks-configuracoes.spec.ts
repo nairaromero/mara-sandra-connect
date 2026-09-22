@@ -67,13 +67,14 @@ test("admin: webhooks saíram da sidebar e /webhooks abre a aba nas Configuraç�
   await expect(page.getByRole("tab", { name: "Webhooks" })).toHaveAttribute("data-state", "active");
   await expect(page.getByRole("button", { name: "Novo webhook" })).toBeVisible();
 
-  // Admin vê as cinco abas, na ordem.
+  // Admin vê as seis abas, na ordem (Suporte: acesso de suporte da plataforma, RBAC 07).
   await expect(page.getByRole("tab")).toHaveText([
     "Perfil",
     "Segurança",
     "Tipos de benefício",
     "Integrações",
     "Webhooks",
+    "Suporte",
   ]);
 
   // Trocar de aba atualiza a URL (deep-link) e mostra o conteúdo certo.

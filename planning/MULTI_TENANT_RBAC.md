@@ -45,7 +45,7 @@ Onde este documento divergir do banco, vale o banco — e corrija aqui
 
 ## 0. Estado da implementação (2026-09-22)
 
-Branch `feat/rbac-multi-tenant`, seis migrations (`migration_rbac_01…06`), 26 edge functions
+Branch `feat/rbac-multi-tenant`, sete migrations (`migration_rbac_01…07`), 26 edge functions
 alteradas + `qg-escritorios`, front, QG, glossário e paginação. Aplicado e provado **só no banco
 local**: `bun run local:copiar && bun run local:rbac`, `bun run e2e:local` = 100/100 (69 existentes +
 23 de ataque entre escritórios + 3 do glossário + 5 de paginação) e `scripts/rbac-diff-visibilidade.mjs` mostrando que o
@@ -59,7 +59,7 @@ escritório 1 vê exatamente as mesmas linhas de antes.
 | 3 · `escritorio_id` | feita, com desvio | 41 tabelas, `NOT NULL`, herança por gatilho. **FK simples + gatilho** em vez de FK composta (D23) |
 | 4 · Isolamento | feita, com desvio | 41 policies restritivas; helpers sobre `membros`; **escritório ativo por header** (D24), não `IN (todos)` |
 | 5 · RBAC | feita no banco; telas parciais | 58 policies `perm_*`; menu, botões principais e Equipe por permissão. O codemod fino das telas não foi feito — o banco barra, a tela às vezes ainda oferece |
-| 6 · Produto | parcial | QG completo (D25); trocar de escritório; convite por papel. **Faltam**: tela do escritório para aprovar suporte, integrações por escritório (v1: são do padrão), marca por escritório, export por escritório |
+| 6 · Produto | parcial | QG completo (D25); trocar de escritório; convite por papel; tela do escritório para aprovar/encerrar suporte + trilha na Auditoria (23/09). **Faltam**: integrações por escritório (v1: são do padrão), marca por escritório, export por escritório |
 | 7 · Contração | não feita | colunas antigas de `usuarios` seguem sincronizadas; nenhuma decisão de acesso as lê |
 | QG (§4.6) | feita, com desvio | funções `qg_*` em `public` (não schema `plataforma`); AAL2 por `app_config`, desligada no local |
 
