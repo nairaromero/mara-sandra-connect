@@ -10,7 +10,7 @@ Docker aberto. Da raiz do repositório:
 
 ```bash
 bun run local:copiar   # banco local = cópia do staging (~3 min). Só se quiser zerar.
-bun run local:rbac     # aplica as 5 migrations do RBAC + cria escritório canário, contas e QG
+bun run local:rbac     # aplica as 6 migrations do RBAC + cria escritório canário, contas e QG
 bun run dev:local      # app em http://localhost:8080
 ```
 
