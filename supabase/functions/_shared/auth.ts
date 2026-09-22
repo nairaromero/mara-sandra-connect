@@ -380,6 +380,19 @@ export function escopado(sb: SupabaseClient, escritorioId: string | null): Supab
           get(q, metodo, r) {
             const v = Reflect.get(q, metodo, r);
             if (typeof v !== "function") return v;
+            // insert/upsert: a linha nasce no escritório do escopo. Sem isto o
+            // gatilho aa_herdar_escritorio, sem pai e sem sessão de pessoa,
+            // cairia no escritório padrão (linha de outro escritório no lugar errado).
+            if (metodo === "insert" || metodo === "upsert") {
+              // deno-lint-ignore no-explicit-any
+              return (linhas: any, ...resto: any[]) => {
+                // deno-lint-ignore no-explicit-any
+                const marcar = (l: any) => (l && typeof l === "object" && l.escritorio_id == null ? { ...l, escritorio_id: escritorioId } : l);
+                const marcadas = Array.isArray(linhas) ? linhas.map(marcar) : marcar(linhas);
+                // deno-lint-ignore no-explicit-any
+                return (v as any).apply(q, [marcadas, ...resto]);
+              };
+            }
             if (metodo !== "select" && metodo !== "update" && metodo !== "delete") return v.bind(q);
             // deno-lint-ignore no-explicit-any
             return (...args: any[]) => (v as any).apply(q, args).eq("escritorio_id", escritorioId);

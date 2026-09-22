@@ -213,3 +213,6 @@ verify_jwt = true
 # Quem pode chamar é conferido no banco (private.exigir_staff, nas RPCs qg_*).
 [functions.qg-escritorios]
 verify_jwt = true
+
+[functions.integracoes-escritorio]
+verify_jwt = true

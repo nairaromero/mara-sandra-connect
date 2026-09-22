@@ -477,7 +477,7 @@ export const TERMOS: Array<Termo> = [
     sinonimos: ["Diário de Justiça Eletrônico Nacional", "Comunica CNJ", "diário"],
     categoria: "automacoes",
     definicao:
-      "O Diário de Justiça Eletrônico Nacional, do CNJ. É de onde vêm as publicações, buscadas toda madrugada pelas OABs cadastradas no escritório.",
+      "O Diário de Justiça Eletrônico Nacional, do CNJ. É de onde vêm as publicações, buscadas toda madrugada pelas OABs cadastradas em cada escritório — a rotina roda uma vez por escritório, e a publicação só casa com processos dele.",
     veja: ["publicacao", "processo"],
   },
   {
@@ -496,7 +496,7 @@ export const TERMOS: Array<Termo> = [
     categoria: "automacoes",
     publico: "interno",
     definicao:
-      "A caixa Gmail conectada em Configurações → Integrações recebe as comunicações do MEU INSS. Cada e-mail é lido, casado com o caso pelo CPF e vira andamento — e tarefa, quando há prazo.",
+      "A caixa Gmail conectada em Configurações → Integrações recebe as comunicações do MEU INSS. Cada e-mail é lido, casado com o caso pelo CPF e vira andamento — e tarefa, quando há prazo. Cada escritório conecta a sua caixa; a rotina roda uma vez por escritório e só enxerga os casos dele.",
     veja: ["andamento", "tarefa"],
   },
   {
@@ -534,7 +534,7 @@ export const TERMOS: Array<Termo> = [
     categoria: "automacoes",
     publico: "interno",
     definicao:
-      "O canal de mensagens com o parceiro, ativado por código. O envio automático está pausado; o que existe hoje é o registro das mensagens.",
+      "O canal de mensagens com o parceiro, ativado por código. Cada escritório cadastra a própria instância do Evolution em Configurações → Integrações (a chave fica cifrada no servidor); a mensagem que chega é do escritório daquela instância. O envio automático está pausado; o que existe hoje é o registro das mensagens.",
     veja: ["parceiro"],
   },
   {
@@ -571,6 +571,15 @@ export const TERMOS: Array<Termo> = [
   // -------------------------------------------------------------------------
   // Plataforma e QG
   // -------------------------------------------------------------------------
+  {
+    id: "legal-connect",
+    termo: "Legal Connect",
+    sinonimos: ["marca do produto", "logo"],
+    categoria: "plataforma",
+    definicao:
+      "O nome e a marca do produto — os dois anéis entrelaçados, azul-marinho e dourado. Aparece onde ainda não se sabe (ou não importa) o escritório: tela de entrada, criar/redefinir senha, aba do navegador, ícone do app, cabeçalho dos e-mails, QG e o “por Legal Connect” no rodapé. Dentro do sistema, o topo mostra a marca do escritório.",
+    veja: ["plataforma", "escritorio"],
+  },
   {
     id: "plataforma",
     termo: "Plataforma",

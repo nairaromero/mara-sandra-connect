@@ -24,6 +24,7 @@ import { ClientOnly } from "@/components/client-only";
 import { IntegracaoIaCard } from "@/components/ia/integracao-ia-card";
 import { ConexaoClaudeCard } from "@/components/ia/conexao-claude-card";
 import { IntegracaoGmailCard } from "@/components/integracoes/integracao-gmail-card";
+import { IntegracaoWhatsappCard } from "@/components/integracoes/integracao-whatsapp-card";
 import { WebhooksCard } from "@/components/integracoes/webhooks-card";
 import { TiposBeneficioCard } from "@/components/tipos-beneficio-card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -667,8 +668,11 @@ function ConfiguracoesPage() {
                 {/* Card: Conectar Claude/ChatGPT (Superficie B) */}
                 <ConexaoClaudeCard />
 
-                {/* Card: Integração Gmail (INSS) */}
+                {/* Card: Integração Gmail (INSS) — a caixa deste escritório */}
                 <IntegracaoGmailCard />
+
+                {/* Card: WhatsApp (Evolution) — a instância deste escritório */}
+                <IntegracaoWhatsappCard />
               </TabsContent>
 
               {/* Webhooks: era a página /webhooks com item na sidebar (até

@@ -47,11 +47,16 @@ serve(async (req) => {
   if (oauthError) return redirectBack("error", `google:${oauthError}`);
   if (!code || !state) return redirectBack("error", "params_faltando");
 
-  // Valida state = usuario_id.nonce.ts.sig
+  // Valida state = usuario_id.escritorio_id.nonce.ts.sig (ou o antigo, sem
+  // escritório: cai no escritório padrão).
   const parts = state.split(".");
-  if (parts.length !== 4) return redirectBack("error", "state_malformado");
-  const [usuarioId, nonce, tsStr, sig] = parts;
-  const payload = `${usuarioId}.${nonce}.${tsStr}`;
+  if (parts.length !== 4 && parts.length !== 5) return redirectBack("error", "state_malformado");
+  const [usuarioId, escritorioNoState, nonce, tsStr, sig] = parts.length === 5
+    ? parts
+    : [parts[0], null, parts[1], parts[2], parts[3]];
+  const payload = parts.length === 5
+    ? `${usuarioId}.${escritorioNoState}.${nonce}.${tsStr}`
+    : `${usuarioId}.${nonce}.${tsStr}`;
   const ts = Number(tsStr);
   if (!Number.isFinite(ts)) return redirectBack("error", "state_ts_invalido");
 
@@ -129,10 +134,18 @@ serve(async (req) => {
     auth: { persistSession: false },
   });
 
+  let escritorioId = escritorioNoState;
+  if (!escritorioId) {
+    const { data: padrao } = await sb.from("escritorios").select("id").eq("padrao_sistema", true).maybeSingle();
+    escritorioId = (padrao?.id as string | undefined) ?? null;
+  }
+  if (!escritorioId) return redirectBack("error", "sem_escritorio");
+
   const { error: upsertErr } = await sb
     .from("usuario_gmail_oauth")
     .upsert({
       usuario_id: usuarioId,
+      escritorio_id: escritorioId,
       email_conectado: emailConectado || "(desconhecido)",
       refresh_cipher: cipher,
       refresh_iv: iv,

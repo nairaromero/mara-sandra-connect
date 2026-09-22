@@ -20,7 +20,8 @@
 // =============================================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { fetchT } from "../_shared/auth.ts";
+import { escopado, escritorioDoSistema, fetchT } from "../_shared/auth.ts";
+import { decryptSecret } from "../_shared/crypto.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -32,9 +33,45 @@ const EVO_BASE = Deno.env.get("EVOLUTION_BASE_URL") ?? "https://evo.nairavian-n8
 const EVO_INSTANCE = Deno.env.get("EVOLUTION_INSTANCE") ?? "mara";
 const EVOLUTION_API_KEY = Deno.env.get("EVOLUTION_API_KEY") ?? "";
 
-const sb = createClient(SUPABASE_URL, SERVICE_ROLE, {
+const sbBruto = createClient(SUPABASE_URL, SERVICE_ROLE, {
   auth: { persistSession: false },
 });
+
+// A instância do Evolution diz de QUAL escritório é a mensagem: cada
+// escritório cadastra a sua em Configurações → Integrações (WhatsApp), com o
+// token de entrada e a chave da API (cifrada). Sem cadastro, vale o modo
+// antigo: variáveis de ambiente = escritório padrão do sistema.
+interface Escritorio {
+  id: string;
+  evo: { base: string; instance: string; key: string };
+  inboundToken: string;
+}
+async function resolverEscritorio(instance: string | null): Promise<Escritorio | null> {
+  if (instance) {
+    const { data, error } = await sbBruto
+      .from("escritorio_integracoes")
+      .select("escritorio_id, config, segredo_cipher, segredo_iv, ativo")
+      .eq("tipo", "whatsapp")
+      .eq("config->>instance", instance)
+      .maybeSingle();
+    if (error) throw new Error(`escritorio_integracoes: ${error.message}`);
+    if (data) {
+      if (!data.ativo) return null;
+      const cfg = (data.config ?? {}) as { base_url?: string; instance?: string; inbound_token?: string };
+      const key = data.segredo_cipher && data.segredo_iv ? await decryptSecret(data.segredo_cipher, data.segredo_iv) : "";
+      return {
+        id: data.escritorio_id,
+        evo: { base: (cfg.base_url ?? EVO_BASE).replace(/\/+$/, ""), instance: cfg.instance ?? instance, key },
+        inboundToken: cfg.inbound_token ?? "",
+      };
+    }
+  }
+  // legado: instância das variáveis de ambiente = escritório padrão
+  if (instance && instance !== EVO_INSTANCE) return null;
+  const padrao = await escritorioDoSistema(sbBruto);
+  if (!padrao) return null;
+  return { id: padrao, evo: { base: EVO_BASE, instance: EVO_INSTANCE, key: EVOLUTION_API_KEY }, inboundToken: INBOUND_TOKEN };
+}
 
 // Rótulos amigáveis dos enums (só exibição).
 const STATUS_LABEL: Record<string, string> = {
@@ -140,37 +177,6 @@ function base64ToBytes(b64: string): Uint8Array {
   return bytes;
 }
 
-// Baixa o binário da mídia via Evolution (webhookBase64 está OFF, então pedimos
-// o base64 sob demanda). Retorna null em qualquer falha (a função trata).
-async function baixarBase64(
-  data: any,
-): Promise<{ base64: string; mimetype?: string; fileName?: string } | null> {
-  if (!EVOLUTION_API_KEY) {
-    console.error("baixarBase64: EVOLUTION_API_KEY ausente");
-    return null;
-  }
-  try {
-    const resp = await fetchT(
-      `${EVO_BASE}/chat/getBase64FromMediaMessage/${EVO_INSTANCE}`,
-      {
-        method: "POST",
-        headers: { apikey: EVOLUTION_API_KEY, "Content-Type": "application/json" },
-        body: JSON.stringify({ message: { key: data.key }, convertToMp4: false }),
-      },
-    );
-    if (!resp.ok) {
-      console.error("getBase64 HTTP", resp.status, (await resp.text()).slice(0, 300));
-      return null;
-    }
-    const j = await resp.json();
-    const base64 = j.base64 ?? j.media ?? null;
-    if (!base64) return null;
-    return { base64, mimetype: j.mimetype, fileName: j.fileName };
-  } catch (e) {
-    console.error("baixarBase64 erro:", (e as Error)?.message ?? e);
-    return null;
-  }
-}
 
 // --- textos do menu --------------------------------------------------------
 // Primeiro nome só (mais pessoal e cabe melhor no balão).
@@ -201,6 +207,63 @@ const menuCaso = (cliente: string, status: string) =>
   `*0* · ◀️ Voltar`;
 
 // --- persistência de sessão -------------------------------------------------
+
+
+Deno.serve(async (req) => {
+  if (req.method !== "POST") return new Response("method not allowed", { status: 405 });
+
+  const url = new URL(req.url);
+  const token = url.searchParams.get("token") ?? req.headers.get("x-inbound-token") ?? "";
+
+  let body: any;
+  try { body = await req.json(); } catch { return ok(); }
+
+  // --- escritório pela instância, token DELE ---
+  const instance: string | null = typeof body?.instance === "string" && body.instance ? body.instance : null;
+  let esc: Escritorio | null;
+  try {
+    esc = await resolverEscritorio(instance);
+  } catch (e) {
+    console.error("resolverEscritorio:", (e as Error)?.message ?? e);
+    return new Response("erro", { status: 500 });
+  }
+  if (!esc || !esc.inboundToken || token !== esc.inboundToken) {
+    return new Response("unauthorized", { status: 401 });
+  }
+  // daqui pra baixo tudo é DESTE escritório: leituras filtradas, linhas novas
+  // nascem nele (o service role não tem escritório ativo pro gatilho)
+  const sb = escopado(sbBruto, esc.id);
+
+async function baixarBase64(
+  data: any,
+): Promise<{ base64: string; mimetype?: string; fileName?: string } | null> {
+  if (!esc.evo.key) {
+    console.error("baixarBase64: chave do Evolution ausente para o escritório");
+    return null;
+  }
+  try {
+    const resp = await fetchT(
+      `${esc.evo.base}/chat/getBase64FromMediaMessage/${esc.evo.instance}`,
+      {
+        method: "POST",
+        headers: { apikey: esc.evo.key, "Content-Type": "application/json" },
+        body: JSON.stringify({ message: { key: data.key }, convertToMp4: false }),
+      },
+    );
+    if (!resp.ok) {
+      console.error("getBase64 HTTP", resp.status, (await resp.text()).slice(0, 300));
+      return null;
+    }
+    const j = await resp.json();
+    const base64 = j.base64 ?? j.media ?? null;
+    if (!base64) return null;
+    return { base64, mimetype: j.mimetype, fileName: j.fileName };
+  } catch (e) {
+    console.error("baixarBase64 erro:", (e as Error)?.message ?? e);
+    return null;
+  }
+}
+
 async function salvarSessao(
   telefone: string, parceiro_id: string, estado: string, contexto: unknown,
 ) {
@@ -217,25 +280,12 @@ async function responder(
 ) {
   await sb.rpc("whatsapp_enqueue_text", {
     p_telefone: telefone, p_tipo: "menu", p_texto: texto,
-    p_parceiro_id: parceiro_id, p_caso_id: caso_id,
+    p_parceiro_id: parceiro_id, p_caso_id: caso_id, p_escritorio_id: esc.id,
   });
   await sb.from("whatsapp_mensagens").insert({
     telefone, direcao: "out", tipo: "menu", conteudo: texto, parceiro_id,
   });
 }
-
-Deno.serve(async (req) => {
-  if (req.method !== "POST") return new Response("method not allowed", { status: 405 });
-
-  // --- token ---
-  const url = new URL(req.url);
-  const token = url.searchParams.get("token") ?? req.headers.get("x-inbound-token") ?? "";
-  if (!INBOUND_TOKEN || token !== INBOUND_TOKEN) {
-    return new Response("unauthorized", { status: 401 });
-  }
-
-  let body: any;
-  try { body = await req.json(); } catch { return ok(); }
 
   // Evolution: { event, instance, data:{ key, message, messageType } }
   const data = body?.data ?? body;
@@ -263,7 +313,7 @@ Deno.serve(async (req) => {
 
   // --- resolve parceiro (por LID via whatsapp_lid_map, ou por telefone) ---
   const { data: pr } = await sb.rpc("whatsapp_resolve_parceiro", {
-    p_ident: ident, p_via_lid: viaLid,
+    p_ident: ident, p_via_lid: viaLid, p_escritorio_id: esc.id,
   });
   const parceiro = Array.isArray(pr) ? pr[0] : pr;
   if (!parceiro) {
@@ -292,7 +342,7 @@ Deno.serve(async (req) => {
       await sb.rpc("whatsapp_enqueue_text", {
         p_telefone: ident, p_tipo: "desconhecido",
         p_texto: "Não reconhecemos este número. Por favor, fale com o escritório.",
-        p_parceiro_id: null, p_caso_id: null,
+        p_parceiro_id: null, p_caso_id: null, p_escritorio_id: esc.id,
       });
     }
     return ok();

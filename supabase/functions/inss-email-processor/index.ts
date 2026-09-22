@@ -99,33 +99,33 @@ function jsonResponse(body: unknown, status = 200) {
 // Gmail OAuth + API
 // ============================================================================
 
-async function obterAccessToken(sb: SupabaseClient): Promise<{ token: string; gmailAddress: string }> {
+async function obterAccessToken(sb: SupabaseClient, escritorioId: string): Promise<{ token: string; gmailAddress: string }> {
   if (!GMAIL_CLIENT_ID || !GMAIL_CLIENT_SECRET) {
     throw new Error("GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET ausentes nos secrets");
   }
 
-  // Lê o vínculo OAuth da caixa do INSS (Naira). Se Naira não conectou ainda,
-  // erro claro pra UI mostrar "conecte o Gmail em Configurações".
+  // A caixa do INSS DESTE escritório (usuario_gmail_oauth é global: filtra
+  // aqui). Preferência: a caixa configurada por env (escritório 1); senão, a
+  // conectada mais recentemente no escritório.
   let { data: vinculo, error } = await sb
     .from("usuario_gmail_oauth")
     .select("usuario_id, refresh_cipher, refresh_iv, email_conectado, scope")
+    .eq("escritorio_id", escritorioId)
     .eq("email_conectado", INSS_INBOX_EMAIL)
     .maybeSingle();
   if (error) throw new Error(`Falha lendo usuario_gmail_oauth: ${error.message}`);
-  // Reserva: conexão gravada sem o e-mail (o callback antigo salvava
-  // "(desconhecido)" quando o escopo não permitia descobrir o endereço). Sem
-  // isto, uma reconexão válida ficava invisível e a automação parava.
   if (!vinculo) {
     const { data: qualquer } = await sb
       .from("usuario_gmail_oauth")
       .select("usuario_id, refresh_cipher, refresh_iv, email_conectado, scope")
+      .eq("escritorio_id", escritorioId)
       .order("connected_at", { ascending: false })
       .limit(1);
     vinculo = qualquer?.[0] ?? null;
   }
   if (!vinculo) {
     throw new Error(
-      `Gmail não conectado para ${INSS_INBOX_EMAIL}. Vá em Configurações → "Conectar Gmail".`
+      `Gmail do INSS não conectado neste escritório. Vá em Configurações → Integrações → "Conectar Gmail".`
     );
   }
 
@@ -713,18 +713,27 @@ async function redigirMensagemParceiro(
 }
 
 async function carregarLookups(sb: SupabaseClient): Promise<Lookups> {
+  // Equipe DO ESCRITÓRIO (vínculo ativo, acesso interno), não `usuarios.tipo`:
+  // `usuarios` é global. `membros` tem escritorio_id, então o client escopado
+  // já filtra. O responsável padrão é a Naira quando ela é membro (escritório
+  // 1); nos outros, o primeiro administrador ativo.
   const { data } = await sb
-    .from("usuarios")
-    .select("id, email, tipo")
-    .eq("tipo", "interno")
-    .eq("ativo", true);
+    .from("membros")
+    .select("usuario_id, created_at, usuarios!membros_usuario_id_fkey(email, ativo), papeis!membros_papel_id_fkey(chave, tipo_acesso)")
+    .eq("status", "ativo")
+    .order("created_at");
   const map = new Map<string, string>();
-  for (const u of data ?? []) {
-    if (u.email) map.set((u.email as string).toLowerCase(), u.id as string);
+  let primeiroAdmin: string | null = null;
+  for (const m of (data ?? []) as Array<Record<string, unknown>>) {
+    const u = m.usuarios as { email?: string | null; ativo?: boolean | null } | null;
+    const p = m.papeis as { chave?: string; tipo_acesso?: string } | null;
+    if (!u || u.ativo === false || p?.tipo_acesso !== "interno") continue;
+    if (u.email) map.set(String(u.email).toLowerCase(), m.usuario_id as string);
+    if (!primeiroAdmin && p?.chave === "admin") primeiroAdmin = m.usuario_id as string;
   }
   return {
     emailParaUsuarioId: map,
-    nairaUsuarioId: map.get(NAIRA_EMAIL_DEFAULT) ?? null,
+    nairaUsuarioId: map.get(NAIRA_EMAIL_DEFAULT) ?? primeiroAdmin,
   };
 }
 
@@ -1191,13 +1200,33 @@ serve(async (req) => {
       ? body.message_ids
       : null;
 
-  // v1: a caixa do INSS é do escritório do sistema. O client sai PRESO a ele:
-  // achar cliente por nome ou CPF não pode casar com cliente de outro escritório
-  // (o CPF é único POR escritório).
+  // Cada escritório tem a SUA caixa do INSS. Pessoa (admin rodando à mão):
+  // só o escritório dela. Cron: todos os escritórios com caixa conectada, um
+  // por vez, cada um com o client PRESO a ele — achar cliente por nome ou CPF
+  // não pode casar com cliente de outro escritório (o CPF é único POR escritório).
   const sbBruto = createClient(SUPABASE_URL, SERVICE_ROLE, {
     auth: { persistSession: false },
   });
-  const sb = escopado(sbBruto, await escritorioDoSistema(sbBruto));
+  let escritorios: string[];
+  if (quem.tipo === "pessoa") {
+    escritorios = quem.perfil.escritorio_id ? [quem.perfil.escritorio_id] : [];
+  } else {
+    const { data: caixas, error: eCaixas } = await sbBruto
+      .from("usuario_gmail_oauth")
+      .select("escritorio_id, escritorios!usuario_gmail_oauth_escritorio_id_fkey(status)");
+    if (eCaixas) return jsonResponse({ error: `caixas conectadas: ${eCaixas.message}` }, 500);
+    escritorios = [...new Set(
+      ((caixas ?? []) as Array<{ escritorio_id: string; escritorios: { status?: string } | null }>)
+        .filter((c) => (c.escritorios?.status ?? "ativo") === "ativo")
+        .map((c) => c.escritorio_id),
+    )];
+    if (escritorios.length === 0) {
+      const padrao = await escritorioDoSistema(sbBruto);
+      escritorios = padrao ? [padrao] : [];
+    }
+  }
+  if (escritorios.length === 0) return jsonResponse({ error: "nenhum escritório com caixa do INSS" }, 400);
+  const sb = escopado(sbBruto, escritorios[0]);
 
   if (body.preview_mensagem_parceiro) {
     const pv = body.preview_mensagem_parceiro;
@@ -1215,8 +1244,10 @@ serve(async (req) => {
     return jsonResponse({ mensagem: texto, ia_usada: texto !== null });
   }
 
-  try {
-    const { token, gmailAddress } = await obterAccessToken(sb);
+  // Um escritório: a caixa dele, a equipe dele, os clientes dele.
+  async function processarEscritorio(escritorioId: string) {
+    const sbEsc = escopado(sbBruto, escritorioId);
+    const { token, gmailAddress } = await obterAccessToken(sbEsc, escritorioId);
     // in:inbox de proposito: e-mail ja arquivado e passado, e reprocessar
     // passado criaria tarefa em cima de caso que a equipe ja resolveu.
     const query = `label:${label} in:inbox newer_than:${dias}d`;
@@ -1224,12 +1255,25 @@ serve(async (req) => {
     // listar). Caso contrário, lista pela label/janela.
     const ids = onlyIds ?? await gmailListMessages(token, gmailAddress, query, limite);
 
-    const lookups = await carregarLookups(sb);
+    const lookups = await carregarLookups(sbEsc);
     if (!lookups.nairaUsuarioId) {
-      return jsonResponse({
-        error: "Naira não encontrada como usuário interno ativo — pré-condição falhou",
-      }, 500);
+      throw new Error("nenhum administrador ativo no escritório — pré-condição falhou");
     }
+    return { sb: sbEsc, query, ids, lookups };
+  }
+
+  try {
+    const porEscritorio: Array<Record<string, unknown>> = [];
+    for (const escritorioId of escritorios) {
+      let prep: Awaited<ReturnType<typeof processarEscritorio>>;
+      try {
+        prep = await processarEscritorio(escritorioId);
+      } catch (e) {
+        porEscritorio.push({ escritorio_id: escritorioId, error: String(e) });
+        continue;
+      }
+      const { sb: sbEsc, query, ids, lookups } = prep;
+      const sb = sbEsc;
 
     const resultados: ProcessamentoResultado[] = [];
     const auditoriaErros: string[] = [];
@@ -1255,15 +1299,27 @@ serve(async (req) => {
       }
     }
 
+      porEscritorio.push({
+        escritorio_id: escritorioId,
+        dry_run: dryRun,
+        auditoria_erros: auditoriaErros,
+        query,
+        mensagens_listadas: ids.length,
+        processadas: resultados.filter((r) => !r.pulado_por_dedup && r.erros.length === 0 && r.tarefas_criadas.length > 0).length,
+        puladas_dedup: resultados.filter((r) => r.pulado_por_dedup).length,
+        com_erro: resultados.filter((r) => r.erros.length > 0).length,
+        resultados,
+      });
+    }
+    // Uma pessoa vê o resultado do escritório dela como sempre; o cron recebe
+    // a lista (um bloco por escritório) e o total.
+    if (porEscritorio.length === 1 && quem.tipo === "pessoa") {
+      const unico = porEscritorio[0];
+      return jsonResponse(unico, unico.error ? 500 : 200);
+    }
     return jsonResponse({
-      dry_run: dryRun,
-      auditoria_erros: auditoriaErros,
-      query,
-      mensagens_listadas: ids.length,
-      processadas: resultados.filter((r) => !r.pulado_por_dedup && r.erros.length === 0 && r.tarefas_criadas.length > 0).length,
-      puladas_dedup: resultados.filter((r) => r.pulado_por_dedup).length,
-      com_erro: resultados.filter((r) => r.erros.length > 0).length,
-      resultados,
+      escritorios: porEscritorio,
+      com_falha: porEscritorio.filter((e) => e.error).length,
     });
   } catch (e) {
     return jsonResponse({ error: String(e) }, 500);

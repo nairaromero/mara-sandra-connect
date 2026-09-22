@@ -192,15 +192,53 @@ serve(async (req) => {
     return jsonResponse({ error: "body invalido", detail: String(err) }, 400);
   }
 
-  // v1: as OABs monitoradas e o casamento com processos são do escritório do
-  // sistema. Sem o escopo, a publicação de um escritório casaria com o processo
-  // de outro (o número do processo é único POR escritório).
+  // Cada escritório tem as SUAS OABs monitoradas e os SEUS processos. Pessoa:
+  // só o escritório dela. n8n/cron: todos os escritórios ativos com OAB ativa,
+  // um por vez, cada um com o client PRESO a ele — a publicação de um
+  // escritório não pode casar com o processo de outro (o número do processo é
+  // único POR escritório), e a órfã nasce no escritório certo.
   const supabaseBruto = createClient(SUPABASE_URL, SERVICE_ROLE);
-  const supabase = escopado(
-    supabaseBruto,
-    quem.tipo === "pessoa" ? quem.perfil.escritorio_id : await escritorioDoSistema(supabaseBruto),
-  );
+  let escritorios: string[];
+  if (quem.tipo === "pessoa") {
+    escritorios = quem.perfil.escritorio_id ? [quem.perfil.escritorio_id] : [];
+  } else {
+    const { data: comOab, error: eOab } = await supabaseBruto
+      .from("oabs_monitoradas")
+      .select("escritorio_id, escritorios!oabs_monitoradas_escritorio_id_fkey(status)")
+      .eq("ativo", true);
+    if (eOab) return jsonResponse({ error: "erro lendo oabs_monitoradas", detail: eOab.message }, 500);
+    escritorios = [...new Set(
+      ((comOab ?? []) as Array<{ escritorio_id: string; escritorios: { status?: string } | null }>)
+        .filter((r) => (r.escritorios?.status ?? "ativo") === "ativo")
+        .map((r) => r.escritorio_id),
+    )];
+    if (escritorios.length === 0 && oabOverride) {
+      const padrao = await escritorioDoSistema(supabaseBruto);
+      escritorios = padrao ? [padrao] : [];
+    }
+  }
+  if (escritorios.length === 0) {
+    return jsonResponse({ error: "nenhum escritório com OAB ativa (e sem override)" }, 400);
+  }
 
+  const porEscritorio: Array<Record<string, unknown>> = [];
+  for (const escritorioId of escritorios) {
+    try {
+      porEscritorio.push({ escritorio_id: escritorioId, ...(await sincronizarEscritorio(escopado(supabaseBruto, escritorioId))) });
+    } catch (e) {
+      porEscritorio.push({ escritorio_id: escritorioId, error: String((e as Error)?.message ?? e) });
+    }
+  }
+  // Pessoa recebe o resultado do escritório dela como sempre; o cron, um bloco
+  // por escritório.
+  if (quem.tipo === "pessoa" && porEscritorio.length === 1) {
+    const unico = porEscritorio[0];
+    return jsonResponse(unico, unico.error ? 500 : 200);
+  }
+  return jsonResponse({ escritorios: porEscritorio, com_falha: porEscritorio.filter((e) => e.error).length });
+
+  // Um escritório inteiro: OABs dele, processos dele, publicações dele.
+  async function sincronizarEscritorio(supabase: ReturnType<typeof createClient>) {
   // --- OABs alvo ---
   let oabs: OabAlvo[];
   if (oabOverride) {
@@ -210,35 +248,20 @@ serve(async (req) => {
       .from("oabs_monitoradas")
       .select("numero, uf")
       .eq("ativo", true);
-    if (oabErr) {
-      return jsonResponse(
-        { error: "erro lendo oabs_monitoradas", detail: oabErr.message },
-        500,
-      );
-    }
+    if (oabErr) throw new Error(`erro lendo oabs_monitoradas: ${oabErr.message}`);
     oabs = (rows || []).map((r) => ({
       numero: String(r.numero),
       uf: String(r.uf).toUpperCase(),
     }));
   }
-  if (oabs.length === 0) {
-    return jsonResponse(
-      { error: "nenhuma OAB ativa (tabela vazia e sem override)" },
-      400,
-    );
-  }
+  if (oabs.length === 0) throw new Error("nenhuma OAB ativa neste escritório");
 
   // --- Mapa CNJ -> processo (carregado uma vez) ---
   const { data: procs, error: procErr } = await supabase
     .from("processos_judiciais")
     .select("id, caso_id, numero_processo")
     .not("numero_processo", "is", null);
-  if (procErr) {
-    return jsonResponse(
-      { error: "erro lendo processos_judiciais", detail: procErr.message },
-      500,
-    );
-  }
+  if (procErr) throw new Error(`erro lendo processos_judiciais: ${procErr.message}`);
   const cnjMap = new Map<string, { id: string; caso_id: string }>();
   for (const p of procs || []) {
     const k = normalizeCnj(p.numero_processo as string);
@@ -413,7 +436,7 @@ serve(async (req) => {
     }
   }
 
-  return jsonResponse({
+  return {
     dry_run: dryRun,
     oabs_consultadas: oabs.length,
     janela: { inicio: dataInicio, fim: dataFim },
@@ -428,5 +451,6 @@ serve(async (req) => {
     dedup_erros_amostra: dedupErros,
     amostra: amostra,
     erros: erros,
-  });
+  };
+  }
 });

@@ -10,7 +10,7 @@ Docker aberto. Da raiz do repositório:
 
 ```bash
 bun run local:copiar   # banco local = cópia do staging (~3 min). Só se quiser zerar.
-bun run local:rbac     # aplica as 8 migrations do RBAC + cria escritório canário, contas e QG
+bun run local:rbac     # aplica as 9 migrations do RBAC + cria escritório canário, contas e QG
 bun run dev:local      # app em http://localhost:8080
 ```
 
@@ -192,19 +192,63 @@ o tamanho escolhido fica lembrado por lista neste navegador.
 - [ ] Processos → **Movimentações**: 25 por página, com total.
 - [ ] Em qualquer lista: trocar o tamanho da página volta pra página 1; mudar filtro/busca também.
 
-### I. Provas automáticas (rodar e conferir os números)
+### L. Marca Legal Connect (produto) × marca do escritório
+
+- [ ] `http://localhost:8080/login` (deslogado): logo **Legal Connect** (dois anéis) e o texto "Gestão de casos
+      previdenciários para escritórios e parceiros" — nada do Mara Sandra Vian. Idem em "Esqueci a senha" e na
+      tela de criar senha do convite.
+- [ ] Aba do navegador: título **Legal Connect** e o favicon com os anéis.
+- [ ] Logado em qualquer escritório: o topo continua com a marca do escritório; no **rodapé da sidebar** aparece
+      "por Legal Connect" (só o ícone quando a sidebar está recolhida).
+- [ ] QG (`qg.localhost:8080`): logo Legal Connect em fundo escuro + selo "QG" no cabeçalho.
+- [ ] Mailpit (http://127.0.0.1:55324): convidar alguém → o e-mail chega com o cabeçalho **Legal Connect** e o
+      rodapé "Legal Connect · marasandraconnect.com" (o corpo ainda cita o escritório padrão — item 3, marca por
+      escritório).
+- [ ] Instalar como app (Chrome → Instalar): nome e ícone Legal Connect.
+
+### L. Integrações por escritório (Gmail do INSS, DJEN, WhatsApp)
+
+Cada escritório tem as suas: a caixa do INSS conectada, as OABs monitoradas e a instância do WhatsApp.
+As rotinas (cron/n8n) rodam **uma vez por escritório**, cada uma presa ao seu. No local não há Google,
+DJEN nem Evolution de verdade — o que dá pra conferir é a configuração, o isolamento e o webhook.
+**Pré-requisito local:** a chave que cifra segredos precisa existir nas functions — `supabase/functions/.env`
+(gitignored) com `IA_MASTER_KEY=<base64 de 32 bytes>` — gere com `openssl rand -base64 32`; a pilha lê o arquivo ao subir
+(`bunx supabase stop && bunx supabase start`). Chave só de desenvolvimento: o que for cifrado com ela só abre aqui.
+Sem ela, salvar a chave do WhatsApp devolve "não consegui cifrar" e a spec correspondente é pulada.
+
+- [ ] Como `canario+admin` → Configurações → **Integrações**: os cards **Gmail (INSS)** ("nenhuma caixa
+      conectada neste escritório") e **WhatsApp (Evolution)** ("não configurado"). Como `canario+advogado`
+      a aba Integrações nem aparece.
+- [ ] WhatsApp: preencher URL (`https://evo.exemplo.com`), instância (`canario`), chave qualquer → **Salvar**
+      → badge "ativo"; a chave some do campo e aparece "definida em …" (ela fica cifrada; nem o admin a
+      relê). **Gerar token** → a URL do webhook aparece com o token; **Copiar**.
+- [ ] **Testar conexão** → "Falhou: não alcancei o Evolution" (esperado no local, não há servidor).
+- [ ] Como `e2e+admin` (escritório 1) → Integrações → WhatsApp "não configurado" (a do Canário não aparece).
+- [ ] Simular o Evolution (terminal): `curl -X POST "http://127.0.0.1:55321/functions/v1/whatsapp-inbound?token=<token>"
+      -H 'content-type: application/json' -d '{"event":"messages.upsert","instance":"canario","data":{"key":{"remoteJid":"5511999990000@s.whatsapp.net","fromMe":false,"id":"teste-1"},"message":{"conversation":"oi"},"messageType":"conversation"}}'`
+      → `{"ok":true}`; com token errado ou instância desconhecida → 401. No banco:
+      `select escritorio_id from whatsapp_mensagens where evolution_message_id='teste-1'` = o Canário.
+- [ ] Gmail: **Conectar Gmail** só funciona com as credenciais do Google no staging — aqui basta ver que o
+      botão está lá e que o card fala do escritório. (No staging: conectar com a caixa do Canário e rodar
+      `inss-email-processor` como admin do Canário: só os casos do Canário recebem andamentos.)
+- [ ] DJEN: `oabs_monitoradas` tem `escritorio_id`; a rotina só processa escritórios com OAB ativa. Se
+      quiser ver o loop: `select escritorio_id, count(*) from oabs_monitoradas where ativo group by 1`.
+
+
 
 ```bash
-bun run e2e:local                                         # suíte inteira: 102 testes
+bun run e2e:local                                         # suíte inteira: 107 testes
 bun run e2e:local e2e/tests/rbac-isolamento.spec.ts       # 16 ataques entre os dois escritórios
 bun run e2e:local e2e/tests/rbac-edge-functions.spec.ts   # 7 ataques nas edge functions
 bun run e2e:local e2e/tests/glossario.spec.ts             # 3: busca, permissões do banco, parceiro
 bun run e2e:local e2e/tests/qg-paginacao.spec.ts          # 2: página/total/busca na API e na tela do QG
 bun run e2e:local e2e/tests/listas-carregar-mais.spec.ts  # 3: 1.100 processos contados; publicações e conversas paginadas
 bun run e2e:local e2e/tests/suporte-escritorio.spec.ts    # 2: aviso + aba Suporte (aprovar/encerrar/recusar) e trilha na Auditoria
+bun run e2e:local e2e/tests/integracoes-escritorio.spec.ts # 3: WhatsApp por escritório (segredo cifrado, isolamento, webhook), Gmail status
+bun run e2e:local e2e/tests/marca-legal-connect.spec.ts   # 2: marca do produto no login/QG/rodapé; marca do escritório no topo
 ```
 
-- [ ] 102 passam. Os 23 do RBAC são ataques via API com a sessão real de cada papel: header
+- [ ] 107 passam. Os 23 do RBAC são ataques via API com a sessão real de cada papel: header
       forjado, filho apontando para pai de outro escritório (inclusive com service role), RPC
       com id alheio, vínculo desativado com o JWT ainda válido, staff lendo tabela de domínio,
       suporte escrevendo, eliminação sem segunda pessoa.
@@ -215,8 +259,9 @@ bun run e2e:local e2e/tests/suporte-escritorio.spec.ts    # 2: aviso + aba Supor
 |---|---|
 | Banco — `migration_rbac_01…05` | `escritorios`, `membros`, 5 papéis × 26 permissões (matriz §4.3); `escritorio_id NOT NULL` em 41 tabelas com herança por gatilho; 41 policies restritivas de isolamento + 58 de permissão; helpers de papel sobre o vínculo; guard de escritório nas RPCs; equipe sobre vínculos (`definir_papel`); QG (`plataforma_staff`, `acessos_suporte`, `auditoria`, `ops.*`, 22 funções `qg_*`) |
 | Front | header `x-escritorio-id` em toda chamada; escritório ativo, vínculos e permissões no `useAuth` (`pode()`); seletor; faixa de suporte; tela "sem escritório"; menu por permissão; Equipe por papéis; QG em `/qg` (só no host `qg.`); **Configurações → Suporte** (aprovar/recusar/encerrar acesso de suporte) + aviso no topo para o admin + trilha "Plataforma e suporte" na Auditoria (`migration_rbac_07`) |
-| Edge functions | `exigirUsuario` por vínculo e escritório; `exigirRecurso`; client de service role preso ao escritório (`escopado`) no digest, e-mails do INSS e DJEN; convite por escritório e papel; MCP no escritório do token; `qg-escritorios` |
+| Edge functions | `exigirUsuario` por vínculo e escritório; `exigirRecurso`; client de service role preso ao escritório (`escopado`, que também carimba `escritorio_id` nas linhas novas) no digest, e-mails do INSS e DJEN; convite por escritório e papel; MCP no escritório do token; `qg-escritorios`; **integrações por escritório** (`migration_rbac_09`): caixa do INSS ligada ao escritório e `inss-email-processor` rodando por escritório; `sync-djen-publicacoes` por escritório com OAB (publicação única por escritório); `escritorio_integracoes` + `integracoes-escritorio` (WhatsApp: instância, chave cifrada, token de entrada, teste) e `whatsapp-inbound` resolvendo o escritório pela instância |
 | Paginação | `<Paginador>` (1–25 de N · « ‹ 1 2 › » · itens por página) + `useListaPaginada`/`usePaginaLocal`: QG (escritórios e pessoas, 10, busca sem acento e filtro no banco — `migration_rbac_06`), Publicações (50), Conversas (25 threads, RPC `conversas_threads`), Movimentações, Auditoria, Processos e Clientes; `/processos` carrega até o fim e reduz o último andamento no banco (`processos_ultimo_andamento`) — nada mais usa `.limit(n)` fixo pra listar tudo |
+| Marca | `public/marca/` (SVG vetorial + PNG para manifest/apple-touch/e-mail) e `<MarcaLegalConnect>`: login, esqueci/criar senha, favicon, título, manifest, cabeçalho do QG, rodapé da sidebar e cabeçalho dos e-mails do Auth. A marca do escritório continua no topo, dentro do sistema |
 | Glossário | `/glossario` (produto) e `/qg/glossario` (QG): busca por nome, sinônimo, definição e permissão; os cards de papel mostram as permissões **lidas do banco**; termos em `src/lib/glossario/termos.ts` (76), com público por termo (todos / equipe / QG) |
 | Provas | `rbac-isolamento` (16), `rbac-edge-functions` (7), `glossario` (3), `scripts/rbac-diff-visibilidade.mjs` (o escritório 1 vê exatamente as mesmas linhas de antes) |
 
@@ -251,7 +296,8 @@ escritório 1 não mudou, e forjar o header não abre nada.
 
 | Item | Por quê ficou |
 |---|---|
-| **Integrações por escritório** (Gmail INSS, DJEN, WhatsApp, Legalmail/TI) | v1: são do escritório padrão. As rotinas já filtram por ele; um segundo escritório não tem essas integrações ainda (Fase 6) |
+| **Legalmail e TI por escritório** | A tabela `escritorio_integracoes` já aceita os tipos; as functions dessas duas ainda usam as credenciais globais (escritório 1) |
+| **n8n: fila do WhatsApp por escritório** | O workflow que drena `whatsapp_outbox` precisa ler a instância/chave em `escritorio_integracoes` pelo `escritorio_id` da linha (hoje usa uma instância só) |
 | **Marca por escritório** | O Canário ainda mostra o logo Mara Sandra Vian. `escritorio_config.marca` existe, a tela não usa |
 | **MFA (AAL2) no QG** | Ligado por `app_config.qg_exigir_aal2 = 'true'`; no local está `false` para dar para testar. Em produção tem que ser `true` — e ainda não há tela de cadastro do segundo fator |
 | **Token do MCP emitido para outra pessoa** (#385) | O banco já prende o token ao escritório; a emissão em nome de terceiro fica para a issue |
@@ -261,7 +307,7 @@ escritório 1 não mudou, e forjar o header não abre nada.
 
 ## 6. Antes de ir para o staging
 
-Nada disto foi aplicado fora do local. Para o staging: as 8 migrations com
+Nada disto foi aplicado fora do local. Para o staging: as 9 migrations com
 `node scripts/msc-sql.mjs --staging --file …` **na ordem**, deploy das 26 edge functions alteradas
 (+ `qg-escritorios`), e só então o front. Como a #02 mexe em 41 tabelas, vale ensaiar de novo numa
 cópia fresca (`bun run local:copiar && bun run local:rbac`) no dia — leva ~4 min.
