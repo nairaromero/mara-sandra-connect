@@ -1,11 +1,12 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Loader2, ShieldCheck, ShieldAlert, RefreshCw } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
-import { CarregarMais } from "@/components/carregar-mais";
+import { Paginador } from "@/components/paginador";
+import { usePorPagina } from "@/hooks/use-lista-paginada";
 import { formatarBR } from "@/lib/fuso";
 import { ClientOnly } from "@/components/client-only";
 import { Button } from "@/components/ui/button";
@@ -28,7 +29,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-const POR_PAGINA = 100;
+const POR_PAGINA_PADRAO = 25;
 
 export const Route = createFileRoute("/_authenticated/auditoria")({
   component: AuditoriaPage,
@@ -125,8 +126,11 @@ function AuditoriaPage() {
 
   const [rows, setRows] = useState<AcessoRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [temMais, setTemMais] = useState(false);
-  const [carregandoMais, setCarregandoMais] = useState(false);
+  const [pagina, setPagina] = useState(1);
+  const [porPagina, setPorPagina] = usePorPagina("auditoria", POR_PAGINA_PADRAO);
+  const [total, setTotal] = useState<number | null>(null);
+  const [carregandoPagina, setCarregandoPagina] = useState(false);
+  const jaCarregouRef = useRef(false);
   // Totais por ação vêm do banco (count), não das linhas carregadas — senão
   // o card diria "100 leituras" só porque a primeira página tem 100.
   const [totaisBanco, setTotaisBanco] = useState<{ leitura: number; escrita: number; escrita_remocao: number } | null>(null);
@@ -160,14 +164,15 @@ function AuditoriaPage() {
     return count ?? 0;
   }
 
-  async function load(offset = 0) {
-    if (offset === 0) setLoading(true);
-    else setCarregandoMais(true);
+  async function load() {
+    if (jaCarregouRef.current) setCarregandoPagina(true);
+    else setLoading(true);
     try {
       // RLS na acessos_senha_inss já garante interno-only no SELECT.
       // O join com clientes/usuarios passa pelos próprios RLS deles.
-      // POR_PAGINA por vez, da mais recente pra mais antiga; "Carregar mais"
-      // traz as anteriores. Antes era `.limit(500)` sem aviso do que ficava fora.
+      // Uma página por vez, da mais recente pra mais antiga, com o total.
+      // Antes era `.limit(500)` sem aviso do que ficava fora.
+      const inicio = (pagina - 1) * porPagina;
       let query = supabase
         .from("acessos_senha_inss")
         .select(
@@ -180,47 +185,46 @@ function AuditoriaPage() {
           cliente:clientes(nome),
           usuario:usuarios(nome, email, tipo)
         `,
+          { count: "exact" },
         )
         .order("acessado_em", { ascending: false })
         .order("id")
-        .range(offset, offset + POR_PAGINA - 1);
+        .range(inicio, inicio + porPagina - 1);
 
       const desde = desdeISO();
       if (desde) query = query.gte("acessado_em", desde);
       if (filtroAcao !== "todas") query = query.eq("acao", filtroAcao);
 
-      const [{ data, error }, leitura, escrita, escrita_remocao] = await Promise.all([
+      const [{ data, error, count }, leitura, escrita, escrita_remocao] = await Promise.all([
         query,
-        offset === 0 && (filtroAcao === "todas" || filtroAcao === "leitura") ? contar("leitura") : Promise.resolve(0),
-        offset === 0 && (filtroAcao === "todas" || filtroAcao === "escrita") ? contar("escrita") : Promise.resolve(0),
-        offset === 0 && (filtroAcao === "todas" || filtroAcao === "escrita_remocao") ? contar("escrita_remocao") : Promise.resolve(0),
+        filtroAcao === "todas" || filtroAcao === "leitura" ? contar("leitura") : Promise.resolve(0),
+        filtroAcao === "todas" || filtroAcao === "escrita" ? contar("escrita") : Promise.resolve(0),
+        filtroAcao === "todas" || filtroAcao === "escrita_remocao" ? contar("escrita_remocao") : Promise.resolve(0),
       ]);
       if (error) throw error;
-      const novas = (data as unknown as AcessoRow[]) ?? [];
-      setTemMais(novas.length === POR_PAGINA);
-      if (offset === 0) {
-        setRows(novas);
-        setTotaisBanco({ leitura, escrita, escrita_remocao });
-      } else {
-        setRows((prev) => {
-          const vistos = new Set(prev.map((r) => r.id));
-          return [...prev, ...novas.filter((r) => !vistos.has(r.id))];
-        });
-      }
+      setRows((data as unknown as AcessoRow[]) ?? []);
+      setTotal(count ?? null);
+      setTotaisBanco({ leitura, escrita, escrita_remocao });
     } catch (err) {
       console.error(err);
       const msg = (err as { message?: string })?.message ?? "Falha ao carregar log de auditoria.";
       toast.error(msg);
     } finally {
       setLoading(false);
-      setCarregandoMais(false);
+      setCarregandoPagina(false);
+      jaCarregouRef.current = true;
     }
   }
+
+  // filtro ou tamanho mudou -> pagina 1
+  useEffect(() => {
+    setPagina(1);
+  }, [filtroAcao, filtroDias, porPagina]);
 
   useEffect(() => {
     if (isInterno) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isInterno, filtroAcao, filtroDias]);
+  }, [isInterno, filtroAcao, filtroDias, pagina, porPagina]);
 
   // Filtro de cliente é client-side (pra evitar round-trip por digitação)
   const rowsFiltradas = useMemo(() => {
@@ -441,13 +445,13 @@ function AuditoriaPage() {
             )}
           </CardContent>
         </Card>
-        <CarregarMais
-          mostrando={rows.length}
-          total={null}
-          temMais={temMais}
-          carregando={carregandoMais}
-          onMais={() => load(rows.length)}
-          passo={POR_PAGINA}
+        <Paginador
+          pagina={pagina}
+          porPagina={porPagina}
+          total={total}
+          carregando={carregandoPagina}
+          onPagina={setPagina}
+          onPorPagina={setPorPagina}
           nome="acessos"
         />
       </ClientOnly>

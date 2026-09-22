@@ -162,21 +162,27 @@ você forçar pela URL/console, o banco recusar.
 
 ### K. Paginação e listas sem corte (QG e produto)
 
-- [ ] QG → **Escritórios**: campo de busca e filtro de status acima da lista; rodapé "N de M escritórios".
-      Buscar `canár` (com acento) → só o Canário, "1 de 1".
-- [ ] QG → ficha do **Mara Vian** → "Quem usa o sistema (34)": mostra **10**, rodapé "10 de 34 pessoas",
-      **Mostrar mais 10** → "20 de 34". Buscar `rbac+financeiro` → "1 de 1". Filtro "Desativados" lista só
-      desativados; "Todos" inclui todos.
+Padrão em toda lista longa: rodapé **"1–25 de 32"**, botões primeira / anterior / números / próxima /
+última e o seletor de itens por página (10 · 25 · 50 · 100). Só a página escolhida é buscada no banco;
+o tamanho escolhido fica lembrado por lista neste navegador.
+
+- [ ] QG → **Escritórios**: busca e filtro de status acima; rodapé "1–N de M escritórios". Buscar `canár`
+      (com acento) → só o Canário, "1–1 de 1".
+- [ ] QG → ficha do **Mara Vian** → "Quem usa o sistema (34)": mostra **10**, rodapé "1–10 de 34 pessoas";
+      **›** → "11–20 de 34" (o número 2 fica marcado); **»** → última página e o › desabilita; trocar
+      para **25** por página → "1–25 de 34". Buscar `rbac+financeiro` → "1–1 de 1". Filtro "Desativados"
+      lista só desativados; "Todos" inclui todos.
 - [ ] QG → Operação: continua abrindo normal (usa a lista leve de nomes).
-- [ ] **Publicações** (como `e2e+admin`): rodapé "mostrando 200 publicações" + **Mostrar mais 200** → 389;
-      o botão some quando acaba.
-- [ ] **Conversas**: rodapé "mostrando 200 comentários" + Mostrar mais → 240. Responder numa conversa
-      **não** volta a lista para 200.
-- [ ] **Processos**: os badges do topo (ex.: "1684 processos · 278 administrativos · 1406 judiciais") batem
-      com o banco — a spec cria 1.100 processos temporários pra provar que não trava em 1.000.
-- [ ] **Auditoria**: 100 por vez + Mostrar mais; os cards Leituras/Escritas contam o **total** do
-      período (banco), não só as linhas carregadas.
-- [ ] Processos → **Movimentações**: 200 por vez + Mostrar mais.
+- [ ] **Publicações** (como `e2e+admin`): "1–50 de 389 publicações"; › → "51–100"; » → última página.
+- [ ] **Conversas**: "1–25 de N conversas" (conta conversas, não comentários); ao abrir uma conversa a
+      thread vem inteira. Responder **mantém** a página; "Nova conversa" volta pra página 1.
+- [ ] **Processos**: badges do topo (ex.: "1684 processos · 278 administrativos · 1406 judiciais") batem
+      com o banco — a spec cria 1.100 processos temporários pra provar que não trava em 1.000. A tabela
+      pagina no navegador (25 por página, seletor 25/50/100).
+- [ ] **Clientes**: mesmo paginador (10 por padrão), no lugar do "Anterior / Próxima" antigo.
+- [ ] **Auditoria**: 25 por página; os cards Leituras/Escritas contam o **total** do período (banco).
+- [ ] Processos → **Movimentações**: 25 por página, com total.
+- [ ] Em qualquer lista: trocar o tamanho da página volta pra página 1; mudar filtro/busca também.
 
 ### I. Provas automáticas (rodar e conferir os números)
 
@@ -186,7 +192,7 @@ bun run e2e:local e2e/tests/rbac-isolamento.spec.ts       # 16 ataques entre os 
 bun run e2e:local e2e/tests/rbac-edge-functions.spec.ts   # 7 ataques nas edge functions
 bun run e2e:local e2e/tests/glossario.spec.ts             # 3: busca, permissões do banco, parceiro
 bun run e2e:local e2e/tests/qg-paginacao.spec.ts          # 2: página/total/busca na API e na tela do QG
-bun run e2e:local e2e/tests/listas-carregar-mais.spec.ts  # 3: 1.100 processos contados; publicações e conversas 200 por vez
+bun run e2e:local e2e/tests/listas-carregar-mais.spec.ts  # 3: 1.100 processos contados; publicações e conversas paginadas
 ```
 
 - [ ] 100 passam. Os 23 do RBAC são ataques via API com a sessão real de cada papel: header
@@ -201,7 +207,7 @@ bun run e2e:local e2e/tests/listas-carregar-mais.spec.ts  # 3: 1.100 processos c
 | Banco — `migration_rbac_01…05` | `escritorios`, `membros`, 5 papéis × 26 permissões (matriz §4.3); `escritorio_id NOT NULL` em 41 tabelas com herança por gatilho; 41 policies restritivas de isolamento + 58 de permissão; helpers de papel sobre o vínculo; guard de escritório nas RPCs; equipe sobre vínculos (`definir_papel`); QG (`plataforma_staff`, `acessos_suporte`, `auditoria`, `ops.*`, 22 funções `qg_*`) |
 | Front | header `x-escritorio-id` em toda chamada; escritório ativo, vínculos e permissões no `useAuth` (`pode()`); seletor; faixa de suporte; tela "sem escritório"; menu por permissão; Equipe por papéis; QG em `/qg` (só no host `qg.`) |
 | Edge functions | `exigirUsuario` por vínculo e escritório; `exigirRecurso`; client de service role preso ao escritório (`escopado`) no digest, e-mails do INSS e DJEN; convite por escritório e papel; MCP no escritório do token; `qg-escritorios` |
-| Paginação | `useListaPaginada` + `<CarregarMais>`: QG (escritórios e pessoas, 10 por vez, busca sem acento e filtro no banco — `migration_rbac_06`), Publicações/Conversas/Movimentações (200) e Auditoria (100) com "Mostrar mais"; `/processos` pagina até o fim e reduz o último andamento no banco (`processos_ultimo_andamento`) — nada mais usa `.limit(n)` fixo pra listar tudo |
+| Paginação | `<Paginador>` (1–25 de N · « ‹ 1 2 › » · itens por página) + `useListaPaginada`/`usePaginaLocal`: QG (escritórios e pessoas, 10, busca sem acento e filtro no banco — `migration_rbac_06`), Publicações (50), Conversas (25 threads, RPC `conversas_threads`), Movimentações, Auditoria, Processos e Clientes; `/processos` carrega até o fim e reduz o último andamento no banco (`processos_ultimo_andamento`) — nada mais usa `.limit(n)` fixo pra listar tudo |
 | Glossário | `/glossario` (produto) e `/qg/glossario` (QG): busca por nome, sinônimo, definição e permissão; os cards de papel mostram as permissões **lidas do banco**; termos em `src/lib/glossario/termos.ts` (76), com público por termo (todos / equipe / QG) |
 | Provas | `rbac-isolamento` (16), `rbac-edge-functions` (7), `glossario` (3), `scripts/rbac-diff-visibilidade.mjs` (o escritório 1 vê exatamente as mesmas linhas de antes) |
 

@@ -17,7 +17,8 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import { buscarPaginado } from "@/lib/supabase-paginado";
-import { CarregarMais } from "@/components/carregar-mais";
+import { Paginador } from "@/components/paginador";
+import { usePorPagina } from "@/hooks/use-lista-paginada";
 import { dataBR, formatarBR, horaBR } from "@/lib/fuso";
 import { notificarEquipe } from "@/lib/notificar";
 import { ClientOnly } from "@/components/client-only";
@@ -43,7 +44,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-const POR_PAGINA = 200;
+// Conversas (threads) por pagina; os comentarios de cada thread da pagina vem inteiros.
+const POR_PAGINA_PADRAO = 25;
 
 export const Route = createFileRoute("/_authenticated/conversas")({
   component: ConversasPage,
@@ -182,11 +184,9 @@ function ConversasPage() {
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [comentarios, setComentarios] = useState<Array<ComentarioComCaso>>([]);
-  const [temMais, setTemMais] = useState(false);
-  const [carregandoMais, setCarregandoMais] = useState(false);
-  // quantos ja estao na tela: um recarregar (apos responder) repõe o mesmo
-  // tanto, em vez de voltar pra primeira pagina
-  const tamanhoRef = useRef(0);
+  const [pagina, setPagina] = useState(1);
+  const [porPagina, setPorPagina] = usePorPagina("conversas", POR_PAGINA_PADRAO);
+  const [totalThreads, setTotalThreads] = useState<number | null>(null);
   const [leituraPorCaso, setLeituraPorCaso] = useState<Map<string, string>>(new Map());
   const [nomePorUsuario, setNomePorUsuario] = useState<Map<string, string>>(new Map());
   const [parceiroIds, setParceiroIds] = useState<Set<string>>(new Set());
@@ -201,43 +201,36 @@ function ConversasPage() {
   const [resposta, setResposta] = useState("");
   const [enviando, setEnviando] = useState(false);
 
-  // POR_PAGINA comentarios por vez, dos mais novos aos mais antigos;
-  // "Mostrar mais" traz os anteriores. Antes vinha tudo sem limite — e o
-  // PostgREST cortava em 1.000 sem avisar.
-  const carregar = useCallback(async (offset = 0) => {
-    if (offset > 0) setCarregandoMais(true);
-    else if (!jaCarregouRef.current) setLoading(true);
+  // Uma pagina de THREADS (casos com comentario, da mais recente pra mais
+  // antiga — RPC conversas_threads, sob a RLS) e os comentarios so desses
+  // casos, inteiros. Antes vinha tudo sem limite — e o PostgREST cortava em
+  // 1.000 sem avisar.
+  const carregar = useCallback(async () => {
+    if (!jaCarregouRef.current) setLoading(true);
     else setRecarregando(true);
     setErro(null);
     try {
-      // recarga do zero repõe o que ja estava na tela (ate o teto do PostgREST)
-      const tamanho = offset === 0 ? Math.min(Math.max(POR_PAGINA, tamanhoRef.current), 1000) : POR_PAGINA;
+      const th = await supabase.rpc("conversas_threads", { p_limite: porPagina, p_offset: (pagina - 1) * porPagina });
+      if (th.error) throw th.error;
+      const threads = (th.data ?? []) as Array<{ caso_id: string; ultimo_em: string; total: number }>;
+      const ids = threads.map((t) => t.caso_id);
+      setTotalThreads(threads[0]?.total ?? 0);
       const [comResp, leiResp, usrResp] = await Promise.all([
-        supabase
-          .from("comentarios")
-          .select(
-            "id, caso_id, autor_id, texto, created_at, parent_id, destinatario_id, casos!inner(id, tipo_beneficio, fase, status, parceiro_id, clientes(id, nome))",
-          )
-          .eq("rascunho", false)
-          .order("created_at", { ascending: false })
-          .order("id")
-          .range(offset, offset + tamanho - 1),
+        ids.length === 0
+          ? Promise.resolve({ data: [], error: null })
+          : supabase
+              .from("comentarios")
+              .select(
+                "id, caso_id, autor_id, texto, created_at, parent_id, destinatario_id, casos!inner(id, tipo_beneficio, fase, status, parceiro_id, clientes(id, nome))",
+              )
+              .eq("rascunho", false)
+              .in("caso_id", ids)
+              .order("created_at", { ascending: false }),
         supabase.from("conversa_leitura").select("caso_id, last_read_at"),
         supabase.from("usuarios").select("id, nome, tipo"),
       ]);
       if (comResp.error) throw comResp.error;
-      const novos = (comResp.data || []) as unknown as Array<ComentarioComCaso>;
-      setTemMais(novos.length === tamanho);
-      setComentarios((prev) => {
-        if (offset === 0) {
-          tamanhoRef.current = novos.length;
-          return novos;
-        }
-        const vistos = new Set(prev.map((c) => c.id));
-        const lista = [...prev, ...novos.filter((c) => !vistos.has(c.id))];
-        tamanhoRef.current = lista.length;
-        return lista;
-      });
+      setComentarios((comResp.data || []) as unknown as Array<ComentarioComCaso>);
 
       const lmap = new Map<string, string>();
       for (const r of (leiResp.data || []) as Array<{ caso_id: string; last_read_at: string }>) {
@@ -260,10 +253,13 @@ function ConversasPage() {
     } finally {
       setLoading(false);
       setRecarregando(false);
-      setCarregandoMais(false);
       jaCarregouRef.current = true;
     }
-  }, []);
+  }, [pagina, porPagina]);
+
+  useEffect(() => {
+    setPagina(1);
+  }, [porPagina]);
 
   useEffect(() => {
     carregar();
@@ -406,7 +402,10 @@ function ConversasPage() {
       setBuscaCaso("");
       const casoAberto = casoNovo;
       setCasoNovo(null);
-      await carregar();
+      // a conversa nova e a mais recente: esta na pagina 1 (o efeito recarrega
+      // ao trocar de pagina; se ja estamos nela, recarrega aqui)
+      if (pagina === 1) await carregar();
+      else setPagina(1);
       setSelecionado(casoAberto);
       await marcarLida(casoAberto);
       if (data?.id) {
@@ -719,14 +718,15 @@ function ConversasPage() {
                 })}
               </div>
             )}
-            <CarregarMais
-              mostrando={comentarios.length}
-              total={null}
-              temMais={temMais}
-              carregando={carregandoMais}
-              onMais={() => carregar(comentarios.length)}
-              passo={POR_PAGINA}
-              nome="comentários"
+            <Paginador
+              pagina={pagina}
+              porPagina={porPagina}
+              total={totalThreads}
+              carregando={recarregando}
+              onPagina={setPagina}
+              onPorPagina={setPorPagina}
+              opcoes={[10, 25, 50]}
+              nome="conversas"
               className="px-0"
             />
           </div>

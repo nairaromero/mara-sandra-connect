@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
   ChevronDown,
@@ -16,7 +16,8 @@ import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import { buscarPaginado } from "@/lib/supabase-paginado";
-import { CarregarMais } from "@/components/carregar-mais";
+import { Paginador } from "@/components/paginador";
+import { usePorPagina } from "@/hooks/use-lista-paginada";
 import { dataBR, diaDoEventoBR } from "@/lib/fuso";
 import { ClientOnly } from "@/components/client-only";
 import { Button } from "@/components/ui/button";
@@ -40,9 +41,9 @@ export const Route = createFileRoute("/_authenticated/publicacoes")({
 const VISTO_KEY = "msc:publicacoes_visto";
 // Janela da aba: publicações da última semana.
 const DIAS_JANELA = 7;
-// Publicações por página; "Carregar mais" traz as anteriores. Antes era um
-// `.limit(500)` fixo: acima disso a tela simplesmente omitia as antigas.
-const POR_PAGINA = 200;
+// Uma página por vez, buscada no banco com o total. Antes era um `.limit(500)`
+// fixo: acima disso a tela simplesmente omitia as antigas.
+const POR_PAGINA_PADRAO = 50;
 const PREVIEW_CHARS = 600;
 
 type PubStatus = "vinculada" | "sem_processo";
@@ -96,9 +97,12 @@ function PublicacoesPage() {
   const { usuario } = useAuth();
   const isInterno = usuario?.tipo === "interno";
   const [pubs, setPubs] = useState<Array<PubView>>([]);
+  const jaCarregouRef = useRef(false);
   const [loading, setLoading] = useState(true);
-  const [temMais, setTemMais] = useState(false);
-  const [carregandoMais, setCarregandoMais] = useState(false);
+  const [carregandoPagina, setCarregandoPagina] = useState(false);
+  const [pagina, setPagina] = useState(1);
+  const [porPagina, setPorPagina] = usePorPagina("publicacoes", POR_PAGINA_PADRAO);
+  const [total, setTotal] = useState<number | null>(null);
   const [busca, setBusca] = useState("");
   const [expandido, setExpandido] = useState<Record<string, boolean>>({});
 
@@ -195,40 +199,28 @@ function PublicacoesPage() {
     }
   }
 
-  // Junta uma pagina nova as ja carregadas sem repetir (linha que entrou
-  // entre um clique e outro desloca o offset).
-  const juntar = (offset: number, novas: Array<PubView>) => {
-    setTemMais(novas.length === POR_PAGINA);
-    if (offset === 0) {
-      setPubs(novas);
-      return;
-    }
-    setPubs((prev) => {
-      const vistos = new Set(prev.map((p) => p.id));
-      return [...prev, ...novas.filter((p) => !vistos.has(p.id))];
-    });
-  };
-
-  const carregar = useCallback(async (offset = 0) => {
-    if (offset === 0) setLoading(true);
-    else setCarregandoMais(true);
+  const carregar = useCallback(async () => {
+    if (jaCarregouRef.current) setCarregandoPagina(true);
+    else setLoading(true);
+    const inicio = (pagina - 1) * porPagina;
 
     if (isInterno) {
       // Interno: fonte da verdade = publicacoes_dje (vinculadas + órfãs), da
-      // mais recente para a mais antiga, POR_PAGINA por vez; a UI separa a
+      // mais recente para a mais antiga, uma página por vez; a UI separa a
       // última semana em destaque e agrupa o resto por mês.
-      const { data, error } = await supabase
+      const { data, error, count } = await supabase
         .from("publicacoes_dje")
         .select(
           "id, numero_processo, sigla_tribunal, nome_orgao, tipo_comunicacao, data_disponibilizacao, texto, status, caso_id, andamento_id, certidao_url, casos:caso_id(cliente:cliente_id(nome))",
+          { count: "exact" },
         )
         .order("data_disponibilizacao", { ascending: false, nullsFirst: false })
         .order("id")
-        .range(offset, offset + POR_PAGINA - 1);
+        .range(inicio, inicio + porPagina - 1);
       if (error) toast.error("Não consegui carregar as publicações.", { description: error.message });
       if (!error) {
-        juntar(
-          offset,
+        setTotal(count ?? null);
+        setPubs(
           ((data || []) as Array<Record<string, unknown>>).map((r) => ({
             id: String(r.id),
             cliente_nome:
@@ -248,20 +240,21 @@ function PublicacoesPage() {
       }
     } else {
       // Parceiro: vê só as vinculadas dos casos dele (via andamentos). RLS restringe.
-      const { data, error } = await supabase
+      const { data, error, count } = await supabase
         .from("andamentos")
         .select(
           "id, titulo, descricao, data_evento, caso_id, metadata, casos:caso_id(cliente:cliente_id(nome))",
+          { count: "exact" },
         )
         .eq("origem", "djen")
         .eq("visivel_parceiro", true)
         .order("data_evento", { ascending: false, nullsFirst: false })
         .order("id")
-        .range(offset, offset + POR_PAGINA - 1);
+        .range(inicio, inicio + porPagina - 1);
       if (error) toast.error("Não consegui carregar as publicações.", { description: error.message });
       if (!error) {
-        juntar(
-          offset,
+        setTotal(count ?? null);
+        setPubs(
           ((data || []) as Array<Record<string, unknown>>).map((r) => {
             const m = (r.metadata as Record<string, unknown> | null) || {};
             return {
@@ -285,8 +278,14 @@ function PublicacoesPage() {
     }
 
     setLoading(false);
-    setCarregandoMais(false);
-  }, [isInterno]);
+    setCarregandoPagina(false);
+    jaCarregouRef.current = true;
+  }, [isInterno, pagina, porPagina]);
+
+  // tamanho da pagina mudou -> volta pra primeira
+  useEffect(() => {
+    setPagina(1);
+  }, [porPagina]);
 
   useEffect(() => {
     carregar();
@@ -484,7 +483,8 @@ function PublicacoesPage() {
             ? 'Publicações do Diário de Justiça (DJEN). A última semana fica em destaque; as anteriores ficam agrupadas por mês em "Publicações antigas".'
             : "Publicações do Diário de Justiça (DJEN) vinculadas aos processos dos seus clientes. A última semana em destaque; as anteriores agrupadas por mês."}
         </p>
-        {isInterno && pubs.length > 0 && (
+        {/* os badges resumem a PAGINA; em pagina antiga "0 na semana" so confunde */}
+        {isInterno && pagina === 1 && pubs.length > 0 && (
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
             <Badge variant="secondary">{resumo.total} na semana</Badge>
             <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">
@@ -580,13 +580,14 @@ function PublicacoesPage() {
             )}
           </>
         )}
-        <CarregarMais
-          mostrando={pubs.length}
-          total={null}
-          temMais={temMais}
-          carregando={carregandoMais}
-          onMais={() => carregar(pubs.length)}
-          passo={POR_PAGINA}
+        <Paginador
+          pagina={pagina}
+          porPagina={porPagina}
+          total={total}
+          carregando={carregandoPagina}
+          onPagina={setPagina}
+          onPorPagina={setPorPagina}
+          opcoes={[25, 50, 100, 200]}
           nome="publicações"
         />
       </ClientOnly>

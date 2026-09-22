@@ -131,9 +131,11 @@ o sistema em produção. Quando chegar, vale o seguinte:
   escritório Canário e as contas de teste). Nova edge function local → `supabase stop/start`.
 - **Listas**: nunca `.limit(n)` fixo pra "trazer tudo" — o PostgREST corta em 1.000 (`max_rows`)
   **sem erro**. Lista inteira → `buscarPaginado` (`src/lib/supabase-paginado.ts`); lista longa na
-  tela → `useListaPaginada` + `<CarregarMais>` (offset, "Mostrar mais", 10 no QG / 100–200 no
-  produto), com ordem estável (desempate por `id`). RPC paginada devolve `total` (`count(*) over ()`)
-  e faz as contagens caras só pra página (`qg_escritorios` é o molde).
+  tela → `<Paginador>` (`src/components/paginador.tsx`: "1–25 de N", « ‹ números › », itens por
+  página) com `useListaPaginada` (página buscada no banco: `.range()` + `count: "exact"`, ou RPC com
+  `p_limite/p_offset` e `total = count(*) over ()`) ou `usePaginaLocal` (fatia de lista já carregada).
+  Ordem estável (desempate por `id`); filtro/busca muda → página 1; tamanho lembrado por lista
+  (`usePorPagina`). Nada de "mostrar mais" acumulando. `qg_escritorios` e `conversas_threads` são os moldes.
 - **Glossário** (`/glossario`, `/qg/glossario`): termos em `src/lib/glossario/termos.ts`
   (id estável, categoria, `publico` todos/interno/qg). Permissões dos papéis vêm do banco em
   tempo real — não escrever matriz de permissão em texto. Papel, permissão ou conceito novo →

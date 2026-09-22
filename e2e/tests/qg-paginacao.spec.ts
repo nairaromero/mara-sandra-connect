@@ -4,7 +4,8 @@
 // padrão) com `total`, busca sem acento e filtro de status. O que este teste
 // segura: página respeita limite/offset; total é o do recorte, não da página;
 // busca acha por nome sem acento e por e-mail; quem não é staff continua
-// recusado; e na tela o "Mostrar mais" soma 10 e o contador acompanha.
+// recusado; e na tela o paginador (1–10 de N, próxima/última, itens por
+// página) troca de página no banco e o contador acompanha.
 //
 // Só roda no banco LOCAL com as migrations do RBAC e o seed (`bun run local:rbac`).
 
@@ -103,7 +104,7 @@ test.describe("QG paginado", () => {
     expect(r2.error?.code).toBe("42501");
   });
 
-  test("tela: 10 por vez, 'Mostrar mais' soma 10 e a busca filtra", async ({ browser, baseURL }) => {
+  test("tela: 10 por página, próxima/última, itens por página e busca", async ({ browser, baseURL }) => {
     const { session } = await como(`qg+dono@${DOM}`);
     const { ctx, origem } = await contextoQG(browser, baseURL!, session);
     const page = await ctx.newPage();
@@ -111,23 +112,36 @@ test.describe("QG paginado", () => {
     try {
       await page.goto(`${origem}/qg/escritorios/${ESC1}`);
       const contagem = page.locator("[data-contagem]").first();
-      await expect(contagem).toHaveText(/^10 de \d+ pessoas$/);
+      await expect(contagem).toHaveText(/^1–10 de \d+ pessoas$/);
       const total = Number((await contagem.textContent())!.match(/de (\d+)/)![1]);
       expect(total).toBeGreaterThan(10);
       await expect(page.getByText(`Quem usa o sistema (${total})`)).toBeVisible();
 
-      await page.getByRole("button", { name: "Mostrar mais 10" }).first().click();
-      await expect(contagem).toHaveText(new RegExp(`^${Math.min(20, total)} de ${total} pessoas$`));
+      // próxima página: 11–20, e o número 2 fica marcado como atual
+      await page.getByRole("button", { name: "Próxima página" }).first().click();
+      await expect(contagem).toHaveText(new RegExp(`^11–${Math.min(20, total)} de ${total} pessoas$`));
+      await expect(page.getByRole("button", { name: "Página 2" })).toHaveAttribute("aria-current", "page");
+
+      // última página
+      const ultima = Math.ceil(total / 10);
+      await page.getByRole("button", { name: "Última página" }).first().click();
+      await expect(contagem).toHaveText(new RegExp(`^${(ultima - 1) * 10 + 1}–${total} de ${total} pessoas$`));
+      await expect(page.getByRole("button", { name: "Próxima página" }).first()).toBeDisabled();
+
+      // itens por página: 25 -> volta pra página 1 com 25
+      await page.getByRole("combobox", { name: "Itens por página" }).first().click();
+      await page.getByRole("option", { name: "25" }).click();
+      await expect(contagem).toHaveText(new RegExp(`^1–${Math.min(25, total)} de ${total} pessoas$`));
 
       // busca vai ao banco: acha pelo e-mail, e o total acompanha o recorte
       await page.getByRole("textbox", { name: "Buscar pessoa" }).fill("rbac+financeiro");
-      await expect(contagem).toHaveText(/^1 de 1 pessoas$/);
+      await expect(contagem).toHaveText(/^1–1 de 1 pessoas$/);
       await expect(page.getByText(`rbac+financeiro@${DOM}`)).toBeVisible();
 
       // lista de escritórios: busca sem acento
       await page.goto(`${origem}/qg`);
       await page.getByRole("textbox", { name: "Buscar escritório" }).fill("canár");
-      await expect(page.locator("[data-contagem]").first()).toHaveText(/^1 de 1 escritórios$/);
+      await expect(page.locator("[data-contagem]").first()).toHaveText(/^1–1 de 1 escritórios$/);
       // (o card "Pede atenção" também linka o Canário: olha só a tabela)
       await expect(page.getByRole("table").getByRole("link", { name: "Canário Advocacia" })).toBeVisible();
     } finally {

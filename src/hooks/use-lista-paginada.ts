@@ -1,94 +1,180 @@
-// Lista carregada em paginas por offset, com "Mostrar mais".
+// Paginacao por pagina (nao "mostrar mais"): a pessoa escolhe a pagina e o
+// tamanho, e so essa pagina e buscada.
 //
-// `buscar(offset, limite)` devolve UMA pagina (RPC com p_limite/p_offset ou
-// query com .range()). O total vem de cada linha (`count(*) over ()` nas RPCs
-// do QG) — quando a fonte nao informa, "tem mais" e inferido pela pagina
-// cheia. Recarrega do zero quando `chave` muda (busca/filtros); resposta
-// atrasada de uma busca anterior e descartada (contador de pedidos), senao a
-// lista mostraria o resultado de um filtro que a pessoa ja trocou.
+// useListaPaginada — lista do servidor: `buscar(offset, limite)` devolve UMA
+//   pagina (RPC com p_limite/p_offset ou query com .range()) e, quando pode, o
+//   total (`count` da resposta ou coluna `total` = count(*) over ()). Muda a
+//   `chave` (busca/filtros) -> volta pra pagina 1. Resposta atrasada de um
+//   pedido anterior e descartada (contador), senao a lista mostraria o
+//   resultado de um filtro que a pessoa ja trocou.
+// usePaginaLocal — lista ja carregada (fatia no cliente), mesma interface.
+// usePorPagina — tamanho da pagina, lembrado por lista no localStorage.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export interface PaginaResp<T> {
   data: Array<T> | null;
   error: { message: string } | null;
+  count?: number | null;
 }
 
 export interface ListaPaginada<T> {
   itens: Array<T>;
-  /** total de linhas que a busca alcança; null quando a fonte não informa */
+  /** total de itens que a busca alcança; null quando a fonte não informa */
   total: number | null;
+  pagina: number;
+  porPagina: number;
+  totalPaginas: number | null;
   temMais: boolean;
   carregando: boolean;
-  carregandoMais: boolean;
   erro: string | null;
-  mais: () => void;
+  irPara: (pagina: number) => void;
+  setPorPagina: (n: number) => void;
   recarregar: () => void;
+}
+
+export interface OpcoesPaginacao {
+  /** tamanho inicial da pagina (padrao 25) */
+  porPagina?: number;
+  /** nome da lista para lembrar o tamanho escolhido (localStorage) */
+  persistencia?: string;
+}
+
+const CHAVE_LS = (nome: string) => `msc:por_pagina:${nome}`;
+
+/** Tamanho da pagina lembrado por lista. Guardar/ler pode falhar (privado, bloqueado): ignora. */
+export function usePorPagina(persistencia: string | undefined, padrao = 25): [number, (n: number) => void] {
+  const [porPagina, setPorPaginaState] = useState(() => {
+    if (!persistencia || typeof window === "undefined") return padrao;
+    try {
+      const v = Number(window.localStorage.getItem(CHAVE_LS(persistencia)));
+      return Number.isInteger(v) && v > 0 && v <= 500 ? v : padrao;
+    } catch {
+      return padrao;
+    }
+  });
+  const setPorPagina = useCallback(
+    (n: number) => {
+      setPorPaginaState(n);
+      if (!persistencia || typeof window === "undefined") return;
+      try {
+        window.localStorage.setItem(CHAVE_LS(persistencia), String(n));
+      } catch {
+        /* sem armazenamento: so nesta visita */
+      }
+    },
+    [persistencia],
+  );
+  return [porPagina, setPorPagina];
 }
 
 export function useListaPaginada<T extends { total?: number | null }>(
   buscar: (offset: number, limite: number) => PromiseLike<PaginaResp<T>>,
   chave: string,
-  porPagina = 10,
-  idDe?: (t: T) => string,
+  opcoes: OpcoesPaginacao = {},
 ): ListaPaginada<T> {
+  const [porPagina, setPorPagina] = usePorPagina(opcoes.persistencia, opcoes.porPagina ?? 25);
+  const [pagina, setPagina] = useState(1);
   const [itens, setItens] = useState<Array<T>>([]);
   const [total, setTotal] = useState<number | null>(null);
   const [temMais, setTemMais] = useState(false);
   const [carregando, setCarregando] = useState(true);
-  const [carregandoMais, setCarregandoMais] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [versao, setVersao] = useState(0);
   const pedido = useRef(0);
-  // buscar/idDe chegam como arrow inline (identidade nova a cada render): vao
-  // por ref, senao carregarPagina mudaria todo render e o efeito recarregaria a
-  // pagina 0 sem parar — foi o que engoliu o "Mostrar mais" no primeiro teste.
+  // `buscar` chega como arrow inline (identidade nova a cada render): vai por
+  // ref, senao o efeito recarregaria a cada render.
   const buscarRef = useRef(buscar);
   buscarRef.current = buscar;
-  const idDeRef = useRef(idDe);
-  idDeRef.current = idDe;
+  const chaveRef = useRef(chave);
 
-  const carregarPagina = useCallback(
-    async (offset: number, acumulado: Array<T>) => {
-      const meu = ++pedido.current;
-      if (offset === 0) setCarregando(true);
-      else setCarregandoMais(true);
-      const { data, error } = await buscarRef.current(offset, porPagina);
-      if (meu !== pedido.current) return; // chegou atrasado: outro pedido ja venceu
+  useEffect(() => {
+    // filtro/busca mudou: recomeca da pagina 1 (o efeito roda de novo com ela)
+    if (chaveRef.current !== chave) {
+      chaveRef.current = chave;
+      if (pagina !== 1) {
+        setPagina(1);
+        return;
+      }
+    }
+    let vivo = true;
+    const meu = ++pedido.current;
+    setCarregando(true);
+    void (async () => {
+      const { data, error, count } = await buscarRef.current((pagina - 1) * porPagina, porPagina);
+      if (!vivo || meu !== pedido.current) return; // chegou atrasado: outro pedido ja venceu
       setCarregando(false);
-      setCarregandoMais(false);
       if (error) {
         // erro NAO vira lista vazia: quem ve a tela precisa saber
         setErro(error.message);
         return;
       }
       setErro(null);
-      const pagina = data ?? [];
-      const idDeAtual = idDeRef.current;
-      const vistos = new Set(idDeAtual ? acumulado.map(idDeAtual) : []);
-      const novos = idDeAtual ? pagina.filter((x) => !vistos.has(idDeAtual(x))) : pagina;
-      const lista = offset === 0 ? pagina : [...acumulado, ...novos];
-      const totalInformado = pagina[0]?.total ?? (offset === 0 ? null : acumulado[0]?.total ?? null);
-      setItens(lista);
-      setTotal(totalInformado ?? (pagina.length < porPagina ? lista.length : null));
-      setTemMais(totalInformado != null ? lista.length < totalInformado : pagina.length === porPagina);
-    },
-    [porPagina],
-  );
+      const linhas = data ?? [];
+      const totalInformado = count ?? linhas[0]?.total ?? null;
+      setItens(linhas);
+      setTotal(totalInformado);
+      setTemMais(totalInformado != null ? pagina * porPagina < totalInformado : linhas.length === porPagina);
+      // pagina alem do fim (algo foi apagado): volta pra ultima que existe
+      if (totalInformado != null && linhas.length === 0 && pagina > 1) {
+        setPagina(Math.max(1, Math.ceil(totalInformado / porPagina)));
+      }
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [chave, pagina, porPagina, versao]);
 
-  useEffect(() => {
-    void carregarPagina(0, []);
-    // `chave` e o gatilho deliberado: muda a busca/filtro, recomeca do zero
-  }, [chave, carregarPagina]);
+  const totalPaginas = total != null ? Math.max(1, Math.ceil(total / porPagina)) : null;
 
   return {
     itens,
     total,
+    pagina,
+    porPagina,
+    totalPaginas,
     temMais,
     carregando,
-    carregandoMais,
     erro,
-    mais: () => void carregarPagina(itens.length, itens),
-    recarregar: () => void carregarPagina(0, []),
+    irPara: (p) => setPagina(Math.max(1, totalPaginas != null ? Math.min(p, totalPaginas) : p)),
+    setPorPagina: (n) => {
+      setPorPagina(n);
+      setPagina(1);
+    },
+    recarregar: () => setVersao((v) => v + 1),
+  };
+}
+
+/** Lista ja carregada: fatia no cliente. Muda a `chave` (filtros) -> pagina 1. */
+export function usePaginaLocal<T>(todos: Array<T>, chave: string, opcoes: OpcoesPaginacao = {}): ListaPaginada<T> {
+  const [porPagina, setPorPagina] = usePorPagina(opcoes.persistencia, opcoes.porPagina ?? 25);
+  const [pagina, setPagina] = useState(1);
+  const chaveRef = useRef(chave);
+  useEffect(() => {
+    if (chaveRef.current !== chave) {
+      chaveRef.current = chave;
+      setPagina(1);
+    }
+  }, [chave]);
+  const total = todos.length;
+  const totalPaginas = Math.max(1, Math.ceil(total / porPagina));
+  const paginaAtual = Math.min(pagina, totalPaginas);
+  const itens = useMemo(() => todos.slice((paginaAtual - 1) * porPagina, paginaAtual * porPagina), [todos, paginaAtual, porPagina]);
+  return {
+    itens,
+    total,
+    pagina: paginaAtual,
+    porPagina,
+    totalPaginas,
+    temMais: paginaAtual < totalPaginas,
+    carregando: false,
+    erro: null,
+    irPara: (p) => setPagina(Math.min(Math.max(1, p), totalPaginas)),
+    setPorPagina: (n) => {
+      setPorPagina(n);
+      setPagina(1);
+    },
+    recarregar: () => {},
   };
 }
 

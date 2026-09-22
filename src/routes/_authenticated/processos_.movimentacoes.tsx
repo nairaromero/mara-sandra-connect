@@ -6,13 +6,14 @@
 // 7 dias) — mesmo trabalho do cron diário, sob demanda.
 
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, History, Loader2, RefreshCw, Search, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
-import { CarregarMais } from "@/components/carregar-mais";
+import { Paginador } from "@/components/paginador";
+import { usePorPagina } from "@/hooks/use-lista-paginada";
 import { chaveDiaBR, diaDoEventoBR, hojeChaveBR, horaDoEventoBR } from "@/lib/fuso";
 import { ClientOnly } from "@/components/client-only";
 import { Badge } from "@/components/ui/badge";
@@ -25,9 +26,9 @@ export const Route = createFileRoute("/_authenticated/processos_/movimentacoes")
 });
 
 const DIAS_JANELA = 30;
-// Por página; "Carregar mais" traz as anteriores dentro da janela. O
-// `.limit(1000)` de antes coincidia com o corte do PostgREST — silencioso.
-const POR_PAGINA = 200;
+// Uma página por vez dentro da janela, com o total. O `.limit(1000)` de
+// antes coincidia com o corte do PostgREST — silencioso.
+const POR_PAGINA_PADRAO = 25;
 
 interface MovRow {
   id: string;
@@ -81,8 +82,11 @@ function MovimentacoesPage() {
 
   const [carregando, setCarregando] = useState(true);
   const [movs, setMovs] = useState<MovRow[]>([]);
-  const [temMais, setTemMais] = useState(false);
-  const [carregandoMais, setCarregandoMais] = useState(false);
+  const [pagina, setPagina] = useState(1);
+  const [porPagina, setPorPagina] = usePorPagina("movimentacoes", POR_PAGINA_PADRAO);
+  const [total, setTotal] = useState<number | null>(null);
+  const [carregandoPagina, setCarregandoPagina] = useState(false);
+  const jaCarregouRef = useRef(false);
   const [busca, setBusca] = useState("");
   const [sincronizando, setSincronizando] = useState(false);
   const [analisando, setAnalisando] = useState(false);
@@ -91,22 +95,25 @@ function MovimentacoesPage() {
     if (usuario && !isInterno) navigate({ to: "/casos" });
   }, [usuario, isInterno, navigate]);
 
-  const carregar = useCallback(async (offset = 0) => {
-    if (offset === 0) setCarregando(true);
-    else setCarregandoMais(true);
+  const carregar = useCallback(async () => {
+    if (jaCarregouRef.current) setCarregandoPagina(true);
+    else setCarregando(true);
     try {
       const desde = new Date(Date.now() - DIAS_JANELA * 86400000).toISOString().slice(0, 10);
-      const { data, error } = await supabase
+      const inicio = (pagina - 1) * porPagina;
+      const { data, error, count } = await supabase
         .from("andamentos")
         .select(
           "id, titulo, descricao, data_evento, caso_id, metadata, casos:caso_id(clientes(nome))",
+          { count: "exact" },
         )
         .eq("origem", "datajud")
         .gte("data_evento", desde)
         .order("data_evento", { ascending: false })
         .order("id")
-        .range(offset, offset + POR_PAGINA - 1);
+        .range(inicio, inicio + porPagina - 1);
       if (error) throw error;
+      setTotal(count ?? null);
       const novas: MovRow[] =
         ((data || []) as Array<Record<string, unknown>>).map((r) => {
           const m = (r.metadata as Record<string, unknown> | null) || {};
@@ -125,21 +132,20 @@ function MovimentacoesPage() {
             iaRelevancia: (m.ia_relevancia as string | null) ?? null,
           };
         });
-      setTemMais(novas.length === POR_PAGINA);
-      if (offset === 0) setMovs(novas);
-      else
-        setMovs((prev) => {
-          const vistos = new Set(prev.map((x) => x.id));
-          return [...prev, ...novas.filter((x) => !vistos.has(x.id))];
-        });
+      setMovs(novas);
     } catch (err) {
       console.error(err);
       toast.error("Falha ao carregar as movimentações.");
     } finally {
       setCarregando(false);
-      setCarregandoMais(false);
+      setCarregandoPagina(false);
+      jaCarregouRef.current = true;
     }
-  }, []);
+  }, [pagina, porPagina]);
+
+  useEffect(() => {
+    setPagina(1);
+  }, [porPagina]);
 
   useEffect(() => {
     if (isInterno) carregar();
@@ -381,13 +387,13 @@ function MovimentacoesPage() {
             ))}
           </div>
         )}
-        <CarregarMais
-          mostrando={movs.length}
-          total={null}
-          temMais={temMais}
-          carregando={carregandoMais}
-          onMais={() => carregar(movs.length)}
-          passo={POR_PAGINA}
+        <Paginador
+          pagina={pagina}
+          porPagina={porPagina}
+          total={total}
+          carregando={carregandoPagina}
+          onPagina={setPagina}
+          onPorPagina={setPorPagina}
           nome="movimentações"
         />
       </ClientOnly>

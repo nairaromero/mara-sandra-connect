@@ -12,7 +12,7 @@ import { dataBR, dataHoraBR } from "@/lib/fuso";
 import { ROTULO_STATUS, type QgEscritorio, type QgMembro } from "@/lib/qg/tipos";
 import { useQg } from "@/lib/qg/contexto";
 import { useListaPaginada, useValorAtrasado } from "@/hooks/use-lista-paginada";
-import { CarregarMais } from "@/components/carregar-mais";
+import { Paginador } from "@/components/paginador";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -83,8 +83,7 @@ function QgEscritorio() {
         p_offset: offset,
       }),
     `${id}|${buscaMembroAtrasada}|${statusMembro}`,
-    POR_PAGINA,
-    (m) => m.usuario_id,
+    { porPagina: POR_PAGINA, persistencia: "qg-membros" },
   );
   const [form, setForm] = useState({ nome: "", slug: "", cnpj: "", plano: "", contato_encarregado: "" });
   const [salvando, setSalvando] = useState(false);
@@ -325,13 +324,14 @@ function QgEscritorio() {
               ))}
             </TableBody>
           </Table>
-          <CarregarMais
-            mostrando={membros.itens.length}
+          <Paginador
+            pagina={membros.pagina}
+            porPagina={membros.porPagina}
             total={membros.total}
             temMais={membros.temMais}
-            carregando={membros.carregandoMais}
-            onMais={membros.mais}
-            passo={POR_PAGINA}
+            carregando={membros.carregando && membros.itens.length > 0}
+            onPagina={membros.irPara}
+            onPorPagina={membros.setPorPagina}
             nome="pessoas"
             className="border-t"
           />

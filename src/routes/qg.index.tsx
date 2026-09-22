@@ -9,7 +9,7 @@ import { dataBR, dataHoraBR } from "@/lib/fuso";
 import { urlDoProduto } from "@/lib/qg/host";
 import { ROTULO_STATUS, type QgAlerta, type QgEscritorio } from "@/lib/qg/tipos";
 import { useListaPaginada, useValorAtrasado } from "@/hooks/use-lista-paginada";
-import { CarregarMais } from "@/components/carregar-mais";
+import { Paginador } from "@/components/paginador";
 import { useQg } from "@/lib/qg/contexto";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -70,8 +70,7 @@ function QgEscritorios() {
         p_offset: offset,
       }),
     `${buscaAtrasada}|${status}`,
-    POR_PAGINA,
-    (e) => e.id,
+    { porPagina: POR_PAGINA, persistencia: "qg-escritorios" },
   );
 
   const carregarAlertas = useCallback(async () => {
@@ -166,7 +165,7 @@ function QgEscritorios() {
 
       <Card>
         <CardContent className="p-0">
-          {lista.carregando ? (
+          {lista.carregando && lista.itens.length === 0 ? (
             <div className="flex justify-center py-10">
               <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
             </div>
@@ -175,7 +174,7 @@ function QgEscritorios() {
               {buscaAtrasada || status ? "Nenhum escritório com esse filtro." : "Nenhum escritório ainda."}
             </p>
           ) : (
-            <Table>
+            <Table className={lista.carregando ? "opacity-60" : ""}>
               <TableHeader>
                 <TableRow>
                   <TableHead>Escritório</TableHead>
@@ -218,13 +217,14 @@ function QgEscritorios() {
               </TableBody>
             </Table>
           )}
-          <CarregarMais
-            mostrando={lista.itens.length}
+          <Paginador
+            pagina={lista.pagina}
+            porPagina={lista.porPagina}
             total={lista.total}
             temMais={lista.temMais}
-            carregando={lista.carregandoMais}
-            onMais={lista.mais}
-            passo={POR_PAGINA}
+            carregando={lista.carregando && lista.itens.length > 0}
+            onPagina={lista.irPara}
+            onPorPagina={lista.setPorPagina}
             nome="escritórios"
             className="border-t"
           />

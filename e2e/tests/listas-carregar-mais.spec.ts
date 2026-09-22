@@ -1,6 +1,6 @@
 // E2E: listas que carregavam com `.limit(n)` fixo — e o PostgREST corta em
 // 1.000 linhas SEM avisar — passaram a paginar até o fim (/processos) ou a
-// carregar POR_PAGINA por vez com "Mostrar mais" (publicações, conversas).
+// buscar uma página por vez, com paginador e total (publicações, conversas).
 //
 // /processos: cria 1.100 processos judiciais num caso sem parceiro (assim o
 // gatilho de webhook não enfileira nada) e confere que a tela conta TODOS —
@@ -71,28 +71,33 @@ test.describe("listas sem corte silencioso", () => {
     }
   });
 
-  test("/publicacoes carrega 200 por vez e 'Mostrar mais' traz as antigas", async ({ page }) => {
+  test("/publicacoes: 50 por página, próxima e última, com o total do banco", async ({ page }) => {
     const { count, error } = await admin.from("publicacoes_dje").select("id", { count: "exact", head: true });
     if (error) throw new Error(error.message);
-    test.skip((count ?? 0) <= 200, "precisa de mais de 200 publicações no banco");
+    test.skip((count ?? 0) <= 50, "precisa de mais de 50 publicações no banco");
+    const total = count!;
     await page.goto("/publicacoes");
     await cursorVisivel(page);
     const contagem = page.locator("[data-contagem]").first();
-    await expect(contagem).toHaveText(/^mostrando 200 publicações$/);
-    await page.getByRole("button", { name: "Mostrar mais 200" }).click();
-    await expect(contagem).toHaveText(new RegExp(`^mostrando ${Math.min(400, count!)} publicações$`));
-    if (count! <= 400) await expect(page.getByRole("button", { name: "Mostrar mais 200" })).toHaveCount(0);
+    await expect(contagem).toHaveText(`1–${Math.min(50, total)} de ${total} publicações`);
+    await page.getByRole("button", { name: "Próxima página" }).click();
+    await expect(contagem).toHaveText(`51–${Math.min(100, total)} de ${total} publicações`);
+    await page.getByRole("button", { name: "Última página" }).click();
+    const ultima = Math.ceil(total / 50);
+    await expect(contagem).toHaveText(`${(ultima - 1) * 50 + 1}–${total} de ${total} publicações`);
+    await expect(page.getByRole("button", { name: "Próxima página" })).toBeDisabled();
   });
 
-  test("/conversas carrega 200 comentários por vez", async ({ page }) => {
-    const { count, error } = await admin.from("comentarios").select("id", { count: "exact", head: true }).eq("rascunho", false);
+  test("/conversas: 25 conversas por página, cada thread inteira", async ({ page }) => {
+    const { data, error } = await admin.from("comentarios").select("caso_id").eq("rascunho", false);
     if (error) throw new Error(error.message);
-    test.skip((count ?? 0) <= 200, "precisa de mais de 200 comentários no banco");
+    const threads = new Set((data ?? []).map((c) => c.caso_id)).size;
+    test.skip(threads <= 25, "precisa de mais de 25 conversas no banco");
     await page.goto("/conversas");
     await cursorVisivel(page);
     const contagem = page.locator("[data-contagem]").first();
-    await expect(contagem).toHaveText(/^mostrando 200 comentários$/);
-    await page.getByRole("button", { name: "Mostrar mais 200" }).click();
-    await expect(contagem).toHaveText(new RegExp(`^mostrando ${Math.min(400, count!)} comentários$`));
+    await expect(contagem).toHaveText(`1–25 de ${threads} conversas`);
+    await page.getByRole("button", { name: "Próxima página" }).click();
+    await expect(contagem).toHaveText(`26–${Math.min(50, threads)} de ${threads} conversas`);
   });
 });

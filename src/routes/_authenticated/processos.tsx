@@ -13,6 +13,8 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import { buscarPaginado } from "@/lib/supabase-paginado";
+import { usePaginaLocal } from "@/hooks/use-lista-paginada";
+import { Paginador } from "@/components/paginador";
 import { dataBR, diaDoEventoBR } from "@/lib/fuso";
 import { ClientOnly } from "@/components/client-only";
 import { Badge } from "@/components/ui/badge";
@@ -68,7 +70,6 @@ const ORIGEM_LABEL: Record<string, string> = {
 
 // Processo "parado": sem andamento registrado nos últimos N dias.
 const DIAS_PARADO = 30;
-const PAGINA = 100;
 
 type ProcTipo = "admin" | "judicial";
 type Ordenacao = "andamento" | "inicio" | "cliente";
@@ -130,7 +131,6 @@ function ProcessosPage() {
   const [filtroBeneficio, setFiltroBeneficio] = useState<string>("todos");
   const [somenteParados, setSomenteParados] = useState(false);
   const [ordenacao, setOrdenacao] = useState<Ordenacao>("andamento");
-  const [limite, setLimite] = useState(PAGINA);
 
   // Parceiro não tem visão global — volta pra home dele.
   useEffect(() => {
@@ -312,7 +312,13 @@ function ProcessosPage() {
     return { total: rows.length, admin, judicial, parados };
   }, [rows, paradoRow]);
 
-  const visiveis = filtradas.slice(0, limite);
+  // Paginacao no cliente (a lista inteira ja esta carregada): filtro mudou -> pagina 1.
+  const paginacao = usePaginaLocal(
+    filtradas,
+    `${busca}|${filtroTipo}|${filtroEtapa}|${filtroBeneficio}|${somenteParados}|${ordenacao}`,
+    { porPagina: 25, persistencia: "processos" },
+  );
+  const visiveis = paginacao.itens;
 
   // Chips-filtro do cabeçalho.
   const filtrosAtivos =
@@ -325,7 +331,6 @@ function ProcessosPage() {
   function alternarTipo(tipo: ProcTipo) {
     setFiltroTipo((atual) => (atual === tipo ? "todos" : tipo));
     setFiltroEtapa("todas");
-    setLimite(PAGINA);
   }
 
   function limparFiltros() {
@@ -334,7 +339,6 @@ function ProcessosPage() {
     setFiltroEtapa("todas");
     setFiltroBeneficio("todos");
     setSomenteParados(false);
-    setLimite(PAGINA);
   }
 
   function copiarNumero(numero: string) {
@@ -419,8 +423,7 @@ function ProcessosPage() {
               type="button"
               onClick={() => {
                 setSomenteParados((v) => !v);
-                setLimite(PAGINA);
-              }}
+                          }}
               title={`Sem andamento há ${DIAS_PARADO}+ dias`}
             >
               <Badge
@@ -529,7 +532,6 @@ function ProcessosPage() {
           <>
             <p className="text-xs text-muted-foreground">
               {filtradas.length} processo{filtradas.length === 1 ? "" : "s"}
-              {filtradas.length > visiveis.length ? ` · mostrando ${visiveis.length}` : ""}
             </p>
             <div className="overflow-x-auto rounded-md border">
               <Table>
@@ -669,13 +671,16 @@ function ProcessosPage() {
                 </TableBody>
               </Table>
             </div>
-            {filtradas.length > visiveis.length && (
-              <div className="flex justify-center">
-                <Button variant="outline" onClick={() => setLimite((l) => l + PAGINA)}>
-                  Mostrar mais ({filtradas.length - visiveis.length} restantes)
-                </Button>
-              </div>
-            )}
+            <Paginador
+              pagina={paginacao.pagina}
+              porPagina={paginacao.porPagina}
+              total={paginacao.total}
+              onPagina={paginacao.irPara}
+              onPorPagina={paginacao.setPorPagina}
+              opcoes={[25, 50, 100]}
+              nome="processos"
+              className="px-0"
+            />
           </>
         )}
       </ClientOnly>

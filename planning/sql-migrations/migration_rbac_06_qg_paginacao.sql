@@ -13,6 +13,7 @@
 --     mapear nome em listas (operação);
 --   - qg_alertas() — o card "Pede atenção" da lista, calculado no banco para
 --     TODOS os escritórios (antes era derivado da lista inteira no front);
+--   - conversas_threads(p_limite, p_offset) — página de threads para /conversas;
 --   - processos_ultimo_andamento() — SECURITY INVOKER (RLS vale): último
 --     andamento por processo, para a tela /processos parar de puxar até
 --     10.000 andamentos (que o PostgREST cortava em 1.000 sem avisar).
@@ -192,6 +193,24 @@ language sql stable security invoker set search_path = '' as $$
 $$;
 revoke execute on function public.processos_ultimo_andamento() from public, anon;
 grant execute on function public.processos_ultimo_andamento() to authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- /conversas: uma pagina de THREADS (casos com comentario), sob a RLS de quem
+-- chama. A tela busca os comentarios so desses casos — thread sempre inteira,
+-- e o paginador conta conversas, nao comentarios.
+-- ---------------------------------------------------------------------------
+create or replace function public.conversas_threads(p_limite int default 25, p_offset int default 0)
+returns table (caso_id uuid, ultimo_em timestamptz, total int)
+language sql stable security invoker set search_path = '' as $$
+  select c.caso_id, max(c.created_at) as ultimo_em, count(*) over ()::int as total
+    from public.comentarios c
+   where c.rascunho = false
+   group by c.caso_id
+   order by max(c.created_at) desc, c.caso_id
+   limit least(greatest(coalesce(p_limite, 25), 1), 200) offset greatest(coalesce(p_offset, 0), 0)
+$$;
+revoke execute on function public.conversas_threads(int, int) from public, anon;
+grant execute on function public.conversas_threads(int, int) to authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
 -- Grants das qg_* (mesma regra da migration 05)
