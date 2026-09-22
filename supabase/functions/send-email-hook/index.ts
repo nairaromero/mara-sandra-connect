@@ -45,7 +45,9 @@ function verifyLink(emailData: EmailData, tokenHash: string, type: string) {
 // Paleta do app (src/styles.css, tema claro, oklch -> hex):
 //   background #FCFAF6 | card #FFFFFF | foreground #1B150F | primary #201914
 //   muted-fg #6A615B | border #DED6C9 | gold #AF7C00 | gold-soft #F7E6C3
-const LOGO_URL = "https://marasandraconnect.com/logo.png";
+// Marca do PRODUTO no cabecalho (PNG: Gmail/Outlook nao renderizam SVG). O
+// escritorio aparece no corpo do e-mail.
+const LOGO_URL = "https://marasandraconnect.com/marca/legal-connect-email.png";
 
 function buildEmail(emailData: EmailData): { subject: string; html: string } {
   const type = emailData.email_action_type;
@@ -67,7 +69,7 @@ function buildEmail(emailData: EmailData): { subject: string; html: string } {
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:540px">` +
     // logo
     `<tr><td align="center" style="padding-bottom:28px">` +
-    `<img src="${LOGO_URL}" width="170" alt="Mara Sandra Vian Advocacia" style="display:block;border:0;max-width:170px;height:auto"></td></tr>` +
+    `<img src="${LOGO_URL}" width="200" alt="Legal Connect" style="display:block;border:0;max-width:200px;height:auto"></td></tr>` +
     // card
     `<tr><td style="background:#FFFFFF;border:1px solid #DED6C9;border-top:3px solid #AF7C00;border-radius:12px;padding:36px 40px" align="center">` +
     `<h2 style="margin:0 0 16px;font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:normal;color:#1B150F">${title}</h2>` +
@@ -76,7 +78,7 @@ function buildEmail(emailData: EmailData): { subject: string; html: string } {
     // footer
     `<tr><td align="center" style="padding-top:24px">` +
     `<p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#6A615B">` +
-    `Mara Sandra Vian Advocacia &middot; <a href="https://marasandraconnect.com" style="color:#AF7C00;text-decoration:none">marasandraconnect.com</a></p>` +
+    `Legal Connect &middot; <a href="https://marasandraconnect.com" style="color:#AF7C00;text-decoration:none">marasandraconnect.com</a></p>` +
     `</td></tr>` +
     `</table></td></tr></table></body>`;
 

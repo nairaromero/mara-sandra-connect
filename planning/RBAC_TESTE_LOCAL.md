@@ -192,20 +192,6 @@ o tamanho escolhido fica lembrado por lista neste navegador.
 - [ ] Processos → **Movimentações**: 25 por página, com total.
 - [ ] Em qualquer lista: trocar o tamanho da página volta pra página 1; mudar filtro/busca também.
 
-### L. Marca Legal Connect (produto) × marca do escritório
-
-- [ ] `http://localhost:8080/login` (deslogado): logo **Legal Connect** (dois anéis) e o texto "Gestão de casos
-      previdenciários para escritórios e parceiros" — nada do Mara Sandra Vian. Idem em "Esqueci a senha" e na
-      tela de criar senha do convite.
-- [ ] Aba do navegador: título **Legal Connect** e o favicon com os anéis.
-- [ ] Logado em qualquer escritório: o topo continua com a marca do escritório; no **rodapé da sidebar** aparece
-      "por Legal Connect" (só o ícone quando a sidebar está recolhida).
-- [ ] QG (`qg.localhost:8080`): logo Legal Connect em fundo escuro + selo "QG" no cabeçalho.
-- [ ] Mailpit (http://127.0.0.1:55324): convidar alguém → o e-mail chega com o cabeçalho **Legal Connect** e o
-      rodapé "Legal Connect · marasandraconnect.com" (o corpo ainda cita o escritório padrão — item 3, marca por
-      escritório).
-- [ ] Instalar como app (Chrome → Instalar): nome e ícone Legal Connect.
-
 ### L. Integrações por escritório (Gmail do INSS, DJEN, WhatsApp)
 
 Cada escritório tem as suas: a caixa do INSS conectada, as OABs monitoradas e a instância do WhatsApp.
@@ -235,6 +221,22 @@ Sem ela, salvar a chave do WhatsApp devolve "não consegui cifrar" e a spec corr
       quiser ver o loop: `select escritorio_id, count(*) from oabs_monitoradas where ativo group by 1`.
 
 
+
+### M. Marca Legal Connect (produto) × marca do escritório
+
+- [ ] `http://localhost:8080/login` (deslogado): logo **Legal Connect** (dois anéis) e o texto "Gestão de casos
+      previdenciários para escritórios e parceiros" — nada do Mara Sandra Vian. Idem em "Esqueci a senha" e na
+      tela de criar senha do convite.
+- [ ] Aba do navegador: título **Legal Connect** e o favicon com os anéis.
+- [ ] Logado em qualquer escritório: o topo continua com a marca do escritório; no **rodapé da sidebar** aparece
+      "por Legal Connect" (só o ícone quando a sidebar está recolhida).
+- [ ] QG (`qg.localhost:8080`): logo Legal Connect em fundo escuro + selo "QG" no cabeçalho.
+- [ ] Mailpit (http://127.0.0.1:55324): convidar alguém → o e-mail chega com o cabeçalho **Legal Connect** e o
+      rodapé "Legal Connect · marasandraconnect.com" (o corpo ainda cita o escritório padrão — item 3, marca por
+      escritório).
+- [ ] Instalar como app (Chrome → Instalar): nome e ícone Legal Connect.
+
+### I. Provas automáticas (rodar e conferir os números)
 
 ```bash
 bun run e2e:local                                         # suíte inteira: 107 testes

@@ -13,6 +13,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import { ehHostQG, urlDoProduto, urlDoQG } from "@/lib/qg/host";
 import { QgContext } from "@/lib/qg/contexto";
+import { MarcaLegalConnect } from "@/components/marca-legal-connect";
 import { ROTULO_PAPEL_STAFF, type QgEu } from "@/lib/qg/tipos";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -125,9 +126,11 @@ function QgLayout() {
       <div className="min-h-screen bg-slate-50 text-slate-900">
         <header className="sticky top-0 z-10 border-b border-slate-800 bg-slate-900 text-slate-100">
           <div className="mx-auto flex h-14 max-w-7xl items-center gap-6 px-4">
-            <Link to="/qg" className="flex items-center gap-2 font-semibold tracking-tight">
-              <ShieldCheck className="h-5 w-5 text-amber-400" />
-              QG da plataforma
+            <Link to="/qg" className="flex items-center gap-3 font-semibold tracking-tight" aria-label="QG da plataforma">
+              <MarcaLegalConnect variante="escuro" className="h-7 w-auto" />
+              <span className="rounded border border-amber-400/40 px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wider text-amber-200">
+                QG
+              </span>
             </Link>
             <nav className="flex items-center gap-1">
               {NAV.map((n) => {

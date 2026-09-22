@@ -20,6 +20,7 @@ import { supabase } from "@/lib/supabase";
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -31,6 +32,7 @@ import {
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/use-auth";
 import { useVerComoParceiro } from "@/hooks/use-ver-como-parceiro";
+import { MarcaLegalConnect } from "@/components/marca-legal-connect";
 
 // "/" e o site publico (landing). Ninguem tem "Inicio": /casos redireciona
 // interno pra /tarefas e parceiro pra /clientes (home de cada um).
@@ -336,6 +338,20 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+      {/* Dentro do escritorio a marca do topo e a dele; o produto assina
+          discreto no rodape. */}
+      <SidebarFooter className="border-t border-border/60 px-2 py-2" data-rodape-marca>
+        <div className={"flex items-center gap-2 text-[11px] text-muted-foreground " + (collapsed ? "justify-center" : "px-1")}>
+          {collapsed ? (
+            <MarcaLegalConnect variante="icone" className="h-5 w-5 opacity-70" />
+          ) : (
+            <>
+              <span>por</span>
+              <MarcaLegalConnect variante="mono" className="h-4 w-auto opacity-70" />
+            </>
+          )}
+        </div>
+      </SidebarFooter>
     </Sidebar>
   );
 }

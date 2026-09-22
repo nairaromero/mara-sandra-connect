@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { MarcaLegalConnect } from "@/components/marca-legal-connect";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/login")({
@@ -108,13 +109,9 @@ function LoginPage() {
     <div className="flex min-h-screen items-center justify-center px-4 bg-gradient-to-br from-background via-background to-gold-soft/50">
       <div className="w-full max-w-md">
         <div className="mb-8 flex flex-col items-center gap-3">
-          <img
-            src="/logo.png"
-            alt="Mara Sandra Vian Advocacia"
-            className="h-36 w-auto object-contain"
-          />
+          <MarcaLegalConnect variante="empilhado" className="h-32 w-auto" />
           <p className="text-sm text-muted-foreground">
-            Plataforma interna · Previdenciário
+            Gestão de casos previdenciários para escritórios e parceiros
           </p>
         </div>
 
