@@ -143,15 +143,33 @@ você forçar pela URL/console, o banco recusar.
 - [ ] Entrar no QG como `qg+dono2` → **Aprovar e eliminar** → some da lista. (No local a carência é 0 dias; em produção, 30.)
 - [ ] O escritório padrão (Mara Vian) **não** tem botão de Suspender nem de Encerrar.
 
+### J. Glossário (qualquer conta; `/glossario` e, no QG, `/qg/glossario`)
+
+- [ ] Na sidebar, **Glossário** (ao lado de Configurações) abre a página com busca e as categorias.
+- [ ] Buscar `assistente` → o card **Assistente** aparece com "O que pode no escritório" e as permissões
+      **lidas do banco** (ex.: "Criar, editar e concluir tarefas" com o selo "só o que está atribuído a mim").
+- [ ] Buscar `captador` (sinônimo) → acha **Parceiro**. Buscar `trilha de auditoria` (texto de uma permissão)
+      → acha só **Administrador**.
+- [ ] Buscar algo inexistente → "Nenhum termo com …", sem categoria vazia.
+- [ ] Num card, clicar num link de "Veja também" → limpa a busca e rola até o termo.
+- [ ] O card do **seu** papel traz o selo "seu papel" (entre como `canario+financeiro` e busque `financeiro`).
+- [ ] Como `e2e+parceiro`: sem a categoria **Ambientes e técnica**, sem "Token do MCP" nem "Equipe";
+      o "Veja também" do Administrador não oferece o que o parceiro não vê.
+- [ ] Mandar link com a busca: `http://localhost:8080/glossario?q=repasse` abre já filtrado.
+- [ ] No QG (`qg+dono`): **Glossário** no menu; categoria **Plataforma e QG** vem primeiro, com Break-glass,
+      Eliminação e os papéis do QG (Dono com "seu papel").
+- [ ] Trocar o papel de alguém em Equipe e voltar ao glossário → a lista de permissões acompanha (é do banco).
+
 ### I. Provas automáticas (rodar e conferir os números)
 
 ```bash
-bun run e2e:local                                         # suíte inteira: 92 testes
+bun run e2e:local                                         # suíte inteira: 95 testes
 bun run e2e:local e2e/tests/rbac-isolamento.spec.ts       # 16 ataques entre os dois escritórios
 bun run e2e:local e2e/tests/rbac-edge-functions.spec.ts   # 7 ataques nas edge functions
+bun run e2e:local e2e/tests/glossario.spec.ts             # 3: busca, permissões do banco, parceiro
 ```
 
-- [ ] 92 passam. Os 23 do RBAC são ataques via API com a sessão real de cada papel: header
+- [ ] 95 passam. Os 23 do RBAC são ataques via API com a sessão real de cada papel: header
       forjado, filho apontando para pai de outro escritório (inclusive com service role), RPC
       com id alheio, vínculo desativado com o JWT ainda válido, staff lendo tabela de domínio,
       suporte escrevendo, eliminação sem segunda pessoa.
@@ -163,7 +181,8 @@ bun run e2e:local e2e/tests/rbac-edge-functions.spec.ts   # 7 ataques nas edge f
 | Banco — `migration_rbac_01…05` | `escritorios`, `membros`, 5 papéis × 26 permissões (matriz §4.3); `escritorio_id NOT NULL` em 41 tabelas com herança por gatilho; 41 policies restritivas de isolamento + 58 de permissão; helpers de papel sobre o vínculo; guard de escritório nas RPCs; equipe sobre vínculos (`definir_papel`); QG (`plataforma_staff`, `acessos_suporte`, `auditoria`, `ops.*`, 22 funções `qg_*`) |
 | Front | header `x-escritorio-id` em toda chamada; escritório ativo, vínculos e permissões no `useAuth` (`pode()`); seletor; faixa de suporte; tela "sem escritório"; menu por permissão; Equipe por papéis; QG em `/qg` (só no host `qg.`) |
 | Edge functions | `exigirUsuario` por vínculo e escritório; `exigirRecurso`; client de service role preso ao escritório (`escopado`) no digest, e-mails do INSS e DJEN; convite por escritório e papel; MCP no escritório do token; `qg-escritorios` |
-| Provas | `rbac-isolamento` (16), `rbac-edge-functions` (7), `scripts/rbac-diff-visibilidade.mjs` (o escritório 1 vê exatamente as mesmas linhas de antes) |
+| Glossário | `/glossario` (produto) e `/qg/glossario` (QG): busca por nome, sinônimo, definição e permissão; os cards de papel mostram as permissões **lidas do banco**; termos em `src/lib/glossario/termos.ts` (76), com público por termo (todos / equipe / QG) |
+| Provas | `rbac-isolamento` (16), `rbac-edge-functions` (7), `glossario` (3), `scripts/rbac-diff-visibilidade.mjs` (o escritório 1 vê exatamente as mesmas linhas de antes) |
 
 ### Como funciona, em uma frase
 

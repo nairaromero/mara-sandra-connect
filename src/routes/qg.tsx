@@ -8,7 +8,7 @@
 
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Activity, Building2, LifeBuoy, Loader2, LogOut, ShieldAlert, ShieldCheck, Users } from "lucide-react";
+import { Activity, BookOpen, Building2, LifeBuoy, Loader2, LogOut, ShieldAlert, ShieldCheck, Users } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import { ehHostQG, urlDoProduto, urlDoQG } from "@/lib/qg/host";
@@ -25,6 +25,7 @@ const NAV = [
   { to: "/qg", titulo: "Escritórios", icon: Building2, exato: true },
   { to: "/qg/operacao", titulo: "Operação", icon: Activity, exato: false },
   { to: "/qg/equipe", titulo: "Equipe do QG", icon: Users, exato: false },
+  { to: "/qg/glossario", titulo: "Glossário", icon: BookOpen, exato: false },
 ] as const;
 
 function QgLayout() {

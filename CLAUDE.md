@@ -129,6 +129,10 @@ o sistema em produção. Quando chegar, vale o seguinte:
   com prazo, auditado). Eliminar dados exige segunda pessoa.
 - Setup local: `bun run local:copiar && bun run local:rbac` (seed idempotente com o
   escritório Canário e as contas de teste). Nova edge function local → `supabase stop/start`.
+- **Glossário** (`/glossario`, `/qg/glossario`): termos em `src/lib/glossario/termos.ts`
+  (id estável, categoria, `publico` todos/interno/qg). Permissões dos papéis vêm do banco em
+  tempo real — não escrever matriz de permissão em texto. Papel, permissão ou conceito novo →
+  termo novo lá (e `veja` dos vizinhos).
 
 ## IA (importante)
 

@@ -314,7 +314,9 @@ test.describe.serial("RBAC multi-tenant", () => {
 
     const escs = await dono.rpc("qg_escritorios");
     expect(escs.error).toBeNull();
-    expect((escs.data ?? []).map((e: { slug: string }) => e.slug).sort()).toEqual(["canario", "mara-vian"]);
+    // os dois do seed têm que estar; escritório criado à mão pelo QG (validação da
+    // Naira no banco local) é legítimo e não pode derrubar a suíte
+    expect((escs.data ?? []).map((e: { slug: string }) => e.slug)).toEqual(expect.arrayContaining(["canario", "mara-vian"]));
     // metadado e contagem — nada de conteúdo de cliente
     const colunas = Object.keys((await dono.rpc("qg_membros", { p_escritorio_id: ESC2 })).data![0]);
     expect(colunas.sort()).toEqual(["desde", "email", "mfa", "nome", "papel", "papel_nome", "status", "tipo_acesso", "ultimo_acesso", "usuario_id"]);

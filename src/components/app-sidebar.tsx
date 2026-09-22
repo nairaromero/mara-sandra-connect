@@ -1,6 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import {
+  BookOpen,
   UserCircle,
   FileWarning,
   Newspaper,
@@ -76,7 +77,12 @@ const itemsAdmin: Array<ItemMenu> = [
   { title: "Auditoria", url: "/auditoria", icon: ShieldCheck },
 ];
 
-const itemsFooter: Array<ItemMenu> = [{ title: "Configurações", url: "/configuracoes", icon: Settings }];
+// Glossario: todo mundo logado, inclusive parceiro — e o que explica o que cada
+// papel pode, entao fica ao lado de Configuracoes, nao escondido em admin.
+const itemsFooter: Array<ItemMenu> = [
+  { title: "Glossário", url: "/glossario", icon: BookOpen },
+  { title: "Configurações", url: "/configuracoes", icon: Settings },
+];
 
 export function AppSidebar() {
   const { state, isMobile, setOpenMobile } = useSidebar();
