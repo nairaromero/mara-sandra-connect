@@ -10,7 +10,7 @@ Docker aberto. Da raiz do repositório:
 
 ```bash
 bun run local:copiar   # banco local = cópia do staging (~3 min). Só se quiser zerar.
-bun run local:rbac     # aplica as 7 migrations do RBAC + cria escritório canário, contas e QG
+bun run local:rbac     # aplica as 8 migrations do RBAC + cria escritório canário, contas e QG
 bun run dev:local      # app em http://localhost:8080
 ```
 
@@ -94,6 +94,8 @@ você forçar pela URL/console, o banco recusar.
 - [ ] `canario+financeiro`: abrir um caso e tentar criar tarefa/andamento → o banco recusa (erro na tela).
 - [ ] `canario+assistente`: consegue alterar uma tarefa **atribuída a ele**; numa tarefa do Diego, salvar não tem efeito.
 - [ ] `canario+advogado`: **não** vê Equipe nem Auditoria no menu.
+- [ ] `canario+advogado`: abrir um cliente → **não** há botão "Excluir cliente"; em Parceiros não há a lixeira do
+      convite. Como `canario+admin`, os dois aparecem. (Decisão de 22/09: excluir é só do admin — `migration_rbac_08`.)
 
 ### D. Equipe (como `canario+admin`, em /equipe)
 
@@ -259,7 +261,7 @@ escritório 1 não mudou, e forjar o header não abre nada.
 
 ## 6. Antes de ir para o staging
 
-Nada disto foi aplicado fora do local. Para o staging: as 7 migrations com
+Nada disto foi aplicado fora do local. Para o staging: as 8 migrations com
 `node scripts/msc-sql.mjs --staging --file …` **na ordem**, deploy das 26 edge functions alteradas
 (+ `qg-escritorios`), e só então o front. Como a #02 mexe em 41 tabelas, vale ensaiar de novo numa
 cópia fresca (`bun run local:copiar && bun run local:rbac`) no dia — leva ~4 min.

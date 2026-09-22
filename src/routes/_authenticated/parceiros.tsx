@@ -210,7 +210,7 @@ interface UsoStorageRow {
 }
 
 function ParceirosPage() {
-  const { usuario, isAdmin } = useAuth();
+  const { usuario, isAdmin, pode } = useAuth();
   const navigate = useNavigate();
   const { entrarVerComo } = useVerComoParceiro();
   // "Ver como parceiro" (só admin, leitura): entra no modo e vai pro kanban.
@@ -870,16 +870,20 @@ function ParceirosPage() {
                             >
                               <Pencil className="h-3.5 w-3.5" />
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => setExcluirAlvo(p)}
-                              aria-label="Cancelar convite"
-                              title="Cancelar convite (apaga o parceiro)"
-                              className="text-muted-foreground hover:text-destructive"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
+                            {/* apaga o parceiro: so quem tem parceiros:excluir
+                                (admin, migration_rbac_08); o banco recusa os demais */}
+                            {pode("parceiros:excluir") && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setExcluirAlvo(p)}
+                                aria-label="Cancelar convite"
+                                title="Cancelar convite (apaga o parceiro)"
+                                className="text-muted-foreground hover:text-destructive"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
                           </div>
                         </li>
                       ))}

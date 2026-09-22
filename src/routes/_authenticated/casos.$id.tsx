@@ -1527,6 +1527,8 @@ interface TabVisaoGeralProps {
 }
 
 function TabVisaoGeral(props: TabVisaoGeralProps) {
+  // permissao de excluir cliente vem do vinculo (RBAC), nao do modo interno
+  const { pode } = useAuth();
   const tiposBeneficio = useTiposBeneficio();
   const { caso, cliente, parceiro, parceirosDisponiveis, isInterno, onChange } = props;
   const navigate = useNavigate();
@@ -2341,8 +2343,9 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
               <DialogFooter className="sm:justify-between gap-2">
                 {/* Excluir vai a esquerda - separacao visual clara da acao
                   primaria (Salvar). Espacamento sm:justify-between joga
-                  o destrutivo pra ponta. So interno - parceiro nao apaga. */}
-                {isInterno && (
+                  o destrutivo pra ponta. So quem tem clientes:excluir (admin,
+                  desde a migration_rbac_08) - o banco recusa os demais. */}
+                {pode("clientes:excluir") && (
                   <Button
                     variant="destructive"
                     onClick={() => setConfExcluirCliente(true)}

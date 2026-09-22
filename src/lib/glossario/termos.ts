@@ -104,7 +104,7 @@ export const TERMOS: Array<Termo> = [
     categoria: "papeis",
     papel: "advogado",
     definicao:
-      "O papel de quem toca os casos. Cria e edita clientes e casos, tarefas, agenda, documentos, andamentos e análises; lê publicações, processos e a senha do MEU INSS; usa a IA; gerencia parceiros, etiquetas e templates. Não vê Equipe, Auditoria nem integrações. É o “interno” de antes dos papéis.",
+      "O papel de quem toca os casos. Cria e edita clientes e casos, tarefas, agenda, documentos, andamentos e análises; lê publicações, processos e a senha do MEU INSS; usa a IA; gerencia parceiros, etiquetas e templates. Não vê Equipe, Auditoria nem integrações, e não exclui cliente nem parceiro — isso é só do administrador, porque não tem volta. É o “interno” de antes dos papéis.",
     veja: ["assistente", "admin", "caso"],
   },
   {

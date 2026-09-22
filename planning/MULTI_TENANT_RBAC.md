@@ -45,7 +45,7 @@ Onde este documento divergir do banco, vale o banco — e corrija aqui
 
 ## 0. Estado da implementação (2026-09-22)
 
-Branch `feat/rbac-multi-tenant`, sete migrations (`migration_rbac_01…07`), 26 edge functions
+Branch `feat/rbac-multi-tenant`, oito migrations (`migration_rbac_01…08`), 26 edge functions
 alteradas + `qg-escritorios`, front, QG, glossário e paginação. Aplicado e provado **só no banco
 local**: `bun run local:copiar && bun run local:rbac`, `bun run e2e:local` = 100/100 (69 existentes +
 23 de ataque entre escritórios + 3 do glossário + 5 de paginação) e `scripts/rbac-diff-visibilidade.mjs` mostrando que o

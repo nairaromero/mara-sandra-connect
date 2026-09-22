@@ -241,6 +241,14 @@ test.describe.serial("RBAC multi-tenant", () => {
     const adv = await como(`canario+advogado@${DOM}`, ESC2);
     expect((await adv.rpc("is_admin")).data).toBe(false);
     expect((await adv.rpc("definir_papel", { p_usuario_id: eu!.id, p_papel: "parceiro" })).error, "advogado não gerencia equipe").toBeTruthy();
+    // excluir cliente/parceiro é só do admin (migration_rbac_08): advogado é
+    // recusado pelo banco, mesmo no cliente do próprio escritório; admin passa
+    // na checagem de permissão (não executamos: apagaria o seed)
+    const { data: cli } = await admin.from("clientes").select("id").eq("escritorio_id", ESC2).limit(1).single();
+    expect((await adv.rpc("excluir_cliente", { p_cliente_id: cli!.id })).error, "advogado não exclui cliente").toBeTruthy();
+    expect((await admin.from("clientes").select("id").eq("id", cli!.id)).data, "cliente continua lá").toHaveLength(1);
+    expect((await adv.rpc("tem_permissao", { p_perm: "parceiros:excluir" })).data).toBe(false);
+    expect((await (await como(`canario+admin@${DOM}`, ESC2)).rpc("tem_permissao", { p_perm: "clientes:excluir" })).data).toBe(true);
   });
 
   // -------------------------------------------------------------------------
