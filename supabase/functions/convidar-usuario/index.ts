@@ -15,6 +15,7 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { exigirUsuario } from "../_shared/auth.ts";
+import { marcaDoEscritorio } from "../_shared/marca.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -98,6 +99,9 @@ serve(async (req) => {
   }
 
   // ---- Convite via admin API ----
+  // O e-mail do convite (send-email-hook) mostra o ESCRITORIO que convidou:
+  // vai no user_metadata, que e o unico dado do usuario que o hook recebe.
+  const marca = await marcaDoEscritorio(admin, escritorioId);
   const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
     data: {
       nome,
@@ -105,6 +109,7 @@ serve(async (req) => {
       telefone,
       tipo,
       observacoes_iniciais: observacoes,
+      ...(escritorioId ? { escritorio_id: escritorioId, escritorio_nome: marca.nome } : {}),
     },
     redirectTo,
   });

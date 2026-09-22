@@ -20,6 +20,8 @@ import { IaLauncher } from "@/components/ia/ia-launcher";
 import { SessionTimeoutGuard } from "@/components/session-timeout-guard";
 import { SeletorEscritorio } from "@/components/seletor-escritorio";
 import { AvisoSuportePendente } from "@/components/aviso-suporte-pendente";
+import { MarcaEscritorio } from "@/components/marca-escritorio";
+import { nomeDoEscritorio } from "@/lib/marca-escritorio";
 import { supabase } from "@/lib/supabase";
 import { dataHoraBR } from "@/lib/fuso";
 import { ehHostQG } from "@/lib/qg/host";
@@ -211,14 +213,10 @@ function ConteudoAutenticado(props: {
                   esta colapsada. */}
               <Link
                 to="/casos"
-                aria-label="Mara Sandra Vian Advocacia - início"
+                aria-label={`${nomeDoEscritorio(escritorio)} - início`}
                 className="hidden sm:flex items-center hover:opacity-80 transition-opacity"
               >
-                <img
-                  src="/logo.png"
-                  alt="Mara Sandra Vian Advocacia"
-                  className="h-10 w-auto object-contain"
-                />
+                <MarcaEscritorio variante="logo" className="h-10 w-auto object-contain" />
               </Link>
             </div>
             <div className="flex items-center gap-3">

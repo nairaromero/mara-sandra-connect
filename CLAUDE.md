@@ -136,6 +136,10 @@ o sistema em produção. Quando chegar, vale o seguinte:
   `p_limite/p_offset` e `total = count(*) over ()`) ou `usePaginaLocal` (fatia de lista já carregada).
   Ordem estável (desempate por `id`); filtro/busca muda → página 1; tamanho lembrado por lista
   (`usePorPagina`). Nada de "mostrar mais" acumulando. `qg_escritorios` e `conversas_threads` são os moldes.
+- **Marca**: a do PRODUTO (Legal Connect, `<MarcaLegalConnect>`) fica onde não há escritório
+  (login, favicon, QG, rodapé); a do ESCRITÓRIO ativo (`escritorio_config.marca`, `<MarcaEscritorio>`,
+  `useAuth().escritorio.marca`) no topo, nos e-mails (`_shared/marca.ts`) e nas mensagens. Nunca
+  escrever "Mara Sandra Vian"/`/logo.png` fixo em tela ou function.
 - **Glossário** (`/glossario`, `/qg/glossario`): termos em `src/lib/glossario/termos.ts`
   (id estável, categoria, `publico` todos/interno/qg). Permissões dos papéis vêm do banco em
   tempo real — não escrever matriz de permissão em texto. Papel, permissão ou conceito novo →

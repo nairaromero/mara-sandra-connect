@@ -14,11 +14,12 @@ import {
   Plug,
   Webhook,
   type LucideIcon,
- LifeBuoy } from "lucide-react";
+ LifeBuoy, Building2 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import { AbaSuporte } from "@/components/suporte/aba-suporte";
+import { EscritorioMarcaCard } from "@/components/configuracoes/escritorio-marca-card";
 import { formatarTelefone } from "@/lib/telefone";
 import { ClientOnly } from "@/components/client-only";
 import { IntegracaoIaCard } from "@/components/ia/integracao-ia-card";
@@ -325,7 +326,7 @@ function ConfiguracoesPage() {
     "perfil",
     "seguranca",
     ...(ehInterno ? ["beneficios"] : []),
-    ...(isAdmin ? ["integracoes", "webhooks", "suporte"] : []),
+    ...(isAdmin ? ["escritorio", "integracoes", "webhooks", "suporte"] : []),
   ];
   const tab = search.tab && abas.includes(search.tab) ? search.tab : "perfil";
   function irParaAba(v: string) {
@@ -390,6 +391,12 @@ function ConfiguracoesPage() {
               intacto - os demais não veem a UI mas as APIs ainda existem. */}
             {isAdmin && (
               <>
+                <AbaConfig
+                  value="escritorio"
+                  ativa={tab === "escritorio"}
+                  icone={Building2}
+                  rotulo="Escritório"
+                />
                 <AbaConfig
                   value="integracoes"
                   ativa={tab === "integracoes"}
@@ -661,6 +668,12 @@ function ConfiguracoesPage() {
 
           {isAdmin && (
             <>
+              {/* Escritorio: nome de exibicao, logo e cor — a marca que aparece
+                  no topo, nos e-mails e nas mensagens deste escritorio. */}
+              <TabsContent value="escritorio">
+                <EscritorioMarcaCard />
+              </TabsContent>
+
               <TabsContent value="integracoes" className="space-y-6">
                 {/* Card: Integracao de IA */}
                 <IntegracaoIaCard />

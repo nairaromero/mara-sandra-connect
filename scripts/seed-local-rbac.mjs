@@ -223,6 +223,25 @@ if (!jaTem) {
   log("canário já tinha dados — mantidos");
 }
 
+// 5b. Marca do Canário (RBAC 10): logo SVG no bucket público `marcas` + nome/cor.
+{
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 80" width="320" height="80">
+  <rect width="320" height="80" rx="12" fill="#0f766e"/>
+  <circle cx="44" cy="40" r="22" fill="#facc15"/>
+  <text x="84" y="48" font-family="Georgia, serif" font-size="26" fill="#ffffff">Canário Advocacia</text>
+</svg>`;
+  const caminho = `${ESC2}/logo.svg`;
+  const up = await admin.storage.from("marcas").upload(caminho, new Blob([svg], { type: "image/svg+xml" }), { upsert: true, contentType: "image/svg+xml" });
+  falha("logo do canário", up.error);
+  const logoUrl = `${API}/storage/v1/object/public/marcas/${caminho}`;
+  falha("marca do canário", (await admin.from("escritorio_config").upsert({
+    escritorio_id: ESC2,
+    marca: { nome_exibicao: "Canário Advocacia", logo_url: logoUrl, cor: "#0f766e" },
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "escritorio_id" })).error);
+  log("canário: marca (logo SVG, nome e cor)");
+}
+
 // 6. Relatório
 const { data: resumo } = await admin.from("membros")
   .select("status, escritorio:escritorios(nome), papel:papeis(chave), usuario:usuarios!membros_usuario_id_fkey(email)")

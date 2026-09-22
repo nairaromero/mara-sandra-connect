@@ -24,13 +24,13 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { escritorioDoSistema, exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
+import { marcaDoEscritorio, remetente } from "../_shared/marca.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const APP_URL = Deno.env.get("APP_URL") || "https://marasandraconnect.com";
-const FROM_EMAIL = "Mara Sandra Advocacia <noreply@marasandraconnect.com>";
 
 const GOLD = "#c9a14a";
 const MAX_ITENS_SECAO = 25;
@@ -152,6 +152,7 @@ serve(async (req) => {
   // deno-lint-ignore no-explicit-any
   const doEscritorio = <Q extends { eq: (c: string, v: string) => any }>(q: Q): Q =>
     escritorioId ? q.eq("escritorio_id", escritorioId) : q;
+  const marca = await marcaDoEscritorio(supabase, escritorioId);
   const cutoff = new Date(Date.now() - horas * 3600000).toISOString();
   const hoje = hojeBrasilia();
 
@@ -278,7 +279,7 @@ serve(async (req) => {
     `color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block">` +
     `Abrir o sistema</a></p>` +
     `<hr style="border:none;border-top:1px solid #eee;margin:32px 0 16px">` +
-    `<p style="color:#999;font-size:12px">Mara Sandra Advocacia &middot; marasandraconnect.com</p>` +
+    `<p style="color:#999;font-size:12px">${marca.nome} &middot; Legal Connect &middot; marasandraconnect.com</p>` +
     `</div>`;
 
   if (dryRun) {
@@ -333,7 +334,7 @@ serve(async (req) => {
       Authorization: `Bearer ${RESEND_API_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ from: FROM_EMAIL, to: destinos, subject, html }),
+    body: JSON.stringify({ from: remetente(marca), to: destinos, subject, html }),
   });
   if (!resp.ok) {
     const detail = await resp.text();

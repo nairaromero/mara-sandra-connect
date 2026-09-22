@@ -23,6 +23,7 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { exigirRecurso, exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
+import { marcaDoEscritorio, remetente, type MarcaEscritorio } from "../_shared/marca.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -63,6 +64,7 @@ function truncate(s: string, max: number): string {
 function renderEmail(opts: {
   destinatarioNome: string;
   autorNome: string;
+  marca: MarcaEscritorio;
   autorTipo: string;
   clienteNome: string;
   texto: string;
@@ -94,8 +96,8 @@ function renderEmail(opts: {
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden;border:1px solid #e5e7eb;">
           <tr>
             <td style="padding:24px 24px 0 24px;">
-              <h1 style="margin:0 0 4px 0;font-size:18px;font-weight:600;color:#111827;">Mara Vian Advocacia</h1>
-              <p style="margin:0;font-size:13px;color:#6b7280;">Plataforma Mara Sandra Connect</p>
+              <h1 style="margin:0 0 4px 0;font-size:18px;font-weight:600;color:#111827;">${escapeHtml(opts.marca.nome)}</h1>
+              <p style="margin:0;font-size:13px;color:#6b7280;">Legal Connect</p>
             </td>
           </tr>
           <tr><td style="padding:0 24px;"><hr style="border:0;border-top:1px solid #e5e7eb;margin:16px 0;"/></td></tr>
@@ -159,7 +161,7 @@ function renderEmail(opts: {
     linkCaso,
     "",
     "--",
-    "Mara Vian Advocacia",
+    opts.marca.nome,
   ].join("\n");
 
   return { html, text };
@@ -211,7 +213,7 @@ serve(async (req) => {
   const { data: comentario, error } = await supabase
     .from("comentarios")
     .select(
-      "id, texto, parent_id, caso_id, destinatario_id, casos:caso_id(id, parceiro_id, clientes:cliente_id(nome), usuarios_parceiro:parceiro_id(id, nome, email, emails_copia)), autor:autor_id(id, nome, email, tipo)",
+      "id, escritorio_id, texto, parent_id, caso_id, destinatario_id, casos:caso_id(id, parceiro_id, clientes:cliente_id(nome), usuarios_parceiro:parceiro_id(id, nome, email, emails_copia)), autor:autor_id(id, nome, email, tipo)",
     )
     .eq("id", comentarioId)
     .maybeSingle();
@@ -369,8 +371,10 @@ serve(async (req) => {
       continue;
     }
 
+    const marca = await marcaDoEscritorio(supabase, c.escritorio_id as string | null);
     const { html, text } = renderEmail({
       destinatarioNome: dest.nome,
+    marca,
       autorNome,
       autorTipo,
       clienteNome,
@@ -390,7 +394,7 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: FROM_EMAIL,
+        from: remetente(marca),
         to: [dest.email, ...(dest.copias ?? [])],
         subject,
         html,

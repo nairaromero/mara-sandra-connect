@@ -33,6 +33,8 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { useVerComoParceiro } from "@/hooks/use-ver-como-parceiro";
 import { MarcaLegalConnect } from "@/components/marca-legal-connect";
+import { MarcaEscritorio } from "@/components/marca-escritorio";
+import { nomeDoEscritorio } from "@/lib/marca-escritorio";
 
 // "/" e o site publico (landing). Ninguem tem "Inicio": /casos redireciona
 // interno pra /tarefas e parceiro pra /clientes (home de cada um).
@@ -88,7 +90,7 @@ const itemsFooter: Array<ItemMenu> = [
 
 export function AppSidebar() {
   const { state, isMobile, setOpenMobile } = useSidebar();
-  const { usuario, isAdmin, pode } = useAuth();
+  const { usuario, isAdmin, pode, escritorio } = useAuth();
   const { verComo } = useVerComoParceiro();
   const emVerComo = !!verComo;
   // Em "ver como", o admin enxerga a visão do parceiro — então NÃO é interno
@@ -264,30 +266,18 @@ export function AppSidebar() {
             "linear-gradient(90deg, transparent 0%, var(--gold) 20%, var(--gold) 80%, transparent 100%) 1",
         }}
       >
-        {/* Logo do escritorio. Clicar volta para a home (lista de casos). */}
+        {/* Marca do ESCRITORIO ativo (escritorio_config.marca). Clicar volta
+            para a home (lista de casos). Colapsado: iniciais na cor dele. */}
         <Link
           to="/casos"
-          aria-label="Mara Sandra Vian Advocacia - voltar para a página inicial"
+          aria-label={`${nomeDoEscritorio(escritorio)} - voltar para a página inicial`}
           className="flex items-center justify-center px-2 py-3 hover:opacity-80 transition-opacity"
           onClick={fecharSeMobile}
         >
           {collapsed ? (
-            // Estado colapsado: mostra so o mark "msv" em um badge dourado.
-            // Mantem identidade visual sem ocupar largura.
-            <div
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-white font-bold italic"
-              style={{
-                background: "linear-gradient(135deg, #c9a14a 0%, #e8c878 50%, #b8862e 100%)",
-              }}
-            >
-              <span className="text-sm leading-none">msv</span>
-            </div>
+            <MarcaEscritorio variante="compacta" />
           ) : (
-            <img
-              src="/logo.png"
-              alt="Mara Sandra Vian Advocacia"
-              className="max-h-20 w-auto object-contain"
-            />
+            <MarcaEscritorio variante="logo" className="max-h-20 w-auto object-contain text-center" />
           )}
         </Link>
       </SidebarHeader>

@@ -22,6 +22,14 @@ export interface Vinculo {
   /** Sessão de suporte da plataforma: somente leitura, com prazo. */
   suporte?: boolean;
   suporte_fim?: string | null;
+  /** Marca do escritório (escritorio_config.marca): nome de exibição, logo, cor. */
+  marca?: MarcaEscritorioJson | null;
+}
+
+export interface MarcaEscritorioJson {
+  nome_exibicao?: string;
+  logo_url?: string;
+  cor?: string;
 }
 
 interface AuthContextValue {
@@ -48,6 +56,8 @@ interface AuthContextValue {
   pode: (permissao: string) => boolean;
   /** Grava a preferência e recarrega a página no outro escritório. */
   trocarEscritorio: (escritorioId: string) => Promise<void>;
+  /** Relê vínculos e marca (depois de mudar a marca do escritório, por exemplo). */
+  recarregarVinculos: () => Promise<void>;
   loading: boolean;
   /**
    * true  = conta ainda sem senha (entrou por convite/magic link) e precisa
@@ -156,7 +166,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setRbacIndisponivel(false);
     type LinhaVinculo = Omit<Vinculo, "suporte" | "suporte_fim"> & { ativo_agora: boolean };
-    type LinhaSuporte = { escritorio_id: string; escritorio_nome: string; fim: string };
+    type LinhaSuporte = { escritorio_id: string; escritorio_nome: string; fim: string; marca?: MarcaEscritorioJson | null };
     const meus = (vincResp.data ?? []) as Array<LinhaVinculo>;
     const suporte = ((supResp.error ? [] : supResp.data) ?? []) as Array<LinhaSuporte>;
 
@@ -175,6 +185,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           tipo_acesso: "interno",
           suporte: true,
           suporte_fim: s.fim,
+          marca: s.marca ?? null,
         })),
     ];
     const abriveis = lista.filter((v) => v.membro_status === "ativo" && v.escritorio_status === "ativo");
@@ -310,6 +321,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         emSuporte: escritorio?.suporte === true,
         pode: (permissao: string) => rbacIndisponivel || permissoes.has(permissao),
         trocarEscritorio,
+        recarregarVinculos: loadEscritorio,
         loading,
         precisaSenha,
         signOut,

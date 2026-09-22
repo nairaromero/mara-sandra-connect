@@ -50,7 +50,7 @@ export const TERMOS: Array<Termo> = [
     termo: "Escritório",
     categoria: "papeis",
     definicao:
-      "A unidade que agrupa tudo: clientes, casos, equipe, parceiros, etiquetas, templates e integrações. Cada pessoa entra num escritório por um vínculo, e nada de um escritório aparece para o outro — nem pela API. Quem tem vínculo em mais de um escolhe qual está aberto pelo seletor do cabeçalho.",
+      "A unidade que agrupa tudo: clientes, casos, equipe, parceiros, etiquetas, templates, integrações e a própria marca (nome, logo e cor, em Configurações → Escritório). Cada pessoa entra num escritório por um vínculo, e nada de um escritório aparece para o outro — nem pela API. Quem tem vínculo em mais de um escolhe qual está aberto pelo seletor do cabeçalho.",
     veja: ["vinculo", "seletor-escritorio", "isolamento"],
   },
   {
