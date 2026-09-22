@@ -28,6 +28,8 @@ export interface QgEscritorio {
   tokens_mcp: number;
   ultimo_acesso: string | null;
   suporte_aberto: number;
+  /** total de escritórios que a busca alcança (count over) */
+  total: number;
 }
 
 export interface QgMembro {
@@ -41,6 +43,13 @@ export interface QgMembro {
   mfa: boolean;
   ultimo_acesso: string | null;
   desde: string;
+  total: number;
+}
+
+export interface QgAlerta {
+  escritorio_id: string;
+  nome: string;
+  alerta: string;
 }
 
 export interface QgSaude {

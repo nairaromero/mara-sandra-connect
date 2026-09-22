@@ -129,6 +129,11 @@ o sistema em produção. Quando chegar, vale o seguinte:
   com prazo, auditado). Eliminar dados exige segunda pessoa.
 - Setup local: `bun run local:copiar && bun run local:rbac` (seed idempotente com o
   escritório Canário e as contas de teste). Nova edge function local → `supabase stop/start`.
+- **Listas**: nunca `.limit(n)` fixo pra "trazer tudo" — o PostgREST corta em 1.000 (`max_rows`)
+  **sem erro**. Lista inteira → `buscarPaginado` (`src/lib/supabase-paginado.ts`); lista longa na
+  tela → `useListaPaginada` + `<CarregarMais>` (offset, "Mostrar mais", 10 no QG / 100–200 no
+  produto), com ordem estável (desempate por `id`). RPC paginada devolve `total` (`count(*) over ()`)
+  e faz as contagens caras só pra página (`qg_escritorios` é o molde).
 - **Glossário** (`/glossario`, `/qg/glossario`): termos em `src/lib/glossario/termos.ts`
   (id estável, categoria, `publico` todos/interno/qg). Permissões dos papéis vêm do banco em
   tempo real — não escrever matriz de permissão em texto. Papel, permissão ou conceito novo →

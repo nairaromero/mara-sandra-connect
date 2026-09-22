@@ -12,6 +12,7 @@ import { toast } from "sonner";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { CarregarMais } from "@/components/carregar-mais";
 import { chaveDiaBR, diaDoEventoBR, hojeChaveBR, horaDoEventoBR } from "@/lib/fuso";
 import { ClientOnly } from "@/components/client-only";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +25,9 @@ export const Route = createFileRoute("/_authenticated/processos_/movimentacoes")
 });
 
 const DIAS_JANELA = 30;
+// Por página; "Carregar mais" traz as anteriores dentro da janela. O
+// `.limit(1000)` de antes coincidia com o corte do PostgREST — silencioso.
+const POR_PAGINA = 200;
 
 interface MovRow {
   id: string;
@@ -77,6 +81,8 @@ function MovimentacoesPage() {
 
   const [carregando, setCarregando] = useState(true);
   const [movs, setMovs] = useState<MovRow[]>([]);
+  const [temMais, setTemMais] = useState(false);
+  const [carregandoMais, setCarregandoMais] = useState(false);
   const [busca, setBusca] = useState("");
   const [sincronizando, setSincronizando] = useState(false);
   const [analisando, setAnalisando] = useState(false);
@@ -85,8 +91,9 @@ function MovimentacoesPage() {
     if (usuario && !isInterno) navigate({ to: "/casos" });
   }, [usuario, isInterno, navigate]);
 
-  const carregar = useCallback(async () => {
-    setCarregando(true);
+  const carregar = useCallback(async (offset = 0) => {
+    if (offset === 0) setCarregando(true);
+    else setCarregandoMais(true);
     try {
       const desde = new Date(Date.now() - DIAS_JANELA * 86400000).toISOString().slice(0, 10);
       const { data, error } = await supabase
@@ -97,9 +104,10 @@ function MovimentacoesPage() {
         .eq("origem", "datajud")
         .gte("data_evento", desde)
         .order("data_evento", { ascending: false })
-        .limit(1000);
+        .order("id")
+        .range(offset, offset + POR_PAGINA - 1);
       if (error) throw error;
-      setMovs(
+      const novas: MovRow[] =
         ((data || []) as Array<Record<string, unknown>>).map((r) => {
           const m = (r.metadata as Record<string, unknown> | null) || {};
           return {
@@ -116,13 +124,20 @@ function MovimentacoesPage() {
             iaResumo: (m.ia_resumo as string | null) ?? null,
             iaRelevancia: (m.ia_relevancia as string | null) ?? null,
           };
-        }),
-      );
+        });
+      setTemMais(novas.length === POR_PAGINA);
+      if (offset === 0) setMovs(novas);
+      else
+        setMovs((prev) => {
+          const vistos = new Set(prev.map((x) => x.id));
+          return [...prev, ...novas.filter((x) => !vistos.has(x.id))];
+        });
     } catch (err) {
       console.error(err);
       toast.error("Falha ao carregar as movimentações.");
     } finally {
       setCarregando(false);
+      setCarregandoMais(false);
     }
   }, []);
 
@@ -366,6 +381,15 @@ function MovimentacoesPage() {
             ))}
           </div>
         )}
+        <CarregarMais
+          mostrando={movs.length}
+          total={null}
+          temMais={temMais}
+          carregando={carregandoMais}
+          onMais={() => carregar(movs.length)}
+          passo={POR_PAGINA}
+          nome="movimentações"
+        />
       </ClientOnly>
     </div>
   );

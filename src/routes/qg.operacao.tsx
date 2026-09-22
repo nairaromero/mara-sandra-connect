@@ -8,7 +8,7 @@ import { CheckCircle2, CircleAlert, Loader2, RefreshCw, XCircle } from "lucide-r
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { dataHoraBR } from "@/lib/fuso";
-import type { QgAprovacao, QgAuditoria, QgEscritorio, QgSaude, QgSuporte } from "@/lib/qg/tipos";
+import type { QgAprovacao, QgAuditoria, QgSaude, QgSuporte } from "@/lib/qg/tipos";
 import { useQg } from "@/lib/qg/contexto";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -49,7 +49,7 @@ function QgOperacao() {
       supabase.rpc("qg_suporte"),
       supabase.rpc("qg_aprovacoes"),
       supabase.rpc("qg_auditoria", { p_limite: 100 }),
-      supabase.rpc("qg_escritorios"),
+      supabase.rpc("qg_escritorios_nomes"),
     ]);
     setCarregando(false);
     const falha = s.error ?? sup.error ?? ap.error ?? au.error ?? es.error;
@@ -61,7 +61,7 @@ function QgOperacao() {
     setSuporte((sup.data ?? []) as Array<QgSuporte>);
     setAprovacoes((ap.data ?? []) as Array<QgAprovacao>);
     setTrilha((au.data ?? []) as Array<QgAuditoria>);
-    setNomes(Object.fromEntries(((es.data ?? []) as Array<QgEscritorio>).map((e) => [e.id, e.nome])));
+    setNomes(Object.fromEntries(((es.data ?? []) as Array<{ id: string; nome: string }>).map((e) => [e.id, e.nome])));
   }, []);
 
   useEffect(() => {

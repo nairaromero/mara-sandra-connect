@@ -16,6 +16,8 @@ import {
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { buscarPaginado } from "@/lib/supabase-paginado";
+import { CarregarMais } from "@/components/carregar-mais";
 import { dataBR, formatarBR, horaBR } from "@/lib/fuso";
 import { notificarEquipe } from "@/lib/notificar";
 import { ClientOnly } from "@/components/client-only";
@@ -40,6 +42,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+
+const POR_PAGINA = 200;
 
 export const Route = createFileRoute("/_authenticated/conversas")({
   component: ConversasPage,
@@ -178,6 +182,11 @@ function ConversasPage() {
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [comentarios, setComentarios] = useState<Array<ComentarioComCaso>>([]);
+  const [temMais, setTemMais] = useState(false);
+  const [carregandoMais, setCarregandoMais] = useState(false);
+  // quantos ja estao na tela: um recarregar (apos responder) repõe o mesmo
+  // tanto, em vez de voltar pra primeira pagina
+  const tamanhoRef = useRef(0);
   const [leituraPorCaso, setLeituraPorCaso] = useState<Map<string, string>>(new Map());
   const [nomePorUsuario, setNomePorUsuario] = useState<Map<string, string>>(new Map());
   const [parceiroIds, setParceiroIds] = useState<Set<string>>(new Set());
@@ -192,11 +201,17 @@ function ConversasPage() {
   const [resposta, setResposta] = useState("");
   const [enviando, setEnviando] = useState(false);
 
-  const carregar = useCallback(async () => {
-    if (!jaCarregouRef.current) setLoading(true);
+  // POR_PAGINA comentarios por vez, dos mais novos aos mais antigos;
+  // "Mostrar mais" traz os anteriores. Antes vinha tudo sem limite — e o
+  // PostgREST cortava em 1.000 sem avisar.
+  const carregar = useCallback(async (offset = 0) => {
+    if (offset > 0) setCarregandoMais(true);
+    else if (!jaCarregouRef.current) setLoading(true);
     else setRecarregando(true);
     setErro(null);
     try {
+      // recarga do zero repõe o que ja estava na tela (ate o teto do PostgREST)
+      const tamanho = offset === 0 ? Math.min(Math.max(POR_PAGINA, tamanhoRef.current), 1000) : POR_PAGINA;
       const [comResp, leiResp, usrResp] = await Promise.all([
         supabase
           .from("comentarios")
@@ -204,12 +219,25 @@ function ConversasPage() {
             "id, caso_id, autor_id, texto, created_at, parent_id, destinatario_id, casos!inner(id, tipo_beneficio, fase, status, parceiro_id, clientes(id, nome))",
           )
           .eq("rascunho", false)
-          .order("created_at", { ascending: false }),
+          .order("created_at", { ascending: false })
+          .order("id")
+          .range(offset, offset + tamanho - 1),
         supabase.from("conversa_leitura").select("caso_id, last_read_at"),
         supabase.from("usuarios").select("id, nome, tipo"),
       ]);
       if (comResp.error) throw comResp.error;
-      setComentarios((comResp.data || []) as unknown as Array<ComentarioComCaso>);
+      const novos = (comResp.data || []) as unknown as Array<ComentarioComCaso>;
+      setTemMais(novos.length === tamanho);
+      setComentarios((prev) => {
+        if (offset === 0) {
+          tamanhoRef.current = novos.length;
+          return novos;
+        }
+        const vistos = new Set(prev.map((c) => c.id));
+        const lista = [...prev, ...novos.filter((c) => !vistos.has(c.id))];
+        tamanhoRef.current = lista.length;
+        return lista;
+      });
 
       const lmap = new Map<string, string>();
       for (const r of (leiResp.data || []) as Array<{ caso_id: string; last_read_at: string }>) {
@@ -232,6 +260,7 @@ function ConversasPage() {
     } finally {
       setLoading(false);
       setRecarregando(false);
+      setCarregandoMais(false);
       jaCarregouRef.current = true;
     }
   }, []);
@@ -336,14 +365,22 @@ function ConversasPage() {
   useEffect(() => {
     if (!novaAberta || casosOpcoes.length > 0) return;
     (async () => {
-      const { data, error } = await supabase
-        .from("casos")
-        .select("id, parceiro_id, clientes(nome)")
-        .order("created_at", { ascending: false })
-        .limit(500);
-      if (error) return;
+      let data: Array<Record<string, unknown>> = [];
+      try {
+        data = await buscarPaginado<Record<string, unknown>>((ini, fim) =>
+          supabase
+            .from("casos")
+            .select("id, parceiro_id, clientes(nome)")
+            .order("created_at", { ascending: false })
+            .order("id")
+            .range(ini, fim),
+        );
+      } catch (e) {
+        setErro((e as { message?: string }).message || "Não consegui carregar os casos.");
+        return;
+      }
       setCasosOpcoes(
-        (data || []).map((c: Record<string, unknown>) => ({
+        data.map((c: Record<string, unknown>) => ({
           id: String(c.id),
           cliente: ((c.clientes as { nome?: string } | null)?.nome as string) || "(sem nome)",
           parceiro: c.parceiro_id ? nomePorUsuario.get(String(c.parceiro_id)) || "Parceiro" : null,
@@ -682,6 +719,16 @@ function ConversasPage() {
                 })}
               </div>
             )}
+            <CarregarMais
+              mostrando={comentarios.length}
+              total={null}
+              temMais={temMais}
+              carregando={carregandoMais}
+              onMais={() => carregar(comentarios.length)}
+              passo={POR_PAGINA}
+              nome="comentários"
+              className="px-0"
+            />
           </div>
 
           {/* Painel da conversa */}

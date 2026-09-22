@@ -5,6 +5,7 @@ import { Loader2, ShieldCheck, ShieldAlert, RefreshCw } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { CarregarMais } from "@/components/carregar-mais";
 import { formatarBR } from "@/lib/fuso";
 import { ClientOnly } from "@/components/client-only";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
+const POR_PAGINA = 100;
 
 export const Route = createFileRoute("/_authenticated/auditoria")({
   component: AuditoriaPage,
@@ -122,6 +125,11 @@ function AuditoriaPage() {
 
   const [rows, setRows] = useState<AcessoRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [temMais, setTemMais] = useState(false);
+  const [carregandoMais, setCarregandoMais] = useState(false);
+  // Totais por ação vêm do banco (count), não das linhas carregadas — senão
+  // o card diria "100 leituras" só porque a primeira página tem 100.
+  const [totaisBanco, setTotaisBanco] = useState<{ leitura: number; escrita: number; escrita_remocao: number } | null>(null);
   const [filtroCliente, setFiltroCliente] = useState("");
   const [filtroAcao, setFiltroAcao] = useState<string>("todas");
   const [filtroDias, setFiltroDias] = useState<string>("30");
@@ -133,11 +141,33 @@ function AuditoriaPage() {
     }
   }, [usuario, isInterno, navigate]);
 
-  async function load() {
-    setLoading(true);
+  // Recorte comum (período + ação) da lista e das contagens.
+  function desdeISO(): string | null {
+    if (filtroDias === "todos") return null;
+    const dias = Number(filtroDias);
+    if (isNaN(dias)) return null;
+    const desde = new Date();
+    desde.setDate(desde.getDate() - dias);
+    return desde.toISOString();
+  }
+
+  async function contar(acao: "leitura" | "escrita" | "escrita_remocao"): Promise<number> {
+    let q = supabase.from("acessos_senha_inss").select("id", { count: "exact", head: true }).eq("acao", acao);
+    const desde = desdeISO();
+    if (desde) q = q.gte("acessado_em", desde);
+    const { count, error } = await q;
+    if (error) throw error;
+    return count ?? 0;
+  }
+
+  async function load(offset = 0) {
+    if (offset === 0) setLoading(true);
+    else setCarregandoMais(true);
     try {
       // RLS na acessos_senha_inss já garante interno-only no SELECT.
       // O join com clientes/usuarios passa pelos próprios RLS deles.
+      // POR_PAGINA por vez, da mais recente pra mais antiga; "Carregar mais"
+      // traz as anteriores. Antes era `.limit(500)` sem aviso do que ficava fora.
       let query = supabase
         .from("acessos_senha_inss")
         .select(
@@ -152,32 +182,38 @@ function AuditoriaPage() {
         `,
         )
         .order("acessado_em", { ascending: false })
-        .limit(500);
+        .order("id")
+        .range(offset, offset + POR_PAGINA - 1);
 
-      // Filtro de período
-      if (filtroDias !== "todos") {
-        const dias = Number(filtroDias);
-        if (!isNaN(dias)) {
-          const desde = new Date();
-          desde.setDate(desde.getDate() - dias);
-          query = query.gte("acessado_em", desde.toISOString());
-        }
-      }
+      const desde = desdeISO();
+      if (desde) query = query.gte("acessado_em", desde);
+      if (filtroAcao !== "todas") query = query.eq("acao", filtroAcao);
 
-      // Filtro de ação
-      if (filtroAcao !== "todas") {
-        query = query.eq("acao", filtroAcao);
-      }
-
-      const { data, error } = await query;
+      const [{ data, error }, leitura, escrita, escrita_remocao] = await Promise.all([
+        query,
+        offset === 0 && (filtroAcao === "todas" || filtroAcao === "leitura") ? contar("leitura") : Promise.resolve(0),
+        offset === 0 && (filtroAcao === "todas" || filtroAcao === "escrita") ? contar("escrita") : Promise.resolve(0),
+        offset === 0 && (filtroAcao === "todas" || filtroAcao === "escrita_remocao") ? contar("escrita_remocao") : Promise.resolve(0),
+      ]);
       if (error) throw error;
-      setRows((data as unknown as AcessoRow[]) ?? []);
+      const novas = (data as unknown as AcessoRow[]) ?? [];
+      setTemMais(novas.length === POR_PAGINA);
+      if (offset === 0) {
+        setRows(novas);
+        setTotaisBanco({ leitura, escrita, escrita_remocao });
+      } else {
+        setRows((prev) => {
+          const vistos = new Set(prev.map((r) => r.id));
+          return [...prev, ...novas.filter((r) => !vistos.has(r.id))];
+        });
+      }
     } catch (err) {
       console.error(err);
       const msg = (err as { message?: string })?.message ?? "Falha ao carregar log de auditoria.";
       toast.error(msg);
     } finally {
       setLoading(false);
+      setCarregandoMais(false);
     }
   }
 
@@ -194,6 +230,9 @@ function AuditoriaPage() {
   }, [rows, filtroCliente]);
 
   const totais = useMemo(() => {
+    // Com filtro de cliente (client-side), conta o que está na tela; sem ele,
+    // o total real do banco para o período/ação.
+    if (!filtroCliente.trim() && totaisBanco) return totaisBanco;
     const t = { leitura: 0, escrita: 0, escrita_remocao: 0 };
     for (const r of rowsFiltradas) {
       if (r.acao === "leitura") t.leitura++;
@@ -201,7 +240,7 @@ function AuditoriaPage() {
       else if (r.acao === "escrita_remocao") t.escrita_remocao++;
     }
     return t;
-  }, [rowsFiltradas]);
+  }, [rowsFiltradas, filtroCliente, totaisBanco]);
 
   if (!isInterno) {
     return (
@@ -402,6 +441,15 @@ function AuditoriaPage() {
             )}
           </CardContent>
         </Card>
+        <CarregarMais
+          mostrando={rows.length}
+          total={null}
+          temMais={temMais}
+          carregando={carregandoMais}
+          onMais={() => load(rows.length)}
+          passo={POR_PAGINA}
+          nome="acessos"
+        />
       </ClientOnly>
     </div>
   );

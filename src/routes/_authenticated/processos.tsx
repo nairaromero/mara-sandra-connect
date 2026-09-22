@@ -1,7 +1,8 @@
 // Página /processos — planilha global de processos (admin + judiciais), interno.
 // Fase 1 do planning/PROCESSOS_GLOBAL.md: só leitura dos dados que já temos;
-// último andamento e tarefas pendentes agregados client-side (~centenas de
-// processos, volume tranquilo pra uma carga única).
+// último andamento vem reduzido do banco (RPC processos_ultimo_andamento) e
+// as listas são paginadas até o fim (nada de `.limit()` fixo: o PostgREST
+// corta em 1.000 sem avisar).
 
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -11,6 +12,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { buscarPaginado } from "@/lib/supabase-paginado";
 import { dataBR, diaDoEventoBR } from "@/lib/fuso";
 import { ClientOnly } from "@/components/client-only";
 import { Badge } from "@/components/ui/badge";
@@ -140,57 +142,56 @@ function ProcessosPage() {
     try {
       const casoJoin =
         "casos:caso_id(id, tipo_beneficio, status, clientes(nome), parceiro:usuarios!casos_parceiro_id_fkey(nome))";
-      const [admins, juds, ands, tars] = await Promise.all([
-        supabase
-          .from("processos_admin")
-          .select(
-            `id, caso_id, numero_requerimento, data_protocolo, decisao, etapa_tipo, tipo_beneficio, ${casoJoin}`,
-          )
-          .limit(3000),
-        supabase
-          .from("processos_judiciais")
-          .select(
-            `id, caso_id, numero_processo, vara, comarca, uf, data_distribuicao, etapa_tipo, ${casoJoin}`,
-          )
-          .limit(3000),
-        // Só andamentos vinculados a algum processo; o mais recente por
-        // processo é reduzido abaixo. Colunas mínimas pra aliviar o payload.
-        supabase
-          .from("andamentos")
-          .select(
-            "processo_admin_id, processo_judicial_id, titulo, origem, data_evento, created_at",
-          )
-          .or("processo_admin_id.not.is.null,processo_judicial_id.not.is.null")
-          .order("data_evento", { ascending: false, nullsFirst: false })
-          .limit(10000),
-        supabase
-          .from("tarefas")
-          .select("processo_admin_id, processo_judicial_id")
-          .eq("status", "a_fazer")
-          .or("processo_admin_id.not.is.null,processo_judicial_id.not.is.null"),
+      // Tudo paginado até o fim: um `.limit(n)` fixo aqui era cortado pelo
+      // PostgREST em 1.000 linhas SEM aviso — a tela mostraria lista parcial
+      // como se fosse completa. O último andamento por processo vem de uma
+      // RPC (security invoker, a RLS vale) que já reduz no banco, em vez de
+      // puxar até 10.000 andamentos pra reduzir aqui.
+      const [admins, juds, ults, tars] = await Promise.all([
+        buscarPaginado((ini, fim) =>
+          supabase
+            .from("processos_admin")
+            .select(
+              `id, caso_id, numero_requerimento, data_protocolo, decisao, etapa_tipo, tipo_beneficio, ${casoJoin}`,
+            )
+            .order("id")
+            .range(ini, fim),
+        ),
+        buscarPaginado((ini, fim) =>
+          supabase
+            .from("processos_judiciais")
+            .select(
+              `id, caso_id, numero_processo, vara, comarca, uf, data_distribuicao, etapa_tipo, ${casoJoin}`,
+            )
+            .order("id")
+            .range(ini, fim),
+        ),
+        buscarPaginado((ini, fim) => supabase.rpc("processos_ultimo_andamento").range(ini, fim)),
+        buscarPaginado((ini, fim) =>
+          supabase
+            .from("tarefas")
+            .select("id, processo_admin_id, processo_judicial_id")
+            .eq("status", "a_fazer")
+            .or("processo_admin_id.not.is.null,processo_judicial_id.not.is.null")
+            .order("id")
+            .range(ini, fim),
+        ),
       ]);
-
-      const erro = admins.error || juds.error || ands.error || tars.error;
-      if (erro) throw erro;
 
       // Reduções por processo: último andamento e tarefas pendentes.
       const ultimoPor = new Map<string, UltimoAndamento>();
-      for (const a of (ands.data || []) as Array<Record<string, unknown>>) {
+      for (const a of ults as Array<Record<string, unknown>>) {
         const key = a.processo_admin_id
           ? `admin:${a.processo_admin_id}`
           : `judicial:${a.processo_judicial_id}`;
-        const data = (a.data_evento as string | null) ?? (a.created_at as string | null);
-        const atual = ultimoPor.get(key);
-        if (!atual || (data && (!atual.data || data > atual.data))) {
-          ultimoPor.set(key, {
-            titulo: (a.titulo as string | null) ?? null,
-            origem: String(a.origem ?? "interno"),
-            data,
-          });
-        }
+        ultimoPor.set(key, {
+          titulo: (a.titulo as string | null) ?? null,
+          origem: String(a.origem ?? "interno"),
+          data: (a.data as string | null) ?? null,
+        });
       }
       const pendentesPor = new Map<string, number>();
-      for (const t of (tars.data || []) as Array<Record<string, unknown>>) {
+      for (const t of tars as Array<Record<string, unknown>>) {
         const key = t.processo_admin_id
           ? `admin:${t.processo_admin_id}`
           : `judicial:${t.processo_judicial_id}`;
@@ -198,7 +199,7 @@ function ProcessosPage() {
       }
 
       const linhas: ProcessoRow[] = [];
-      for (const p of (admins.data || []) as Array<Record<string, unknown>>) {
+      for (const p of admins as Array<Record<string, unknown>>) {
         const caso = p.casos as CasoJoin | null;
         const key = `admin:${p.id}`;
         linhas.push({
@@ -217,7 +218,7 @@ function ProcessosPage() {
           tarefasPendentes: pendentesPor.get(key) ?? 0,
         });
       }
-      for (const p of (juds.data || []) as Array<Record<string, unknown>>) {
+      for (const p of juds as Array<Record<string, unknown>>) {
         const caso = p.casos as CasoJoin | null;
         const key = `judicial:${p.id}`;
         const local = [p.vara, p.comarca, p.uf].filter(Boolean).join(" · ");

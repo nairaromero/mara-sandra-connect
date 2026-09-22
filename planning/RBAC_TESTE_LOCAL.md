@@ -160,16 +160,36 @@ você forçar pela URL/console, o banco recusar.
       Eliminação e os papéis do QG (Dono com "seu papel").
 - [ ] Trocar o papel de alguém em Equipe e voltar ao glossário → a lista de permissões acompanha (é do banco).
 
+### K. Paginação e listas sem corte (QG e produto)
+
+- [ ] QG → **Escritórios**: campo de busca e filtro de status acima da lista; rodapé "N de M escritórios".
+      Buscar `canár` (com acento) → só o Canário, "1 de 1".
+- [ ] QG → ficha do **Mara Vian** → "Quem usa o sistema (34)": mostra **10**, rodapé "10 de 34 pessoas",
+      **Mostrar mais 10** → "20 de 34". Buscar `rbac+financeiro` → "1 de 1". Filtro "Desativados" lista só
+      desativados; "Todos" inclui todos.
+- [ ] QG → Operação: continua abrindo normal (usa a lista leve de nomes).
+- [ ] **Publicações** (como `e2e+admin`): rodapé "mostrando 200 publicações" + **Mostrar mais 200** → 389;
+      o botão some quando acaba.
+- [ ] **Conversas**: rodapé "mostrando 200 comentários" + Mostrar mais → 240. Responder numa conversa
+      **não** volta a lista para 200.
+- [ ] **Processos**: os badges do topo (ex.: "1684 processos · 278 administrativos · 1406 judiciais") batem
+      com o banco — a spec cria 1.100 processos temporários pra provar que não trava em 1.000.
+- [ ] **Auditoria**: 100 por vez + Mostrar mais; os cards Leituras/Escritas contam o **total** do
+      período (banco), não só as linhas carregadas.
+- [ ] Processos → **Movimentações**: 200 por vez + Mostrar mais.
+
 ### I. Provas automáticas (rodar e conferir os números)
 
 ```bash
-bun run e2e:local                                         # suíte inteira: 95 testes
+bun run e2e:local                                         # suíte inteira: 100 testes
 bun run e2e:local e2e/tests/rbac-isolamento.spec.ts       # 16 ataques entre os dois escritórios
 bun run e2e:local e2e/tests/rbac-edge-functions.spec.ts   # 7 ataques nas edge functions
 bun run e2e:local e2e/tests/glossario.spec.ts             # 3: busca, permissões do banco, parceiro
+bun run e2e:local e2e/tests/qg-paginacao.spec.ts          # 2: página/total/busca na API e na tela do QG
+bun run e2e:local e2e/tests/listas-carregar-mais.spec.ts  # 3: 1.100 processos contados; publicações e conversas 200 por vez
 ```
 
-- [ ] 95 passam. Os 23 do RBAC são ataques via API com a sessão real de cada papel: header
+- [ ] 100 passam. Os 23 do RBAC são ataques via API com a sessão real de cada papel: header
       forjado, filho apontando para pai de outro escritório (inclusive com service role), RPC
       com id alheio, vínculo desativado com o JWT ainda válido, staff lendo tabela de domínio,
       suporte escrevendo, eliminação sem segunda pessoa.
@@ -181,6 +201,7 @@ bun run e2e:local e2e/tests/glossario.spec.ts             # 3: busca, permissõe
 | Banco — `migration_rbac_01…05` | `escritorios`, `membros`, 5 papéis × 26 permissões (matriz §4.3); `escritorio_id NOT NULL` em 41 tabelas com herança por gatilho; 41 policies restritivas de isolamento + 58 de permissão; helpers de papel sobre o vínculo; guard de escritório nas RPCs; equipe sobre vínculos (`definir_papel`); QG (`plataforma_staff`, `acessos_suporte`, `auditoria`, `ops.*`, 22 funções `qg_*`) |
 | Front | header `x-escritorio-id` em toda chamada; escritório ativo, vínculos e permissões no `useAuth` (`pode()`); seletor; faixa de suporte; tela "sem escritório"; menu por permissão; Equipe por papéis; QG em `/qg` (só no host `qg.`) |
 | Edge functions | `exigirUsuario` por vínculo e escritório; `exigirRecurso`; client de service role preso ao escritório (`escopado`) no digest, e-mails do INSS e DJEN; convite por escritório e papel; MCP no escritório do token; `qg-escritorios` |
+| Paginação | `useListaPaginada` + `<CarregarMais>`: QG (escritórios e pessoas, 10 por vez, busca sem acento e filtro no banco — `migration_rbac_06`), Publicações/Conversas/Movimentações (200) e Auditoria (100) com "Mostrar mais"; `/processos` pagina até o fim e reduz o último andamento no banco (`processos_ultimo_andamento`) — nada mais usa `.limit(n)` fixo pra listar tudo |
 | Glossário | `/glossario` (produto) e `/qg/glossario` (QG): busca por nome, sinônimo, definição e permissão; os cards de papel mostram as permissões **lidas do banco**; termos em `src/lib/glossario/termos.ts` (76), com público por termo (todos / equipe / QG) |
 | Provas | `rbac-isolamento` (16), `rbac-edge-functions` (7), `glossario` (3), `scripts/rbac-diff-visibilidade.mjs` (o escritório 1 vê exatamente as mesmas linhas de antes) |
 
@@ -226,7 +247,7 @@ escritório 1 não mudou, e forjar o header não abre nada.
 
 ## 6. Antes de ir para o staging
 
-Nada disto foi aplicado fora do local. Para o staging: as 5 migrations com
+Nada disto foi aplicado fora do local. Para o staging: as 6 migrations com
 `node scripts/msc-sql.mjs --staging --file …` **na ordem**, deploy das 26 edge functions alteradas
 (+ `qg-escritorios`), e só então o front. Como a #02 mexe em 41 tabelas, vale ensaiar de novo numa
 cópia fresca (`bun run local:copiar && bun run local:rbac`) no dia — leva ~4 min.

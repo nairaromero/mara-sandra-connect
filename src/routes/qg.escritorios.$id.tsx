@@ -5,12 +5,14 @@
 
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, Ban, LifeBuoy, Loader2, PauseCircle, PlayCircle, Save, ShieldCheck, Trash2, UserCog } from "lucide-react";
+import { ArrowLeft, Ban, LifeBuoy, Loader2, PauseCircle, PlayCircle, Save, Search, ShieldCheck, Trash2, UserCog } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { dataBR, dataHoraBR } from "@/lib/fuso";
 import { ROTULO_STATUS, type QgEscritorio, type QgMembro } from "@/lib/qg/tipos";
 import { useQg } from "@/lib/qg/contexto";
+import { useListaPaginada, useValorAtrasado } from "@/hooks/use-lista-paginada";
+import { CarregarMais } from "@/components/carregar-mais";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -18,6 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -26,6 +29,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+
+const POR_PAGINA = 10;
 
 export const Route = createFileRoute("/qg/escritorios/$id")({
   component: QgEscritorio,
@@ -63,27 +68,41 @@ function QgEscritorio() {
   const qg = useQg();
   const navigate = useNavigate();
   const [esc, setEsc] = useState<QgEscritorio | null | undefined>(undefined);
-  const [membros, setMembros] = useState<Array<QgMembro>>([]);
   const [uso, setUso] = useState<Array<{ metrica: string; valor: number }>>([]);
+  const [buscaMembro, setBuscaMembro] = useState("");
+  const [statusMembro, setStatusMembro] = useState<string>("ativos");
+  const buscaMembroAtrasada = useValorAtrasado(buscaMembro.trim(), 250);
+  // 10 por vez; busca por nome/e-mail e filtro de status vao para o banco
+  const membros = useListaPaginada<QgMembro>(
+    (offset, limite) =>
+      supabase.rpc("qg_membros", {
+        p_escritorio_id: id,
+        p_busca: buscaMembroAtrasada || null,
+        p_status: statusMembro,
+        p_limite: limite,
+        p_offset: offset,
+      }),
+    `${id}|${buscaMembroAtrasada}|${statusMembro}`,
+    POR_PAGINA,
+    (m) => m.usuario_id,
+  );
   const [form, setForm] = useState({ nome: "", slug: "", cnpj: "", plano: "", contato_encarregado: "" });
   const [salvando, setSalvando] = useState(false);
   const [acao, setAcao] = useState<Acao | null>(null);
 
   const carregar = useCallback(async () => {
-    const [e, m, u] = await Promise.all([
-      supabase.rpc("qg_escritorios"),
-      supabase.rpc("qg_membros", { p_escritorio_id: id }),
+    const [e, u] = await Promise.all([
+      supabase.rpc("qg_escritorios", { p_id: id, p_limite: 1 }),
       supabase.rpc("qg_uso", { p_escritorio_id: id }),
     ]);
-    if (e.error || m.error || u.error) {
+    if (e.error || u.error) {
       toast.error("Não consegui carregar o escritório.", {
-        description: (e.error ?? m.error ?? u.error)?.message,
+        description: (e.error ?? u.error)?.message,
       });
       return;
     }
-    const achado = ((e.data ?? []) as Array<QgEscritorio>).find((x) => x.id === id) ?? null;
+    const achado = ((e.data ?? []) as Array<QgEscritorio>)[0] ?? null;
     setEsc(achado);
-    setMembros((m.data ?? []) as Array<QgMembro>);
     setUso(((u.data ?? []) as Array<{ metrica: string; valor: number }>).map((x) => ({ ...x, valor: Number(x.valor) })));
     if (achado) {
       setForm((f) => ({ ...f, nome: achado.nome, slug: achado.slug, cnpj: achado.cnpj ?? "", plano: achado.plano }));
@@ -230,10 +249,42 @@ function QgEscritorio() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Quem usa o sistema ({membros.filter((m) => m.status !== "desativado").length})</CardTitle>
+          <CardTitle className="text-base">
+            Quem usa o sistema{membros.total != null ? ` (${membros.total})` : ""}
+          </CardTitle>
           <CardDescription>Equipe e parceiros do escritório. As ações daqui avisam o escritório e ficam na auditoria dele.</CardDescription>
+          <div className="flex flex-wrap items-center gap-2 pt-2">
+            <div className="relative min-w-[14rem] flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Input
+                value={buscaMembro}
+                onChange={(e) => setBuscaMembro(e.target.value)}
+                placeholder="Buscar por nome ou e-mail…"
+                aria-label="Buscar pessoa"
+                className="pl-9"
+              />
+            </div>
+            <Select value={statusMembro} onValueChange={setStatusMembro}>
+              <SelectTrigger className="w-44" aria-label="Filtrar pessoas por status">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ativos">Ativos e convidados</SelectItem>
+                <SelectItem value="ativo">Só ativos</SelectItem>
+                <SelectItem value="convidado">Só convidados</SelectItem>
+                <SelectItem value="desativado">Desativados</SelectItem>
+                <SelectItem value="todos">Todos</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
+          {membros.erro && (
+            <p className="px-4 py-3 text-sm text-red-700">Não consegui carregar as pessoas: {membros.erro}</p>
+          )}
+          {!membros.carregando && !membros.erro && membros.itens.length === 0 && (
+            <p className="px-4 py-6 text-center text-sm text-slate-500">Ninguém com esse filtro.</p>
+          )}
           <Table>
             <TableHeader>
               <TableRow>
@@ -246,7 +297,7 @@ function QgEscritorio() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {membros.map((m) => (
+              {membros.itens.map((m) => (
                 <TableRow key={m.usuario_id} className={m.status === "desativado" ? "opacity-60" : ""}>
                   <TableCell>
                     <div className="font-medium">{m.nome ?? "(sem nome)"}</div>
@@ -274,6 +325,16 @@ function QgEscritorio() {
               ))}
             </TableBody>
           </Table>
+          <CarregarMais
+            mostrando={membros.itens.length}
+            total={membros.total}
+            temMais={membros.temMais}
+            carregando={membros.carregandoMais}
+            onMais={membros.mais}
+            passo={POR_PAGINA}
+            nome="pessoas"
+            className="border-t"
+          />
         </CardContent>
       </Card>
 
@@ -334,6 +395,7 @@ function QgEscritorio() {
         onFeito={() => {
           setAcao(null);
           void carregar();
+          membros.recarregar();
         }}
       />
     </div>

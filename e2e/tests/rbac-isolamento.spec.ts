@@ -319,7 +319,8 @@ test.describe.serial("RBAC multi-tenant", () => {
     expect((escs.data ?? []).map((e: { slug: string }) => e.slug)).toEqual(expect.arrayContaining(["canario", "mara-vian"]));
     // metadado e contagem — nada de conteúdo de cliente
     const colunas = Object.keys((await dono.rpc("qg_membros", { p_escritorio_id: ESC2 })).data![0]);
-    expect(colunas.sort()).toEqual(["desde", "email", "mfa", "nome", "papel", "papel_nome", "status", "tipo_acesso", "ultimo_acesso", "usuario_id"]);
+    // `total` = count(*) over () da paginação (migration_rbac_06); continua sem nada de cliente
+    expect(colunas.sort()).toEqual(["desde", "email", "mfa", "nome", "papel", "papel_nome", "status", "tipo_acesso", "total", "ultimo_acesso", "usuario_id"]);
     expect((await dono.rpc("qg_saude")).error).toBeNull();
     expect((await dono.rpc("qg_uso", { p_escritorio_id: ESC2 })).error).toBeNull();
 

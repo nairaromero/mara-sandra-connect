@@ -15,6 +15,8 @@ import { toast } from "sonner";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { buscarPaginado } from "@/lib/supabase-paginado";
+import { CarregarMais } from "@/components/carregar-mais";
 import { dataBR, diaDoEventoBR } from "@/lib/fuso";
 import { ClientOnly } from "@/components/client-only";
 import { Button } from "@/components/ui/button";
@@ -38,6 +40,9 @@ export const Route = createFileRoute("/_authenticated/publicacoes")({
 const VISTO_KEY = "msc:publicacoes_visto";
 // Janela da aba: publicações da última semana.
 const DIAS_JANELA = 7;
+// Publicações por página; "Carregar mais" traz as anteriores. Antes era um
+// `.limit(500)` fixo: acima disso a tela simplesmente omitia as antigas.
+const POR_PAGINA = 200;
 const PREVIEW_CHARS = 600;
 
 type PubStatus = "vinculada" | "sem_processo";
@@ -92,6 +97,8 @@ function PublicacoesPage() {
   const isInterno = usuario?.tipo === "interno";
   const [pubs, setPubs] = useState<Array<PubView>>([]);
   const [loading, setLoading] = useState(true);
+  const [temMais, setTemMais] = useState(false);
+  const [carregandoMais, setCarregandoMais] = useState(false);
   const [busca, setBusca] = useState("");
   const [expandido, setExpandido] = useState<Record<string, boolean>>({});
 
@@ -113,14 +120,24 @@ function PublicacoesPage() {
     if (!vincularPub || casoOpcoes.length > 0) return;
     setCarregandoCasos(true);
     (async () => {
-      const { data, error } = await supabase
-        .from("casos")
-        .select("id, tipo_beneficio, status, cliente:cliente_id(nome, cpf)")
-        .order("created_at", { ascending: false })
-        .limit(1000);
+      let data: Array<Record<string, unknown>> = [];
+      let error: { message: string } | null = null;
+      try {
+        data = await buscarPaginado<Record<string, unknown>>((ini, fim) =>
+          supabase
+            .from("casos")
+            .select("id, tipo_beneficio, status, cliente:cliente_id(nome, cpf)")
+            .order("created_at", { ascending: false })
+            .order("id")
+            .range(ini, fim),
+        );
+      } catch (e) {
+        error = e as { message: string };
+        toast.error("Não consegui carregar os casos.", { description: error.message });
+      }
       if (!error) {
         setCasoOpcoes(
-          ((data || []) as Array<Record<string, unknown>>).map((r) => {
+          data.map((r) => {
             const cli = r.cliente as { nome?: string; cpf?: string } | null;
             return {
               id: String(r.id),
@@ -178,22 +195,40 @@ function PublicacoesPage() {
     }
   }
 
-  const carregar = useCallback(async () => {
-    setLoading(true);
+  // Junta uma pagina nova as ja carregadas sem repetir (linha que entrou
+  // entre um clique e outro desloca o offset).
+  const juntar = (offset: number, novas: Array<PubView>) => {
+    setTemMais(novas.length === POR_PAGINA);
+    if (offset === 0) {
+      setPubs(novas);
+      return;
+    }
+    setPubs((prev) => {
+      const vistos = new Set(prev.map((p) => p.id));
+      return [...prev, ...novas.filter((p) => !vistos.has(p.id))];
+    });
+  };
+
+  const carregar = useCallback(async (offset = 0) => {
+    if (offset === 0) setLoading(true);
+    else setCarregandoMais(true);
 
     if (isInterno) {
-      // Interno: fonte da verdade = publicacoes_dje (vinculadas + órfãs).
-      // Carrega tudo (até 500 mais recentes); a UI separa última semana em
-      // destaque e agrupa o resto por mês em seções recolhidas.
+      // Interno: fonte da verdade = publicacoes_dje (vinculadas + órfãs), da
+      // mais recente para a mais antiga, POR_PAGINA por vez; a UI separa a
+      // última semana em destaque e agrupa o resto por mês.
       const { data, error } = await supabase
         .from("publicacoes_dje")
         .select(
           "id, numero_processo, sigla_tribunal, nome_orgao, tipo_comunicacao, data_disponibilizacao, texto, status, caso_id, andamento_id, certidao_url, casos:caso_id(cliente:cliente_id(nome))",
         )
         .order("data_disponibilizacao", { ascending: false, nullsFirst: false })
-        .limit(500);
+        .order("id")
+        .range(offset, offset + POR_PAGINA - 1);
+      if (error) toast.error("Não consegui carregar as publicações.", { description: error.message });
       if (!error) {
-        setPubs(
+        juntar(
+          offset,
           ((data || []) as Array<Record<string, unknown>>).map((r) => ({
             id: String(r.id),
             cliente_nome:
@@ -221,9 +256,12 @@ function PublicacoesPage() {
         .eq("origem", "djen")
         .eq("visivel_parceiro", true)
         .order("data_evento", { ascending: false, nullsFirst: false })
-        .limit(200);
+        .order("id")
+        .range(offset, offset + POR_PAGINA - 1);
+      if (error) toast.error("Não consegui carregar as publicações.", { description: error.message });
       if (!error) {
-        setPubs(
+        juntar(
+          offset,
           ((data || []) as Array<Record<string, unknown>>).map((r) => {
             const m = (r.metadata as Record<string, unknown> | null) || {};
             return {
@@ -247,6 +285,7 @@ function PublicacoesPage() {
     }
 
     setLoading(false);
+    setCarregandoMais(false);
   }, [isInterno]);
 
   useEffect(() => {
@@ -541,6 +580,15 @@ function PublicacoesPage() {
             )}
           </>
         )}
+        <CarregarMais
+          mostrando={pubs.length}
+          total={null}
+          temMais={temMais}
+          carregando={carregandoMais}
+          onMais={() => carregar(pubs.length)}
+          passo={POR_PAGINA}
+          nome="publicações"
+        />
       </ClientOnly>
 
       <Dialog open={vincularPub !== null} onOpenChange={(o) => !o && setVincularPub(null)}>

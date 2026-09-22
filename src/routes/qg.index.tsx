@@ -2,12 +2,14 @@
 
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Building2, Loader2, Plus, ShieldAlert } from "lucide-react";
+import { AlertTriangle, Building2, Loader2, Plus, Search, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { dataBR, dataHoraBR } from "@/lib/fuso";
 import { urlDoProduto } from "@/lib/qg/host";
-import { ROTULO_STATUS, type QgEscritorio } from "@/lib/qg/tipos";
+import { ROTULO_STATUS, type QgAlerta, type QgEscritorio } from "@/lib/qg/tipos";
+import { useListaPaginada, useValorAtrasado } from "@/hooks/use-lista-paginada";
+import { CarregarMais } from "@/components/carregar-mais";
 import { useQg } from "@/lib/qg/contexto";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -23,6 +26,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+
+const POR_PAGINA = 10;
 
 export const Route = createFileRoute("/qg/")({
   component: QgEscritorios,
@@ -47,32 +52,41 @@ function slugDe(nome: string): string {
 
 function QgEscritorios() {
   const qg = useQg();
-  const [lista, setLista] = useState<Array<QgEscritorio> | null>(null);
-  const [erro, setErro] = useState<string | null>(null);
+  const [busca, setBusca] = useState("");
+  const [status, setStatus] = useState<string>("");
   const [criando, setCriando] = useState(false);
+  const [alertas, setAlertas] = useState<Array<QgAlerta>>([]);
+  const [erroAlertas, setErroAlertas] = useState<string | null>(null);
+  const buscaAtrasada = useValorAtrasado(busca.trim(), 250);
 
-  const carregar = useCallback(async () => {
-    const { data, error } = await supabase.rpc("qg_escritorios");
+  // Uma pagina por vez: as contagens por escritorio so rodam para as linhas
+  // devolvidas. Busca/status mudam a chave -> recomeca do zero.
+  const lista = useListaPaginada<QgEscritorio>(
+    (offset, limite) =>
+      supabase.rpc("qg_escritorios", {
+        p_busca: buscaAtrasada || null,
+        p_status: status || null,
+        p_limite: limite,
+        p_offset: offset,
+      }),
+    `${buscaAtrasada}|${status}`,
+    POR_PAGINA,
+    (e) => e.id,
+  );
+
+  const carregarAlertas = useCallback(async () => {
+    const { data, error } = await supabase.rpc("qg_alertas");
     if (error) {
-      setErro(error.message);
+      setErroAlertas(error.message);
       return;
     }
-    setErro(null);
-    setLista((data ?? []) as Array<QgEscritorio>);
+    setErroAlertas(null);
+    setAlertas((data ?? []) as Array<QgAlerta>);
   }, []);
 
   useEffect(() => {
-    void carregar();
-  }, [carregar]);
-
-  const alertas = (lista ?? []).flatMap((e) => {
-    const a: Array<{ esc: QgEscritorio; texto: string }> = [];
-    if (e.status === "ativo" && e.admins === 0) a.push({ esc: e, texto: "sem administrador ativo" });
-    if (e.status === "ativo" && e.admins_sem_mfa > 0) a.push({ esc: e, texto: `${e.admins_sem_mfa} admin(s) sem verificação em duas etapas` });
-    if (e.status === "provisionando") a.push({ esc: e, texto: "criado, mas o primeiro admin ainda não entrou" });
-    if (e.suporte_aberto > 0) a.push({ esc: e, texto: `${e.suporte_aberto} acesso(s) de suporte em aberto` });
-    return a;
-  });
+    void carregarAlertas();
+  }, [carregarAlertas]);
 
   return (
     <div className="space-y-6">
@@ -91,11 +105,11 @@ function QgEscritorios() {
         )}
       </div>
 
-      {erro && (
+      {(lista.erro || erroAlertas) && (
         <Card className="border-red-200 bg-red-50">
           <CardContent className="flex items-center gap-2 py-3 text-sm text-red-800">
             <ShieldAlert className="h-4 w-4" />
-            Não consegui carregar os escritórios: {erro}
+            Não consegui carregar os escritórios: {lista.erro ?? erroAlertas}
           </CardContent>
         </Card>
       )}
@@ -112,11 +126,11 @@ function QgEscritorios() {
             <ul className="space-y-1 text-sm text-amber-900">
               {alertas.map((a, i) => (
                 <li key={i}>
-                  <Link to="/qg/escritorios/$id" params={{ id: a.esc.id }} className="font-medium underline-offset-2 hover:underline">
-                    {a.esc.nome}
+                  <Link to="/qg/escritorios/$id" params={{ id: a.escritorio_id }} className="font-medium underline-offset-2 hover:underline">
+                    {a.nome}
                   </Link>
                   {" — "}
-                  {a.texto}
+                  {a.alerta}
                 </li>
               ))}
             </ul>
@@ -124,12 +138,42 @@ function QgEscritorios() {
         </Card>
       )}
 
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[16rem] flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Input
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Buscar por nome, slug ou CNPJ…"
+            aria-label="Buscar escritório"
+            className="bg-white pl-9"
+          />
+        </div>
+        <Select value={status || "todos"} onValueChange={(v) => setStatus(v === "todos" ? "" : v)}>
+          <SelectTrigger className="w-44 bg-white" aria-label="Filtrar por status">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todos">Todos os status</SelectItem>
+            {(Object.keys(ROTULO_STATUS) as Array<QgEscritorio["status"]>).map((s) => (
+              <SelectItem key={s} value={s}>
+                {ROTULO_STATUS[s]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
       <Card>
         <CardContent className="p-0">
-          {lista === null && !erro ? (
+          {lista.carregando ? (
             <div className="flex justify-center py-10">
               <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
             </div>
+          ) : lista.itens.length === 0 && !lista.erro ? (
+            <p className="py-10 text-center text-sm text-slate-500">
+              {buscaAtrasada || status ? "Nenhum escritório com esse filtro." : "Nenhum escritório ainda."}
+            </p>
           ) : (
             <Table>
               <TableHeader>
@@ -144,7 +188,7 @@ function QgEscritorios() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(lista ?? []).map((e) => (
+                {lista.itens.map((e) => (
                   <TableRow key={e.id}>
                     <TableCell>
                       <Link to="/qg/escritorios/$id" params={{ id: e.id }} className="flex items-center gap-2 font-medium hover:underline">
@@ -174,6 +218,16 @@ function QgEscritorios() {
               </TableBody>
             </Table>
           )}
+          <CarregarMais
+            mostrando={lista.itens.length}
+            total={lista.total}
+            temMais={lista.temMais}
+            carregando={lista.carregandoMais}
+            onMais={lista.mais}
+            passo={POR_PAGINA}
+            nome="escritórios"
+            className="border-t"
+          />
         </CardContent>
       </Card>
 
@@ -182,7 +236,8 @@ function QgEscritorios() {
         onFechar={() => setCriando(false)}
         onCriado={() => {
           setCriando(false);
-          void carregar();
+          lista.recarregar();
+          void carregarAlertas();
         }}
       />
     </div>
