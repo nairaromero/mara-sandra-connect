@@ -136,6 +136,10 @@ o sistema em produção. Quando chegar, vale o seguinte:
   `p_limite/p_offset` e `total = count(*) over ()`) ou `usePaginaLocal` (fatia de lista já carregada).
   Ordem estável (desempate por `id`); filtro/busca muda → página 1; tamanho lembrado por lista
   (`usePorPagina`). Nada de "mostrar mais" acumulando. `qg_escritorios` e `conversas_threads` são os moldes.
+- **MFA (TOTP)**: `src/lib/mfa.ts` + `<VerificacaoDuasEtapas>`; o login pede o código de quem tem
+  fator, o QG exige AAL2 quando `app_config.qg_exigir_aal2='true'` (banco, não só tela). Local:
+  `[auth.mfa.totp]` ligado no `supabase/config.toml`; a spec calcula o TOTP. Cloud: habilitar TOTP
+  em Authentication → Multi-factor.
 - **Marca**: a do PRODUTO (Legal Connect, `<MarcaLegalConnect>`) fica onde não há escritório
   (login, favicon, QG, rodapé); a do ESCRITÓRIO ativo (`escritorio_config.marca`, `<MarcaEscritorio>`,
   `useAuth().escritorio.marca`) no topo, nos e-mails (`_shared/marca.ts`) e nas mensagens. Nunca

@@ -216,3 +216,12 @@ verify_jwt = true
 
 [functions.integracoes-escritorio]
 verify_jwt = true
+
+# MFA (TOTP) ligado no Auth local: o QG exige AAL2 quando app_config.qg_exigir_aal2 = 'true'
+# e qualquer pessoa pode ativar a verificação em duas etapas em Configurações → Segurança.
+[auth.mfa]
+max_enrolled_factors = 10
+
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true

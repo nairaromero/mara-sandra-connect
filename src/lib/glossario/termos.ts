@@ -709,7 +709,7 @@ export const TERMOS: Array<Termo> = [
     categoria: "plataforma",
     publico: "qg",
     definicao:
-      "O segundo fator de autenticação, obrigatório para entrar no QG em produção. Sem ele o painel não abre, mesmo para quem está na equipe.",
+      "O segundo fator de autenticação (código do aplicativo autenticador), obrigatório para entrar no QG em produção — quem chega sem ele cadastra o autenticador na hora. Qualquer pessoa pode ativar o seu em Configurações → Segurança; a partir daí o código é pedido depois da senha.",
     veja: ["qg"],
   },
 

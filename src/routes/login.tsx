@@ -5,6 +5,8 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
 import { ehHostQG } from "@/lib/qg/host";
 import { consumirMotivoLogout } from "@/lib/auth/session-policy";
+import { precisaCodigo } from "@/lib/mfa";
+import { VerificacaoDuasEtapas } from "@/components/verificacao-duas-etapas";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,11 +26,26 @@ function LoginPage() {
   const [loadingPass, setLoadingPass] = useState(false);
   const [loadingMagic, setLoadingMagic] = useState(false);
   const [loadingRecovery, setLoadingRecovery] = useState(false);
+  // Quem tem verificacao em duas etapas entra em AAL1 depois da senha e so
+  // segue depois do codigo (a sessao vira AAL2). null = nao precisa.
+  const [mfa, setMfa] = useState<{ fatorId: string } | null>(null);
 
   useEffect(() => {
-    if (!authLoading && session) {
-      navigate({ to: ehHostQG() ? "/qg" : "/casos" });
-    }
+    if (authLoading || !session) return;
+    let vivo = true;
+    precisaCodigo()
+      .then((r) => {
+        if (!vivo) return;
+        if (r.precisa && r.fatorId) setMfa({ fatorId: r.fatorId });
+        else navigate({ to: ehHostQG() ? "/qg" : "/casos" });
+      })
+      .catch(() => {
+        // sem resposta do MFA (ambiente antigo): segue como sempre
+        if (vivo) navigate({ to: ehHostQG() ? "/qg" : "/casos" });
+      });
+    return () => {
+      vivo = false;
+    };
   }, [authLoading, session, navigate]);
 
   // Explica por que a pessoa caiu aqui quando o logout foi automático — sem
@@ -55,8 +72,8 @@ function LoginPage() {
       toast.error("Não foi possível entrar", { description: error.message });
       return;
     }
+    // o efeito acima decide: codigo do autenticador, ou entrar
     toast.success("Bem-vindo(a)!");
-    navigate({ to: ehHostQG() ? "/qg" : "/casos" });
   }
 
   async function handleMagicLink() {
@@ -115,6 +132,30 @@ function LoginPage() {
           </p>
         </div>
 
+        {mfa && (
+          <Card className="border-border/60 shadow-sm" data-login-mfa>
+            <CardHeader className="space-y-1">
+              <CardTitle className="text-lg">Verificação em duas etapas</CardTitle>
+              <CardDescription>Digite o código do seu aplicativo autenticador para entrar.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <VerificacaoDuasEtapas
+                modo="confirmar"
+                fatorId={mfa.fatorId}
+                rotuloConfirmar="Entrar"
+                onPronto={() => {
+                  setMfa(null);
+                  navigate({ to: ehHostQG() ? "/qg" : "/casos" });
+                }}
+                onCancelar={() => {
+                  void supabase.auth.signOut().then(() => setMfa(null));
+                }}
+              />
+            </CardContent>
+          </Card>
+        )}
+
+        {!mfa && (
         <Card className="border-border/60 shadow-sm">
           <CardHeader className="space-y-1">
             <CardTitle className="text-lg">Acessar a plataforma</CardTitle>
@@ -185,6 +226,7 @@ function LoginPage() {
             </form>
           </CardContent>
         </Card>
+        )}
 
         <p className="mt-6 text-center text-xs text-muted-foreground">
           Problemas para acessar? Fale com a equipe interna do escritório.

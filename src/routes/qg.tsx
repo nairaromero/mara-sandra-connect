@@ -13,6 +13,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import { ehHostQG, urlDoProduto, urlDoQG } from "@/lib/qg/host";
 import { QgContext } from "@/lib/qg/contexto";
+import { fatorVerificado } from "@/lib/mfa";
+import { VerificacaoDuasEtapas } from "@/components/verificacao-duas-etapas";
 import { MarcaLegalConnect } from "@/components/marca-legal-connect";
 import { ROTULO_PAPEL_STAFF, type QgEu } from "@/lib/qg/tipos";
 import { Button } from "@/components/ui/button";
@@ -37,6 +39,9 @@ function QgLayout() {
   const [eu, setEu] = useState<QgEu | null | undefined>(undefined);
   const [erro, setErro] = useState<string | null>(null);
   const [noHost, setNoHost] = useState<boolean | null>(null);
+  // AAL2: undefined = ainda nao conferi; null = sem fator (cadastrar); id = confirmar
+  const [fatorId, setFatorId] = useState<string | null | undefined>(undefined);
+  const [versao, setVersao] = useState(0);
 
   useEffect(() => setNoHost(ehHostQG()), []);
 
@@ -48,19 +53,29 @@ function QgLayout() {
   useEffect(() => {
     if (!session || noHost !== true) return;
     let vivo = true;
-    supabase.rpc("qg_eu").then(({ data, error }) => {
+    supabase.rpc("qg_eu").then(async ({ data, error }) => {
       if (!vivo) return;
       if (error) {
         // Falha de consulta NÃO é "não é staff": mostra o erro e deixa tentar de novo.
         setErro(error.message);
         return;
       }
-      setEu(((data ?? []) as Array<QgEu>)[0] ?? null);
+      const meu = ((data ?? []) as Array<QgEu>)[0] ?? null;
+      setEu(meu);
+      // falta AAL2: descobre se ja ha autenticador (confirmar) ou nao (cadastrar)
+      if (meu && meu.exige_aal2 && meu.aal !== "aal2") {
+        try {
+          const f = await fatorVerificado();
+          if (vivo) setFatorId(f?.id ?? null);
+        } catch {
+          if (vivo) setFatorId(null);
+        }
+      }
     });
     return () => {
       vivo = false;
     };
-  }, [session, noHost]);
+  }, [session, noHost, versao]);
 
   if (noHost === null || loading) return <Carregando />;
 
@@ -115,8 +130,30 @@ function QgLayout() {
     return (
       <Aviso titulo="O QG exige verificação em duas etapas" icon={ShieldCheck}>
         <p>
-          Esta instalação exige AAL2 para o QG. Ative o segundo fator na sua conta e entre de novo com o código.
+          {fatorId === undefined
+            ? "Conferindo seu autenticador…"
+            : fatorId
+              ? "Digite o código do seu aplicativo autenticador para entrar no QG."
+              : "Cadastre um aplicativo autenticador: o QG só abre com o código, sempre."}
         </p>
+        {fatorId !== undefined && (
+          <div className="text-left">
+            <VerificacaoDuasEtapas
+              modo={fatorId ? "confirmar" : "cadastrar"}
+              fatorId={fatorId}
+              rotuloConfirmar={fatorId ? "Entrar no QG" : "Ativar e entrar"}
+              onPronto={() => {
+                setEu(undefined);
+                setFatorId(undefined);
+                setVersao((v) => v + 1);
+              }}
+              onCancelar={async () => {
+                await signOut();
+                navigate({ to: "/login" });
+              }}
+            />
+          </div>
+        )}
       </Aviso>
     );
   }

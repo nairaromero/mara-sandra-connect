@@ -45,7 +45,7 @@ Onde este documento divergir do banco, vale o banco — e corrija aqui
 
 ## 0. Estado da implementação (2026-09-22)
 
-Branch `feat/rbac-multi-tenant`, dez migrations (`migration_rbac_01…10`), 26 edge functions
+Branch `feat/rbac-multi-tenant`, onze migrations (`migration_rbac_01…11`), 26 edge functions
 alteradas + `qg-escritorios`, front, QG, glossário e paginação. Aplicado e provado **só no banco
 local**: `bun run local:copiar && bun run local:rbac`, `bun run e2e:local` = 100/100 (69 existentes +
 23 de ataque entre escritórios + 3 do glossário + 5 de paginação) e `scripts/rbac-diff-visibilidade.mjs` mostrando que o
@@ -61,7 +61,7 @@ escritório 1 vê exatamente as mesmas linhas de antes.
 | 5 · RBAC | feita no banco; telas parciais | 58 policies `perm_*`; menu, botões principais e Equipe por permissão. O codemod fino das telas não foi feito — o banco barra, a tela às vezes ainda oferece |
 | 6 · Produto | parcial | QG completo (D25); trocar de escritório; convite por papel; tela do escritório para aprovar/encerrar suporte + trilha na Auditoria (23/09); integrações por escritório — Gmail do INSS, DJEN e WhatsApp (23/09, `migration_rbac_09`); marca por escritório (23/09, `migration_rbac_10`). **Faltam**: Legalmail/TI por escritório, n8n lendo a instância por escritório, export por escritório |
 | 7 · Contração | não feita | colunas antigas de `usuarios` seguem sincronizadas; nenhuma decisão de acesso as lê |
-| QG (§4.6) | feita, com desvio | funções `qg_*` em `public` (não schema `plataforma`); AAL2 por `app_config`, desligada no local |
+| QG (§4.6) | feita, com desvio | funções `qg_*` em `public` (não schema `plataforma`); AAL2 por `app_config` com cadastro do autenticador e etapa do código (23/09, `migration_rbac_11`); desligada só no local pelo seed |
 
 Pré-requisitos antes de ir para o staging estão no fim do guia de teste. Onde o desenho
 abaixo divergir do que foi construído, vale o construído — e corrija aqui.

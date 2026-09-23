@@ -20,6 +20,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import { AbaSuporte } from "@/components/suporte/aba-suporte";
 import { EscritorioMarcaCard } from "@/components/configuracoes/escritorio-marca-card";
+import { DuasEtapasCard } from "@/components/configuracoes/duas-etapas-card";
 import { formatarTelefone } from "@/lib/telefone";
 import { ClientOnly } from "@/components/client-only";
 import { IntegracaoIaCard } from "@/components/ia/integracao-ia-card";
@@ -657,6 +658,9 @@ function ConfiguracoesPage() {
                 </Button>
               </CardContent>
             </Card>
+
+            {/* Verificacao em duas etapas (TOTP): a propria pessoa ativa/desativa. */}
+            <DuasEtapasCard />
           </TabsContent>
 
           {/* Tipos de beneficio (so interno gerencia o cadastro) */}
