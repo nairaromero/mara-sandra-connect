@@ -19,13 +19,13 @@ O que **não** muda: contas, senhas, dados dos clientes. Todo usuário existente
 
 ## 1. Pré-requisitos de código (antes de abrir o PR)
 
-- [ ] **Rota do QG no worker** — `wrangler.jsonc`: acrescentar `{ "pattern": "qg.staging.marasandraconnect.com", "custom_domain": true }` no `env.staging.routes` e `{ "pattern": "qg.marasandraconnect.com", "custom_domain": true }` nas `routes` de produção. O `custom_domain` cria o DNS no Cloudflare no deploy. Sem isso `qg.staging…` não resolve e o QG não abre.
-- [ ] **Espelho semanal** (`scripts/espelho-staging.sh`) — hoje ele **trunca todas as tabelas de `public`** (menos `app_config`) e restaura os dados de produção, que não têm RBAC. Na segunda seguinte o staging ficaria sem `escritorios`, `membros`, `papeis`… e ninguém veria nada. Dois ajustes:
+- [x] **Rota do QG no worker** (feito em 23/09) — `wrangler.jsonc`: acrescentado `{ "pattern": "qg.staging.marasandraconnect.com", "custom_domain": true }` no `env.staging.routes` e `{ "pattern": "qg.marasandraconnect.com", "custom_domain": true }` nas `routes` de produção. O `custom_domain` cria o DNS no Cloudflare no deploy. Sem isso `qg.staging…` não resolve e o QG não abre.
+- [x] **Espelho semanal** (feito em 23/09: `PRESERVAR` com o catálogo, `EXCLUIR` com segredos/histórico, passo 6/6 reaplicando as migrations e o seed) — antes ele **trunca todas as tabelas de `public`** (menos `app_config`) e restaura os dados de produção, que não têm RBAC. Na segunda seguinte o staging ficaria sem `escritorios`, `membros`, `papeis`… e ninguém veria nada. Dois ajustes:
   1. `PRESERVAR` ganha o catálogo do RBAC: `escritorios`, `papeis`, `permissoes`, `papel_permissoes`, `plataforma_staff`, `escritorio_config`, `oabs_monitoradas`? (não: tem dados de prod) — só o catálogo; `escritorio_integracoes` e `acessos_suporte` vão para `EXCLUIR` (segredo e histórico não vêm de prod).
   2. Depois da restauração, reaplicar `migration_rbac_01` → `14` com `--staging` (são idempotentes; o backfill de `membros` é `on conflict (escritorio_id, usuario_id) do update`), para os usuários espelhados voltarem a ser membros do escritório padrão.
-- [ ] **Seed do Canário no staging** — `scripts/seed-local-rbac.mjs` só conhece o local. Dar a ele `--staging` (service key do staging, mesmas contas `canario+*`, `qg+*`) para a Naira validar com os papéis, como no guia. Senão a validação fica só com o escritório padrão.
-- [ ] **Card no board** — não existe issue do lote RBAC (só #385, do MCP). Criar a issue "RBAC multi-tenant" (ou uma por item) para o PR ter `Closes #N`; o PR também fecha #385.
-- [ ] **PR** `feat/rbac-multi-tenant → staging` (nunca para `main`), corpo com `Closes #385` e a lista de migrations e functions deste plano. Suíte completa no local antes do push (124 testes; a falha do kanban "Outros" é das migrations do PR #391 no banco local, não deste lote).
+- [x] **Seed do Canário no staging** (feito em 23/09: `node scripts/seed-local-rbac.mjs --staging`, com `STAGING_PUBLISHABLE_KEY` e `STAGING_SERVICE_ROLE_KEY` do `.env.local`; no staging o QG segue exigindo o código) — antes só conhecia o local. Tem `--staging` (service key do staging, mesmas contas `canario+*`, `qg+*`) para a Naira validar com os papéis, como no guia. Senão a validação fica só com o escritório padrão.
+- [x] **Card no board** — issue [#395](https://github.com/nairaromero/mara-sandra-connect/issues/395) "RBAC multi-tenant: escritórios, papéis, permissões e QG (lote de 23/09)" criada em 23/09; o PR abre com `Closes #395` e `Closes #385`.
+- [ ] **PR** `feat/rbac-multi-tenant → staging` (nunca para `main`), corpo com `Closes #395` e `Closes #385` e a lista de migrations e functions deste plano. Suíte completa no local antes do push (124 testes; a falha do kanban "Outros" é das migrations do PR #391 no banco local, não deste lote).
 
 ## 2. No staging, nesta ordem
 
@@ -105,7 +105,7 @@ bunx supabase functions deploy whatsapp-outbox-enviar --project-ref alhqbpbekmxp
 
 ### 2.6 Contas e seed
 
-- [ ] `node scripts/seed-staging-contas.mjs` (contas `e2e+*`) e o seed do Canário (`--staging`, §1) para os papéis `canario+*` e o staff `qg+*`.
+- [ ] `node scripts/seed-staging-contas.mjs` (contas `e2e+*`) e `node scripts/seed-local-rbac.mjs --staging` para os papéis `canario+*` e o staff `qg+*` (o espelho semanal passa a fazer os dois no passo 6/6).
 - [ ] Naira e Mara como `plataforma_staff` (dono) — inserir à mão ou pelo seed; sem isso o QG só tem as contas sintéticas.
 
 ### 2.7 Conferir de verdade

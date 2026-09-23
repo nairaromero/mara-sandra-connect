@@ -23,7 +23,14 @@ import { execSync } from "node:child_process";
 import fs from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 
-const st = JSON.parse(execSync("bunx supabase status -o json", { stdio: ["ignore", "pipe", "ignore"] }).toString());
+// --staging: mesmas contas e o mesmo Canário no projeto de STAGING (chaves do
+// .env.local); o espelho semanal chama assim no fim. Sem a flag, pilha local.
+const STAGING = process.argv.includes("--staging");
+const envLocal = (nome) => fs.readFileSync(".env.local", "utf8").match(new RegExp(`^${nome}=(.*)$`, "m"))?.[1]?.replace(/^"|"$/g, "").trim();
+const st = STAGING
+  ? { API_URL: "https://alhqbpbekmxpoibrrnbi.supabase.co", ANON_KEY: envLocal("STAGING_PUBLISHABLE_KEY") || envLocal("VITE_SUPABASE_PUBLISHABLE_KEY"), SERVICE_ROLE_KEY: envLocal("STAGING_SERVICE_ROLE_KEY") }
+  : JSON.parse(execSync("bunx supabase status -o json", { stdio: ["ignore", "pipe", "ignore"] }).toString());
+if (STAGING && (!st.ANON_KEY || !st.SERVICE_ROLE_KEY)) { console.error("--staging precisa de STAGING_PUBLISHABLE_KEY e STAGING_SERVICE_ROLE_KEY no .env.local"); process.exit(1); }
 const API = st.API_URL;
 if (!/^http:\/\/(127\.0\.0\.1|localhost):/.test(API)) {
   console.error(`alvo não é o Supabase local: ${API}`);
@@ -115,7 +122,8 @@ const existentes = await authPorEmail();
 
 // 0. Configuração local do QG: sem MFA obrigatório e sem carência (para dar
 //    para testar a eliminação). Em produção: qg_exigir_aal2=true e 30 dias.
-for (const [chave, valor] of [["qg_exigir_aal2", "false"], ["qg_carencia_dias", "0"]]) {
+// No staging o QG segue exigindo o código (migration_rbac_11) e a carência fica a de produção.
+for (const [chave, valor] of STAGING ? [] : [["qg_exigir_aal2", "false"], ["qg_carencia_dias", "0"]]) {
   falha("app_config", (await admin.from("app_config").upsert({ chave, valor }, { onConflict: "chave" })).error);
 }
 
