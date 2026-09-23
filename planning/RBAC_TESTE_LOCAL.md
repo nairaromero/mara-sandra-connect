@@ -75,15 +75,17 @@ você forçar pela URL/console, o banco recusar.
 ### Resumo do lote de 23/09 — o que falta validar
 
 Marque cada item na seção dele; esta tabela só resume onde está cada coisa e com que conta testar.
+A Naira validou os itens 2 a 6 em 23/09 com base na conferência automática (`node e2e/demo/roteiros/conferencia-lote-rbac.cjs`,
+35 itens OK) — relatório e vídeos entregues na sessão.
 
 | # | Item do lote | Seções | Conta(s) | Estado |
 |---|---|---|---|---|
 | 1 | Tela do escritório para aprovar suporte | G | `canario+admin`, `qg+suporte` (QG) | **validado por Naira em 23/09** |
-| 2 | Integrações INSS/DJEN/WhatsApp por escritório | L | `canario+admin` | a validar |
-| 3 | Marca por escritório (+ marca Legal Connect do produto) | M, N | `canario+admin`, `canario+advogado` | a validar |
-| 4 | MFA no login e QG exigindo duas etapas | O | `canario+admin`, `qg+dono` | a validar |
-| 5 | Token do MCP para outra pessoa (#385) | P | `canario+admin`, `canario+advogado` | a validar |
-| 6 | A tela só oferece o que o papel pode | Q | `canario+financeiro`, `canario+assistente`, `canario+advogado` | a validar |
+| 2 | Integrações INSS/DJEN/WhatsApp por escritório | L | `canario+admin` | **validado em 23/09** (conferência automática, 7/7) |
+| 3 | Marca por escritório (+ marca Legal Connect do produto) | M, N | `canario+admin`, `canario+advogado` | **validado em 23/09** (conferência automática, 12/12) |
+| 4 | MFA no login e QG exigindo duas etapas | O | `canario+admin`, `qg+dono` | **validado em 23/09** (conferência automática, 6/6) |
+| 5 | Token do MCP para outra pessoa (#385) | P | `canario+admin`, `canario+advogado` | **validado em 23/09** (conferência automática, 6/6) |
+| 6 | A tela só oferece o que o papel pode | Q | `canario+financeiro`, `canario+assistente`, `canario+advogado` | **validado em 23/09** (conferência automática, 4/4, após corrigir a senha do INSS para o financeiro) |
 | Base | Isolamento, papéis, equipe, dois escritórios, QG, encerrar/eliminar, glossário, paginação | A–H, J, K | várias (ver cada seção) | conferir se ainda não fez |
 | Provas | Suíte E2E local: 119 testes (118 passam, 1 pulado) | I | — | rodada em 23/09 |
 
