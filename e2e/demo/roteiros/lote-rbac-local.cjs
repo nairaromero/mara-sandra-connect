@@ -507,7 +507,7 @@ async function cartao(page, titulo, sub, ms = 3800) {
       const wa = p.locator("[data-card-whatsapp]");
       await wa.waitFor({ timeout: 20000 });
       await deslizar(p, wa);
-      await narrar(p, "WhatsApp: o envio de mensagens pelo sistema também fica \"Em breve\". A entrada pelo webhook e o teste da conexão continuam.");
+      await narrar(p, "WhatsApp: o envio de mensagens pelo sistema passa a sair por function, sem n8n, e segue pausado até ser retomado. A entrada pelo webhook e o teste da conexão continuam.");
       await ler(p, 1500);
       await still(p, "ato8-02-whatsapp");
       await tentar("cron simulado do DJEN", async () => {
@@ -620,6 +620,56 @@ async function cartao(page, titulo, sub, ms = 3800) {
       await cartao(pf, "Resultado", "Credencial por escritório, cifrada; sem ela, 412 e nenhum botão. O escritório padrão continua no legado até cadastrar a sua. Spec integracoes-legalmail-ti: 4 testes.", 5000);
       await fechar(pf);
       gravados.push("ato9");
+    }
+
+    // ================= ATO 10 — COMPLEMENTO: SAÍDA DE WHATSAPP POR FUNCTION =================
+    if (ato(10)) {
+      const MARCA_WA = `${MARCA} outbox`;
+      await admin.from("whatsapp_outbox").delete().like("texto", `${MARCA_WA}%`);
+      await mock("/_reset");
+      const p = (await parte(`canario+admin@${DOM}`, ESC2)).page;
+      await cartao(p, "Complemento · Saída de WhatsApp sem n8n", "A fila de mensagens ao parceiro passa a ser entregue por uma function do sistema, chamada pelo pg_cron, com a instância e a chave do escritório de cada mensagem. O n8n sai do caminho.", 6000);
+      await p.goto(`${BASE}/configuracoes?tab=integracoes`);
+      const wa = p.locator("[data-card-whatsapp]");
+      await wa.waitFor({ timeout: 20000 });
+      await deslizar(p, wa);
+      await narrar(p, "A instância do Canário no Evolution (simulado): URL, instância e chave — cifrada no servidor. A saída em si segue pausada até a retomada.");
+      await digitar(p, p.locator("#wa-url"), `${MOCK_DOCKER}/evolution`);
+      await digitar(p, p.locator("#wa-inst"), "canario");
+      await digitar(p, p.locator("#wa-key"), "chave-evolution-canario");
+      await clicar(p, wa.getByRole("button", { name: "Salvar" }).first());
+      await wa.getByText(/definida em/i).waitFor({ timeout: 15000 });
+      await clicar(p, wa.getByRole("button", { name: /Testar/ }).first());
+      await wa.locator("[data-teste-whatsapp]").waitFor({ timeout: 30000 });
+      await ler(p, 2000);
+      await still(p, "ato10-01-instancia");
+      await tentar("cron simulado da saída", async () => {
+        const e2e = await sessao(`e2e+admin@${DOM}`, ESC1);
+        await cAdmin.sb.rpc("whatsapp_enqueue_text", { p_telefone: TEL_GILDA, p_tipo: "aviso", p_texto: `${MARCA_WA} olá, Gilda — perícia da Helena confirmada para 14/10 às 9h` });
+        await e2e.sb.rpc("whatsapp_enqueue_text", { p_telefone: TEL_GILDA, p_tipo: "aviso", p_texto: `${MARCA_WA} do escritório 1` });
+        const r = await cronSimulado("cron:whatsapp-outbox", "whatsapp-outbox-enviar", { limite: 20 });
+        const { data: linhas } = await admin.from("whatsapp_outbox").select("escritorio_id, status, http_status, erro, tentativas").like("texto", `${MARCA_WA}%`);
+        const tabela = (linhas ?? []).map((l) => `<tr><td>${l.escritorio_id === ESC2 ? "Canário" : "escritório 1"}</td><td>${esc(l.status)}</td><td>${l.http_status ?? "—"}</td><td>${esc(l.erro ?? "")}</td></tr>`).join("");
+        const enviadas = await (await fetch(`${MOCK}/evolution/_enviadas`)).json();
+        const lista = enviadas.map((m) => `<tr><td>${esc(m.instance)}</td><td>${esc(m.number)}</td><td>${esc(m.text)}</td></tr>`).join("");
+        await mock("/painel/registrar", { titulo: "Duas mensagens na fila: uma do Canário, uma do escritório 1 (sem instância cadastrada)", html: `<pre>whatsapp_enqueue_text(...)  ×2</pre>` });
+        await mock("/painel/registrar", { titulo: "Cron simulado — o comando que o pg_cron roda a cada minuto (aqui, function local)", html: `<pre>${esc(r.comando)}</pre>` });
+        await mock("/painel/registrar", { titulo: `Resposta da function (via pg_net #${r.id})`, html: `<pre class="${r.status === 200 ? "ok" : "erro"}">HTTP ${r.status}\n${esc(JSON.stringify(r.json ?? r.corpo, null, 2).slice(0, 700))}</pre>` });
+        await mock("/painel/registrar", { titulo: "Banco: whatsapp_outbox", html: `<table><tr><th>escritório</th><th>status</th><th>HTTP</th><th>erro</th></tr>${tabela}</table>` });
+        await mock("/painel/registrar", { titulo: "Evolution simulado: o que chegou em sendText", html: `<table><tr><th>instância</th><th>número</th><th>texto</th></tr>${lista}</table>` });
+        await p.goto(`${MOCK}/painel`);
+        await narrar(p, "Duas mensagens na fila. O cron simulado roda o comando do pg_cron: a function entrega a do Canário pela instância dele e recusa a do escritório 1, que não tem instância — sem cair na de ninguém.");
+        await ler(p, 5000);
+        await still(p, "ato10-02-painel");
+        await p.mouse.wheel(0, 900);
+        await narrar(p, "No Evolution simulado chegou só a mensagem do Canário, na instância canario, para o número da Gilda.");
+        await ler(p, 4000);
+        await still(p, "ato10-03-evolution");
+      });
+      await cartao(p, "No release", "migration_rbac_14 + migration_cron_whatsapp_outbox (job msc-whatsapp-outbox a cada minuto). A saída continua pausada; retomar = ligar o gatilho de comentários e cadastrar a instância de cada escritório.", 5500);
+      await fechar(p);
+      await admin.from("whatsapp_outbox").delete().like("texto", `${MARCA_WA}%`);
+      gravados.push("ato10");
     }
 
     // ================= ENCERRAMENTO =================

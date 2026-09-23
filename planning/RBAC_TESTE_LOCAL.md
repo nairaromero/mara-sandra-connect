@@ -10,7 +10,7 @@ Docker aberto. Da raiz do repositório:
 
 ```bash
 bun run local:copiar   # banco local = cópia do staging (~3 min). Só se quiser zerar.
-bun run local:rbac     # aplica as 13 migrations do RBAC + cria escritório canário, contas e QG
+bun run local:rbac     # aplica as 14 migrations do RBAC + cria escritório canário, contas e QG
 bun run dev:local      # app em http://localhost:8080
 ```
 
@@ -378,8 +378,8 @@ Webhooks e o envio de WhatsApp ficam desligados na tela ("Em breve") até voltar
 
 - [ ] Como `canario+admin` → Configurações → **Webhooks**: card "Webhooks · Em breve", sem botão "Novo webhook".
       `/webhooks` continua redirecionando para a aba.
-- [ ] Configurações → **Integrações** → card WhatsApp: linha "Envio de mensagens pelo sistema · Em breve"; salvar
-      instância, Testar e o webhook de entrada seguem funcionando (seção L).
+- [ ] Configurações → **Integrações** → card WhatsApp: linha "Envio de mensagens pelo sistema · Pausado" (a saída
+      sai por function, sem n8n — seção U); salvar instância, Testar e o webhook de entrada seguem funcionando (seção L).
 - [ ] Local: `bun run e2e:local e2e/tests/integracoes-escritorio.spec.ts` — o teste "cron:djen-sync é aceito;
       n8n:djen-sync recebe 401" prova a identidade nova (assina com o `MSC_SYSTEM_SECRET` do `.env` local).
 - [ ] **Cron simulado no local** (sem pg_cron): `node e2e/demo/roteiros/conferencia-lote-rbac.cjs` com `SECOES=S` roda no
@@ -418,10 +418,36 @@ ambiente antiga até cadastrar a sua; os outros nunca caem nela.
 
 
 
+### U. Saída de WhatsApp por escritório, sem n8n
+
+A fila `whatsapp_outbox` passa a ser drenada pela edge function `whatsapp-outbox-enviar` (pg_cron a cada
+minuto, assinatura `cron:whatsapp-outbox` — `migration_cron_whatsapp_outbox`, só produção). Para cada linha ela
+lê a instância e a chave cifrada **do escritório da linha** (`escritorio_integracoes`) e faz o POST no Evolution
+(`migration_rbac_14`: o lote reivindicado ganha `escritorio_id`). Escritório sem integração: a linha falha com erro
+claro e entra no backoff — nunca sai pela instância de outro. A **pausa** da saída (gatilho de comentários
+desligado desde 20/08) continua; retomar é `alter table public.comentarios enable trigger trg_whatsapp_comentario_novo`.
+
+- [ ] Como `canario+admin` → Integrações → WhatsApp: URL `http://host.docker.internal:8787/evolution`, instância
+      `canario`, chave `chave-evolution-canario` → Salvar → Testar → "Conectado — estado: open". A linha do envio diz
+      "Pausado" (é a fila global; a entrega em si já é por escritório).
+- [ ] Enfileirar uma mensagem do Canário e uma do escritório 1 (terminal, como cada admin):
+      `select whatsapp_enqueue_text('5511999990000', 'aviso', '[teste] olá', null, null)` com o header do escritório
+      (ou pela spec). Rodar o "cron simulado":
+      `node e2e/demo/roteiros/conferencia-lote-rbac.cjs` com `SECOES=U` → o pg_net chama a function; resposta
+      `enviadas: 1, falhas: 1`; `whatsapp_outbox`: Canário `enviado` (HTTP 201), escritório 1 `pendente` com
+      "integração WhatsApp não configurada" e `tentativas = 1` (backoff).
+- [ ] Evolution simulado (`http://localhost:8787/evolution/_enviadas`): só a mensagem do Canário, na instância
+      `canario`, para o número certo. Assinatura errada na function → 401, nada sai.
+- [ ] **Só em produção, no release:** `migration_rbac_14` + `migration_cron_whatsapp_outbox` → `cron.job` tem
+      `msc-whatsapp-outbox` (`* * * * *`). Enquanto a saída estiver pausada a fila fica vazia. Ao retomar: ligar o
+      gatilho, cadastrar a instância de cada escritório e desligar o workflow de saída do n8n (só histórico).
+
+
+
 ### I. Provas automáticas (rodar e conferir os números)
 
 ```bash
-bun run e2e:local                                         # suíte inteira: 123 testes (1 pulado no local: assunto do convite)
+bun run e2e:local                                         # suíte inteira: 124 testes (1 pulado no local: assunto do convite)
 bun run e2e:local e2e/tests/rbac-isolamento.spec.ts       # 16 ataques entre os dois escritórios
 bun run e2e:local e2e/tests/rbac-edge-functions.spec.ts   # 7 ataques nas edge functions
 bun run e2e:local e2e/tests/glossario.spec.ts             # 3: busca, permissões do banco, parceiro
@@ -435,9 +461,10 @@ bun run e2e:local e2e/tests/mcp-terceiro.spec.ts          # 4: emitir para parce
 bun run e2e:local e2e/tests/marca-legal-connect.spec.ts   # 2: marca do produto no login/QG/rodapé; marca do escritório no topo
 bun run e2e:local e2e/tests/rbac-telas.spec.ts            # 3: financeiro, assistente e advogado no mesmo caso — a tela oferece só o que o papel pode
 bun run e2e:local e2e/tests/integracoes-legalmail-ti.spec.ts # 4: 412 sem credencial, cadastro/teste pelo admin, busca com a conta do Canário, botões só com credencial
+bun run e2e:local e2e/tests/whatsapp-outbox.spec.ts        # 1: fila sai pela instância do escritório (Evolution simulado); escritório sem integração falha com erro; assinatura errada 401
 ```
 
-- [ ] 123 passam. Os 23 do RBAC são ataques via API com a sessão real de cada papel: header
+- [ ] 124 passam. Os 23 do RBAC são ataques via API com a sessão real de cada papel: header
       forjado, filho apontando para pai de outro escritório (inclusive com service role), RPC
       com id alheio, vínculo desativado com o JWT ainda válido, staff lendo tabela de domínio,
       suporte escrevendo, eliminação sem segunda pessoa.
@@ -496,7 +523,7 @@ escritório 1 não mudou, e forjar o header não abre nada.
 
 ## 6. Antes de ir para o staging
 
-Nada disto foi aplicado fora do local. Para o staging: as 13 migrations do RBAC (mais `migration_cron_djen`, só produção) com
+Nada disto foi aplicado fora do local. Para o staging: as 14 migrations do RBAC (mais `migration_cron_djen` e `migration_cron_whatsapp_outbox`, só produção) com
 `node scripts/msc-sql.mjs --staging --file …` **na ordem**, deploy das 26 edge functions alteradas
 (+ `qg-escritorios`), e só então o front. Como a #02 mexe em 41 tabelas, vale ensaiar de novo numa
 cópia fresca (`bun run local:copiar && bun run local:rbac`) no dia — leva ~4 min.

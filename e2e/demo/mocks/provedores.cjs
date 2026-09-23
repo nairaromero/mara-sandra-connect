@@ -31,6 +31,7 @@ const estado = {
   emails: [],          // Resend: o que as functions mandaram
   claude: [],          // "conversa" do Claude simulado
   painel: [],          // blocos {titulo, html} do painel
+  evolution: [],       // mensagens que o Evolution simulado 'enviou' ({instance, number, text})
   chamadas: [],        // log curto pra depurar
 };
 
@@ -164,14 +165,15 @@ const server = http.createServer(async (req, res) => {
     // ---- utilitários
     if (p === "/_health") return json(res, { ok: true, config: estado.config, emails: estado.emails.length, chamadas: estado.chamadas.slice(-10) });
     if (p === "/_config" && req.method === "POST") { Object.assign(estado.config, JSON.parse(await lerCorpo(req) || "{}")); return json(res, { ok: true, config: estado.config }); }
-    if (p === "/_reset" && req.method === "POST") { estado.emails = []; estado.claude = []; estado.painel = []; return json(res, { ok: true }); }
+    if (p === "/_reset" && req.method === "POST") { estado.emails = []; estado.claude = []; estado.painel = []; estado.evolution = []; return json(res, { ok: true }); }
 
     // ---- Evolution API (WhatsApp)
     if (p.startsWith("/evolution/")) {
+      if (p === "/evolution/_enviadas") return json(res, estado.evolution);   // depuração: sem apikey
       if (req.headers.apikey !== EVO_KEY) return json(res, { status: 401, error: "Unauthorized", response: { message: ["apikey inválida"] } }, 401);
       let m;
       if ((m = p.match(/^\/evolution\/instance\/connectionState\/([^/]+)$/))) return json(res, { instance: { instanceName: decodeURIComponent(m[1]), state: "open" } });
-      if ((m = p.match(/^\/evolution\/message\/sendText\/([^/]+)$/))) { const c = JSON.parse(await lerCorpo(req) || "{}"); estado.chamadas.push(`sendText→${c.number}: ${String(c.text ?? c.textMessage?.text ?? "").slice(0, 60)}`); return json(res, { key: { id: "MOCK" + Date.now() }, status: "PENDING" }, 201); }
+      if ((m = p.match(/^\/evolution\/message\/(sendText|sendMedia)\/([^/]+)$/))) { const c = JSON.parse(await lerCorpo(req) || "{}"); const item = { tipo: m[1], instance: decodeURIComponent(m[2]), number: c.number, text: c.text ?? c.caption ?? "", media: c.media ?? null, em: new Date().toISOString() }; estado.evolution.push(item); estado.chamadas.push(`${m[1]}→${c.number}: ${String(item.text).slice(0, 60)}`); return json(res, { key: { id: "MOCK" + Date.now() }, status: "PENDING" }, 201); }
       if (p.includes("/chat/getBase64FromMediaMessage/")) return json(res, { error: "sem mídia no mock" }, 404);
       return json(res, { error: "rota não simulada", p }, 404);
     }

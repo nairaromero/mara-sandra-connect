@@ -16,7 +16,7 @@ const { ler, deslizar, clicar, narrar, abrirEstudio } = require("../helpers.cjs"
 const { REPO, BASE, QG, MOCK, MOCK_DOCKER, DOM, PILHA, FN, admin, sessao, estadoNavegador, fn, mock, esc, codigoNovo, fechar, digitar, cronSimulado, segredoSistemaLocal } = require("../local.cjs");
 const { createHmac } = require("crypto");
 
-const SECOES = (process.env.SECOES || "L,M,N,O,P,Q,S,T").split(",").map((s) => s.trim().toUpperCase());
+const SECOES = (process.env.SECOES || "L,M,N,O,P,Q,S,T,U").split(",").map((s) => s.trim().toUpperCase());
 const MARCA = "[Conferência]";
 const TEL_GILDA = "5511999990000";
 const CNJ = "5001234-56.2026.4.03.6183";
@@ -688,13 +688,13 @@ const sql = (q) => JSON.parse(execSync(`node scripts/msc-sql.mjs --local ${JSON.
         await still(p, "S1-webhooks-em-breve");
       });
       let webhook = "";
-      await item("S2", "WhatsApp: 'Envio de mensagens · Em breve'; salvar, Testar e o webhook de entrada seguem funcionando", async () => {
+      await item("S2", "WhatsApp: 'Envio de mensagens · Pausado' (sai por function, sem n8n); salvar, Testar e o webhook de entrada seguem funcionando", async () => {
         await p.goto(`${BASE}/configuracoes?tab=integracoes`);
         const wa = p.locator("[data-card-whatsapp]");
         await visivel(wa, "card do WhatsApp");
         await deslizar(p, wa);
-        await visivel(wa.locator('[data-whatsapp-envio="em-breve"]'), "linha 'Envio · Em breve' ausente");
-        await legenda(p, "S2", "envio 'Em breve'; entrada e teste continuam");
+        await visivel(wa.locator("[data-whatsapp-envio]"), "linha do envio ausente");
+        await legenda(p, "S2", "envio pausado (sai por function); entrada e teste continuam");
         await digitar(p, p.locator("#wa-url"), `${MOCK_DOCKER}/evolution`);
         await digitar(p, p.locator("#wa-inst"), "canario");
         await digitar(p, p.locator("#wa-key"), "chave-evolution-canario");
@@ -853,6 +853,71 @@ const sql = (q) => JSON.parse(execSync(`node scripts/msc-sql.mjs --local ${JSON.
       });
       await fecharTodas();
     }
+
+    // ======================= U. Saída de WhatsApp por escritório (sem n8n) =======================
+    if (SECOES.includes("U")) {
+      secaoAtual = "U";
+      console.log("U. Saída de WhatsApp por escritório");
+      const MARCA_WA = `${MARCA} outbox`;
+      await admin.from("whatsapp_outbox").delete().like("texto", `${MARCA_WA}%`);
+      await mock("/_reset");
+      const p = await abrir(`canario+admin@${DOM}`, ESC2);
+      await item("U1", "Admin cadastra a instância do Canário (Evolution simulado): Testar → conectado; a linha do envio diz 'Pausado'", async () => {
+        await p.goto(`${BASE}/configuracoes?tab=integracoes`);
+        const wa = p.locator("[data-card-whatsapp]");
+        await visivel(wa, "card do WhatsApp");
+        await deslizar(p, wa);
+        await visivel(wa.locator('[data-whatsapp-envio="pausado"]'), "linha 'Pausado' do envio ausente");
+        await legenda(p, "U1", "instância do Canário + Testar; envio pausado (fila global)");
+        await digitar(p, p.locator("#wa-url"), `${MOCK_DOCKER}/evolution`);
+        await digitar(p, p.locator("#wa-inst"), "canario");
+        await digitar(p, p.locator("#wa-key"), "chave-evolution-canario");
+        await clicar(p, wa.getByRole("button", { name: "Salvar" }).first());
+        await textoContem(wa, /definida em/i, "não salvou");
+        await clicar(p, wa.getByRole("button", { name: /Testar/ }).first());
+        await textoContem(wa.locator("[data-teste-whatsapp]"), /Conectado/i, "Testar não conectou", 30000);
+        await still(p, "U1-instancia");
+      });
+      await item("U2", "Cron simulado: o comando do pg_cron drena a fila — Canário enviado (201), escritório 1 falha com 'não configurada' e entra no backoff", async () => {
+        const e2e = await sessao(`e2e+admin@${DOM}`, ESC1);
+        if ((await cAdmin.sb.rpc("whatsapp_enqueue_text", { p_telefone: TEL_GILDA, p_tipo: "aviso", p_texto: `${MARCA_WA} olá, Gilda — perícia da Helena confirmada para 14/10 às 9h` })).error) falha("enqueue canário");
+        if ((await e2e.sb.rpc("whatsapp_enqueue_text", { p_telefone: TEL_GILDA, p_tipo: "aviso", p_texto: `${MARCA_WA} do escritório 1` })).error) falha("enqueue escritório 1");
+        const r = await cronSimulado("cron:whatsapp-outbox", "whatsapp-outbox-enviar", { limite: 20 });
+        await mock("/painel/registrar", { titulo: "Cron simulado: comando do pg_cron (msc-whatsapp-outbox), apontando para a function local", html: `<pre>${esc(r.comando)}</pre>` });
+        await mock("/painel/registrar", { titulo: `Resposta recebida pelo pg_net (net._http_response #${r.id})`, html: `<pre class="${r.status === 200 ? "ok" : "erro"}">HTTP ${r.status ?? "—"} ${esc(r.erro ?? "")}\n${esc(JSON.stringify(r.json ?? r.corpo, null, 2).slice(0, 1200))}</pre>` });
+        const { data: linhas } = await admin.from("whatsapp_outbox").select("escritorio_id, status, http_status, erro, tentativas").like("texto", `${MARCA_WA}%`);
+        const tabela = (linhas ?? []).map((l) => `<tr><td>${l.escritorio_id === ESC2 ? "Canário" : "escritório 1"}</td><td>${esc(l.status)}</td><td>${l.http_status ?? "—"}</td><td>${l.tentativas}</td><td>${esc(l.erro ?? "")}</td></tr>`).join("");
+        await mock("/painel/registrar", { titulo: "Banco: whatsapp_outbox depois do cron", html: `<table><tr><th>escritório</th><th>status</th><th>HTTP</th><th>tentativas</th><th>erro</th></tr>${tabela}</table>` });
+        await p.goto(`${MOCK}/painel`);
+        await legenda(p, "U2", "SQL → pg_net → function → Evolution simulado");
+        await ler(p, 2000);
+        await still(p, "U2-cron-painel");
+        if (r.status !== 200) falha(`pg_net: HTTP ${r.status} ${r.erro ?? ""} ${(r.corpo || "").slice(0, 120)}`);
+        if (r.json?.enviadas !== 1 || r.json?.falhas !== 1) falha(`resposta: ${JSON.stringify(r.json).slice(0, 200)}`);
+        const can = (linhas ?? []).find((l) => l.escritorio_id === ESC2), e1 = (linhas ?? []).find((l) => l.escritorio_id === ESC1);
+        if (!can || can.status !== "enviado" || can.http_status !== 201) falha(`Canário: ${JSON.stringify(can)}`);
+        if (!e1 || e1.status !== "pendente" || e1.tentativas !== 1 || !/não configurada/.test(e1.erro ?? "")) falha(`escritório 1: ${JSON.stringify(e1)}`);
+        return "enviadas 1 (Canário, HTTP 201) · falhas 1 (escritório 1: não configurada, backoff)";
+      });
+      await item("U3", "Evolution simulado recebeu só a mensagem do Canário, na instância dele; assinatura errada → 401", async () => {
+        const enviadas = await (await fetch(`${MOCK}/evolution/_enviadas`)).json();
+        const minhas = enviadas.filter((m) => String(m.text).startsWith(MARCA_WA));
+        const lista = minhas.map((m) => `<tr><td>${esc(m.instance)}</td><td>${esc(m.number)}</td><td>${esc(m.text)}</td></tr>`).join("");
+        await mock("/painel/registrar", { titulo: "Evolution simulado: o que chegou em /message/sendText", html: `<table><tr><th>instância</th><th>número</th><th>texto</th></tr>${lista || "<tr><td colspan=3>nada</td></tr>"}</table>` });
+        const ts = Math.floor(Date.now() / 1000).toString();
+        const ruim = await fetch(`${FN}/whatsapp-outbox-enviar`, { method: "POST", headers: { "content-type": "application/json", "x-msc-assinatura": `${ts}.deadbeef` }, body: "{}" });
+        await mock("/painel/registrar", { titulo: "Chamada com assinatura errada", html: `<pre class="${ruim.status === 401 ? "ok" : "erro"}">HTTP ${ruim.status}</pre>` });
+        await p.goto(`${MOCK}/painel`);
+        await legenda(p, "U3", "só o Canário chegou ao Evolution; assinatura errada é recusada");
+        await p.mouse.wheel(0, 1200);
+        await ler(p, 2000);
+        await still(p, "U3-evolution");
+        if (minhas.length !== 1 || minhas[0].instance !== "canario" || minhas[0].number !== TEL_GILDA) falha(`enviadas: ${JSON.stringify(minhas).slice(0, 200)}`);
+        if (ruim.status !== 401) falha(`assinatura errada: HTTP ${ruim.status}`);
+      });
+      await fecharTodas();
+      await admin.from("whatsapp_outbox").delete().like("texto", `${MARCA_WA}%`);
+    }
   } finally {
     console.log("limpando…");
     const passo = async (rotulo, f) => { try { await f(); } catch (e) { console.log(`  (limpeza ${rotulo}: ${e.message?.slice(0, 120)})`); } };
@@ -883,9 +948,9 @@ const sql = (q) => JSON.parse(execSync(`node scripts/msc-sql.mjs --local ${JSON.
     if (estudio) {
       const clipes = await estudio.encerrar();
       const ok = resultados.filter((r) => r.ok === true).length, ruim = resultados.filter((r) => r.ok === false).length, notas = resultados.filter((r) => r.ok === null).length;
-      const titulos = { L: "Integrações por escritório", M: "Marca Legal Connect (produto)", N: "Marca por escritório", O: "Verificação em duas etapas e o QG", P: "Token do MCP para outra pessoa", Q: "A tela só oferece o que o papel pode", S: "n8n fora das rotinas: DJEN no pg_cron, Webhooks e envio de WhatsApp \"Em breve\"", T: "Legalmail e Tramitação Inteligente por escritório" };
+      const titulos = { L: "Integrações por escritório", M: "Marca Legal Connect (produto)", N: "Marca por escritório", O: "Verificação em duas etapas e o QG", P: "Token do MCP para outra pessoa", Q: "A tela só oferece o que o papel pode", S: "n8n fora das rotinas: DJEN no pg_cron, Webhooks e envio de WhatsApp \"Em breve\"", T: "Legalmail e Tramitação Inteligente por escritório", U: "Saída de WhatsApp por escritório, sem n8n" };
       let md = `# Conferência do lote RBAC — seções L a Q\n\nAmbiente local, ${new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}. Executada pelo Playwright a partir do guia (planning/RBAC_TESTE_LOCAL.md), com provedores simulados.\n\n**Resumo: ${ok} OK · ${ruim} falhou · ${notas} nota(s).** Vídeo: \`video/ato*.webm\` (um clipe por sessão) e stills por item em \`stills/\`.\n\n`;
-      for (const s of ["L", "M", "N", "O", "P", "Q", "S", "T"]) {
+      for (const s of ["L", "M", "N", "O", "P", "Q", "S", "T", "U"]) {
         const its = resultados.filter((r) => r.secao === s);
         if (!its.length) continue;
         md += `## ${s}. ${titulos[s]}\n\n| Item | Resultado | Observação |\n|---|---|---|\n`;

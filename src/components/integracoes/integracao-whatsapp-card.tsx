@@ -133,12 +133,13 @@ export function IntegracaoWhatsappCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Saída (mensagens do sistema ao parceiro) desligada desde 2026-09-23:
-            a fila continua pausada e vai ser entregue por uma function, sem
-            n8n. A entrada pelo webhook e o teste da conexão seguem valendo. */}
-        <p className="flex items-center gap-2 rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground" data-whatsapp-envio="em-breve">
-          <Badge variant="secondary">Em breve</Badge>
-          Envio de mensagens pelo sistema. Por enquanto esta instância só recebe (webhook) e responde ao teste de conexão.
+        {/* Saída (mensagens do sistema ao parceiro): a fila é drenada pela function
+            whatsapp-outbox-enviar (pg_cron, sem n8n) com a chave DESTE escritório.
+            A saída está pausada desde 20/08 (migration_pausa_whatsapp_saida);
+            retomar é decisão do escritório padrão. Entrada e teste seguem valendo. */}
+        <p className="flex items-center gap-2 rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground" data-whatsapp-envio="pausado">
+          <Badge variant="secondary">Pausado</Badge>
+          Envio de mensagens pelo sistema: a fila é entregue por esta instância (sem n8n), mas a saída está pausada até ser retomada.
         </p>
         {erro && <p className="text-sm text-red-700">Não consegui ler a integração: {erro}</p>}
         {status === null && !erro && (

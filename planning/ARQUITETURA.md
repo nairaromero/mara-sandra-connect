@@ -55,7 +55,7 @@ Direito previdenciário (RGPS). Os tipos de benefício vivem na tabela `tipos_be
 | Frontend | React 19 + TypeScript + Vite + Tailwind v4 + shadcn/ui + TanStack Router/Start (SSR) |
 | Backend | Supabase gerenciado (Auth + Postgres + Storage + RLS + Realtime + pg_cron) |
 | Edge functions | Supabase Edge Functions (Deno) — **29 no ar, 28 versionadas** (ver §6.2) |
-| Agendamento | **pg_cron no próprio banco** (10 jobs, inclusive o DJEN desde 2026-09-23 — `migration_cron_djen`) |
+| Agendamento | **pg_cron no próprio banco** (11 jobs, inclusive o DJEN e a saída do WhatsApp desde 2026-09-23 — `migration_cron_djen`, `migration_cron_whatsapp_outbox`) |
 | Orquestração | Nenhuma rotina do sistema no n8n desde 2026-09-23 (ele fica instalado em `nairavian-n8n.de`, junto do Evolution, para uso futuro). Filas de webhooks e de saída do WhatsApp: desligadas na tela ("Em breve"), a entrega volta por function |
 | Deploy | Cloudflare Workers Builds — 2 projetos: `mara-sandra-connect` ← `main` (produção) e `mara-sandra-connect-staging` ← `staging` (staging.marasandraconnect.com). Sem preview de PR |
 | Domínio | `marasandraconnect.com` (+ `www`) |
@@ -236,6 +236,7 @@ produto pendente — mas não há código dela.
 | **08:00** | `0 11 * * *` | `rotina-pericia-diaria` | Gera os rascunhos de aviso de perícia |
 | **08:10** | `10 11 * * *` | `rotina-implementacao-diaria` | Acompanha implantação do benefício concedido |
 | **07:00** | `0 10 * * *` | `msc-djen-sync` | Publicações do DJEN por OAB (era o n8n até 2026-09-23) |
+| a cada minuto | `* * * * *` | `msc-whatsapp-outbox` | Drena a fila de saída do WhatsApp por escritório (`whatsapp-outbox-enviar`; fila pausada até retomar) |
 | — | — | ~~`msc-ia-triagem`~~ | **Desligado em 2026-08-06** (confirmado: não existe em `cron.job`) |
 
 Os 7 jobs estão `active` e com **zero falhas** no histórico. O `msc-inss-email` tem só 5

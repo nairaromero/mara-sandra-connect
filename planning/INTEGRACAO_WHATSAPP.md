@@ -5,11 +5,13 @@
 > `config.inbound_token`; chave da API cifrada em `segredo_cipher/iv`, gravada só pela function
 > `integracoes-escritorio`). O `whatsapp-inbound` resolve o escritório pelo `instance` do payload e
 > exige o token daquele escritório; as variáveis de ambiente (`EVOLUTION_*`, `WHATSAPP_INBOUND_TOKEN`)
-> seguem valendo só como legado do escritório padrão. **Saída sem n8n (decisão de 2026-09-23):** a fila
-> `whatsapp_outbox` continua pausada e o card do WhatsApp mostra "Envio de mensagens: em breve". Quando
-> for retomada, quem drena a fila é uma edge function (`whatsapp-outbox-enviar`, chamada pelo pg_cron):
-> reivindica o lote por escritório, decifra a chave em `escritorio_integracoes` com o `crypto.ts` e faz o
-> POST no Evolution — o n8n não recebe chave nenhuma. O workflow de saída do n8n fica só como histórico.
+> seguem valendo só como legado do escritório padrão. **Saída sem n8n (2026-09-23, `migration_rbac_14`):** quem drena
+> `whatsapp_outbox` é a edge function `whatsapp-outbox-enviar`, chamada pelo pg_cron a cada minuto
+> (`migration_cron_whatsapp_outbox`, assinatura `cron:whatsapp-outbox`): reivindica o lote (agora com
+> `escritorio_id`), decifra a chave do escritório da linha em `escritorio_integracoes` e faz o POST em
+> `{base_url}/message/sendText/{instance}`; escritório sem integração falha com erro claro e entra no backoff.
+> O n8n não recebe chave nenhuma; o workflow de saída fica só como histórico. A fila segue PAUSADA
+> (gatilho de comentários desligado) até a retomada; o card mostra "Envio: pausado".
 
 > Documento de planejamento da integração com WhatsApp para os **parceiros**
 > (e, no futuro, **clientes**). Para arquitetura geral do app, ver

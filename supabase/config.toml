@@ -143,6 +143,10 @@ verify_jwt = false
 [functions.whatsapp-inbound]
 verify_jwt = false
 
+# chamada pelo pg_cron com assinatura de sistema (cron:whatsapp-outbox); quem fecha e o exigirSistema
+[functions.whatsapp-outbox-enviar]
+verify_jwt = false
+
 # cliente MCP manda PAT msc_…, não JWT de sessão
 [functions.ia-mcp]
 verify_jwt = false
