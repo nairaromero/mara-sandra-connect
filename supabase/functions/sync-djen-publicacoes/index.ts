@@ -207,7 +207,9 @@ serve(async (req) => {
   } else {
     const { data: comOab, error: eOab } = await supabaseBruto
       .from("oabs_monitoradas")
-      .select("escritorio_id, escritorios!oabs_monitoradas_escritorio_id_fkey(status)")
+      // a FK de escritorio_id nesta tabela chama-se oabs_monitoradas_escritorio_fk
+      // (migration_rbac_02); com o nome errado o PostgREST responde "relationship not found"
+      .select("escritorio_id, escritorios!oabs_monitoradas_escritorio_fk(status)")
       .eq("ativo", true);
     if (eOab) return jsonResponse({ error: "erro lendo oabs_monitoradas", detail: eOab.message }, 500);
     escritorios = [...new Set(

@@ -4,7 +4,7 @@
 // provedores, TOTP (RFC 6238) e pequenas ações de tela com ritmo humano.
 const fs = require("fs");
 const path = require("path");
-const { execSync } = require("child_process");
+const { execSync, execFileSync } = require("child_process");
 const { createHmac } = require("crypto");
 const { createClient } = require("@supabase/supabase-js");
 const { clicar } = require("./helpers.cjs");
@@ -115,4 +115,45 @@ async function digitar(page, locator, texto) {
 }
 
 
-module.exports = { REPO, BASE, QG, MOCK, MOCK_DOCKER, DOM, PILHA, SENHA, REF, FN, admin, envLocal, sessao, estadoNavegador, fn, mock, esc, totp, codigoNovo, esperarRota, fechar, digitar };
+/** SQL no banco local (scripts/msc-sql.mjs --local); devolve as linhas em JSON. */
+function sqlLocal(q) {
+  // execFileSync (sem shell): um `$$` de bloco DO viraria o PID dentro de aspas duplas
+  const out = execFileSync("node", ["scripts/msc-sql.mjs", "--local", q], { cwd: REPO, encoding: "utf8" });
+  const txt = out.split("\n").filter((l) => !l.startsWith("[msc-sql]")).join("\n").trim();
+  if (!txt) return [];
+  try { return JSON.parse(txt); } catch { throw new Error(`sql local: ${txt.slice(0, 200)}`); }
+}
+/** Segredo de sistema das functions LOCAIS (supabase/functions/.env). */
+function segredoSistemaLocal() {
+  const txt = fs.readFileSync(path.join(REPO, "supabase/functions/.env"), "utf8");
+  return (txt.match(/^MSC_SYSTEM_SECRET=(.*)$/m) || [])[1]?.trim().replace(/^"|"$/g, "") ?? null;
+}
+/**
+ * "Cron simulado": roda no banco LOCAL o mesmo comando que o pg_cron executa em
+ * produção — net.http_post com ops.headers_sistema(job) — apontando para a
+ * function local. Antes, alinha o segredo do Vault local ao das functions
+ * (senão a assinatura não confere). Devolve o que o pg_net recebeu.
+ */
+async function cronSimulado(job, funcao, body, { timeoutMs = 45000 } = {}) {
+  const segredo = segredoSistemaLocal();
+  if (!segredo) throw new Error("MSC_SYSTEM_SECRET ausente em supabase/functions/.env");
+  sqlLocal(`do $$ declare v uuid; begin
+      select id into v from vault.secrets where name = 'msc_system_secret';
+      if v is null then perform vault.create_secret('${segredo}', 'msc_system_secret');
+      else perform vault.update_secret(v, '${segredo}'); end if; end $$`);
+  const url = `http://host.docker.internal:55321/functions/v1/${funcao}`;
+  const comando = `select net.http_post(url := '${url}', headers := ops.headers_sistema('${job}'), body := '${JSON.stringify(body)}'::jsonb, timeout_milliseconds := 60000) as id`;
+  const [{ id }] = sqlLocal(comando);
+  const fim = Date.now() + timeoutMs;
+  while (Date.now() < fim) {
+    const r = sqlLocal(`select status_code, content::text as corpo, error_msg from net._http_response where id = ${id}`);
+    if (r.length && (r[0].status_code !== null || r[0].error_msg)) {
+      let json = null; try { json = JSON.parse(r[0].corpo); } catch { /* texto */ }
+      return { id, status: r[0].status_code, corpo: r[0].corpo, json, erro: r[0].error_msg, comando };
+    }
+    await new Promise((res) => setTimeout(res, 800));
+  }
+  throw new Error(`pg_net não respondeu em ${timeoutMs / 1000}s (request ${id})`);
+}
+
+module.exports = { sqlLocal, segredoSistemaLocal, cronSimulado, REPO, BASE, QG, MOCK, MOCK_DOCKER, DOM, PILHA, SENHA, REF, FN, admin, envLocal, sessao, estadoNavegador, fn, mock, esc, totp, codigoNovo, esperarRota, fechar, digitar };

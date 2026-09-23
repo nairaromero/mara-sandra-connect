@@ -23,7 +23,8 @@ const fs = require("fs");
 const path = require("path");
 const { execSync } = require("child_process");
 const { ler, deslizar, clicar, tentar, narrar: narrarBase, abrirEstudio } = require("../helpers.cjs");
-const { REPO, BASE, QG, MOCK, MOCK_DOCKER, DOM, FN, admin, sessao, estadoNavegador, fn, mock, esc, codigoNovo, esperarRota, fechar, digitar } = require("../local.cjs");
+const { REPO, BASE, QG, MOCK, MOCK_DOCKER, DOM, FN, admin, sessao, estadoNavegador, fn, mock, esc, codigoNovo, esperarRota, fechar, digitar, cronSimulado, segredoSistemaLocal } = require("../local.cjs");
+const { createHmac } = require("crypto");
 
 // ---------- legendas (SRT): instante de cada narração, relativo ao clipe ----------
 // Cada context Playwright = um clipe; o vídeo começa quando o context nasce.
@@ -37,7 +38,7 @@ async function narrar(page, texto, ms = 3200) {
 }
 
 const MARCA = "[Filme]";
-const ATOS = (process.env.ATOS || "0,1,2,3,4,5,6,7").split(",").map((s) => s.trim());
+const ATOS = (process.env.ATOS || "0,1,2,3,4,5,6,7").split(",")  // 8 = complemento: n8n fora das rotinas (grave à parte: ATOS=8 SAIDA=lote-rbac-n8n).map((s) => s.trim());
 const ato = (n) => ATOS.includes(String(n));
 
 // ---------- cartões de título (uma página em branco com o texto) ----------
@@ -75,7 +76,7 @@ async function cartao(page, titulo, sub, ms = 3800) {
   await mock("/_config", { cliente_nome: joana.nome.toUpperCase(), cliente_cpf: cpfFmt(joana.cpf), oab_numero: "123456", oab_uf: "SP", processo_cnj: CNJ, gmail_email: "inss@canario-advocacia.com.br", msg_id: `mock-msg-${Date.now()}` });
   await admin.from("usuarios").update({ telefone: TEL_GILDA }).eq("id", gilda.id);
 
-  const estudio = await abrirEstudio("lote-rbac-local");
+  const estudio = await abrirEstudio(process.env.SAIDA || "lote-rbac-local");
   const { still } = estudio;
   const sessoes = {};
   const parte = async (email, escritorio, comSessao = true) => {
@@ -491,6 +492,50 @@ async function cartao(page, titulo, sub, ms = 3800) {
       await still(pAd, "ato6-07-advogado-etiquetas");
       await fechar(pAd);
       gravados.push("ato6");
+    }
+
+    // ================= ATO 8 — COMPLEMENTO: n8n FORA DAS ROTINAS =================
+    if (ato(8)) {
+      const p = (await parte(`canario+admin@${DOM}`, ESC2)).page;
+      await cartao(p, "Complemento · n8n fora das rotinas", "Decisão de 23/09: nenhuma rotina do sistema passa pelo n8n. O DJEN vai para o pg_cron; Webhooks e envio de WhatsApp ficam \"Em breve\" até voltarem por function. O n8n continua instalado, sem rotina.", 6000);
+      await p.goto(`${BASE}/webhooks`);
+      await p.locator('[data-em-breve="webhooks"]').waitFor({ timeout: 20000 });
+      await narrar(p, "Webhooks: o endereço antigo ainda abre a aba, mas o módulo não é oferecido — \"Em breve\". A entrega era do n8n; volta por function.");
+      await ler(p, 1500);
+      await still(p, "ato8-01-webhooks");
+      await p.goto(`${BASE}/configuracoes?tab=integracoes`);
+      const wa = p.locator("[data-card-whatsapp]");
+      await wa.waitFor({ timeout: 20000 });
+      await deslizar(p, wa);
+      await narrar(p, "WhatsApp: o envio de mensagens pelo sistema também fica \"Em breve\". A entrada pelo webhook e o teste da conexão continuam.");
+      await ler(p, 1500);
+      await still(p, "ato8-02-whatsapp");
+      await tentar("cron simulado do DJEN", async () => {
+        await mock("/painel/limpar");
+        const segredo = segredoSistemaLocal();
+        const ts = Math.floor(Date.now() / 1000).toString();
+        const hmac = createHmac("sha256", segredo).update(`n8n:djen-sync.${ts}`).digest("hex");
+        const velho = await fetch(`${FN}/sync-djen-publicacoes`, { method: "POST", headers: { "content-type": "application/json", "x-msc-assinatura": `${ts}.${hmac}` }, body: JSON.stringify({ dias: 1, dry_run: true }) });
+        await mock("/painel/registrar", { titulo: "Identidade antiga (n8n:djen-sync) chamando a function", html: `<pre class="${velho.status === 401 ? "ok" : "erro"}">HTTP ${velho.status} — ${esc((await velho.text()).slice(0, 120))}</pre>` });
+        await admin.from("oabs_monitoradas").insert({ numero: "123456", uf: "SP", tipo: "escritorio", ativo: true, observacao: MARCA, escritorio_id: ESC2 });
+        await admin.from("processos_judiciais").insert({ caso_id: casoHelena.id, numero_processo: CNJ, vara: "3ª Vara Federal Previdenciária", comarca: "São Paulo", uf: "SP", escritorio_id: ESC2 });
+        const r = await cronSimulado("cron:djen-sync", "sync-djen-publicacoes", { dias: 2 });
+        const doCanario = (r.json?.escritorios ?? []).find((e) => e.escritorio_id === ESC2) ?? {};
+        await mock("/painel/registrar", { titulo: "Cron simulado — o comando que o pg_cron executa em produção (aqui, function local + Comunica simulado)", html: `<pre>${esc(r.comando)}</pre>` });
+        await mock("/painel/registrar", { titulo: `O que o pg_net recebeu de volta (net._http_response #${r.id})`, html: `<pre class="${r.status === 200 ? "ok" : "erro"}">HTTP ${r.status}\n${esc(JSON.stringify({ escritorio: "Canário", ...doCanario }, null, 2).slice(0, 900))}</pre>` });
+        await p.goto(`${MOCK}/painel`);
+        await narrar(p, "A identidade antiga do n8n recebe 401. O cron simulado roda o mesmo SQL do pg_cron: pg_net chama a function com a assinatura de sistema, e a function busca o DJEN.");
+        await ler(p, 5000);
+        await still(p, "ato8-03-cron-painel");
+        await p.goto(`${BASE}/publicacoes`);
+        await p.getByText(/Vinculada|Sem processo/).first().waitFor({ timeout: 20000 });
+        await narrar(p, "As publicações chegaram pelo caminho do cron — sem n8n no meio. Em produção: aplicar a migration e desligar o workflow antigo.");
+        await ler(p, 4000);
+        await still(p, "ato8-04-publicacoes");
+      });
+      await cartao(p, "No release", "Aplicar migration_cron_djen em produção (job msc-djen-sync, 07:00 de Brasília) e desligar o workflow djen-sync no n8n. Webhooks e envio de WhatsApp voltam por function, quando forem retomados.", 5500);
+      await fechar(p);
+      gravados.push("ato8");
     }
 
     // ================= ENCERRAMENTO =================

@@ -382,6 +382,11 @@ Webhooks e o envio de WhatsApp ficam desligados na tela ("Em breve") até voltar
       instância, Testar e o webhook de entrada seguem funcionando (seção L).
 - [ ] Local: `bun run e2e:local e2e/tests/integracoes-escritorio.spec.ts` — o teste "cron:djen-sync é aceito;
       n8n:djen-sync recebe 401" prova a identidade nova (assina com o `MSC_SYSTEM_SECRET` do `.env` local).
+- [ ] **Cron simulado no local** (sem pg_cron): `node e2e/demo/roteiros/conferencia-lote-rbac.cjs` com `SECOES=S` roda no
+      banco local o MESMO comando do job (`net.http_post` + `ops.headers_sistema('cron:djen-sync')`), apontando para a
+      function local e o Comunica simulado, e confere a resposta em `net._http_response` e as publicações na tela.
+      Foi esse ensaio que achou o hint de FK errado na function (`oabs_monitoradas_escritorio_id_fkey` → o nome real é
+      `oabs_monitoradas_escritorio_fk`): o caminho do cron respondia 500 e o do usuário, que não passa por ali, escondia.
 - [ ] **Só em produção, no release:** `node scripts/msc-sql.mjs --file planning/sql-migrations/migration_cron_djen.sql`
       → `select jobname, schedule from cron.job where jobname='msc-djen-sync'` = `0 10 * * *`. Depois **desligar o
       workflow `djen-sync` no n8n** (senão sincroniza em dobro; o dedup segura, mas é trabalho à toa). No dia

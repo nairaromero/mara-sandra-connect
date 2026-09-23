@@ -13,9 +13,10 @@ const fs = require("fs");
 const path = require("path");
 const { execSync } = require("child_process");
 const { ler, deslizar, clicar, narrar, abrirEstudio } = require("../helpers.cjs");
-const { REPO, BASE, QG, MOCK, MOCK_DOCKER, DOM, PILHA, FN, admin, sessao, estadoNavegador, fn, mock, esc, codigoNovo, fechar, digitar } = require("../local.cjs");
+const { REPO, BASE, QG, MOCK, MOCK_DOCKER, DOM, PILHA, FN, admin, sessao, estadoNavegador, fn, mock, esc, codigoNovo, fechar, digitar, cronSimulado, segredoSistemaLocal } = require("../local.cjs");
+const { createHmac } = require("crypto");
 
-const SECOES = (process.env.SECOES || "L,M,N,O,P,Q").split(",").map((s) => s.trim().toUpperCase());
+const SECOES = (process.env.SECOES || "L,M,N,O,P,Q,S").split(",").map((s) => s.trim().toUpperCase());
 const MARCA = "[Conferência]";
 const TEL_GILDA = "5511999990000";
 const CNJ = "5001234-56.2026.4.03.6183";
@@ -671,6 +672,83 @@ const sql = (q) => JSON.parse(execSync(`node scripts/msc-sql.mjs --local ${JSON.
       });
       await fecharTodas();
     }
+
+    // ======================= S. n8n fora das rotinas =======================
+    if (SECOES.includes("S")) {
+      secaoAtual = "S";
+      console.log("S. n8n fora das rotinas");
+      const p = await abrir(`canario+admin@${DOM}`, ESC2);
+      await item("S1", "Webhooks: a aba mostra 'Em breve', sem 'Novo webhook'; /webhooks redireciona para a aba", async () => {
+        await p.goto(`${BASE}/webhooks`);
+        await p.waitForURL(/configuracoes\?tab=webhooks/, { timeout: 15000 });
+        await visivel(p.locator('[data-em-breve="webhooks"]'), "card 'Em breve' de Webhooks ausente");
+        await visivel(p.locator('[data-em-breve="webhooks"]').getByText("Em breve", { exact: true }), "selo 'Em breve' ausente");
+        await ausente(p.getByRole("button", { name: "Novo webhook" }), "botão 'Novo webhook' ainda aparece");
+        await legenda(p, "S1", "aba Webhooks: Em breve");
+        await still(p, "S1-webhooks-em-breve");
+      });
+      let webhook = "";
+      await item("S2", "WhatsApp: 'Envio de mensagens · Em breve'; salvar, Testar e o webhook de entrada seguem funcionando", async () => {
+        await p.goto(`${BASE}/configuracoes?tab=integracoes`);
+        const wa = p.locator("[data-card-whatsapp]");
+        await visivel(wa, "card do WhatsApp");
+        await deslizar(p, wa);
+        await visivel(wa.locator('[data-whatsapp-envio="em-breve"]'), "linha 'Envio · Em breve' ausente");
+        await legenda(p, "S2", "envio 'Em breve'; entrada e teste continuam");
+        await digitar(p, p.locator("#wa-url"), `${MOCK_DOCKER}/evolution`);
+        await digitar(p, p.locator("#wa-inst"), "canario");
+        await digitar(p, p.locator("#wa-key"), "chave-evolution-canario");
+        await clicar(p, wa.getByRole("button", { name: "Salvar" }).first());
+        await textoContem(wa, /definida em/i, "não salvou");
+        await clicar(p, wa.getByRole("button", { name: /Testar/ }).first());
+        await textoContem(wa.locator("[data-teste-whatsapp]"), /Conectado/i, "Testar não deu 'Conectado' com o Evolution simulado", 30000);
+        await clicar(p, wa.getByRole("button", { name: /Gerar token/ }).first());
+        await visivel(wa.locator("[data-webhook-url]"), "URL do webhook");
+        webhook = (await wa.locator("[data-webhook-url]").innerText()).trim();
+        const r = await fetch(webhook, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ event: "messages.upsert", instance: "canario", data: { key: { remoteJid: `${TEL_GILDA}@s.whatsapp.net`, fromMe: false, id: `conf-s-${Date.now()}` }, message: { conversation: "oi" }, messageType: "conversation" } }) });
+        if (r.status !== 200) falha(`webhook de entrada: HTTP ${r.status}`);
+        await still(p, "S2-whatsapp-em-breve");
+        return "entrada: webhook 200; teste: conectado";
+      });
+      await item("S3", "Assinatura de sistema: cron:djen-sync é aceita; a identidade antiga n8n:djen-sync recebe 401", async () => {
+        const segredo = segredoSistemaLocal();
+        if (!segredo) falha("MSC_SYSTEM_SECRET ausente em supabase/functions/.env");
+        const chamar = async (job) => {
+          const ts = Math.floor(Date.now() / 1000).toString();
+          const hmac = createHmac("sha256", segredo).update(`${job}.${ts}`).digest("hex");
+          const r = await fetch(`${FN}/sync-djen-publicacoes`, { method: "POST", headers: { "content-type": "application/json", "x-region": "sa-east-1", "x-msc-assinatura": `${ts}.${hmac}` }, body: JSON.stringify({ dias: 1, dry_run: true }) });
+          return { status: r.status, texto: await r.text() };
+        };
+        const cron = await chamar("cron:djen-sync"); const n8n = await chamar("n8n:djen-sync");
+        await mock("/painel/registrar", { titulo: "sync-djen-publicacoes assinado como cron:djen-sync (dry_run)", html: `<pre class="${cron.status !== 401 ? "ok" : "erro"}">HTTP ${cron.status}\n${esc(cron.texto.slice(0, 300))}</pre>` });
+        await mock("/painel/registrar", { titulo: "mesma chamada assinada como n8n:djen-sync (identidade antiga)", html: `<pre class="${n8n.status === 401 ? "ok" : "erro"}">HTTP ${n8n.status}\n${esc(n8n.texto.slice(0, 200))}</pre>` });
+        if (cron.status === 401 || /assinatura/.test(cron.texto)) falha(`cron: HTTP ${cron.status} ${cron.texto.slice(0, 120)}`);
+        if (n8n.status !== 401) falha(`n8n: HTTP ${n8n.status} (esperava 401)`);
+        return `cron HTTP ${cron.status} (${cron.texto.replace(/\s+/g, " ").slice(0, 140)}); n8n HTTP 401`;
+      });
+      await item("S4", "Cron simulado: o comando SQL do pg_cron (net.http_post + ops.headers_sistema) sincroniza o DJEN sem n8n", async () => {
+        await admin.from("oabs_monitoradas").insert({ numero: "123456", uf: "SP", tipo: "escritorio", ativo: true, observacao: MARCA, escritorio_id: ESC2 });
+        await admin.from("processos_judiciais").insert({ caso_id: casoHelena.id, numero_processo: CNJ, vara: "3ª Vara Federal", comarca: "São Paulo", uf: "SP", escritorio_id: ESC2 });
+        const r = await cronSimulado("cron:djen-sync", "sync-djen-publicacoes", { dias: 2 });
+        const escs = r.json?.escritorios ?? [];
+        const doCanario = escs.find((e) => e.escritorio_id === ESC2);
+        await mock("/painel/registrar", { titulo: "Cron simulado: comando que o pg_cron roda em produção (aqui, apontando para a function local)", html: `<pre>${esc(r.comando)}</pre>` });
+        await mock("/painel/registrar", { titulo: `Resposta recebida pelo pg_net (net._http_response #${r.id})`, html: `<pre class="${r.status === 200 ? "ok" : "erro"}">HTTP ${r.status ?? "—"} ${esc(r.erro ?? "")}\n${esc(JSON.stringify(r.json ?? r.corpo, null, 2).slice(0, 1200))}</pre>` });
+        if (r.status !== 200) falha(`pg_net: HTTP ${r.status} ${r.erro ?? ""} ${(r.corpo || "").slice(0, 120)}`);
+        if (!doCanario || doCanario.error) falha(`escritório Canário no resultado: ${JSON.stringify(doCanario ?? escs).slice(0, 200)}`);
+        await p.goto(`${MOCK}/painel`);
+        await legenda(p, "S4", "cron simulado: SQL → pg_net → function → Comunica simulado");
+        await ler(p, 1500);
+        await still(p, "S4-cron-painel");
+        await p.goto(`${BASE}/publicacoes`);
+        await textoContem(p.locator("main"), /Vinculada/, "publicação vinculada não apareceu");
+        await textoContem(p.locator("main"), /Sem processo/, "publicação órfã não apareceu");
+        await legenda(p, "S4", "publicações chegaram pelo caminho do cron, sem n8n");
+        await still(p, "S4-publicacoes");
+        return `pg_net HTTP 200; Canário: ${doCanario.publicacoes_recebidas} recebidas, ${doCanario.vinculadas_novas} vinculada, ${doCanario.orfas_novas} órfã; ${escs.length} escritório(s) percorrido(s)`;
+      });
+      await fecharTodas();
+    }
   } finally {
     console.log("limpando…");
     const passo = async (rotulo, f) => { try { await f(); } catch (e) { console.log(`  (limpeza ${rotulo}: ${e.message?.slice(0, 120)})`); } };
@@ -700,9 +778,9 @@ const sql = (q) => JSON.parse(execSync(`node scripts/msc-sql.mjs --local ${JSON.
     if (estudio) {
       const clipes = await estudio.encerrar();
       const ok = resultados.filter((r) => r.ok === true).length, ruim = resultados.filter((r) => r.ok === false).length, notas = resultados.filter((r) => r.ok === null).length;
-      const titulos = { L: "Integrações por escritório", M: "Marca Legal Connect (produto)", N: "Marca por escritório", O: "Verificação em duas etapas e o QG", P: "Token do MCP para outra pessoa", Q: "A tela só oferece o que o papel pode" };
+      const titulos = { L: "Integrações por escritório", M: "Marca Legal Connect (produto)", N: "Marca por escritório", O: "Verificação em duas etapas e o QG", P: "Token do MCP para outra pessoa", Q: "A tela só oferece o que o papel pode", S: "n8n fora das rotinas: DJEN no pg_cron, Webhooks e envio de WhatsApp \"Em breve\"" };
       let md = `# Conferência do lote RBAC — seções L a Q\n\nAmbiente local, ${new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}. Executada pelo Playwright a partir do guia (planning/RBAC_TESTE_LOCAL.md), com provedores simulados.\n\n**Resumo: ${ok} OK · ${ruim} falhou · ${notas} nota(s).** Vídeo: \`video/ato*.webm\` (um clipe por sessão) e stills por item em \`stills/\`.\n\n`;
-      for (const s of ["L", "M", "N", "O", "P", "Q"]) {
+      for (const s of ["L", "M", "N", "O", "P", "Q", "S"]) {
         const its = resultados.filter((r) => r.secao === s);
         if (!its.length) continue;
         md += `## ${s}. ${titulos[s]}\n\n| Item | Resultado | Observação |\n|---|---|---|\n`;
