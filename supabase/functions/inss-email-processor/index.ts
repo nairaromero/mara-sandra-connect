@@ -64,8 +64,13 @@ const NAIRA_EMAIL_DEFAULT = "nairaromerovian@gmail.com";
 // src/lib/agenda/helpers.ts): caindo em sáb/dom, RECUA pra sexta — empurrar
 // pra frente comeria a folga que o −3 existe pra garantir. Sem isto, a mesma
 // exigência ganhava prazo de domingo por aqui e de sexta pelo formulário.
-function prazoParceiroBrasiliaISO(diasAFrente: number): string {
-  const alvo = new Date(Date.now() + diasAFrente * 86400_000);
+function prazoParceiroBrasiliaISO(diasAFrente: number, ancoraISO?: string | null): string {
+  // Âncora = data do E-MAIL, não a do processamento (card #315). Se o robô
+  // roda dois dias depois (fila parada, bug, fim de semana), o prazo do
+  // parceiro continua contado do dia em que a exigência saiu.
+  const base = ancoraISO ? new Date(ancoraISO) : new Date();
+  const inicio = Number.isNaN(base.getTime()) ? Date.now() : base.getTime();
+  const alvo = new Date(inicio + diasAFrente * 86400_000);
   const fmt = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Sao_Paulo",
     year: "numeric",
@@ -817,6 +822,15 @@ async function processarMensagem(
   }
 
   const campos = extrairCampos(msg.subject, msg.body);
+  // Card #315: TUDO que nasce deste e-mail é datado pelo e-mail, não pelo
+  // momento em que o robô rodou. Se a fila atrasou ou o robô rodou no dia
+  // seguinte, o andamento entra na ordem certa e os prazos contam do dia em
+  // que a decisão saiu. Sem data no e-mail (raro), cai no agora.
+  const dataDoEmail = (() => {
+    if (!msg.date) return new Date().toISOString();
+    const d = new Date(msg.date);
+    return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+  })();
   const classificacao = classificar(msg.subject, campos);
   res.classificacao = classificacao;
   res.subject = msg.subject;
@@ -888,7 +902,7 @@ async function processarMensagem(
           `Gmail message: ${msg.id}`,
           `Assunto: ${msg.subject}`,
         ].filter(Boolean).join("\n"),
-        data_evento: msg.date ? new Date(msg.date).toISOString() : new Date().toISOString(),
+        data_evento: dataDoEmail,
         visivel_parceiro: false,
         metadata: {
           gmail_message_id: msg.id,
@@ -952,7 +966,7 @@ async function processarMensagem(
           origem: "interno",
           titulo: substituir(item.titulo, campos),
           descricao: substituir(item.descricao, campos) || null,
-          data_evento: new Date().toISOString(),
+          data_evento: dataDoEmail,   // #315: data do e-mail, não do processamento
           visivel_parceiro: visivel,
           metadata: {
             gmail_message_id: msg.id,
@@ -1010,7 +1024,7 @@ async function processarMensagem(
           status: "pendente",
           origem: `template:${templateFinal}`,
           data_solicitacao: new Date().toISOString(),
-          prazo_at: prazoParceiroBrasiliaISO(27),
+          prazo_at: prazoParceiroBrasiliaISO(27, dataDoEmail),   // #315
         });
       if (errSolic) {
         res.erros.push(`solicitacao[${i}] insert: ${errSolic.message}`);
@@ -1021,14 +1035,18 @@ async function processarMensagem(
     const resolved = resolveResponsavel(item, lookups);
     // Resolução do due_at:
     //  - due_relative_to='data_cessacao' + campos.data_cessacao  → cessação + offset
-    //  - offset_dias definido (default âncora=hoje, mesmo 0)     → hoje + offset
+    //  - offset_dias definido (âncora = data do E-MAIL, mesmo 0)  → e-mail + offset
     //  - undefined                                                → sem prazo
     let dueAt: string | null = null;
     if (item.due_relative_to === "data_cessacao" && campos.data_cessacao) {
       const ancora = new Date(`${campos.data_cessacao}T00:00:00Z`).getTime();
       dueAt = new Date(ancora + (item.offset_dias ?? 0) * 86400_000).toISOString();
     } else if (typeof item.offset_dias === "number") {
-      dueAt = new Date(Date.now() + item.offset_dias * 86400_000).toISOString();
+      // #315: era Date.now() — prazo contado do processamento. Agora conta do
+      // dia da decisão, que é o que o INSS considera.
+      dueAt = new Date(
+        new Date(dataDoEmail).getTime() + item.offset_dias * 86400_000,
+      ).toISOString();
     }
 
     const titulo = substituir(item.titulo, campos);
