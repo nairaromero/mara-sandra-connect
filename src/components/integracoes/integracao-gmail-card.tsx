@@ -16,6 +16,7 @@ import { Loader2, Mail, Plug, Unplug, CheckCircle2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
+import { formatarBR } from "@/lib/fuso";
 import { useAuth } from "@/hooks/use-auth";
 
 interface VinculoGmail {
@@ -116,15 +117,13 @@ export function IntegracaoGmailCard() {
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
           <Mail className="h-4 w-4" />
-          Integração Google (Gmail INSS + Drive)
+          Integração Gmail (INSS)
         </CardTitle>
         <CardDescription>
-          Conexão Google do sistema, usada por duas rotinas: a leitura dos
-          e-mails do INSS (<code>inss-email-processor</code>) e o intake de
-          clientes do Trello, que baixa as pastas de documentos do Drive
-          (<code>intake-trello</code>). Permissões pedidas:{" "}
-          <strong>leitura</strong> de e-mail (gmail.readonly) e{" "}
-          <strong>leitura</strong> de Drive (drive.readonly).
+          Conecta a caixa de entrada que recebe os e-mails do INSS. A função{" "}
+          <code>inss-email-processor</code> usa esse vínculo para criar
+          andamentos e tarefas automaticamente. Permissão pedida:{" "}
+          <strong>leitura</strong> (gmail.readonly).
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -142,11 +141,11 @@ export function IntegracaoGmailCard() {
                   <strong className="font-medium">{vinculo.email_conectado}</strong>
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  Desde {new Date(vinculo.connected_at).toLocaleString("pt-BR")}
+                  Desde {formatarBR(vinculo.connected_at, { dateStyle: "short", timeStyle: "medium" })}
                   {vinculo.last_used_at && (
                     <>
                       {" · "}último uso{" "}
-                      {new Date(vinculo.last_used_at).toLocaleString("pt-BR")}
+                      {formatarBR(vinculo.last_used_at, { dateStyle: "short", timeStyle: "medium" })}
                     </>
                   )}
                 </div>
@@ -179,9 +178,8 @@ export function IntegracaoGmailCard() {
         ) : (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Nenhuma conta Google conectada ainda. Clique para autorizar com a
-              conta que recebe os e-mails do INSS e enxerga as pastas de
-              documentos no Drive.
+              Nenhum Gmail conectado ainda. Clique para autorizar o acesso à
+              caixa que recebe os e-mails do INSS.
             </p>
             <Button onClick={conectar} disabled={conectando}>
               {conectando ? (
@@ -189,7 +187,7 @@ export function IntegracaoGmailCard() {
               ) : (
                 <Plug className="h-4 w-4" />
               )}
-              Conectar Google
+              Conectar Gmail
             </Button>
           </div>
         )}

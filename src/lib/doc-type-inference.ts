@@ -1,5 +1,3 @@
-// ATENCAO: supabase/functions/intake-trello/doc-type-inference.ts e uma copia
-// deste arquivo (edge function nao importa de src/). Mudou aqui, muda la.
 // =============================================================================
 // Heuristica pra inferir tipo de documento a partir do nome do arquivo.
 //
@@ -43,6 +41,7 @@ export function inferirTipoPorNome(filename: string): string {
   if (hasWord("hiscre")) return "hiscre";
   if (hasWord("ltcat")) return "ltcat";
   if (hasWord("pgr") || hasWord("ppra")) return "pgr_ppra";
+  // "CNIS resumido" antes do CNIS generico: sao documentos diferentes.
   if (hasWord("cnis") && has("resumido")) return "cnis_resumido";
   if (hasWord("cnis")) return "cnis";
   // SABI/PMF/pericia federal = laudo do INSS, antes do "laudo" generico.

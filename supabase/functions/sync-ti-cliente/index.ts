@@ -40,6 +40,7 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
+import { exigirUsuario, fetchT } from "../_shared/auth.ts";
 
 const TI_BASE_URL = "https://planilha.tramitacaointeligente.com.br/api/v1";
 const TI_TOKEN = Deno.env.get("TI_TOKEN");
@@ -142,7 +143,7 @@ async function buscarClienteNoTI(cpfNorm: string): Promise<TICustomer | null> {
   let page = 1;
   const perPage = 100;
   while (true) {
-    const resp = await fetch(
+    const resp = await fetchT(
       `${TI_BASE_URL}/clientes?page=${page}&per_page=${perPage}`,
       { headers: headersTI },
     );
@@ -180,7 +181,7 @@ async function buscarNotasNoTI(tiCustomerId: number): Promise<Array<TINota>> {
     const url =
       `${TI_BASE_URL}/notas?customer_id=${tiCustomerId}` +
       `&page=${page}&per_page=${perPage}`;
-    const resp = await fetch(url, { headers: headersTI });
+    const resp = await fetchT(url, { headers: headersTI });
     if (!resp.ok) {
       throw new Error(`TI /notas ${resp.status}: ${await resp.text()}`);
     }
@@ -208,6 +209,14 @@ serve(async (req) => {
   if (req.method !== "POST") {
     return jsonResponse({ error: "metodo nao permitido" }, 405);
   }
+
+  // Antes daqui não havia checagem: qualquer pessoa com a chave publicável
+  // importava notas do Tramitação para o `caso_id` que mandasse no corpo.
+  // Vem antes das variáveis de ambiente de propósito: quem não pode chamar
+  // não precisa saber o que está ou não configurado.
+  const quem = await exigirUsuario(req, { tipo: "interno" });
+  if (quem instanceof Response) return quem;
+
   if (!TI_TOKEN) return jsonResponse({ error: "TI_TOKEN nao configurado" }, 500);
   if (!SUPABASE_URL || !SERVICE_ROLE) {
     return jsonResponse({ error: "supabase env vars ausentes" }, 500);
@@ -222,9 +231,8 @@ serve(async (req) => {
     if (body.caso_id) {
       casoId = String(body.caso_id);
     }
-    if (body.usuario_id) {
-      usuarioId = String(body.usuario_id);
-    }
+    // Autoria vem da sessão, não do corpo.
+    usuarioId = quem.uid;
   } catch {
     return jsonResponse({ error: "body json invalido" }, 400);
   }

@@ -23,6 +23,7 @@
 //   para    — override de destinatário (string ou array; teste)
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
+import { exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -113,12 +114,23 @@ serve(async (req) => {
     return jsonResponse({ error: "supabase env vars ausentes" }, 500);
   }
 
+  // O corpo é lido UMA vez: a assinatura de sistema cobre o texto dele, e
+  // `Request` não deixa ler duas vezes.
+  const corpoTexto = await req.text();
+
+  // Quem chama: o cron (assinatura de sistema) ou um admin disparando à mão.
+  // Antes daqui não havia checagem nenhuma — e o `para` abaixo mandava o
+  // resumo do dia, com nome de cliente e número de processo, para o endereço
+  // que qualquer pessoa na internet escolhesse.
+  const quem = await exigirUsuarioOuSistema(req, "cron:digest-diario", { admin: true });
+  if (quem instanceof Response) return quem;
+
   let horas = 24;
   let dryRun = false;
   let sempre = false;
   let paraOverride: string[] | null = null;
   try {
-    const body = await req.json().catch(() => ({}));
+    const body = corpoTexto ? JSON.parse(corpoTexto) : {};
     if (typeof body.horas === "number" && body.horas > 0) horas = body.horas;
     if (body.dry_run === true) dryRun = true;
     if (body.sempre === true) sempre = true;
@@ -276,10 +288,14 @@ serve(async (req) => {
   if (paraOverride && paraOverride.length > 0) {
     destinos = paraOverride;
   } else {
+    // `ativo` e `desligado_em` no filtro: sem eles o resumo do dia continuava
+    // chegando para quem saiu do escritório (issue #291).
     const { data: internos, error: intErr } = await supabase
       .from("usuarios")
       .select("email")
       .eq("tipo", "interno")
+      .eq("ativo", true)
+      .is("desligado_em", null)
       .not("email", "is", null);
     if (intErr) return jsonResponse({ error: "usuarios: " + intErr.message }, 500);
     destinos = (internos || []).map((u) => String(u.email)).filter(Boolean);
@@ -288,7 +304,7 @@ serve(async (req) => {
     return jsonResponse({ enviado: false, motivo: "sem destinatarios", totais });
   }
 
-  const resp = await fetch("https://api.resend.com/emails", {
+  const resp = await fetchT("https://api.resend.com/emails", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${RESEND_API_KEY}`,

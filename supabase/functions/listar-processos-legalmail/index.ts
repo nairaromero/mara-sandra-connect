@@ -34,6 +34,7 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
+import { exigirUsuario, fetchT } from "../_shared/auth.ts";
 
 const LM_BASE = "https://app.legalmail.com.br";
 const LM_TOKEN = Deno.env.get("LEGALMAIL_TOKEN");
@@ -92,26 +93,16 @@ interface ProcessoLM {
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return jsonResponse({ error: "metodo nao permitido" }, 405);
+
+  // Checagem no topo: antes ela vinha depois das variáveis de ambiente e do corpo, então a função respondia (400/500, e até 200) sem saber quem chamou. `exigirUsuario` também confere `ativo`, que faltava aqui.
+  const quem = await exigirUsuario(req, { tipo: "interno" });
+  if (quem instanceof Response) return quem;
   if (!LM_TOKEN) return jsonResponse({ error: "LEGALMAIL_TOKEN nao configurado" }, 500);
   if (!SUPABASE_URL || !SERVICE_ROLE) {
     return jsonResponse({ error: "supabase env vars ausentes" }, 500);
   }
 
-  // ---------------------------------------------------------------------------
-  // 1) So interno
-  // ---------------------------------------------------------------------------
-  const jwt = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
-  if (!jwt) return jsonResponse({ error: "sem authorization header" }, 401);
-
-  const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
-  const { data: userResp, error: userErr } = await admin.auth.getUser(jwt);
-  if (userErr || !userResp.user) return jsonResponse({ error: "jwt invalido" }, 401);
-
-  const { data: perfil } = await admin
-    .from("usuarios").select("tipo").eq("id", userResp.user.id).maybeSingle();
-  if ((perfil as { tipo?: string } | null)?.tipo !== "interno") {
-    return jsonResponse({ error: "apenas usuarios internos" }, 403);
-  }
+  const admin = quem.admin;
 
   let limiteNovos = 800;
   let soResumo = false;
@@ -174,7 +165,7 @@ serve(async (req) => {
   while (paginas < MAX_PAGINAS) {
     let resp: Response;
     try {
-      resp = await fetch(
+      resp = await fetchT(
         `${LM_BASE}/api/v1/lawsuit/search?api_key=${LM_TOKEN}&offset=${offset}&limit=${PAGE}`,
         { headers: { Accept: "application/json" } },
       );

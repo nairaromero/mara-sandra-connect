@@ -4,8 +4,6 @@ project_id = "llugytkdsfsrciavhrfw"
 # Supabase. Por isso a verificacao de JWT do gateway fica desligada -- a propria
 # function valida o token (hash + expiracao/revogacao). Mesmo padrao do
 # whatsapp-inbound.
-[functions.ia-mcp]
-verify_jwt = false
 
 # ---------------------------------------------------------------------------
 # AMBIENTE LOCAL (`supabase start`, Docker) — ver planning/AMBIENTES.md.
@@ -96,3 +94,117 @@ deno_version = 2
 # Logs/analytics locais pesam (Logflare + Vector) e não são usados.
 [analytics]
 enabled = false
+
+# ---------------------------------------------------------------------------
+# verify_jwt de TODAS as functions, declarado aqui e não na linha de comando.
+#
+# O gateway com verify_jwt=true só exige *algum* JWT — e a chave publicável do
+# site é um JWT (papel anon, válido até 2036). Ou seja: isto é higiene e trava
+# contra deploy distraído, não autorização. Quem decide quem entra é a
+# checagem dentro da função (_shared/auth.ts).
+#
+# Deploy: `bunx supabase functions deploy <nome> --project-ref <ref>` SEM
+# `--no-verify-jwt` — a flag sobrepõe o que está aqui.
+# ---------------------------------------------------------------------------
+
+# cron (pg_net não manda JWT); a checagem é a assinatura de sistema
+[functions.digest-diario]
+verify_jwt = false
+
+# cron (pg_net não manda JWT); assinatura de sistema
+[functions.inss-email-processor]
+verify_jwt = false
+
+# cron (pg_net não manda JWT); assinatura de sistema
+[functions.sync-datajud-movimentacoes]
+verify_jwt = false
+
+# gatilho via pg_net e outra function; assinatura de sistema ou sessão
+[functions.notify-novo-andamento]
+verify_jwt = false
+
+# gatilho via pg_net; assinatura de sistema ou sessão
+[functions.notify-novo-comentario]
+verify_jwt = false
+
+# gatilho via pg_net; assinatura de sistema ou sessão
+[functions.notify-solicitacao-doc]
+verify_jwt = false
+
+# hook do Auth, assinado por Standard Webhooks
+[functions.send-email-hook]
+verify_jwt = false
+
+# redirect do Google (GET, sem JWT); state assinado
+[functions.gmail-oauth-callback]
+verify_jwt = false
+
+# webhook da Evolution; token próprio
+[functions.whatsapp-inbound]
+verify_jwt = false
+
+# cliente MCP manda PAT msc_…, não JWT de sessão
+[functions.ia-mcp]
+verify_jwt = false
+
+# Chamadas pelo front com a sessão da pessoa.
+
+[functions.ia-config]
+verify_jwt = true
+
+[functions.ia-assistant]
+verify_jwt = true
+
+[functions.ia-analise]
+verify_jwt = true
+
+[functions.ia-triagem-andamentos]
+verify_jwt = true
+
+[functions.sugerir-proxima-tarefa]
+verify_jwt = true
+
+[functions.extrair-dados-cliente]
+verify_jwt = true
+
+[functions.extrair-agendamento-pericia]
+verify_jwt = true
+
+[functions.mensagem-parceiro-exigencia]
+verify_jwt = true
+
+[functions.convidar-usuario]
+verify_jwt = true
+
+[functions.update-parceiro]
+verify_jwt = true
+
+[functions.excluir-parceiro]
+verify_jwt = true
+
+[functions.gmail-oauth-start]
+verify_jwt = true
+
+[functions.cnj-consulta-processo]
+verify_jwt = true
+
+[functions.sync-ti-cliente]
+verify_jwt = true
+
+[functions.listar-clientes-ti]
+verify_jwt = true
+
+[functions.check-legalmail-nome]
+verify_jwt = true
+
+[functions.listar-processos-legalmail]
+verify_jwt = true
+
+[functions.sync-legalmail-caso]
+verify_jwt = true
+
+[functions.sync-djen-caso]
+verify_jwt = true
+
+[functions.sync-djen-publicacoes]
+verify_jwt = true

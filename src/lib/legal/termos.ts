@@ -8,6 +8,7 @@
 import dpaRaw from "@/content/legal/dpa.md?raw";
 import termoRaw from "@/content/legal/termo-uso.md?raw";
 import politicaRaw from "@/content/legal/politica.md?raw";
+import { dataBR } from "@/lib/fuso";
 
 // Versão dos termos. Incrementar quando o conteúdo mudar — habilita re-aceite.
 export const TERMOS_VERSAO = "1.0-2026-06-09";
@@ -63,9 +64,9 @@ function oabCompleta(d: ParceiroDados): string {
 }
 
 function dataHoje(): string {
-  // Evita depender de Date.now em SSR; usa a data local de exibição.
+  // O "hoje" do termo é o dia em Brasília, não o do navegador.
   try {
-    return new Date().toLocaleDateString("pt-BR");
+    return dataBR(new Date());
   } catch {
     return "";
   }

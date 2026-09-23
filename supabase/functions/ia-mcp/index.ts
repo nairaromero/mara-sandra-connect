@@ -6,26 +6,28 @@
 //
 // Auth: Personal Access Token (PAT) no header Authorization: Bearer msc_xxx.
 //   - valida sha256(token) em ia_tokens (nao revogado, nao expirado)
-//   - resolve o usuario e MINTA um JWT curto (HS256) -> client RLS-escopado.
-//     Assim o parceiro continua preso aos casos dele, sem reimplementar authz.
+//   - troca o token por uma SESSAO de verdade da pessoa (abrirSessaoDe, em
+//     _shared/auth.ts) -> client RLS-escopado. Assim o parceiro continua preso
+//     aos casos dele, sem reimplementar authz. Sem sessao, nada roda (503) —
+//     ate 2026-09 o codigo caia calado para service role (#374).
 //
 // Metodos: initialize, tools/list, tools/call, ping. Notifications -> 202.
 // Auditoria em ia_acoes (superficie='mcp').
 //
-// Secrets: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY,
-//          SUPABASE_JWT_SECRET (legacy JWT secret do projeto).
+// Secrets: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY (os
+//          injetados pela plataforma; nenhum segredo proprio).
 // =============================================================================
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
-import { sha256Hex, signUserJwt } from "../_shared/tokens.ts";
+import { sha256Hex } from "../_shared/tokens.ts";
+import { abrirSessaoDe, SessaoIndisponivel, type SessaoDePessoa } from "../_shared/auth.ts";
 import { findTool, toolsForRole } from "../_shared/ia-tools.ts";
 import { redactArgs } from "../_shared/ia-redact.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const JWT_SECRET = Deno.env.get("SUPABASE_JWT_SECRET") ?? "";
 
 const SERVER_INFO = { name: "mara-sandra-connect", version: "0.1.0" };
 const PROTOCOL = "2024-11-05";
@@ -117,7 +119,7 @@ serve(async (req) => {
   // chamada MCP passa por aqui.
   const { data: tok, error: tokErr } = await admin
     .from("ia_tokens")
-    .select("id,usuario_id,escopo,expira_em,revogado_em,ultimo_uso,usuarios(tipo,ativo,desligado_em)")
+    .select("id,usuario_id,escopo,expira_em,revogado_em,ultimo_uso,usuarios(tipo,ativo,desligado_em,eh_admin)")
     .eq("token_hash", hash)
     .maybeSingle();
   // Falha de banco NAO e token invalido: com 401 o mcp-remote tenta login OAuth
@@ -132,9 +134,19 @@ serve(async (req) => {
 
   // O token nao passa pelo login: quem foi desligado/desativado e barrado aqui
   // (o client e service-role, entao nenhuma RLS faria isso por nos).
-  const perfil = tok.usuarios as { tipo: string; ativo: boolean; desligado_em: string | null } | null;
+  const perfil = tok.usuarios as
+    | { tipo: string; ativo: boolean; desligado_em: string | null; eh_admin: boolean }
+    | null;
   if (!perfil || !perfil.ativo || perfil.desligado_em) {
     return httpJson({ error: "usuario desativado" }, 403);
+  }
+  // O token e o controle de acesso ao MCP e so admin libera o uso (decisao de
+  // 2026-09-21). Hoje o admin so gera token para si, entao o dono tem que
+  // SEGUIR admin: quem perde o papel perde o MCP na hora, sem precisar revogar.
+  // Liberar para outra pessoa (token emitido em nome de interno/parceiro) e a
+  // #385 — la esta checagem passa a olhar o emissor.
+  if (perfil.eh_admin !== true) {
+    return httpJson({ error: "o MCP esta liberado so para administradores" }, 403);
   }
   const tipo: "interno" | "parceiro" = perfil.tipo === "interno" ? "interno" : "parceiro";
 
@@ -156,30 +168,14 @@ serve(async (req) => {
     return httpJson(rpcErr(null, -32700, "JSON invalido"), 400);
   }
 
-  // Client usado para executar as tools.
-  //   - Com SUPABASE_JWT_SECRET (projetos com JWT HS256/legacy): minta um JWT do
-  //     usuario -> client RLS-escopado (interno E parceiro seguros pelo RLS).
-  //   - Sem o secret (projetos com JWT assimetrico/novo): interno usa service-role
-  //     (ve tudo, que e o esperado para interno). PARCEIRO e RECUSADO para nao
-  //     furar o escopo dele — habilitar exige config adicional.
-  let scoped: ReturnType<typeof createClient> | null = null;
-  async function getClient(): Promise<ReturnType<typeof createClient>> {
-    if (scoped) return scoped;
-    if (JWT_SECRET) {
-      const jwt = await signUserJwt(JWT_SECRET, tok.usuario_id);
-      scoped = createClient(SUPABASE_URL, ANON_KEY, {
-        global: { headers: { Authorization: "Bearer " + jwt } },
-        auth: { persistSession: false },
-      });
-      return scoped;
-    }
-    if (tipo === "interno") {
-      scoped = admin;
-      return scoped;
-    }
-    throw new Error(
-      "conexao de parceiro via MCP ainda nao habilitada neste projeto (escopo RLS pendente de config)",
-    );
+  // Client usado para executar as tools: SEMPRE a sessao da pessoa, com RLS.
+  // Aberta so quando uma tool roda (initialize/tools/list nao precisam) e
+  // encerrada no fim do request. O service role (`admin`) fica so para o que e
+  // do servidor: validar o token, marcar uso e gravar a auditoria.
+  let sessao: SessaoDePessoa | null = null;
+  async function getClient() {
+    sessao ??= await abrirSessaoDe(tok.usuario_id);
+    return sessao.client;
   }
 
   async function handle(msg: Record<string, unknown>): Promise<unknown | null> {
@@ -247,6 +243,8 @@ serve(async (req) => {
         });
         return rpc(id, { content: mcpContent(out) });
       } catch (e) {
+        // Sem sessao nao e erro da tool: sobe para virar 503 (ver abaixo).
+        if (e instanceof SessaoIndisponivel) throw e;
         const m = e instanceof Error ? e.message : String(e);
         await admin.from("ia_acoes").insert({
           usuario_id: tok.usuario_id,
@@ -282,6 +280,13 @@ serve(async (req) => {
     return httpJson(r);
   } catch (e) {
     const m = e instanceof Error ? e.message : String(e);
+    if (e instanceof SessaoIndisponivel) {
+      // Nunca contornar a RLS: sem a sessao da pessoa, a chamada falha.
+      console.error("[ia-mcp] sessao indisponivel:", m);
+      return httpJson(rpcErr(null, -32603, "nao consegui abrir sua sessao; tente de novo"), 503);
+    }
     return httpJson(rpcErr(null, -32603, m.slice(0, 200)), 500);
+  } finally {
+    await sessao?.encerrar();
   }
 });

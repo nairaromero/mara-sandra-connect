@@ -23,7 +23,7 @@
 
 ## Documentos vivos
 
-Legenda: 🟢 descreve o estado atual · 🟡 parcialmente desatualizado.
+Legenda: 🟢 descreve o estado atual · 🟡 parcialmente desatualizado · 📋 proposta, ainda não implementada.
 
 ### Infra e processo
 
@@ -32,6 +32,7 @@ Legenda: 🟢 descreve o estado atual · 🟡 parcialmente desatualizado.
 | [AMBIENTES.md](AMBIENTES.md) | 🟢 | Produção × staging, migrations em duas etapas, espelho anonimizado (role só-leitura, travas, workflow semanal), LGPD do anonimato |
 | [../CLAUDE.md](../CLAUDE.md) | 🟢 | Fluxo de trabalho: branches, merge `staging → main`, contas de staging, papéis, comandos |
 | [../e2e/README.md](../e2e/README.md) | 🟢 | Testes E2E: como rodar, vídeo, contas, regras de dados |
+| [MULTI_TENANT_RBAC.md](MULTI_TENANT_RBAC.md) | 📋 | **Proposta** (14/09, revista 19/09): plano de multi-tenant e RBAC — exposições que existem hoje, decisão pool × silo (vira o D23), arquitetura-alvo, 8 fases com portão de saída e rollback, testes, riscos e LGPD/OAB |
 
 ### Operação e integrações
 

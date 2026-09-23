@@ -17,6 +17,7 @@
 //   }
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
+import { exigirUsuario, fetchT } from "../_shared/auth.ts";
 
 const BASE = "https://app.legalmail.com.br";
 const TOKEN = Deno.env.get("LEGALMAIL_TOKEN");
@@ -77,6 +78,10 @@ serve(async (req) => {
   if (req.method !== "POST") {
     return jsonResponse({ error: "metodo nao permitido" }, 405);
   }
+
+  // Consome cota do Legalmail: só quem é do escritório.
+  const quem = await exigirUsuario(req, { tipo: "interno" });
+  if (quem instanceof Response) return quem;
   if (!TOKEN) return jsonResponse({ error: "LEGALMAIL_TOKEN nao configurado" }, 500);
 
   let nome: string;
@@ -107,7 +112,7 @@ serve(async (req) => {
 
   let resp: Response;
   try {
-    resp = await fetch(
+    resp = await fetchT(
       `${BASE}/api/v1/lawsuit/search?api_key=${TOKEN}` +
         `&polo_ativo=${encodeURIComponent(nome)}&limit=50&offset=0`,
       { headers: { Accept: "application/json" } },

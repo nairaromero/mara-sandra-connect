@@ -10,6 +10,7 @@ import {
   Scale,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { dataBR } from "@/lib/fuso";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import {
@@ -70,7 +71,7 @@ function tempoRelativo(iso: string): string {
   if (h < 24) return `${h}h`;
   const dias = Math.floor(h / 24);
   if (dias < 30) return `${dias}d`;
-  return new Date(iso).toLocaleDateString("pt-BR");
+  return dataBR(iso);
 }
 
 function getLidos(): Set<string> {

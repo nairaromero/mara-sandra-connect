@@ -18,18 +18,13 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { signPayload } from "../_shared/crypto.ts";
+import { exigirUsuario } from "../_shared/auth.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const GMAIL_CLIENT_ID = Deno.env.get("GMAIL_CLIENT_ID") ?? "";
 const GMAIL_REDIRECT_URI = Deno.env.get("GMAIL_REDIRECT_URI") ?? "";
-// drive.readonly entrou pro intake do Trello (baixar as pastas de documentos
-// que o André compartilha — ver planning/INTEGRACAO_TRELLO.md). Quem conectou
-// antes dessa mudança precisa reconectar pra conceder o escopo novo.
-const GMAIL_SCOPES = [
-  "https://www.googleapis.com/auth/gmail.readonly",
-  "https://www.googleapis.com/auth/drive.readonly",
-].join(" ");
+const GMAIL_SCOPES = "https://www.googleapis.com/auth/gmail.readonly";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -57,35 +52,18 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return jsonResponse({ error: "method not allowed" }, 405);
 
+  // Checagem no topo: antes ela vinha depois das variáveis de ambiente e do corpo, então a função respondia (400/500, e até 200) sem saber quem chamou. `exigirUsuario` também confere `ativo`, que faltava aqui.
+  const quem = await exigirUsuario(req, { tipo: "interno" });
+  if (quem instanceof Response) return quem;
+
   if (!GMAIL_CLIENT_ID || !GMAIL_REDIRECT_URI) {
     return jsonResponse({
       error: "Configuração ausente: GMAIL_CLIENT_ID / GMAIL_REDIRECT_URI nos secrets da function",
     }, 500);
   }
 
-  // Auth do usuário chamando: extrai o JWT do header e valida com o admin
-  // client. Mesmo padrão usado em convidar-parceiro/excluir-parceiro.
-  const authHeader = req.headers.get("Authorization") ?? "";
-  const jwt = authHeader.replace(/^Bearer\s+/i, "");
-  if (!jwt) return jsonResponse({ error: "não autenticado" }, 401);
-
-  const sb = createClient(SUPABASE_URL, SERVICE_ROLE);
-  const { data: userData, error: userErr } = await sb.auth.getUser(jwt);
-  if (userErr || !userData?.user) {
-    return jsonResponse({ error: "sessão inválida" }, 401);
-  }
-  const usuarioId = userData.user.id;
-
-  // Verifica que é interno (parceiro não conecta Gmail aqui — esse fluxo é
-  // só do escritório).
-  const { data: usuario } = await sb
-    .from("usuarios")
-    .select("tipo, ativo")
-    .eq("id", usuarioId)
-    .maybeSingle();
-  if (!usuario || usuario.tipo !== "interno" || !usuario.ativo) {
-    return jsonResponse({ error: "apenas usuários internos" }, 403);
-  }
+  const sb = quem.admin;
+  const usuarioId = quem.uid;
 
   const nonce = randomNonce();
   const ts = Math.floor(Date.now() / 1000);

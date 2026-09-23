@@ -45,6 +45,7 @@
 //   }
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
+import { exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { decryptSecret } from "../_shared/crypto.ts";
 import { chatWith } from "../_shared/ia-providers.ts";
@@ -136,7 +137,7 @@ async function obterAccessToken(sb: SupabaseClient): Promise<{ token: string; gm
     refresh_token: refreshToken,
     grant_type: "refresh_token",
   });
-  const r = await fetch("https://oauth2.googleapis.com/token", {
+  const r = await fetchT("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
@@ -171,7 +172,7 @@ async function gmailListMessages(
   );
   url.searchParams.set("q", query);
   url.searchParams.set("maxResults", String(maxResults));
-  const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const r = await fetchT(url, { headers: { Authorization: `Bearer ${token}` } });
   if (!r.ok) {
     throw new Error(`Gmail list falhou: ${r.status} ${await r.text()}`);
   }
@@ -195,7 +196,7 @@ async function gmailGetMessage(
 ): Promise<GmailMessage> {
   const url =
     `https://gmail.googleapis.com/gmail/v1/users/${encodeURIComponent(userEmail)}/messages/${id}?format=full`;
-  const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const r = await fetchT(url, { headers: { Authorization: `Bearer ${token}` } });
   if (!r.ok) {
     throw new Error(`Gmail get(${id}) falhou: ${r.status} ${await r.text()}`);
   }
@@ -821,7 +822,9 @@ async function processarMensagem(
   res.subject = msg.subject;
   // Sempre: a auditoria guarda o que foi extraído mesmo na execução real, que
   // é como a gente descobre depois por que casou (ou não) com um cliente.
-  res.campos_extraidos = campos;
+  // A linha de auditoria já mascarava o CPF; a resposta HTTP não. Agora as
+  // duas mascaram — quem precisa do CPF cru lê o cliente vinculado.
+  res.campos_extraidos = { ...campos, cpf: campos.cpf ? mascararCpf(campos.cpf) : campos.cpf };
   if (dryRun) {
     res.body_preview = msg.body.slice(0, 2000);
   }
@@ -969,7 +972,7 @@ async function processarMensagem(
         // e-mail, senão fica esperando ele entrar no portal por acaso.
         // Falha no envio não desfaz o andamento — só entra nos erros.
         try {
-          const rNot = await fetch(`${SUPABASE_URL}/functions/v1/notify-novo-andamento`, {
+          const rNot = await fetchT(`${SUPABASE_URL}/functions/v1/notify-novo-andamento`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -1154,6 +1157,16 @@ serve(async (req) => {
     return jsonResponse({ error: "method not allowed" }, 405);
   }
 
+  // Corpo lido uma vez só: a assinatura de sistema cobre o texto dele.
+  const corpoTexto = await req.text();
+
+  // Quem chama: o cron (assinatura de sistema) ou um admin rodando à mão.
+  // Antes daqui não havia checagem nenhuma, e a função lê a caixa de e-mail
+  // do escritório: `dry_run` devolvia trecho de e-mail e CPF, e
+  // `preview_mensagem_parceiro` gastava a chave de IA de quem pedisse.
+  const quem = await exigirUsuarioOuSistema(req, "cron:inss-email", { admin: true });
+  if (quem instanceof Response) return quem;
+
   let body: {
     dias?: number;
     limite?: number;
@@ -1166,7 +1179,7 @@ serve(async (req) => {
     preview_mensagem_parceiro?: { despacho: string; nome_cliente?: string; servico?: string };
   } = {};
   try {
-    body = await req.json();
+    body = corpoTexto ? JSON.parse(corpoTexto) : {};
   } catch (_) { /* body vazio é OK */ }
 
   const dias = Math.min(Math.max(body.dias ?? 1, 1), 30);

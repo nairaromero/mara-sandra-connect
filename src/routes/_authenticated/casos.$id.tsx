@@ -45,7 +45,18 @@ import { useAuth } from "@/hooks/use-auth";
 import { useTiposBeneficio } from "@/hooks/use-tipos-beneficio";
 import { DESTAQUE_CLASSE, useFocoItem } from "@/hooks/use-foco-item";
 import { notificarEquipe } from "@/lib/notificar";
-import { diasCorridosBR, fimDoDiaBR, formatarBR, inputDateBRParaIso } from "@/lib/fuso";
+import {
+  dataBR,
+  dataHoraBR,
+  diaDoEventoBR,
+  diasCorridosBR,
+  fimDoDiaBR,
+  formatarBR,
+  hojeChaveBR,
+  horaDoEventoBR,
+  inputDateBRParaIso,
+  partesBR,
+} from "@/lib/fuso";
 import { descreverSolicitante } from "@/lib/documentos/solicitante";
 import { iaAnalise } from "@/lib/ia/client";
 import { supabase } from "@/lib/supabase";
@@ -586,7 +597,7 @@ function formatDate(iso: string | null): string {
   if (so) return `${so[3]}/${so[2]}/${so[1]}`;
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "-";
-  return d.toLocaleDateString("pt-BR");
+  return dataBR(d);
 }
 
 // Idade em anos completos. Aceita "YYYY-MM-DD" (date) ou timestamp.
@@ -601,15 +612,12 @@ function calcularIdade(iso: string | null): number | null {
   } else {
     const d = new Date(iso);
     if (isNaN(d.getTime())) return null;
-    ano = d.getFullYear();
-    mes = d.getMonth() + 1;
-    dia = d.getDate();
+    ({ ano, mes, dia } = partesBR(d));
   }
-  const hoje = new Date();
-  let idade = hoje.getFullYear() - ano;
+  const hoje = partesBR(new Date());
+  let idade = hoje.ano - ano;
   // Ainda não fez aniversário este ano → desconta 1.
-  const mesAtual = hoje.getMonth() + 1;
-  if (mesAtual < mes || (mesAtual === mes && hoje.getDate() < dia)) idade--;
+  if (hoje.mes < mes || (hoje.mes === mes && hoje.dia < dia)) idade--;
   return idade >= 0 && idade < 130 ? idade : null;
 }
 
@@ -617,11 +625,15 @@ function formatDateTime(iso: string | null): string {
   if (!iso) return "-";
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "-";
-  return (
-    d.toLocaleDateString("pt-BR") +
-    " " +
-    d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
-  );
+  return dataHoraBR(d);
+}
+
+// Andamento de DJEN/Legalmail só tem a data: sem hora inventada (e sem cair
+// na véspera, ver diaDoEventoBR).
+function formatDataEvento(iso: string): string {
+  if (isNaN(new Date(iso).getTime())) return "-";
+  const hora = horaDoEventoBR(iso);
+  return formatDate(diaDoEventoBR(iso)) + (hora ? " " + hora : "");
 }
 
 function formatBytes(bytes: number | null): string {
@@ -3120,7 +3132,7 @@ function TabAndamentos(props: TabAndamentosProps) {
               return null;
             })()}
             <span className="text-xs text-muted-foreground">
-              {formatDateTime(a.data_evento || a.created_at)}
+              {a.data_evento ? formatDataEvento(a.data_evento) : formatDateTime(a.created_at)}
             </span>
             {/* Quem lançou. Só aparece quando há autor humano — nos
                 automáticos o selo de origem (DJEN/DataJud) já diz de onde veio,
@@ -6047,7 +6059,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                   {"\n"}
                   {(usuario && usuario.email) || ""}
                   {"\n"}
-                  {new Date().toLocaleString("pt-BR")}
+                  {formatarBR(new Date(), { dateStyle: "short", timeStyle: "medium" })}
                 </div>
               </div>
             </div>
@@ -7455,7 +7467,7 @@ function TabRepasses(props: TabRepassesProps) {
         status: novoStatus,
       };
       if (novoStatus === "pago") {
-        update.data_pagamento = new Date().toISOString().slice(0, 10);
+        update.data_pagamento = hojeChaveBR();
       }
       const resp = await supabase.from("repasses").update(update).eq("id", r.id);
       if (resp.error) throw resp.error;

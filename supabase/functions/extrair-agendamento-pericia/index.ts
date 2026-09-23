@@ -23,6 +23,7 @@ import { decryptSecret } from "../_shared/crypto.ts";
 import { carregarIntegracao } from "../_shared/ia-integracao.ts";
 import { chatWith, type Attachment } from "../_shared/ia-providers.ts";
 import { extrairJson } from "../_shared/documento-campos.ts";
+import { exigirUsuario } from "../_shared/auth.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -70,6 +71,10 @@ serve(async (req) => {
   if (req.method !== "POST") {
     return jsonResponse({ error: "metodo nao permitido" }, 405);
   }
+
+  // Checagem no topo: antes ela vinha depois das variáveis de ambiente e do corpo, então a função respondia (400/500, e até 200) sem saber quem chamou. `exigirUsuario` também confere `ativo`, que faltava aqui.
+  const quem = await exigirUsuario(req, { tipo: "interno" });
+  if (quem instanceof Response) return quem;
   if (!SUPABASE_URL || !SERVICE_ROLE) {
     return jsonResponse({ error: "secrets ausentes na funcao" }, 500);
   }
@@ -98,23 +103,10 @@ serve(async (req) => {
     return jsonResponse({ error: "texto acima de 20 mil caracteres" }, 413);
   }
 
-  const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
+  const admin = quem.admin;
 
-  const authHeader = req.headers.get("authorization") || "";
-  const jwt = authHeader.replace(/^Bearer\s+/i, "");
-  let usuarioId: string | null = null;
-  if (jwt) {
-    const { data: u } = await admin.auth.getUser(jwt);
-    if (u?.user?.id) usuarioId = u.user.id;
-  }
-  if (!usuarioId) return jsonResponse({ error: "JWT valido obrigatorio" }, 401);
-  const { data: perfil } = await admin
-    .from("usuarios").select("tipo").eq("id", usuarioId).maybeSingle();
-  if (perfil?.tipo !== "interno") {
-    return jsonResponse({ error: "apenas usuario interno" }, 403);
-  }
 
-  const resIntegracao = await carregarIntegracao(admin, usuarioId);
+  const resIntegracao = await carregarIntegracao(admin, quem.uid);
   if (!resIntegracao.ok) {
     return jsonResponse(
       { error: resIntegracao.error, code: resIntegracao.code },

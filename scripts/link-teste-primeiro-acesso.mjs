@@ -3,10 +3,11 @@
 // "criar senha no primeiro acesso" no STAGING.
 //
 // Por que existe: no staging o envio de e-mail esta desligado
-// (hook_send_email_enabled=false), entao magic link nao chega em lugar nenhum.
+// (hook_send_email_enabled=false), entao o convite nao chega em lugar nenhum.
 // E todos os usuarios sinteticos do espelho ja tem senha, entao nenhum deles
-// cai na tela nova. Este script resolve os dois: cria (ou recria) um usuario
-// SEM senha e imprime um link de uso unico pronto pra colar no navegador.
+// cai na tela nova. Este script resolve os dois: CONVIDA o usuario de teste
+// (mesmo estado do convite da tela de Equipe) e imprime o link de uso unico
+// pronto pra colar no navegador.
 //
 // Uso:
 //   node scripts/link-teste-primeiro-acesso.mjs
@@ -37,9 +38,8 @@ function lerEnv(nome) {
 }
 
 const SERVICE_KEY = lerEnv("STAGING_SERVICE_ROLE_KEY");
-const ACCESS_TOKEN = lerEnv("SUPABASE_ACCESS_TOKEN");
-if (!SERVICE_KEY || !ACCESS_TOKEN) {
-  console.error("Faltam STAGING_SERVICE_ROLE_KEY e/ou SUPABASE_ACCESS_TOKEN no .env.local.");
+if (!SERVICE_KEY) {
+  console.error("Falta STAGING_SERVICE_ROLE_KEY no .env.local.");
   process.exit(1);
 }
 
@@ -59,23 +59,6 @@ const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-/** SQL via Management API — unico jeito de deixar encrypted_password NULO. */
-async function sql(query) {
-  const resp = await fetch(
-    `https://api.supabase.com/v1/projects/${STAGING_REF}/database/query`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${ACCESS_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ query }),
-    },
-  );
-  if (!resp.ok) throw new Error(`Management API ${resp.status}: ${await resp.text()}`);
-  return resp.json();
-}
-
 async function main() {
   // Recria do zero pra garantir o estado "recem convidado" a cada rodada.
   const { data: lista } = await admin.auth.admin.listUsers({ perPage: 1000 });
@@ -85,12 +68,17 @@ async function main() {
     await admin.auth.admin.deleteUser(antigo.id);
   }
 
-  const { data: novo, error } = await admin.auth.admin.createUser({
+  // Convite de verdade (o mesmo inviteUserByEmail da edge convidar-usuario,
+  // sem mandar e-mail): a conta nasce convidada e sem senha propria. NAO trocar
+  // por createUser + zerar senha — esse estado o produto nao produz, e foi
+  // justamente o que escondeu o #362 dos testes.
+  const { data: convite, error } = await admin.auth.admin.generateLink({
+    type: "invite",
     email: EMAIL,
-    email_confirm: true,
+    options: { redirectTo: `${baseUrl}/login` },
   });
-  if (error) throw new Error(`criar usuario: ${error.message}`);
-  const userId = novo.user.id;
+  if (error) throw new Error(`convidar: ${error.message}`);
+  const userId = convite.user.id;
 
   const { error: perfilErr } = await admin.from("usuarios").upsert({
     id: userId,
@@ -103,23 +91,12 @@ async function main() {
   });
   if (perfilErr) throw new Error(`perfil: ${perfilErr.message}`);
 
-  // createUser sem password ainda grava um hash de string vazia — quem foi
-  // convidado de verdade fica com o campo NULO. Zeramos pra reproduzir isso.
-  await sql(`update auth.users set encrypted_password = null where id = '${userId}'`);
-
-  const { data: link, error: linkErr } = await admin.auth.admin.generateLink({
-    type: "magiclink",
-    email: EMAIL,
-    options: { redirectTo: `${baseUrl}/login` },
-  });
-  if (linkErr) throw new Error(`generateLink: ${linkErr.message}`);
-
   const url =
-    `${SUPABASE_URL}/auth/v1/verify?token=${link.properties.hashed_token}` +
-    `&type=magiclink&redirect_to=${encodeURIComponent(`${baseUrl}/login`)}`;
+    `${SUPABASE_URL}/auth/v1/verify?token=${convite.properties.hashed_token}` +
+    `&type=invite&redirect_to=${encodeURIComponent(`${baseUrl}/login`)}`;
 
   console.log(`
-Usuario de teste criado no STAGING (sem senha):
+Usuario de teste CONVIDADO no STAGING (ainda sem senha propria):
   e-mail : ${EMAIL}
   tipo   : ${ehParceiro ? "parceiro" : "interno"}
   destino: ${baseUrl}
