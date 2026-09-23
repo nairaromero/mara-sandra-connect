@@ -118,6 +118,10 @@ interface SolicitacaoComCaso {
   solicitante?: { id: string; nome: string | null } | null;
   data_solicitacao: string;
   data_atendimento: string | null;
+  // Frente do pedido e dono da tarefa que nasce dele (card #357).
+  processo_admin_id: string | null;
+  processo_judicial_id: string | null;
+  responsavel_id: string | null;
   casos: CasoLite | null;
 }
 
@@ -252,7 +256,7 @@ function DocumentosPendentesPage() {
       let q = supabase
         .from("solicitacoes_documento")
         .select(
-          "id, caso_id, tipo, tipos, descricao, status, origem, prazo_at, comentario, documento_id, solicitado_por, data_solicitacao, data_atendimento, solicitante:usuarios!solicitacoes_documento_solicitado_por_fkey(id, nome), casos(id, tipo_beneficio, fase, status, parceiro_id, clientes(id, nome))",
+          "id, caso_id, tipo, tipos, descricao, status, origem, prazo_at, comentario, documento_id, solicitado_por, data_solicitacao, data_atendimento, processo_admin_id, processo_judicial_id, responsavel_id, solicitante:usuarios!solicitacoes_documento_solicitado_por_fkey(id, nome), casos(id, tipo_beneficio, fase, status, parceiro_id, clientes(id, nome))",
         )
         .order("data_solicitacao", { ascending: false });
       // Parceiro só vê o que é dele providenciar: solicitação INTERNA é do

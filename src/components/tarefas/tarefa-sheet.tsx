@@ -63,6 +63,13 @@ import {
   type TarefaTipo,
 } from "@/lib/tarefas/types";
 import { buscarEventoMesmoDia, criarEvento } from "@/lib/agenda/queries";
+import {
+  SEM_PROCESSO,
+  ehTokenJudicial,
+  processoDoToken,
+  tokenDoProcesso,
+  type ProcessoDoItem,
+} from "@/lib/processos/token";
 import type { AgendaTipo } from "@/lib/agenda/types";
 import {
   calcularDueAtRelativo,
@@ -102,6 +109,7 @@ import { AnaliseCasoNovo } from "@/components/tarefas/analise-caso-novo";
 import { AnaliseIndeferimento } from "@/components/tarefas/analise-indeferimento";
 import { ComparecimentoPericia } from "@/components/tarefas/comparecimento-pericia";
 import { EnviarAvisoParceiro } from "@/components/tarefas/enviar-aviso-parceiro";
+import { EtapaProvidenciarDocumento } from "@/components/tarefas/etapa-providenciar-documento";
 import { EtapaCumprimentoExigencia } from "@/components/tarefas/etapa-cumprimento-exigencia";
 import { EtapaProtocoloRealizado } from "@/components/tarefas/etapa-protocolo-realizado";
 import { chaveDiaBR, hojeChaveBR } from "@/lib/fuso";
@@ -137,16 +145,6 @@ interface Props {
 const TIPOS: TarefaTipo[] = ["interna", "prazo", "pericia", "pos_protocolo", "contato_cliente"];
 
 // Valor único do select de processo: "" = nenhum, "admin:<id>" ou "judicial:<id>".
-function tokenDoProcesso(p: {
-  processo_admin_id: string | null;
-  processo_judicial_id: string | null;
-}): string {
-  if (p.processo_admin_id) return `admin:${p.processo_admin_id}`;
-  if (p.processo_judicial_id) return `judicial:${p.processo_judicial_id}`;
-  return "";
-}
-
-
 export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   const aberto = modo !== null;
   const { marcar: marcarDestaque } = useDestaque();
@@ -165,6 +163,9 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   const [casoId, setCasoId] = useState<string | null>(null);
   const [trocandoCaso, setTrocandoCaso] = useState(false);
   // Único valor para processo: "" = nenhum, "admin:<id>" ou "judicial:<id>".
+  // "" = ainda não escolheu · SEM_PROCESSO = escolha consciente ·
+  // "admin:<id>"/"judicial:<id>" = frente do caso. O processo decide a coluna
+  // do kanban do parceiro (card #357), então escolher passou a ser obrigatório.
   const [processoToken, setProcessoToken] = useState<string>("");
   const [responsavelId, setResponsavelId] = useState<string | null>(null);
   const [dueDate, setDueDate] = useState<string>("");
@@ -325,6 +326,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
     Array<{ index: number; titulo: string; respId: string }>
   >([]);
   const [processosDoCaso, setProcessosDoCaso] = useState<ProcessoDoCasoOpcao[]>([]);
+  const [processosProntos, setProcessosProntos] = useState(true);
 
   const [salvando, setSalvando] = useState(false);
   // Diálogo de adiamento de prazo fatal: exige justificativa antes de salvar.
@@ -393,7 +395,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   useEffect(() => {
     if (!avisoAplicavel || avisoEditado || !ctxCaso) return;
     const natureza: "admin" | "judicial" =
-      templateSelecionado === "pericia_judicial" || processoToken.startsWith("judicial:")
+      templateSelecionado === "pericia_judicial" || ehTokenJudicial(processoToken)
         ? "judicial"
         : "admin";
     let cancelado = false;
@@ -431,12 +433,25 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   }, [aberto]);
 
   // Carrega processos do caso quando muda. Limpa quando não há caso.
+  // `processosProntos` separa "caso sem frente" de "não consegui ler": com a
+  // escolha obrigatória, lista vazia por erro liberaria salvar sem frente.
   useEffect(() => {
     if (!casoId) {
       setProcessosDoCaso([]);
+      setProcessosProntos(true);
       return;
     }
-    listarProcessosDoCaso(casoId).then(setProcessosDoCaso).catch(() => {});
+    setProcessosProntos(false);
+    listarProcessosDoCaso(casoId)
+      .then((ps) => {
+        setProcessosDoCaso(ps);
+        setProcessosProntos(true);
+      })
+      .catch((e) => {
+        console.error("listarProcessosDoCaso:", e);
+        setProcessosDoCaso([]);
+        setProcessosProntos(false);
+      });
   }, [casoId]);
 
   // Quando a Naira escolhe um template (modo criar), popula o form. Se o
@@ -599,21 +614,9 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
     onClose();
   }, [salvando, onClose]);
 
-  function parseProcesso(): {
-    processo_admin_id: string | null;
-    processo_judicial_id: string | null;
-  } {
-    // "" / "admin:<id>" / "judicial:<id>"  → 2 colunas mutuamente exclusivas.
-    if (!processoToken || !casoId) {
-      return { processo_admin_id: null, processo_judicial_id: null };
-    }
-    if (processoToken.startsWith("admin:")) {
-      return { processo_admin_id: processoToken.slice(6), processo_judicial_id: null };
-    }
-    if (processoToken.startsWith("judicial:")) {
-      return { processo_admin_id: null, processo_judicial_id: processoToken.slice(9) };
-    }
-    return { processo_admin_id: null, processo_judicial_id: null };
+  function parseProcesso(): ProcessoDoItem {
+    if (!casoId) return { processo_admin_id: null, processo_judicial_id: null };
+    return processoDoToken(processoToken);
   }
 
   /**
@@ -641,6 +644,21 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
     const statusEfetivo = statusForcado ?? status;
     if (!titulo.trim()) {
       toast.error("Título é obrigatório.");
+      return false;
+    }
+    // O processo define em qual coluna o parceiro vê o item (card #357).
+    // Com processo no caso, escolher é obrigatório — inclusive "Cliente sem
+    // processo", que é uma resposta, não um campo esquecido.
+    if (casoId && !processosProntos) {
+      toast.error("Não consegui carregar os processos do caso", {
+        description: "Sem essa lista não dá para dizer em que frente a tarefa entra.",
+      });
+      return false;
+    }
+    if (casoId && processosDoCaso.length > 0 && !processoToken) {
+      toast.error("Escolha o processo da tarefa", {
+        description: 'Se ainda não há processo, marque "Cliente sem processo".',
+      });
       return false;
     }
     const dueCalculado = isoFromInputDateTime(dueDate);
@@ -1048,6 +1066,11 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                   origem: `template:${tpl.nome}`,
                   data_solicitacao: new Date().toISOString(),
                   prazo_at: prazoParceiroAt,
+                  // O pedido herda a frente escolhida na tarefa: é ela que
+                  // decide a coluna do kanban do parceiro (card #357). Sem
+                  // isto, exigência de requerimento caía em Judiciais quando o
+                  // caso também tinha ação (achado do teste da Naira, 18/09).
+                  ...proc,
                 })
                 .select("id")
                 .single();
@@ -1253,6 +1276,12 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
               <EtapaProtocoloRealizado tarefa={tarefa} onUpdated={onSaved} />
             )}
 
+          {editando && tarefa &&
+            (tarefa.metadata as { providenciar_documento?: boolean })
+              ?.providenciar_documento === true && (
+              <EtapaProvidenciarDocumento tarefa={tarefa} onUpdated={onSaved} />
+            )}
+
           <div className="space-y-1.5">
             {/* Rótulo "Cliente" (Naira, 2026-09-05): o vínculo gravado é caso_id,
                 mas as opções listam nomes de cliente e hoje caso↔cliente é 1:1 —
@@ -1329,14 +1358,11 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
 
           {casoId && processosDoCaso.length > 0 && (
             <div className="space-y-1.5">
-              <Label>Processo (opcional)</Label>
-              <Select
-                value={processoToken || "sem"}
-                onValueChange={(v) => setProcessoToken(v === "sem" ? "" : v)}
-              >
-                <SelectTrigger><SelectValue placeholder="Nenhum" /></SelectTrigger>
+              <Label>Processo *</Label>
+              <Select value={processoToken} onValueChange={setProcessoToken}>
+                <SelectTrigger><SelectValue placeholder="Escolha o processo" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="sem">Sem processo específico</SelectItem>
+                  <SelectItem value={SEM_PROCESSO}>Cliente sem processo</SelectItem>
                   {processosDoCaso.map((p) => (
                     <SelectItem key={`${p.natureza}:${p.id}`} value={`${p.natureza}:${p.id}`}>
                       {p.rotulo}
@@ -1345,7 +1371,9 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Vincula a tarefa a um requerimento ou processo judicial específico.
+                É o processo que decide em qual coluna o parceiro vê a tarefa:
+                requerimento vai para Administrativo, ação para Judiciais. Sem processo
+                ainda, marque "Cliente sem processo".
               </p>
             </div>
           )}

@@ -214,19 +214,21 @@ test("agenda do parceiro mostra a audiência no calendário", async ({ page }) =
 });
 
 // HIGH-1 (regressão): pendência em caso FINALIZADO não pode sumir do board —
-// vai pra coluna "Outros", senão o contador do menu diverge do que aparece.
-test("pendência em caso finalizado aparece em Outros (não some do board)", async ({ page }) => {
+// vai pra coluna "Casos encerrados" (ex-"Outros"), senão o contador do menu
+// diverge do que aparece.
+// O caso é finalizado DEPOIS da pendência: pedido novo em caso finalizado
+// reabre o caso (card #357), então esta é a única forma de a combinação
+// existir — e ela existe (equipe encerra o caso com o parceiro ainda devendo).
+test("pendência em caso finalizado aparece em Casos encerrados (não some do board)", async ({ page }) => {
   const sufixo = `Kanban Finalizado ${Date.now()}`;
   const nome = `[E2E] ${sufixo}`;
   const { casoId } = await seedClienteCaso(admin, { sufixo, parceiroId: await parceiraId() });
-  await admin.from("casos").update({ fase: "finalizado" }).eq("id", casoId);
   await seedSolicitacao(admin, casoId, "cnis", { prazoAt: diasAFrenteISO(5) });
+  await admin.from("casos").update({ fase: "finalizado" }).eq("id", casoId);
 
   await page.goto("/tarefas");
-  // Mira o CABEÇALHO da coluna ("Outros" + contagem). getByText("Outros") solto
-  // casava com qualquer card cujo documento é "Outro" seguido de um texto que
-  // começa com "s" — o textContent junta os blocos sem espaço ("OutroSolicitado").
-  await expect(page.getByText(/^Outros\s*\d+$/)).toBeVisible();
+  // Mira o CABEÇALHO da coluna (título + contagem), não um card solto.
+  await expect(page.getByText(/^Casos encerrados\s*\d+$/)).toBeVisible();
   await expect(page.getByText(nome)).toBeVisible();
 });
 
@@ -260,4 +262,36 @@ test("parceiro não consegue burlar prazo/origem/status via API (guard)", async 
     .update({ status: "atendido", data_atendimento: new Date().toISOString() })
     .eq("id", solicId);
   expect(ok.error, "cumprir legítimo não deveria falhar").toBeFalsy();
+});
+
+// Card #357: pedido novo em caso finalizado REABRE o caso, e o card aparece na
+// coluna da frente do pedido — não fica escondido em "Casos encerrados".
+test("pedido novo em caso finalizado reabre e o card volta pra coluna da frente", async ({ page }) => {
+  const sufixo = `Kanban Reabre ${Date.now()}`;
+  const nome = `[E2E] ${sufixo}`;
+  const { casoId } = await seedClienteCaso(admin, { sufixo, parceiroId: await parceiraId() });
+  await admin.from("casos").update({ fase: "finalizado" }).eq("id", casoId);
+
+  const { data: proc, error: errProc } = await admin
+    .from("processos_admin")
+    .insert({ caso_id: casoId, numero_requerimento: `E2E${Date.now()}`.slice(0, 20), data_protocolo: new Date().toISOString().slice(0, 10) })
+    .select("id")
+    .single();
+  expect(errProc).toBeNull();
+
+  const solicId = await seedSolicitacao(admin, casoId, "cnis", { prazoAt: diasAFrenteISO(5) });
+  const { error: errVinculo } = await admin
+    .from("solicitacoes_documento")
+    .update({ processo_admin_id: proc!.id })
+    .eq("id", solicId);
+  expect(errVinculo).toBeNull();
+
+  // O caso saiu de finalizado sozinho, na frente do processo do pedido.
+  const { data: caso } = await admin.from("casos").select("fase").eq("id", casoId).single();
+  expect(caso!.fase).toBe("admin");
+
+  await page.goto("/tarefas");
+  await expect(page.getByText(nome)).toBeVisible({ timeout: 20000 });
+  const admCol = page.getByText(/^Administrativo\s*\d+$/);
+  await expect(admCol).toBeVisible();
 });

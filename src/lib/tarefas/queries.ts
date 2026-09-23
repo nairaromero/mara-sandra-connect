@@ -364,6 +364,12 @@ export async function listarProcessosDoCaso(casoId: string): Promise<ProcessoDoC
       .eq("caso_id", casoId)
       .order("created_at", { ascending: false }),
   ]);
+  // Erro de leitura NÃO é "caso sem processo" (CLAUDE.md; achado 1 da revisão
+  // do Yuri no PR #391). Quem chama precisa distinguir as duas coisas, porque
+  // "o caso não tem frente" libera o salvar e "não consegui ler" não pode.
+  if (admins.error) throw admins.error;
+  if (judiciais.error) throw judiciais.error;
+
   const out: ProcessoDoCasoOpcao[] = [];
   for (const a of admins.data ?? []) {
     const partes = ["Admin", a.numero_requerimento ?? "sem nº", a.etapa_tipo ?? null].filter(
