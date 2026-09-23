@@ -354,6 +354,7 @@ node e2e/demo/mocks/provedores.cjs                 # mocks em http://localhost:8
 #   RESEND_BASE_URL=http://host.docker.internal:8787/resend        RESEND_API_KEY=re_mock_local
 bun run dev:local                                  # app em :8080
 node e2e/demo/roteiros/lote-rbac-local.cjs         # grava tudo (ATOS=2,6 grava só esses atos); limpa no fim e roda o seed
+node e2e/demo/roteiros/conferencia-lote-rbac.cjs   # conferência automática das seções L–Q: relatorio.md + stills + vídeo (SECOES=O,P filtra)
 ```
 
 - [ ] Saída em `e2e/demo/saida/lote-rbac-local/` (gitignorada): `video/ato*.webm` + `stills/*.png` — conferir os

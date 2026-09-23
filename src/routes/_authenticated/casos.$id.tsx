@@ -1287,56 +1287,59 @@ function IdentidadeClienteLinha(props: { cliente: Cliente; isInterno: boolean })
         )}
       </span>
 
-      {/* Senha MEU INSS — escondida por padrão */}
-      <span className="flex items-center gap-1">
-        <span className="text-xs text-muted-foreground flex items-center gap-1">
-          <KeyRound className="h-3.5 w-3.5" />
-          Senha MEU INSS:
-        </span>
-        {senhaVisivel ? (
-          senhaValor !== null ? (
-            <span
-              className={"font-mono" + (isInterno ? "" : " select-none")}
-              onCopy={isInterno ? undefined : (e) => e.preventDefault()}
-              onContextMenu={isInterno ? undefined : (e) => e.preventDefault()}
-            >
-              {senhaValor}
-            </span>
+      {/* Senha MEU INSS — escondida por padrão; só para quem tem senha_inss:ler
+          (financeiro não tem; o parceiro tem e continua vendo como antes) */}
+      {pode("senha_inss:ler") && (
+        <span className="flex items-center gap-1">
+          <span className="text-xs text-muted-foreground flex items-center gap-1">
+            <KeyRound className="h-3.5 w-3.5" />
+            Senha MEU INSS:
+          </span>
+          {senhaVisivel ? (
+            senhaValor !== null ? (
+              <span
+                className={"font-mono" + (isInterno ? "" : " select-none")}
+                onCopy={isInterno ? undefined : (e) => e.preventDefault()}
+                onContextMenu={isInterno ? undefined : (e) => e.preventDefault()}
+              >
+                {senhaValor}
+              </span>
+            ) : (
+              <span className="text-xs text-muted-foreground italic">não cadastrada</span>
+            )
           ) : (
-            <span className="text-xs text-muted-foreground italic">não cadastrada</span>
-          )
-        ) : (
-          <span className="font-mono tracking-widest text-muted-foreground">••••••</span>
-        )}
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-6 w-6 p-0"
-          onClick={toggleVerSenha}
-          disabled={carregandoSenha}
-          title={senhaVisivel ? "Ocultar senha" : "Ver senha"}
-        >
-          {carregandoSenha ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : senhaVisivel ? (
-            <EyeOff className="h-3.5 w-3.5" />
-          ) : (
-            <Eye className="h-3.5 w-3.5" />
+            <span className="font-mono tracking-widest text-muted-foreground">••••••</span>
           )}
-        </Button>
-        {isInterno && (
           <Button
             size="sm"
             variant="ghost"
             className="h-6 w-6 p-0"
-            onClick={copiarSenha}
+            onClick={toggleVerSenha}
             disabled={carregandoSenha}
-            title="Copiar senha"
+            title={senhaVisivel ? "Ocultar senha" : "Ver senha"}
           >
-            <Copy className="h-3.5 w-3.5" />
+            {carregandoSenha ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : senhaVisivel ? (
+              <EyeOff className="h-3.5 w-3.5" />
+            ) : (
+              <Eye className="h-3.5 w-3.5" />
+            )}
           </Button>
-        )}
-      </span>
+          {isInterno && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 w-6 p-0"
+              onClick={copiarSenha}
+              disabled={carregandoSenha}
+              title="Copiar senha"
+            >
+              <Copy className="h-3.5 w-3.5" />
+            </Button>
+          )}
+        </span>
+      )}
 
       {/* Telefone — só a equipe, mesma regra da Visão geral (o parceiro não vê
           contato do cliente). Sem número cadastrado, nem aparece. */}

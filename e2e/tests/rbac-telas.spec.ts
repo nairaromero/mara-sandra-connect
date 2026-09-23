@@ -91,6 +91,7 @@ test.describe.serial("telas: só o que o papel pode", () => {
     await expect(page.locator('[aria-label="Ações do caso"]'), "sem casos:editar não há menu de ações").toHaveCount(0);
     await expect(page.getByText(/^\s*Telefone:\s*$/), "sem clientes:ler_contato não há telefone").toHaveCount(0);
     await expect(page.getByText(/^\s*E-mail:\s*$/)).toHaveCount(0);
+    await expect(page.getByText(/Senha MEU INSS/), "sem senha_inss:ler não há bloco da senha").toHaveCount(0);
 
     await page.goto(`/casos/${CASO}?tab=documentos`);
     await expect(page.getByRole("tab", { name: /Documentos/ })).toHaveAttribute("data-state", "active");
@@ -103,7 +104,8 @@ test.describe.serial("telas: só o que o papel pode", () => {
     await expect(page.getByText("Área restrita a quem gerencia etiquetas.")).toBeVisible();
     for (const rota of ["/processos", "/casos/novo", "/publicacoes", "/parceiros"]) {
       await page.goto(rota);
-      await expect(page, `${rota} devolve para /casos`).toHaveURL(/\/casos$/);
+      // o guard manda para /casos; para o interno a home pode seguir para /tarefas
+      await expect(page, `${rota} devolve para /casos`).toHaveURL(/\/(casos|tarefas)$/);
     }
 
     await page.goto("/agenda");
@@ -121,6 +123,7 @@ test.describe.serial("telas: só o que o papel pode", () => {
     await expect(page.getByText(CLIENTE).first()).toBeVisible();
     await expect(page.locator('[aria-label="Ações do caso"]')).toBeVisible();
     await expect(page.getByText(/^\s*Telefone:\s*$/).first()).toBeVisible();
+    await expect(page.getByText(/Senha MEU INSS/).first(), "assistente tem senha_inss:ler").toBeVisible();
 
     await page.goto(`/casos/${CASO}?tab=documentos`);
     await expect(page.getByText(NOME_DOC)).toBeVisible();
