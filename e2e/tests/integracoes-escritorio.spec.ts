@@ -9,6 +9,9 @@
 // integrações. Só roda no banco local com o seed. Limpa o que criou.
 
 import { test, expect } from "@playwright/test";
+import { createHmac } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { ENV } from "../env";
 import { adminClient } from "../supabase-admin";
@@ -164,5 +167,39 @@ test.describe.serial("integrações por escritório", () => {
     expect(st.data, "Canário sem caixa conectada").toEqual([]);
     const adv = await como(`canario+advogado@${DOM}`, ESC2);
     expect((await adv.sb.rpc("gmail_inss_status")).error?.code).toBe("42501");
+  });
+});
+
+
+// DJEN sai do n8n (2026-09-23): o disparo é do pg_cron com a assinatura de
+// sistema `cron:djen-sync` (migration_cron_djen). A identidade antiga não vale.
+// Só no local: o segredo do sistema está em supabase/functions/.env.
+test.describe("DJEN: assinatura de sistema do pg_cron", () => {
+  function segredoLocal(): string | null {
+    try {
+      const txt = fs.readFileSync(path.join(process.cwd(), "supabase/functions/.env"), "utf8");
+      return (txt.match(/^MSC_SYSTEM_SECRET=(.*)$/m) || [])[1]?.trim().replace(/^"|"$/g, "") ?? null;
+    } catch {
+      return null;
+    }
+  }
+  async function comoSistema(job: string) {
+    const segredo = segredoLocal()!;
+    const ts = Math.floor(Date.now() / 1000).toString();
+    const hmac = createHmac("sha256", segredo).update(`${job}.${ts}`).digest("hex");
+    const r = await fetch(`${FN}/sync-djen-publicacoes`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-region": "sa-east-1", "x-msc-assinatura": `${ts}.${hmac}` },
+      body: JSON.stringify({ dias: 1, dry_run: true }),
+    });
+    return { status: r.status, texto: await r.text() };
+  }
+  test("cron:djen-sync é aceito; n8n:djen-sync recebe 401", async () => {
+    test.skip(!ENV.local || !segredoLocal(), "só no local, com MSC_SYSTEM_SECRET no supabase/functions/.env");
+    const cron = await comoSistema("cron:djen-sync");
+    expect(cron.status, `cron: ${cron.texto.slice(0, 160)}`).not.toBe(401);
+    expect(cron.texto).not.toMatch(/assinatura/);
+    const n8n = await comoSistema("n8n:djen-sync");
+    expect(n8n.status, `n8n: ${n8n.texto.slice(0, 160)}`).toBe(401);
   });
 });

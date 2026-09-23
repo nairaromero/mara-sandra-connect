@@ -26,7 +26,10 @@ feature branch  ──merge──▶  staging  ──merge (após validação)�
 - Edge functions: deploy no staging (`--project-ref alhqbpbekmxpoibrrnbi`) antes de produção.
 - **Quem pode chamar edge function** (desde 2026-09-20): toda function começa com
   `exigirUsuario` (sessão de pessoa, já conferindo `ativo`) ou `exigirSistema`
-  (cron/gatilho/n8n, por assinatura HMAC) do `supabase/functions/_shared/auth.ts`.
+  (cron/gatilho, por assinatura HMAC) do `supabase/functions/_shared/auth.ts`. Desde 2026-09-23
+  nenhuma rotina do sistema passa pelo n8n (o DJEN roda no pg_cron, `migration_cron_djen`; webhooks
+  e saída do WhatsApp estão "Em breve" na tela e voltam por function). O n8n fica instalado na máquina
+  do Evolution para uso futuro — não criar rotina nova nele.
   `verify_jwt` fica declarado por function no `supabase/config.toml` — nunca na linha
   de comando. Lembrando que `verify_jwt=true` **não** fecha nada sozinho: a chave
   publicável do site é um JWT válido; quem fecha é a checagem dentro da função.

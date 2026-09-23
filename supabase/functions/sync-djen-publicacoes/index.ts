@@ -154,8 +154,10 @@ serve(async (req) => {
     return jsonResponse({ error: "metodo nao permitido" }, 405);
   }
 
-  // Chamada pelo n8n (service role) e pela tela de publicações.
-  const quem = await exigirUsuarioOuSistema(req, "n8n:djen-sync", { tipo: "interno" });
+  // Chamada pelo pg_cron (assinatura de sistema) e pela tela de publicações.
+  // Sistema = job `msc-djen-sync` do pg_cron (migration_cron_djen, assinatura
+  // `cron:djen-sync`); até 2026-09-23 era o workflow do n8n.
+  const quem = await exigirUsuarioOuSistema(req, "cron:djen-sync", { tipo: "interno" });
   if (quem instanceof Response) return quem;
   if (!SUPABASE_URL || !SERVICE_ROLE) {
     return jsonResponse({ error: "supabase env vars ausentes" }, 500);

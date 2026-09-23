@@ -206,8 +206,10 @@ verify_jwt = true
 [functions.sync-djen-caso]
 verify_jwt = true
 
+# pg_cron chama sem JWT (como inss-email-processor e digest-diario); quem fecha e o
+# exigirUsuarioOuSistema dentro da function (sessao de interno ou assinatura cron:djen-sync).
 [functions.sync-djen-publicacoes]
-verify_jwt = true
+verify_jwt = false
 
 # QG da plataforma (superadmin): cria escritório + convida o primeiro admin.
 # Quem pode chamar é conferido no banco (private.exigir_staff, nas RPCs qg_*).

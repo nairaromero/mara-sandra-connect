@@ -55,8 +55,8 @@ Direito previdenciário (RGPS). Os tipos de benefício vivem na tabela `tipos_be
 | Frontend | React 19 + TypeScript + Vite + Tailwind v4 + shadcn/ui + TanStack Router/Start (SSR) |
 | Backend | Supabase gerenciado (Auth + Postgres + Storage + RLS + Realtime + pg_cron) |
 | Edge functions | Supabase Edge Functions (Deno) — **29 no ar, 28 versionadas** (ver §6.2) |
-| Agendamento | **pg_cron no próprio banco** (7 jobs) + n8n self-hosted para o DJEN |
-| Orquestração | n8n (`nairavian-n8n.de`) — DJEN e filas de WhatsApp/webhooks |
+| Agendamento | **pg_cron no próprio banco** (10 jobs, inclusive o DJEN desde 2026-09-23 — `migration_cron_djen`) |
+| Orquestração | Nenhuma rotina do sistema no n8n desde 2026-09-23 (ele fica instalado em `nairavian-n8n.de`, junto do Evolution, para uso futuro). Filas de webhooks e de saída do WhatsApp: desligadas na tela ("Em breve"), a entrega volta por function |
 | Deploy | Cloudflare Workers Builds — 2 projetos: `mara-sandra-connect` ← `main` (produção) e `mara-sandra-connect-staging` ← `staging` (staging.marasandraconnect.com). Sem preview de PR |
 | Domínio | `marasandraconnect.com` (+ `www`) |
 | Repositório | `github.com/nairaromero/mara-sandra-connect` |
@@ -235,7 +235,7 @@ produto pendente — mas não há código dela.
 | **06:45** | `45 9 * * *` | `msc-digest-diario` | E-mail resumo do dia (**hoje só para a Naira** — campo `para`) |
 | **08:00** | `0 11 * * *` | `rotina-pericia-diaria` | Gera os rascunhos de aviso de perícia |
 | **08:10** | `10 11 * * *` | `rotina-implementacao-diaria` | Acompanha implantação do benefício concedido |
-| madrugada | — | `djen-sync` (n8n) | Publicações por OAB |
+| **07:00** | `0 10 * * *` | `msc-djen-sync` | Publicações do DJEN por OAB (era o n8n até 2026-09-23) |
 | — | — | ~~`msc-ia-triagem`~~ | **Desligado em 2026-08-06** (confirmado: não existe em `cron.job`) |
 
 Os 7 jobs estão `active` e com **zero falhas** no histórico. O `msc-inss-email` tem só 5
@@ -398,8 +398,8 @@ Registradas para ninguém investir nelas por engano:
 - **`mensagens`** — chat antigo, 0 linhas. Substituído por `comentarios` + `/conversas`.
 - **`/repasses`** — ~~rota existe~~ **a rota nunca existiu** (ver §5); é aba de `casos.$id.tsx`.
   Confirmado: **0 repasses lançados** para 23 parceiros e 395 casos.
-- **Webhooks** — módulo completo (HMAC, retry, tela, workflow n8n) com **0 destinos**
-  cadastrados e último evento em 2026-05-30.
+- **Webhooks** — módulo completo (HMAC, retry, tela) com **0 destinos** cadastrados e último evento em
+  2026-05-30. Desde 2026-09-23 a aba mostra "Em breve": a entrega era do n8n e volta por function.
 - **`whatsapp-inbound`** — webhook desligado desde 2026-06. A saída continuava enfileirando e
   falhando (23 falhas, a última em 20/08) e foi **pausada em 2026-08-21**: o trigger
   `trg_whatsapp_comentario_novo` está `DISABLED` nos dois bancos. Histórico preservado

@@ -27,7 +27,7 @@ import { IntegracaoIaCard } from "@/components/ia/integracao-ia-card";
 import { ConexaoClaudeCard } from "@/components/ia/conexao-claude-card";
 import { IntegracaoGmailCard } from "@/components/integracoes/integracao-gmail-card";
 import { IntegracaoWhatsappCard } from "@/components/integracoes/integracao-whatsapp-card";
-import { WebhooksCard } from "@/components/integracoes/webhooks-card";
+import { EmBreveCard } from "@/components/integracoes/em-breve-card";
 import { TiposBeneficioCard } from "@/components/tipos-beneficio-card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -693,10 +693,17 @@ function ConfiguracoesPage() {
               </TabsContent>
 
               {/* Webhooks: era a página /webhooks com item na sidebar (até
-                  2026-09-14). A aba só monta o card quando abre, então a lista
-                  não é consultada em toda visita às Configurações. */}
+                  2026-09-14). Desde 2026-09-23 a aba fica, mas o módulo não é
+                  oferecido ("Em breve"): a entrega era feita pelo n8n, que saiu
+                  das rotinas do sistema; volta com uma function própria. O card
+                  antigo (WebhooksCard) continua no código para a retomada. */}
               <TabsContent value="webhooks">
-                <WebhooksCard />
+                <EmBreveCard
+                  titulo="Webhooks"
+                  marcador="webhooks"
+                  icone={Webhook}
+                  descricao="Avisos automáticos para o sistema do parceiro (novo andamento, decisão, documento) por HTTP assinado. A entrega está sendo refeita sem o n8n."
+                />
               </TabsContent>
 
               {/* Suporte: pedidos de acesso da plataforma a este escritorio

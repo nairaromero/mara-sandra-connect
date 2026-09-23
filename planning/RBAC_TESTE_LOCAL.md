@@ -370,6 +370,25 @@ node e2e/demo/roteiros/conferencia-lote-rbac.cjs   # conferência automática da
 
 
 
+### S. n8n fora das rotinas: DJEN no pg_cron, Webhooks e envio de WhatsApp "Em breve"
+
+Decisão de 23/09: nenhuma rotina do sistema passa mais pelo n8n (ele fica instalado na máquina do Evolution
+para uso futuro). O DJEN passa a ser disparado pelo pg_cron (`migration_cron_djen.sql`, só produção); a aba
+Webhooks e o envio de WhatsApp ficam desligados na tela ("Em breve") até voltarem por edge function.
+
+- [ ] Como `canario+admin` → Configurações → **Webhooks**: card "Webhooks · Em breve", sem botão "Novo webhook".
+      `/webhooks` continua redirecionando para a aba.
+- [ ] Configurações → **Integrações** → card WhatsApp: linha "Envio de mensagens pelo sistema · Em breve"; salvar
+      instância, Testar e o webhook de entrada seguem funcionando (seção L).
+- [ ] Local: `bun run e2e:local e2e/tests/integracoes-escritorio.spec.ts` — o teste "cron:djen-sync é aceito;
+      n8n:djen-sync recebe 401" prova a identidade nova (assina com o `MSC_SYSTEM_SECRET` do `.env` local).
+- [ ] **Só em produção, no release:** `node scripts/msc-sql.mjs --file planning/sql-migrations/migration_cron_djen.sql`
+      → `select jobname, schedule from cron.job where jobname='msc-djen-sync'` = `0 10 * * *`. Depois **desligar o
+      workflow `djen-sync` no n8n** (senão sincroniza em dobro; o dedup segura, mas é trabalho à toa). No dia
+      seguinte: `cron.job_run_details` do job com sucesso e `sync_log` (source `djen_publicacoes`) atualizado.
+
+
+
 ### I. Provas automáticas (rodar e conferir os números)
 
 ```bash
