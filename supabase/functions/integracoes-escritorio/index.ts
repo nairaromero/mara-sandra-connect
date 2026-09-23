@@ -1,5 +1,5 @@
 // integracoes-escritorio — configuração de integrações POR ESCRITÓRIO
-// (WhatsApp/Evolution hoje; Legalmail/TI depois), gravada pela function porque
+// (WhatsApp/Evolution, Legalmail e Tramitação Inteligente), gravada pela function porque
 // o segredo (chave da API) é cifrado com a master key antes de ir ao banco e
 // nunca volta ao navegador. Quem chama: quem gerencia integrações no
 // escritório ativo (admin). Ações:
@@ -11,6 +11,7 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { exigirUsuario, fetchT } from "../_shared/auth.ts";
 import { encryptSecret, decryptSecret } from "../_shared/crypto.ts";
+import { baseLegalmail, baseTI } from "../_shared/integracoes.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -121,8 +122,33 @@ serve(async (req) => {
     return json({ ok: true, ...semSegredo(salvo) });
   }
 
+  if (body.action === "testar" && (tipo === "legalmail" || tipo === "ti")) {
+    if (!atual?.segredo_cipher || !atual.segredo_iv) return json({ ok: false, erro: "informe a chave da API" });
+    const chave = await decryptSecret(atual.segredo_cipher, atual.segredo_iv);
+    const cfg = (atual.config ?? {}) as Record<string, unknown>;
+    const url = tipo === "legalmail"
+      ? `${baseLegalmail()}/api/v1/lawsuit/search?api_key=${encodeURIComponent(chave)}&limit=1&offset=0`
+      : `${baseTI(cfg)}/clientes?page=1&per_page=1`;
+    try {
+      const r = await fetchT(url, {
+        headers: tipo === "legalmail" ? { Accept: "application/json" } : { Authorization: `Bearer ${chave}`, "Content-Type": "application/json" },
+        timeoutMs: 15_000,
+      });
+      const texto = await r.text();
+      let ok = r.ok;
+      try {
+        const j = JSON.parse(texto) as Record<string, unknown>;
+        ok = r.ok && (tipo === "legalmail" ? Array.isArray(j.lawsuits) : Array.isArray(j.customers ?? j.clientes));
+      } catch { ok = false; }
+      await auditar("integracao.testar", { http: r.status, ok });
+      return json({ ok, http: r.status, detalhe: ok ? null : texto.slice(0, 200) });
+    } catch (e) {
+      return json({ ok: false, erro: `não alcancei o ${tipo === "legalmail" ? "Legalmail" : "Tramitação Inteligente"}: ${String((e as Error)?.message ?? e)}` });
+    }
+  }
+
   if (body.action === "testar") {
-    if (tipo !== "whatsapp") return json({ error: "teste só existe para whatsapp" }, 400);
+    if (tipo !== "whatsapp") return json({ error: "teste só existe para whatsapp, legalmail e ti" }, 400);
     if (!atual) return json({ ok: false, erro: "integração ainda não configurada" });
     const cfg = (atual.config ?? {}) as { base_url?: string; instance?: string };
     if (!cfg.base_url || !cfg.instance) return json({ ok: false, erro: "informe a URL e a instância" });

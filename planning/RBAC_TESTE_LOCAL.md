@@ -10,7 +10,7 @@ Docker aberto. Da raiz do repositório:
 
 ```bash
 bun run local:copiar   # banco local = cópia do staging (~3 min). Só se quiser zerar.
-bun run local:rbac     # aplica as 12 migrations do RBAC + cria escritório canário, contas e QG
+bun run local:rbac     # aplica as 13 migrations do RBAC + cria escritório canário, contas e QG
 bun run dev:local      # app em http://localhost:8080
 ```
 
@@ -394,10 +394,34 @@ Webhooks e o envio de WhatsApp ficam desligados na tela ("Em breve") até voltar
 
 
 
+### T. Legalmail e Tramitação Inteligente (TI) por escritório
+
+Antes, as cinco functions (busca e sync do Legalmail, clientes e notas do TI) usavam um token global:
+**qualquer escritório buscava na conta da Mara**. Agora a credencial é do escritório ativo
+(`escritorio_integracoes`, cifrada; só a function lê), quem não tem recebe 412 e a tela nem oferece o botão
+(RPC `minhas_integracoes`, `migration_rbac_13`). O escritório padrão do sistema ainda usa a variável de
+ambiente antiga até cadastrar a sua; os outros nunca caem nela.
+
+- [ ] Como `canario+admin` → Configurações → **Integrações**: cards **Legalmail** e **Tramitação Inteligente (TI)**
+      "não configurado". Como `canario+advogado`: no caso da Helena, aba Processos, **não** há "Buscar no Legalmail";
+      em Novo caso não há "Buscar no Legalmail" nem "Buscar no TI".
+- [ ] Legalmail: conta `canario@exemplo.com.br`, chave `chave-legalmail-canario` → **Salvar** → badge "ativo", chave
+      some do campo → **Testar conexão** → "Conectado (HTTP 200)" (Legalmail simulado). TI: endereço em branco (padrão),
+      conta e token `token-ti-canario` → Salvar → Testar → conectado.
+- [ ] Como `canario+advogado` → caso da Helena → Processos → **Buscar no Legalmail** → o processo
+      `5001234-56.2026.4.03.6183` da Helena aparece (vem do Legalmail simulado, com a chave do Canário). Novo caso →
+      **Buscar no TI** → lista com Joana, Otávio e Marina; escolher Otávio preenche o formulário.
+- [ ] Como `e2e+admin` (escritório 1): os cards mostram "configuração do sistema" (legado, variável de ambiente); no
+      local a variável não existe, então buscar no Legalmail responde "não está configurado" — e nunca usa a chave do
+      Canário.
+- [ ] Desligar a integração (chave "ativa") → os botões somem para todo o Canário; religar → voltam.
+
+
+
 ### I. Provas automáticas (rodar e conferir os números)
 
 ```bash
-bun run e2e:local                                         # suíte inteira: 119 testes (1 pulado no local: assunto do convite)
+bun run e2e:local                                         # suíte inteira: 123 testes (1 pulado no local: assunto do convite)
 bun run e2e:local e2e/tests/rbac-isolamento.spec.ts       # 16 ataques entre os dois escritórios
 bun run e2e:local e2e/tests/rbac-edge-functions.spec.ts   # 7 ataques nas edge functions
 bun run e2e:local e2e/tests/glossario.spec.ts             # 3: busca, permissões do banco, parceiro
@@ -410,9 +434,10 @@ bun run e2e:local e2e/tests/mfa.spec.ts                   # 2: código no login 
 bun run e2e:local e2e/tests/mcp-terceiro.spec.ts          # 4: emitir para parceiro/assistente (MCP roda como o dono), não-admin não emite, dono/emissor veem, revogar e emissor rebaixado
 bun run e2e:local e2e/tests/marca-legal-connect.spec.ts   # 2: marca do produto no login/QG/rodapé; marca do escritório no topo
 bun run e2e:local e2e/tests/rbac-telas.spec.ts            # 3: financeiro, assistente e advogado no mesmo caso — a tela oferece só o que o papel pode
+bun run e2e:local e2e/tests/integracoes-legalmail-ti.spec.ts # 4: 412 sem credencial, cadastro/teste pelo admin, busca com a conta do Canário, botões só com credencial
 ```
 
-- [ ] 119 passam. Os 23 do RBAC são ataques via API com a sessão real de cada papel: header
+- [ ] 123 passam. Os 23 do RBAC são ataques via API com a sessão real de cada papel: header
       forjado, filho apontando para pai de outro escritório (inclusive com service role), RPC
       com id alheio, vínculo desativado com o JWT ainda válido, staff lendo tabela de domínio,
       suporte escrevendo, eliminação sem segunda pessoa.
@@ -471,7 +496,7 @@ escritório 1 não mudou, e forjar o header não abre nada.
 
 ## 6. Antes de ir para o staging
 
-Nada disto foi aplicado fora do local. Para o staging: as 12 migrations com
+Nada disto foi aplicado fora do local. Para o staging: as 13 migrations do RBAC (mais `migration_cron_djen`, só produção) com
 `node scripts/msc-sql.mjs --staging --file …` **na ordem**, deploy das 26 edge functions alteradas
 (+ `qg-escritorios`), e só então o front. Como a #02 mexe em 41 tabelas, vale ensaiar de novo numa
 cópia fresca (`bun run local:copiar && bun run local:rbac`) no dia — leva ~4 min.

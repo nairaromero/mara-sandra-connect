@@ -25,6 +25,8 @@ const estado = {
     oab_uf: "SP",
     processo_cnj: "5001234-56.2026.4.03.6183",
     msg_id: "mock-msg-1",
+    legalmail_key: "chave-legalmail-canario",
+    ti_token: "token-ti-canario",
   },
   emails: [],          // Resend: o que as functions mandaram
   claude: [],          // "conversa" do Claude simulado
@@ -206,6 +208,58 @@ button{background:#1a73e8;color:#fff;border:0;border-radius:6px;padding:10px 26p
       if (p.endsWith("/messages")) return json(res, { messages: [{ id: estado.config.msg_id, threadId: `thread-${estado.config.msg_id}` }], resultSizeEstimate: 1 });
       if (p.includes(`/messages/${estado.config.msg_id}`)) return json(res, emailInss());
       return json(res, { error: { code: 404, message: "Not Found" } }, 404);
+    }
+
+    // ---- Legalmail (api_key na query) — search / detail / case-files
+    if (p.startsWith("/legalmail/")) {
+      const c = estado.config;
+      if (url.searchParams.get("api_key") !== c.legalmail_key) return json(res, { message: "api_key inválida" }, 401);
+      const processos = [
+        { idprocessos: "778001", numero_processo: "5001234-56.2026.4.03.6183", poloativo_nome: "HELENA BASTOS FERRAZ", polo_ativo: "HELENA BASTOS FERRAZ", polopassivo_nome: "INSTITUTO NACIONAL DO SEGURO SOCIAL - INSS", tribunal: "TRF3", juizo: "3ª Vara Federal Previdenciária de São Paulo", foro: "São Paulo", data_distribuicao: "2026-03-12", processo_tema: "Aposentadoria por idade", sistema_tribunal: "PJe", inbox_atual: "Aguardando perícia", valor_causa: 48500 },
+        { idprocessos: "778002", numero_processo: "5009876-54.2026.4.03.6183", poloativo_nome: "OTÁVIO LINS BARRETO", polo_ativo: "OTÁVIO LINS BARRETO", polopassivo_nome: "INSTITUTO NACIONAL DO SEGURO SOCIAL - INSS", tribunal: "TRF3", juizo: "1ª Vara Federal de Guarulhos", foro: "Guarulhos", data_distribuicao: "2026-05-02", processo_tema: "Auxílio por incapacidade", sistema_tribunal: "PJe", inbox_atual: "Concluso", valor_causa: 31200 },
+        { idprocessos: "778003", numero_processo: "0801122-33.2025.4.05.8100", poloativo_nome: "MARINA COSTA PIRES", polo_ativo: "MARINA COSTA PIRES", polopassivo_nome: "INSS", tribunal: "TRF5", juizo: "12ª Vara Federal de Fortaleza", foro: "Fortaleza", data_distribuicao: "2025-11-20", processo_tema: "Pensão por morte", sistema_tribunal: "PJe", inbox_atual: "Sentença", valor_causa: 60000 },
+      ];
+      if (p === "/legalmail/api/v1/lawsuit/search") {
+        const polo = (url.searchParams.get("polo_ativo") || "").toLowerCase();
+        const lista = polo ? processos.filter((x) => x.poloativo_nome.toLowerCase().includes(polo)) : processos;
+        const offset = Number(url.searchParams.get("offset") || 0), limit = Number(url.searchParams.get("limit") || 50);
+        return json(res, { total: lista.length, lawsuits: lista.slice(offset, offset + limit) });
+      }
+      if (p === "/legalmail/api/v1/lawsuit/detail") {
+        const proc = processos.find((x) => x.idprocessos === url.searchParams.get("idprocesso"));
+        return proc ? json(res, proc) : json(res, { message: "processo não encontrado" }, 404);
+      }
+      if (p === "/legalmail/api/v1/lawsuit/case-files") {
+        const id = url.searchParams.get("idprocesso");
+        return json(res, { case_files: [
+          { idmovimentacoes: `${id}-1`, fk_processo: id, titulo: "Distribuído por sorteio", data_movimentacao: "2026-03-12", tipo: "Distribuição" },
+          { idmovimentacoes: `${id}-2`, fk_processo: id, titulo: "Juntada de petição inicial", data_movimentacao: "2026-03-13", tipo: "Juntada" },
+          { idmovimentacoes: `${id}-3`, fk_processo: id, titulo: "Despacho: designada perícia médica", data_movimentacao: "2026-08-30", tipo: "Despacho" },
+        ] });
+      }
+      return json(res, { message: "rota não simulada", p }, 404);
+    }
+
+    // ---- Tramitação Inteligente (Bearer) — clientes / notas
+    if (p.startsWith("/ti/")) {
+      const c = estado.config;
+      if (req.headers.authorization !== `Bearer ${c.ti_token}`) return json(res, { error: "Unauthorized" }, 401);
+      const clientes = [
+        { id: 9101, name: c.cliente_nome, cpf_cnpj: c.cliente_cpf, email: "joana@exemplo.com.br", phone_mobile: "(11) 98888-1111", birthdate: "1961-04-18", tags: [{ id: 1, name: "INSS", color: "#0f766e" }] },
+        { id: 9102, name: "Otávio Lins Barreto", cpf_cnpj: "529.982.247-25", email: "otavio@exemplo.com.br", phone_mobile: "(11) 97777-2222", birthdate: "1958-09-02", tags: [] },
+        { id: 9103, name: "Marina Costa Pires", cpf_cnpj: "871.234.560-05", email: null, phone_mobile: null, birthdate: "1970-01-30", tags: [] },
+      ];
+      if (p === "/ti/clientes") return json(res, { customers: clientes, pagination: { count: clientes.length, page: 1, pages: 1 } });
+      if (p === "/ti/notas") {
+        const id = Number(url.searchParams.get("customer_id"));
+        const cli = clientes.find((x) => x.id === id);
+        const notas = cli ? [
+          { id: id * 10 + 1, content: "Requerimento 1234567890 protocolado no Meu INSS.", created_at: "2026-07-10T13:20:00-03:00", user: { name: "Equipe TI" }, customer: { id, name: cli.name } },
+          { id: id * 10 + 2, content: "Perícia médica agendada para 14/10/2026 às 9h (agência Santo Amaro).", created_at: "2026-09-01T10:05:00-03:00", user: { name: "Equipe TI" }, customer: { id, name: cli.name } },
+        ] : [];
+        return json(res, { notes: notas, pagination: { count: notas.length, page: 1, pages: 1 } });
+      }
+      return json(res, { error: "rota não simulada", p }, 404);
     }
 
     // ---- Resend

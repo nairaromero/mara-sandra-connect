@@ -42,6 +42,7 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
+import { useIntegracoesEscritorio } from "@/hooks/use-integracoes";
 import { useTiposBeneficio } from "@/hooks/use-tipos-beneficio";
 import { DESTAQUE_CLASSE, useFocoItem } from "@/hooks/use-foco-item";
 import { notificarEquipe } from "@/lib/notificar";
@@ -1378,6 +1379,7 @@ interface CasoHeaderProps {
 function CasoHeader(props: CasoHeaderProps) {
   // acoes de escrita dependem da permissao do vinculo (RBAC), nao do modo interno
   const { pode } = useAuth();
+  const integracoes = useIntegracoesEscritorio();
   const { caso, cliente, isInterno, usuarioId, processosJudiciais, onChange } = props;
   const [syncingLM, setSyncingLM] = useState(false);
 
@@ -1499,14 +1501,16 @@ function CasoHeader(props: CasoHeaderProps) {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  onClick={syncLegalmail}
-                  disabled={syncingLM}
-                  title="Atualizar movimentações dos processos Legalmail vinculados"
-                >
-                  {syncingLM && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
-                  Sync Legal
-                </DropdownMenuItem>
+                {integracoes.tem("legalmail") === true && (
+                  <DropdownMenuItem
+                    onClick={syncLegalmail}
+                    disabled={syncingLM}
+                    title="Atualizar movimentações dos processos Legalmail vinculados"
+                  >
+                    {syncingLM && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
+                    Sync Legal
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           )}
@@ -7550,6 +7554,7 @@ interface ResultadoBuscaLM {
 function TabProcessos(props: TabProcessosProps) {
   // acoes de escrita dependem da permissao do vinculo (RBAC), nao do modo interno
   const { pode } = useAuth();
+  const integracoes = useIntegracoesEscritorio();
   const tiposBeneficio = useTiposBeneficio();
   const {
     casoId,
@@ -8342,7 +8347,7 @@ function TabProcessos(props: TabProcessosProps) {
               <CardDescription>Ações ajuizadas relacionadas ao caso.</CardDescription>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              {isInterno && pode("casos:editar") && (
+              {isInterno && pode("casos:editar") && integracoes.tem("legalmail") === true && (
                 <Button
                   size="sm"
                   variant="outline"

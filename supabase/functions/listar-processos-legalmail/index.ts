@@ -35,9 +35,8 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { exigirUsuario, fetchT } from "../_shared/auth.ts";
+import { baseLegalmail, baseTI, integracaoDoEscritorio, semIntegracao } from "../_shared/integracoes.ts";
 
-const LM_BASE = "https://app.legalmail.com.br";
-const LM_TOKEN = Deno.env.get("LEGALMAIL_TOKEN");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
@@ -97,7 +96,10 @@ serve(async (req) => {
   // Checagem no topo: antes ela vinha depois das variáveis de ambiente e do corpo, então a função respondia (400/500, e até 200) sem saber quem chamou. `exigirUsuario` também confere `ativo`, que faltava aqui.
   const quem = await exigirUsuario(req, { tipo: "interno" });
   if (quem instanceof Response) return quem;
-  if (!LM_TOKEN) return jsonResponse({ error: "LEGALMAIL_TOKEN nao configurado" }, 500);
+  const integ = await integracaoDoEscritorio(quem.admin, quem.perfil.escritorio_id, "legalmail");
+  if (!integ) return semIntegracao("legalmail", corsHeaders);
+  const LM_BASE = baseLegalmail();
+  const LM_TOKEN = integ.segredo;
   if (!SUPABASE_URL || !SERVICE_ROLE) {
     return jsonResponse({ error: "supabase env vars ausentes" }, 500);
   }

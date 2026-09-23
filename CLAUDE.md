@@ -122,9 +122,13 @@ o sistema em produção. Quando chegar, vale o seguinte:
   também tem `casos:editar`. Página de gestão (Comercial, Etiquetas, Parceiros, Processos, Novo
   caso, Publicações) confere a permissão além do tipo e devolve para /casos ou mostra "Área
   restrita a quem gerencia…". Prova: `e2e/tests/rbac-telas.spec.ts`.
+- **Legalmail e TI por escritório** (RBAC 13): credencial em `escritorio_integracoes` (cifrada), lida só pelas
+  functions via `_shared/integracoes.ts` (`integracaoDoEscritorio`); sem ela → 412 `integracao_nao_configurada`.
+  Na tela, `useIntegracoesEscritorio().tem("legalmail")` (RPC `minhas_integracoes`) decide se o botão aparece.
+  Nunca voltar a ler `LEGALMAIL_TOKEN`/`TI_TOKEN` direto: só o escritório padrão cai nesse legado, via o helper.
 - **Provedores simulados no local** (`e2e/demo/mocks/provedores.cjs`, porta 8787): Evolution, Comunica/DJEN,
-  Google OAuth + Gmail, Resend e "Claude simulado". As functions leem a base por env só quando definida
-  (`COMUNICA_BASE_URL`, `GOOGLE_OAUTH_AUTH_URL`, `GOOGLE_TOKEN_URL`, `GMAIL_API_BASE`, `RESEND_BASE_URL`);
+  Google OAuth + Gmail, Legalmail, TI, Resend e "Claude simulado". As functions leem a base por env só quando definida
+  (`COMUNICA_BASE_URL`, `GOOGLE_OAUTH_AUTH_URL`, `GOOGLE_TOKEN_URL`, `GMAIL_API_BASE`, `LEGALMAIL_BASE_URL`, `TI_BASE_URL`, `RESEND_BASE_URL`);
   sem a variável, endereço real. Essas variáveis ficam SÓ no `supabase/functions/.env` local — nunca em
   segredo de staging/produção. Filme do lote: `node e2e/demo/roteiros/lote-rbac-local.cjs` (seção R do guia).
 - **Tabela nova de domínio** precisa de `escritorio_id not null` + FK + policy restritiva

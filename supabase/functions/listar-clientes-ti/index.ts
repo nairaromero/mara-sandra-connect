@@ -13,9 +13,8 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { exigirUsuario, fetchT } from "../_shared/auth.ts";
+import { baseLegalmail, baseTI, integracaoDoEscritorio, semIntegracao } from "../_shared/integracoes.ts";
 
-const TI_BASE_URL = "https://planilha.tramitacaointeligente.com.br/api/v1";
-const TI_TOKEN = Deno.env.get("TI_TOKEN");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
@@ -53,19 +52,17 @@ interface TICustomer {
   [k: string]: unknown;
 }
 
-const headersTI = {
-  Authorization: `Bearer ${TI_TOKEN}`,
-  "Content-Type": "application/json",
-};
+type CredencialTI = { base: string; token: string };
+const headersTI = (ti: CredencialTI) => ({ Authorization: `Bearer ${ti.token}`, "Content-Type": "application/json" });
 
-async function buscarTodosClientesTI(): Promise<Array<TICustomer>> {
+async function buscarTodosClientesTI(ti: CredencialTI): Promise<Array<TICustomer>> {
   const all: Array<TICustomer> = [];
   let page = 1;
   const perPage = 100;
   while (true) {
     const resp = await fetchT(
-      `${TI_BASE_URL}/clientes?page=${page}&per_page=${perPage}`,
-      { headers: headersTI },
+      `${ti.base}/clientes?page=${page}&per_page=${perPage}`,
+      { headers: headersTI(ti) },
     );
     if (!resp.ok) {
       throw new Error(`TI /clientes ${resp.status}: ${await resp.text()}`);
@@ -94,14 +91,16 @@ serve(async (req) => {
   const quem = await exigirUsuario(req, { tipo: "interno" });
   if (quem instanceof Response) return quem;
 
-  if (!TI_TOKEN) return jsonResponse({ error: "TI_TOKEN nao configurado" }, 500);
+  const integ = await integracaoDoEscritorio(quem.admin, quem.perfil.escritorio_id, "ti");
+  if (!integ) return semIntegracao("ti", corsHeaders);
+  const ti: CredencialTI = { base: baseTI(integ.config), token: integ.segredo };
   if (!SUPABASE_URL || !SERVICE_ROLE) {
     return jsonResponse({ error: "supabase env vars ausentes" }, 500);
   }
 
   let tiCustomers: Array<TICustomer>;
   try {
-    tiCustomers = await buscarTodosClientesTI();
+    tiCustomers = await buscarTodosClientesTI(ti);
   } catch (err) {
     return jsonResponse(
       { error: "erro ao listar clientes do TI", detail: String(err) },

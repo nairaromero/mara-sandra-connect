@@ -27,6 +27,8 @@ import { IntegracaoIaCard } from "@/components/ia/integracao-ia-card";
 import { ConexaoClaudeCard } from "@/components/ia/conexao-claude-card";
 import { IntegracaoGmailCard } from "@/components/integracoes/integracao-gmail-card";
 import { IntegracaoWhatsappCard } from "@/components/integracoes/integracao-whatsapp-card";
+import { IntegracaoLegalmailCard } from "@/components/integracoes/integracao-legalmail-card";
+import { IntegracaoTiCard } from "@/components/integracoes/integracao-ti-card";
 import { EmBreveCard } from "@/components/integracoes/em-breve-card";
 import { TiposBeneficioCard } from "@/components/tipos-beneficio-card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -690,6 +692,9 @@ function ConfiguracoesPage() {
 
                 {/* Card: WhatsApp (Evolution) — a instância deste escritório */}
                 <IntegracaoWhatsappCard />
+                {/* Legalmail e TI por escritório (RBAC 13): credencial própria; sem ela a tela não oferece os botões */}
+                <IntegracaoLegalmailCard />
+                <IntegracaoTiCard />
               </TabsContent>
 
               {/* Webhooks: era a página /webhooks com item na sidebar (até

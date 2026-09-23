@@ -35,9 +35,8 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { exigirRecurso, exigirUsuario, fetchT } from "../_shared/auth.ts";
+import { baseLegalmail, baseTI, integracaoDoEscritorio, semIntegracao } from "../_shared/integracoes.ts";
 
-const LM_BASE = "https://app.legalmail.com.br";
-const LM_TOKEN = Deno.env.get("LEGALMAIL_TOKEN");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
@@ -153,9 +152,10 @@ interface LMMovimentacao {
   [k: string]: unknown;
 }
 
-async function fetchLM(path: string): Promise<unknown> {
+type CredencialLM = { base: string; token: string };
+async function fetchLM(lm: CredencialLM, path: string): Promise<unknown> {
   const sep = path.includes("?") ? "&" : "?";
-  const url = `${LM_BASE}${path}${sep}api_key=${LM_TOKEN}`;
+  const url = `${lm.base}${path}${sep}api_key=${lm.token}`;
   const resp = await fetchT(url, { headers: { Accept: "application/json" } });
   if (resp.status === 429) {
     throw new Error("rate_limit");
@@ -178,9 +178,9 @@ serve(async (req) => {
   // site escrevia no `caso_id` que mandasse no corpo.
   const quem = await exigirUsuario(req, { tipo: "interno" });
   if (quem instanceof Response) return quem;
-  if (!LM_TOKEN) {
-    return jsonResponse({ error: "LEGALMAIL_TOKEN nao configurado" }, 500);
-  }
+  const integ = await integracaoDoEscritorio(quem.admin, quem.perfil.escritorio_id, "legalmail");
+  if (!integ) return semIntegracao("legalmail", corsHeaders);
+  const lm: CredencialLM = { base: baseLegalmail(), token: integ.segredo };
   if (!SUPABASE_URL || !SERVICE_ROLE) {
     return jsonResponse({ error: "supabase env vars ausentes" }, 500);
   }
@@ -230,6 +230,7 @@ serve(async (req) => {
     try {
       if (i > 0) await sleep(RATE_DELAY_MS);
       const data = await fetchLM(
+        lm,
         `/api/v1/lawsuit/detail?idprocesso=${idproc}`,
       );
       // detail pode retornar objeto direto ou array com 1 item
@@ -317,6 +318,7 @@ serve(async (req) => {
     try {
       await sleep(RATE_DELAY_MS);
       const data = await fetchLM(
+        lm,
         `/api/v1/lawsuit/case-files?idprocesso=${idproc}`,
       );
       if (Array.isArray(data)) {
