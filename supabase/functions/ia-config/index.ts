@@ -200,11 +200,13 @@ serve(async (req) => {
 
     // ---- Tokens da Superficie B (Claude/ChatGPT) ----
     if (action === "token_listar") {
-      // Os tokens DESTE escritório (quem atua em dois vê cada lista no seu).
+      // Os tokens DESTE escritório (quem atua em dois vê cada lista no seu):
+      // os meus e os que EU emiti para outras pessoas (#385). Um admin não vê
+      // o que outro admin emitiu.
       let lista = admin
         .from("ia_tokens")
-        .select("id,nome,prefixo,escopo,expira_em,ultimo_uso,revogado_em,criado_em")
-        .eq("usuario_id", uid);
+        .select("id,nome,prefixo,escopo,expira_em,ultimo_uso,revogado_em,criado_em,usuario_id,emitido_por,dono:usuarios!ia_tokens_usuario_id_fkey(nome,email)")
+        .or(`usuario_id.eq.${uid},emitido_por.eq.${uid}`);
       if (escritorioId) lista = lista.eq("escritorio_id", escritorioId);
       const { data, error } = await lista.order("criado_em", { ascending: false });
       // Falha de banco nao pode virar "voce nao tem tokens" (o card sumiria com
@@ -213,14 +215,48 @@ serve(async (req) => {
       return jsonResponse({ tokens: data ?? [] });
     }
 
+    // Pessoas ativas do escritório, para o admin escolher a quem emitir (#385).
+    if (action === "token_membros") {
+      if (!quem.perfil.permissoes.includes("ia:mcp_conceder") || !escritorioId) {
+        return jsonResponse({ error: "apenas quem concede o MCP lista as pessoas" }, 403);
+      }
+      const { data, error } = await admin
+        .from("membros")
+        .select("usuario_id, papel:papeis!membros_papel_id_fkey(nome, tipo_acesso), usuario:usuarios!membros_usuario_id_fkey(nome, email)")
+        .eq("escritorio_id", escritorioId)
+        .eq("status", "ativo");
+      if (error) return jsonResponse({ error: "falha ao listar pessoas" }, 500);
+      const pessoas = ((data ?? []) as Array<Record<string, unknown>>)
+        .map((m) => {
+          const u = m.usuario as { nome?: string | null; email?: string | null } | null;
+          const p = m.papel as { nome?: string; tipo_acesso?: string } | null;
+          return { usuario_id: m.usuario_id as string, nome: u?.nome ?? null, email: u?.email ?? null, papel_nome: p?.nome ?? null, tipo_acesso: p?.tipo_acesso ?? null };
+        })
+        .sort((a, b) => String(a.nome ?? a.email).localeCompare(String(b.nome ?? b.email), "pt-BR"));
+      return jsonResponse({ pessoas });
+    }
+
     if (action === "token_criar") {
-      // So admin gera token do MCP: o card ja e so de admin, aqui garante no
-      // servidor. O token e o controle de acesso ao MCP (roda com a sessao do
-      // dono, e o ia-mcp exige que ele siga admin). Emitir para outra pessoa: #385.
-      // Admin DO ESCRITÓRIO ATIVO (o vínculo decide; exigirUsuario já conferiu
-      // que está ativo).
-      if (!quem.perfil.eh_admin) {
-        return jsonResponse({ error: "apenas administradores geram tokens do MCP" }, 403);
+      // O token e o controle de acesso ao MCP: so quem tem ia:mcp_conceder
+      // (admin) emite — para si ou para outra pessoa do escritorio (#385). O
+      // token roda como o DONO (sessao dele, RLS dele) e o ia-mcp exige que o
+      // emissor siga admin ativo no escritorio.
+      if (!quem.perfil.permissoes.includes("ia:mcp_conceder")) {
+        return jsonResponse({ error: "apenas administradores emitem tokens do MCP" }, 403);
+      }
+      const donoId = typeof body.usuario_id === "string" && body.usuario_id ? body.usuario_id : uid;
+      if (donoId !== uid) {
+        if (!escritorioId) return jsonResponse({ error: "sem escritório ativo" }, 400);
+        const { data: vinc, error: eVinc } = await admin
+          .from("membros")
+          .select("status")
+          .eq("escritorio_id", escritorioId)
+          .eq("usuario_id", donoId)
+          .maybeSingle();
+        if (eVinc) return jsonResponse({ error: "falha ao conferir a pessoa" }, 500);
+        if (!vinc || vinc.status !== "ativo") {
+          return jsonResponse({ error: "a pessoa precisa ser membro ativo deste escritório" }, 400);
+        }
       }
       const nome = String(body.nome || "").trim() || "Token";
       const escopo = body.escopo === "leitura" ? "leitura" : "completo";
@@ -231,7 +267,8 @@ serve(async (req) => {
       const { token, prefixo } = generateToken();
       const token_hash = await sha256Hex(token);
       const { error } = await admin.from("ia_tokens").insert({
-        usuario_id: uid,
+        usuario_id: donoId,
+        emitido_por: uid,
         nome,
         token_hash,
         prefixo,
@@ -247,10 +284,11 @@ serve(async (req) => {
 
     if (action === "token_revogar") {
       const id = String(body.id || "");
+      // dono ou emissor revogam
       const { error } = await admin
         .from("ia_tokens")
         .update({ revogado_em: new Date().toISOString() })
-        .eq("usuario_id", uid)
+        .or(`usuario_id.eq.${uid},emitido_por.eq.${uid}`)
         .eq("id", id);
       if (error) return jsonResponse({ error: error.message }, 400);
       return jsonResponse({ ok: true });

@@ -207,7 +207,7 @@ export const TERMOS: Array<Termo> = [
     categoria: "papeis",
     publico: "interno",
     definicao:
-      "A chave que deixa o Claude Desktop (ou outra ferramenta de IA) consultar o sistema em nome de uma pessoa. Só o administrador emite, e o token vale só no escritório em que foi emitido. Quem recebe o token responde pelo que a ferramenta lê com ele.",
+      "A chave que deixa o Claude Desktop (ou outra ferramenta de IA) consultar o sistema em nome de uma pessoa. Só o administrador emite — para si ou para alguém do escritório, escolhido numa lista — e o token vale só naquele escritório e roda como a pessoa (ela vê pelo Claude o que vê no sistema). O dono e quem emitiu veem e revogam; se quem emitiu deixa de ser administrador, o token para.",
     veja: ["ia", "admin"],
   },
   {

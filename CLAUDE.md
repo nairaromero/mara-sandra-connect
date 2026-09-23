@@ -136,6 +136,9 @@ o sistema em produção. Quando chegar, vale o seguinte:
   `p_limite/p_offset` e `total = count(*) over ()`) ou `usePaginaLocal` (fatia de lista já carregada).
   Ordem estável (desempate por `id`); filtro/busca muda → página 1; tamanho lembrado por lista
   (`usePorPagina`). Nada de "mostrar mais" acumulando. `qg_escritorios` e `conversas_threads` são os moldes.
+- **MCP (#385)**: `ia-config` emite token para a pessoa escolhida (`ia:mcp_conceder`), grava
+  `usuario_id` (dono) e `emitido_por`; `ia-mcp` roda como o dono e exige emissor admin ativo no
+  escritório do token; dono e emissor veem/revogam. Nunca voltar a exigir que o dono seja admin.
 - **MFA (TOTP)**: `src/lib/mfa.ts` + `<VerificacaoDuasEtapas>`; o login pede o código de quem tem
   fator, o QG exige AAL2 quando `app_config.qg_exigir_aal2='true'` (banco, não só tela). Local:
   `[auth.mfa.totp]` ligado no `supabase/config.toml`; a spec calcula o TOTP. Cloud: habilitar TOTP

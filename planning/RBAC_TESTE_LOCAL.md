@@ -10,7 +10,7 @@ Docker aberto. Da raiz do repositório:
 
 ```bash
 bun run local:copiar   # banco local = cópia do staging (~3 min). Só se quiser zerar.
-bun run local:rbac     # aplica as 11 migrations do RBAC + cria escritório canário, contas e QG
+bun run local:rbac     # aplica as 12 migrations do RBAC + cria escritório canário, contas e QG
 bun run dev:local      # app em http://localhost:8080
 ```
 
@@ -279,8 +279,29 @@ digita o código depois da senha. O QG **exige** (`app_config.qg_exigir_aal2`): 
 
 
 
+### P. Token do MCP para outra pessoa (#385)
+
+Só quem concede o MCP (admin, `ia:mcp_conceder`) emite tokens — para si ou para qualquer pessoa ativa do
+escritório. O token roda **como a pessoa** (o Claude dela vê o que ela vê no sistema); o emissor precisa seguir
+admin. Quem vê e revoga: o dono e o emissor — outro admin não vê.
+
+- [ ] Como `canario+admin` → Configurações → Integrações → **Conectar Claude / ChatGPT**: o campo **"Para quem"**
+      lista as pessoas do Canário (Para mim, Gilda · Parceiro, Elisa · Assistente, …).
+- [ ] Escolher **Gilda Moura (parceira)**, "Somente leitura", **Gerar token** → o token aparece uma vez com o aviso
+      "Token de Gilda…: envie a essa pessoa". Na lista: "Claude de Gilda… · de Gilda Moura".
+- [ ] Usar o token (terminal, simulando o Claude):
+      `curl -s -X POST http://127.0.0.1:55321/functions/v1/ia-mcp -H "Authorization: Bearer <token>" -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"buscar_casos","arguments":{"limite":10}}}'`
+      → só os casos da Gilda (Helena e Ivo), nunca Joana/Kleber. Em Auditoria (banco: `ia_acoes`) fica
+      `usuario_id` = Gilda e `emitido_por` = admin.
+- [ ] Como `canario+advogado`: a aba Integrações não existe, e pela API `token_criar` responde 403.
+- [ ] Promover Diego (advogado) a admin em Equipe → como `canario+advogado`, o card não mostra o token da Gilda
+      (foi outro admin que emitiu). Rebaixar de volta.
+- [ ] **Revogar** o token da Gilda → o curl acima responde 401. Emitir de novo, rebaixar/desligar o emissor → 403.
+
+
+
 ```bash
-bun run e2e:local                                         # suíte inteira: 112 testes (1 pulado no local: assunto do convite)
+bun run e2e:local                                         # suíte inteira: 116 testes (1 pulado no local: assunto do convite)
 bun run e2e:local e2e/tests/rbac-isolamento.spec.ts       # 16 ataques entre os dois escritórios
 bun run e2e:local e2e/tests/rbac-edge-functions.spec.ts   # 7 ataques nas edge functions
 bun run e2e:local e2e/tests/glossario.spec.ts             # 3: busca, permissões do banco, parceiro
@@ -290,10 +311,11 @@ bun run e2e:local e2e/tests/suporte-escritorio.spec.ts    # 2: aviso + aba Supor
 bun run e2e:local e2e/tests/integracoes-escritorio.spec.ts # 3: WhatsApp por escritório (segredo cifrado, isolamento, webhook), Gmail status
 bun run e2e:local e2e/tests/marca-escritorio.spec.ts       # 3: nome/cor/logo pelo admin, topo acompanha; advogado recusado; convite com o nome do escritório (assunto só onde o hook está ligado)
 bun run e2e:local e2e/tests/mfa.spec.ts                   # 2: código no login e desativar em Segurança; QG exige AAL2 (cadastro pela tela, código TOTP calculado na spec)
+bun run e2e:local e2e/tests/mcp-terceiro.spec.ts          # 4: emitir para parceiro/assistente (MCP roda como o dono), não-admin não emite, dono/emissor veem, revogar e emissor rebaixado
 bun run e2e:local e2e/tests/marca-legal-connect.spec.ts   # 2: marca do produto no login/QG/rodapé; marca do escritório no topo
 ```
 
-- [ ] 112 passam. Os 23 do RBAC são ataques via API com a sessão real de cada papel: header
+- [ ] 116 passam. Os 23 do RBAC são ataques via API com a sessão real de cada papel: header
       forjado, filho apontando para pai de outro escritório (inclusive com service role), RPC
       com id alheio, vínculo desativado com o JWT ainda válido, staff lendo tabela de domínio,
       suporte escrevendo, eliminação sem segunda pessoa.
@@ -306,6 +328,7 @@ bun run e2e:local e2e/tests/marca-legal-connect.spec.ts   # 2: marca do produto 
 | Front | header `x-escritorio-id` em toda chamada; escritório ativo, vínculos e permissões no `useAuth` (`pode()`); seletor; faixa de suporte; tela "sem escritório"; menu por permissão; Equipe por papéis; QG em `/qg` (só no host `qg.`); **Configurações → Suporte** (aprovar/recusar/encerrar acesso de suporte) + aviso no topo para o admin + trilha "Plataforma e suporte" na Auditoria (`migration_rbac_07`) |
 | Edge functions | `exigirUsuario` por vínculo e escritório; `exigirRecurso`; client de service role preso ao escritório (`escopado`, que também carimba `escritorio_id` nas linhas novas) no digest, e-mails do INSS e DJEN; convite por escritório e papel; MCP no escritório do token; `qg-escritorios`; **integrações por escritório** (`migration_rbac_09`): caixa do INSS ligada ao escritório e `inss-email-processor` rodando por escritório; `sync-djen-publicacoes` por escritório com OAB (publicação única por escritório); `escritorio_integracoes` + `integracoes-escritorio` (WhatsApp: instância, chave cifrada, token de entrada, teste) e `whatsapp-inbound` resolvendo o escritório pela instância |
 | Paginação | `<Paginador>` (1–25 de N · « ‹ 1 2 › » · itens por página) + `useListaPaginada`/`usePaginaLocal`: QG (escritórios e pessoas, 10, busca sem acento e filtro no banco — `migration_rbac_06`), Publicações (50), Conversas (25 threads, RPC `conversas_threads`), Movimentações, Auditoria, Processos e Clientes; `/processos` carrega até o fim e reduz o último andamento no banco (`processos_ultimo_andamento`) — nada mais usa `.limit(n)` fixo pra listar tudo |
+| MCP para terceiro (#385) | `ia_tokens.emitido_por` (`migration_rbac_12`); `ia-config` emite para uma pessoa escolhida (só `ia:mcp_conceder`), lista/revoga o que é do dono ou do emissor; `ia-mcp` roda como o dono e exige emissor admin ativo; card Conectar Claude com "Para quem" |
 | MFA (duas etapas) | Cadastro do autenticador (TOTP) em Configurações → Segurança, etapa do código no login e na entrada do QG (`migration_rbac_11` liga `qg_exigir_aal2` fora do local); `private.exigir_staff` já recusava AAL1 no banco. Pré-requisito no Supabase: MFA TOTP habilitado no Auth do projeto |
 | Marca por escritório | `escritorio_config.marca` (nome de exibição, logo, cor) editada em Configurações → Escritório (`migration_rbac_10`: bucket público `marcas`, RPC `escritorio_definir_marca`, vínculos devolvem a marca); topo e sidebar (`<MarcaEscritorio>`), e-mails de andamento/comentário/solicitação/digest (`_shared/marca.ts`) e o convite (`send-email-hook` lê `escritorio_nome` do `user_metadata`) usam a marca do escritório |
 | Marca | `public/marca/` (SVG vetorial + PNG para manifest/apple-touch/e-mail) e `<MarcaLegalConnect>`: login, esqueci/criar senha, favicon, título, manifest, cabeçalho do QG, rodapé da sidebar e cabeçalho dos e-mails do Auth. A marca do escritório continua no topo, dentro do sistema |
@@ -345,14 +368,13 @@ escritório 1 não mudou, e forjar o header não abre nada.
 |---|---|
 | **Legalmail e TI por escritório** | A tabela `escritorio_integracoes` já aceita os tipos; as functions dessas duas ainda usam as credenciais globais (escritório 1) |
 | **n8n: fila do WhatsApp por escritório** | O workflow que drena `whatsapp_outbox` precisa ler a instância/chave em `escritorio_integracoes` pelo `escritorio_id` da linha (hoje usa uma instância só) |
-| **Token do MCP emitido para outra pessoa** (#385) | O banco já prende o token ao escritório; a emissão em nome de terceiro fica para a issue |
 | **Botões que a tela ainda oferece a papéis novos** | O banco barra (testado), mas o financeiro ainda vê, por exemplo, "Perícia" na linha do cliente. A limpeza fina das telas é o codemod da Fase 5 |
 | **Colunas antigas de `usuarios`** (`tipo`, `eh_admin`, `ativo`…) | Seguem sincronizadas para o código antigo; nenhuma decisão de acesso as lê mais. Sair é a Fase 7 |
 | **pgTAP no CI** | As provas estão em Playwright (API). O harness pgTAP e o CI obrigatório são a Fase 1 do plano |
 
 ## 6. Antes de ir para o staging
 
-Nada disto foi aplicado fora do local. Para o staging: as 11 migrations com
+Nada disto foi aplicado fora do local. Para o staging: as 12 migrations com
 `node scripts/msc-sql.mjs --staging --file …` **na ordem**, deploy das 26 edge functions alteradas
 (+ `qg-escritorios`), e só então o front. Como a #02 mexe em 41 tabelas, vale ensaiar de novo numa
 cópia fresca (`bun run local:copiar && bun run local:rbac`) no dia — leva ~4 min.
