@@ -26,6 +26,12 @@ import { fimDoDiaBR, inputDateBRParaIso, isoParaInputDateBR } from "@/lib/fuso";
 import { TIPOS_DOCUMENTO_OPTIONS } from "@/lib/documentos/tipos";
 import { DocTypeCombobox } from "@/components/doc-type-combobox";
 import { listarInternosAtivos } from "@/lib/tarefas/queries";
+import {
+  SEM_PROCESSO,
+  processoDoToken,
+  tokenDaFrente,
+  tokenDoProcesso,
+} from "@/lib/processos/token";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -49,10 +55,6 @@ const ORIGEM_LABEL: Record<string, string> = {
   interna: "Interna (escritório)",
   externa: "Externa (parceiro/cliente)",
 };
-
-// "" = ninguém escolheu ainda · "sem" = cliente sem processo ·
-// "admin:<id>" / "judicial:<id>" = frente escolhida.
-const SEM_PROCESSO = "sem";
 
 export interface SolicitacaoEditavel {
   id: string;
@@ -105,11 +107,10 @@ export function EditarSolicitacaoDialog(props: {
     }
     setResponsavelId(solic.responsavel_id ?? "");
     setProcessoToken(
-      solic.processo_judicial_id
-        ? "judicial:" + solic.processo_judicial_id
-        : solic.processo_admin_id
-          ? "admin:" + solic.processo_admin_id
-          : "",
+      tokenDoProcesso({
+        processo_admin_id: solic.processo_admin_id ?? null,
+        processo_judicial_id: solic.processo_judicial_id ?? null,
+      }),
     );
   }, [solic]);
 
@@ -141,11 +142,11 @@ export function EditarSolicitacaoDialog(props: {
         if (judicial.error) throw judicial.error;
         setFrentes([
           ...(admin.data ?? []).map((p) => ({
-            token: "admin:" + p.id,
+            token: tokenDaFrente("admin", p.id),
             rotulo: "Requerimento " + (p.numero_requerimento || "(sem número)"),
           })),
           ...(judicial.data ?? []).map((p) => ({
-            token: "judicial:" + p.id,
+            token: tokenDaFrente("judicial", p.id),
             rotulo: "Processo judicial " + (p.numero_processo || "(sem número)"),
           })),
         ]);
@@ -201,12 +202,7 @@ export function EditarSolicitacaoDialog(props: {
           descricao: descricaoFinal || null,
           origem,
           prazo_at: prazoIsoBase ? fimDoDiaBR(prazoIsoBase).toISOString() : null,
-          processo_admin_id: processoToken.startsWith("admin:")
-            ? processoToken.slice(6)
-            : null,
-          processo_judicial_id: processoToken.startsWith("judicial:")
-            ? processoToken.slice(9)
-            : null,
+          ...processoDoToken(processoToken),
           responsavel_id: responsavelId || null,
         })
         .eq("id", solic.id);

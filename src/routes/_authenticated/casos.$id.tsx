@@ -93,6 +93,7 @@ import { ClientOnly } from "@/components/client-only";
 import { DocTypeCombobox } from "@/components/doc-type-combobox";
 import { DrivePickerDialog, type DriveImportedFile } from "@/components/drive-picker-dialog";
 import { EditarSolicitacaoDialog } from "@/components/documentos/editar-solicitacao-dialog";
+import { SEM_PROCESSO, processoDoToken, tokenDaFrente } from "@/lib/processos/token";
 import { CumprirTrocaSenhaDialog } from "@/components/documentos/cumprir-troca-senha-dialog";
 import {
   buscarPedidoSenhaAberto,
@@ -6470,11 +6471,11 @@ function SolicitarDocBotao(props: {
   const frentes = useMemo(
     () => [
       ...processosAdmin.map((p) => ({
-        token: "admin:" + p.id,
+        token: tokenDaFrente("admin", p.id),
         rotulo: "Requerimento " + (p.numero_requerimento || "(sem número)"),
       })),
       ...processosJudiciais.map((p) => ({
-        token: "judicial:" + p.id,
+        token: tokenDaFrente("judicial", p.id),
         rotulo: "Processo judicial " + (p.numero_processo || "(sem número)"),
       })),
     ],
@@ -6540,10 +6541,7 @@ function SolicitarDocBotao(props: {
           solicitado_por: usuarioId,
           // Interna: quem providencia. Externa: quem analisa quando voltar.
           responsavel_id: responsavelId || null,
-          processo_admin_id: processoToken.startsWith("admin:") ? processoToken.slice(6) : null,
-          processo_judicial_id: processoToken.startsWith("judicial:")
-            ? processoToken.slice(9)
-            : null,
+          ...processoDoToken(processoToken),
           prazo_at: prazoIsoBase ? fimDoDiaBR(prazoIsoBase).toISOString() : null,
         })
         .select("id")
@@ -6705,7 +6703,7 @@ function SolicitarDocBotao(props: {
                   <SelectValue placeholder="Escolha o processo" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="sem">Cliente sem processo</SelectItem>
+                  <SelectItem value={SEM_PROCESSO}>Cliente sem processo</SelectItem>
                   {frentes.map((f) => (
                     <SelectItem key={f.token} value={f.token}>
                       {f.rotulo}

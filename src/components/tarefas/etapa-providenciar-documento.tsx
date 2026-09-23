@@ -30,7 +30,22 @@ export function EtapaProvidenciarDocumento(props: {
   const [cumprindo, setCumprindo] = useState<string | null>(null);
   const [cumpridoAgora, setCumpridoAgora] = useState(false);
 
-  if (!pedido) return null;
+  // Carregando ou sem pedido: nada a mostrar. Erro de leitura entra no bloco
+  // (compacto ou não) como aviso — silêncio aqui seria dizer que está tudo
+  // certo sem saber (achado 7 da revisão do Yuri).
+  if (pedido === undefined || pedido === null) return null;
+
+  if (pedido === "erro") {
+    if (compacto) return null;
+    return (
+      <div className="rounded-md border border-dashed p-3">
+        <p className="text-xs text-muted-foreground">
+          Não consegui conferir o pedido de documento desta tarefa. Recarregue a página antes
+          de concluí-la.
+        </p>
+      </div>
+    );
+  }
 
   const resolvido = cumpridoAgora || pedido.status !== "pendente";
 

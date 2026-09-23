@@ -7,6 +7,9 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { rotuloSolicitacao, type ItemSolicitacao } from "@/lib/documentos/cumprimento";
 
+/** `undefined` = carregando · `"erro"` = leitura falhou · `null` = não tem. */
+export type EstadoPedido = PedidoDaTarefa | null | undefined | "erro";
+
 export interface PedidoDaTarefa {
   id: string;
   status: string;
@@ -22,14 +25,15 @@ export function solicitacaoDaTarefa(metadata: unknown): string | null {
 }
 
 /**
- * Carrega o pedido ligado à tarefa. `undefined` = ainda carregando (guard que
- * não pode ser confundido com "não tem pedido").
+ * Carrega o pedido ligado à tarefa. Três respostas que NÃO se confundem
+ * (achado 7 da revisão do Yuri no PR #391):
+ *   `undefined` = ainda carregando
+ *   `"erro"`    = não consegui ler (≠ "não tem pedido")
+ *   `null`      = a tarefa não tem pedido, ou ele sumiu
  */
-export function usePedidoDaTarefa(metadata: unknown): PedidoDaTarefa | null | undefined {
+export function usePedidoDaTarefa(metadata: unknown): EstadoPedido {
   const solicId = solicitacaoDaTarefa(metadata);
-  const [pedido, setPedido] = useState<PedidoDaTarefa | null | undefined>(
-    solicId ? undefined : null,
-  );
+  const [pedido, setPedido] = useState<EstadoPedido>(solicId ? undefined : null);
 
   const carregar = useCallback(() => {
     if (!solicId) {
@@ -46,10 +50,10 @@ export function usePedidoDaTarefa(metadata: unknown): PedidoDaTarefa | null | un
       .then(({ data, error }) => {
         if (!vivo) return;
         if (error) {
-          // Falha de leitura NÃO é "não tem pedido": sem resposta, o bloco
-          // simplesmente não aparece, e nada é afirmado sobre o pedido.
+          // Falha de leitura NÃO é "não tem pedido": quem consome avisa que
+          // não deu para conferir, em vez de dizer que está tudo certo.
           console.error("pedido da tarefa:", error);
-          setPedido(null);
+          setPedido("erro");
           return;
         }
         setPedido(

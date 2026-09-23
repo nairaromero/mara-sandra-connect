@@ -49,6 +49,7 @@ import {
   excluirEvento,
 } from "@/lib/agenda/queries";
 import { type AgendaEventoComJoins, type AgendaTipo, TIPO_LABEL } from "@/lib/agenda/types";
+import { ehTokenJudicial, processoDoToken, tokenDoProcesso } from "@/lib/processos/token";
 import { calcularDueAtRelativo } from "@/lib/agenda/helpers";
 import {
   comoLocalBR,
@@ -290,7 +291,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
   useEffect(() => {
     if (!avisoAplicavel || avisoEditado || !ctxCaso) return;
     const natureza: "admin" | "judicial" =
-      templateSelecionado === "pericia_judicial" || processoToken.startsWith("judicial:")
+      templateSelecionado === "pericia_judicial" || ehTokenJudicial(processoToken)
         ? "judicial"
         : "admin";
     let cancelado = false;
@@ -399,13 +400,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
       setStartInput(isoToInputDatetime(e.start_at));
       setEndInput(isoToInputDatetime(e.end_at));
       setCasoId(e.caso_id);
-      setProcessoToken(
-        e.processo_admin_id
-          ? `admin:${e.processo_admin_id}`
-          : e.processo_judicial_id
-            ? `judicial:${e.processo_judicial_id}`
-            : "",
-      );
+      setProcessoToken(tokenDoProcesso(e));
       setResponsavelId(e.responsavel_id);
       setTemplateSelecionado("");
     }
@@ -492,16 +487,8 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
     processo_admin_id: string | null;
     processo_judicial_id: string | null;
   } {
-    if (!processoToken || !casoId) {
-      return { processo_admin_id: null, processo_judicial_id: null };
-    }
-    if (processoToken.startsWith("admin:")) {
-      return { processo_admin_id: processoToken.slice(6), processo_judicial_id: null };
-    }
-    if (processoToken.startsWith("judicial:")) {
-      return { processo_admin_id: null, processo_judicial_id: processoToken.slice(9) };
-    }
-    return { processo_admin_id: null, processo_judicial_id: null };
+    if (!casoId) return { processo_admin_id: null, processo_judicial_id: null };
+    return processoDoToken(processoToken);
   }
 
   // Perícia/audiência com frente cadastrada no caso: processo obrigatório.
@@ -855,7 +842,11 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
             <div className="space-y-1.5">
               <Label>{processoObrigatorio ? "Processo *" : "Processo (opcional)"}</Label>
               <Select
-                value={processoToken || "sem"}
+                // Obrigatório e ainda sem escolha: `undefined` deixa o
+                // placeholder aparecer. Com "sem" (item que nem é renderizado
+                // nesse modo) o campo ficava em branco, marcado com * e sem
+                // dizer o que falta — achado 12 da revisão do Yuri.
+                value={processoObrigatorio ? processoToken || undefined : processoToken || "sem"}
                 onValueChange={(v) => setProcessoToken(v === "sem" ? "" : v)}
               >
                 <SelectTrigger aria-label="Processo do compromisso">

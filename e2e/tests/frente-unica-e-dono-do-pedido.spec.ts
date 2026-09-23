@@ -198,5 +198,119 @@ test("dono escolhido no pedido vale na tarefa da exigência e não vaza pela esc
     .select("responsavel_id")
     .single();
   expect(erroGenerica, "erro ao criar a tarefa genérica").toBeFalsy();
-  expect(generica!.responsavel_id).toBe(internoQuePediu);
+  // O que importa é o vazamento: a escolha do pedido NÃO pode alcançar esta
+  // tarefa. Quem a escada escolhe no lugar varia por banco — no staging ela é
+  // uma versão multi-tenant (achado 2 da revisão do Yuri) —, então a asserção
+  // é sobre o que não pode acontecer.
+  expect(generica!.responsavel_id).not.toBe(internoEscolhido);
+  expect(generica!.responsavel_id, "tarefa não pode nascer órfã").toBeTruthy();
+});
+
+test("pedido não aceita processo de outro caso", async () => {
+  const a = await seedClienteCaso(admin, { sufixo: `Frente do caso A ${Date.now()}` });
+  const b = await seedClienteCaso(admin, { sufixo: `Frente do caso B ${Date.now()}` });
+  const processoDeB = await criarProcessoAdmin(b.casoId);
+
+  const { error } = await admin.from("solicitacoes_documento").insert({
+    caso_id: a.casoId,
+    tipo: "cnis",
+    status: "pendente",
+    origem: "externa",
+    processo_admin_id: processoDeB,
+  });
+  expect(error, "pedido do caso A não pode apontar pro processo do caso B").toBeTruthy();
+});
+
+test("parceiro não troca a frente do pedido ao cumprir", async () => {
+  test.skip(!ENV.parceiroPassword, "sem senha do parceiro (alvo != staging/local)");
+  const { casoId } = await seedClienteCaso(admin, {
+    sufixo: `Guard de frente ${Date.now()}`,
+    parceiroId,
+  });
+  const requerimento = await criarProcessoAdmin(casoId);
+  const judicial = await criarProcessoJudicial(casoId);
+
+  const { data: solic, error } = await admin
+    .from("solicitacoes_documento")
+    .insert({
+      caso_id: casoId,
+      tipo: "cnis",
+      descricao: "[E2E] pedido com frente",
+      status: "pendente",
+      origem: "externa",
+      processo_admin_id: requerimento,
+    })
+    .select("id")
+    .single();
+  if (error) throw new Error(`seed pedido: ${error.message}`);
+
+  // No MESMO update em que cumpre, o parceiro tenta mudar a frente.
+  const comoParceiro = await clienteComoParceiro();
+  const cumprir = await comoParceiro
+    .from("solicitacoes_documento")
+    .update({
+      status: "atendido",
+      data_atendimento: new Date().toISOString(),
+      processo_admin_id: null,
+      processo_judicial_id: judicial,
+    })
+    .eq("id", solic.id as string);
+  expect(cumprir.error, "cumprir legítimo não deveria falhar").toBeFalsy();
+
+  const { data: depois } = await admin
+    .from("solicitacoes_documento")
+    .select("status, processo_admin_id, processo_judicial_id")
+    .eq("id", solic.id as string)
+    .single();
+  expect(depois!.status).toBe("atendido");
+  expect(depois!.processo_admin_id).toBe(requerimento);
+  expect(depois!.processo_judicial_id).toBeNull();
+});
+
+test("caso finalizado: tarefa de robô não reabre; pedido de gente reabre", async () => {
+  const { casoId } = await seedClienteCaso(admin, { sufixo: `Reabrir ${Date.now()}` });
+  const { error: erroProc } = await admin
+    .from("processos_admin")
+    .insert({
+      caso_id: casoId,
+      numero_requerimento: numero("E2E-REQ"),
+      data_protocolo: new Date().toISOString(),
+    });
+  if (erroProc) throw new Error(`seed requerimento: ${erroProc.message}`);
+  await admin.from("casos").update({ fase: "finalizado" }).eq("id", casoId);
+
+  const robo = await admin.from("tarefas").insert({
+    caso_id: casoId,
+    tipo: "interna",
+    status: "a_fazer",
+    prioridade: 2,
+    titulo: "[E2E] triagem automática",
+    origem: "sync_djen",
+  });
+  expect(robo.error).toBeFalsy();
+  const { data: aindaFinalizado } = await admin
+    .from("casos")
+    .select("fase")
+    .eq("id", casoId)
+    .single();
+  expect(aindaFinalizado!.fase, "robô não reabre caso encerrado").toBe("finalizado");
+
+  const manual = await admin.from("tarefas").insert({
+    caso_id: casoId,
+    tipo: "interna",
+    status: "a_fazer",
+    prioridade: 2,
+    titulo: "[E2E] pedido de gente",
+    origem: "manual",
+  });
+  expect(manual.error).toBeFalsy();
+  await expect
+    .poll(
+      async () => {
+        const { data } = await admin.from("casos").select("fase").eq("id", casoId).single();
+        return data?.fase;
+      },
+      { timeout: 10_000 },
+    )
+    .toBe("admin");
 });

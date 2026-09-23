@@ -35,6 +35,44 @@ alter table public.solicitacoes_documento
   add constraint solicitacoes_documento_uma_frente
   check (processo_admin_id is null or processo_judicial_id is null);
 
+-- Frente de OUTRO caso não entra: sem isto, um bug de tela, um script ou a
+-- ferramenta de IA pendura o pedido do cliente A no processo do cliente B, e
+-- as tarefas dos gatilhos herdam esse processo (achado 5 da revisão do Yuri).
+create or replace function public._solicitacao_processo_do_mesmo_caso()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if NEW.processo_admin_id is not null
+     and not exists (
+       select 1 from public.processos_admin pa
+        where pa.id = NEW.processo_admin_id and pa.caso_id = NEW.caso_id
+     ) then
+    raise exception 'requerimento % não é do caso %', NEW.processo_admin_id, NEW.caso_id
+      using errcode = 'check_violation';
+  end if;
+
+  if NEW.processo_judicial_id is not null
+     and not exists (
+       select 1 from public.processos_judiciais pj
+        where pj.id = NEW.processo_judicial_id and pj.caso_id = NEW.caso_id
+     ) then
+    raise exception 'processo judicial % não é do caso %', NEW.processo_judicial_id, NEW.caso_id
+      using errcode = 'check_violation';
+  end if;
+
+  return NEW;
+end;
+$$;
+
+drop trigger if exists trg_solicitacao_processo_do_mesmo_caso on public.solicitacoes_documento;
+create trigger trg_solicitacao_processo_do_mesmo_caso
+  before insert or update of caso_id, processo_admin_id, processo_judicial_id
+  on public.solicitacoes_documento
+  for each row execute function public._solicitacao_processo_do_mesmo_caso();
+
 create index if not exists idx_solicitacoes_processo_admin
   on public.solicitacoes_documento (processo_admin_id) where processo_admin_id is not null;
 create index if not exists idx_solicitacoes_processo_judicial
@@ -50,8 +88,10 @@ comment on column public.solicitacoes_documento.processo_judicial_id is
 --
 -- `_caso_fase_pelo_processo` calcula a fase a partir dos processos do caso e
 -- só AVANÇA: judicial > admin > analise. Quem corrigir à mão continua podendo
--- (a tela grava direto na coluna); o gatilho só age quando um processo nasce,
--- é protocolado ou é apagado.
+-- (a tela grava direto na coluna); o gatilho age quando um processo nasce ou
+-- é protocolado. Apagar processo NÃO recalcula: como a fase só avança, não
+-- haveria o que mudar (achado 11 da revisão do Yuri — antes o texto prometia
+-- um gatilho de DELETE que nunca existiu).
 -- ---------------------------------------------------------------------------
 create or replace function public._fase_pelo_processo(p_caso_id uuid)
 returns public.fase_caso
@@ -132,6 +172,16 @@ declare
   v_fase public.fase_caso;
 begin
   if NEW.caso_id is null then return NEW; end if;
+
+  -- Reabrir é resposta a PEDIDO NOVO, não a qualquer linha que um robô grave.
+  -- 14 funções do banco inserem tarefa sozinhas (alerta de escalonamento,
+  -- triagem de DJE, os próprios gatilhos de solicitação): sem este filtro,
+  -- qualquer uma delas ressuscitava o caso em silêncio — achado 6 da revisão
+  -- do Yuri. Só tarefa de origem 'manual' (gente pedindo) reabre; as demais
+  -- tabelas (solicitação, agenda) já são pedido por definição.
+  if TG_TABLE_NAME = 'tarefas' and coalesce(NEW.origem, '') <> 'manual' then
+    return NEW;
+  end if;
   if (select fase from public.casos where id = NEW.caso_id) <> 'finalizado' then
     return NEW;
   end if;
@@ -246,7 +296,12 @@ as $$
         t.metadata->>'pericia_evento' is null
         and t.titulo !~* '(acompanh|contatar|resultado|ligar|compareceu|agendamento de)'
       )
-    );
+    )
+  -- `order by 8` = start_at. Estava na versão de produção e sumiu na primeira
+  -- escrita desta migration (achado 3 da revisão do Yuri): sem ele a RPC
+  -- devolve a ordem arbitrária do UNION ALL, e `agenda-pericias-parceiro.tsx`
+  -- consome sem ordenar no cliente.
+  order by 8;
 $$;
 
 -- Recriar a função RESSUSCITA o EXECUTE do PUBLIC (default do Postgres) e os
@@ -258,3 +313,51 @@ revoke all on function public.agenda_do_parceiro(timestamptz, uuid) from public;
 revoke all on function public.agenda_do_parceiro(timestamptz, uuid) from anon;
 revoke all on function public.agenda_do_parceiro(timestamptz, uuid) from service_role;
 grant execute on function public.agenda_do_parceiro(timestamptz, uuid) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 5) O guard do parceiro cobre também as colunas novas
+--
+-- Reescrita a partir do `pg_get_functiondef` de PRODUÇÃO (2026-09-23); a única
+-- mudança são as duas linhas marcadas. Sem elas o parceiro podia, no MESMO
+-- update em que cumpre, escolher a frente do pedido — e
+-- `_solicitacao_cumprida_parceiro_cria_tarefa` copia esse valor pra tarefa
+-- interna que nasce. Achado 4 da revisão do Yuri no PR #391: é justamente o
+-- campo que este lote torna autoritativo.
+-- ---------------------------------------------------------------------------
+create or replace function public.tg_solicitacao_parceiro_guard()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public', 'pg_temp'
+as $function$
+begin
+  -- Sem contexto de usuario (cron, edge com service_role) ou interno: libera.
+  if auth.uid() is null or public.is_interno() then
+    return NEW;
+  end if;
+
+  -- Daqui pra baixo: parceiro autenticado. So pode CUMPRIR.
+  if OLD.status is distinct from 'pendente' or NEW.status is distinct from 'atendido' then
+    raise exception 'parceiro so pode marcar solicitacao pendente como atendida (status % -> %)',
+      OLD.status, NEW.status
+      using errcode = 'check_violation';
+  end if;
+
+  -- Colunas que o parceiro NAO controla: reverte pro valor antigo (blinda
+  -- prazo_at, origem, tipo/tipos, descricao, vinculo e os marcadores).
+  NEW.prazo_at             := OLD.prazo_at;
+  NEW.lembretes_enviados   := OLD.lembretes_enviados;
+  NEW.origem               := OLD.origem;
+  NEW.tipo                 := OLD.tipo;
+  NEW.tipos                := OLD.tipos;
+  NEW.descricao            := OLD.descricao;
+  NEW.caso_id              := OLD.caso_id;
+  NEW.solicitado_por       := OLD.solicitado_por;
+  NEW.responsavel_id       := OLD.responsavel_id;
+  NEW.data_solicitacao     := OLD.data_solicitacao;
+  NEW.processo_admin_id    := OLD.processo_admin_id;     -- #357
+  NEW.processo_judicial_id := OLD.processo_judicial_id;  -- #357
+
+  return NEW;
+end;
+$function$;

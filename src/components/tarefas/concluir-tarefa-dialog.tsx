@@ -115,7 +115,13 @@ export function ConcluirTarefaDialog(props: {
   // documento (Naira, 2026-09-18). `undefined` = ainda carregando — não avisa
   // nem libera nada antes de saber.
   const pedido = usePedidoDaTarefa(tarefa?.metadata);
-  const pedidoAberto = pedido?.status === "pendente" ? pedido : null;
+  const pedidoAberto =
+    pedido && pedido !== "erro" && pedido.status === "pendente" ? pedido : null;
+  // Achado 7 da revisão do Yuri: enquanto carrega, o Concluir ficava liberado
+  // e um clique rápido escapava do aviso; e erro de leitura virava silêncio,
+  // que é o mesmo que dizer "pode concluir" sem ter conferido.
+  const conferindoPedido = pedido === undefined;
+  const pedidoIlegivel = pedido === "erro";
   const [cumprindo, setCumprindo] = useState<string | null>(null);
 
   function fechar() {
@@ -236,6 +242,16 @@ export function ConcluirTarefaDialog(props: {
               </div>
             )}
 
+            {pedidoIlegivel && !modoExcluir && (
+              <div className="flex gap-2 rounded-md border border-amber-400/50 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                <span>
+                  Não consegui conferir o pedido de documento desta tarefa. Recarregue a página
+                  antes de concluir — pode ser que ele continue aberto.
+                </span>
+              </div>
+            )}
+
             {/* Tarefa de desfecho: não conclui pelo Feito — só exclui com motivo. */}
             {pendente && !modoExcluir && (
               <div className="flex gap-2 rounded-md border border-amber-400/50 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200">
@@ -259,13 +275,20 @@ export function ConcluirTarefaDialog(props: {
                 )}
                 <div className="flex flex-col gap-2 pt-1">
                   {!pendente && (
-                    <Button onClick={concluirTarefa} disabled={salvando !== null}>
+                    <Button
+                      onClick={concluirTarefa}
+                      disabled={salvando !== null || conferindoPedido}
+                    >
                       {salvando === "concluir" ? (
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                       ) : (
                         <CheckCircle2 className="h-4 w-4 mr-2" />
                       )}
-                      {pedidoAberto ? "Concluir mesmo assim" : "Concluir tarefa"}
+                      {conferindoPedido
+                        ? "Conferindo o pedido…"
+                        : pedidoAberto
+                          ? "Concluir mesmo assim"
+                          : "Concluir tarefa"}
                     </Button>
                   )}
                   <Button
