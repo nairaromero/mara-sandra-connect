@@ -16,7 +16,7 @@ const { ler, deslizar, clicar, narrar, abrirEstudio } = require("../helpers.cjs"
 const { REPO, BASE, QG, MOCK, MOCK_DOCKER, DOM, PILHA, FN, admin, sessao, estadoNavegador, fn, mock, esc, codigoNovo, fechar, digitar, cronSimulado, segredoSistemaLocal } = require("../local.cjs");
 const { createHmac } = require("crypto");
 
-const SECOES = (process.env.SECOES || "L,M,N,O,P,Q,S").split(",").map((s) => s.trim().toUpperCase());
+const SECOES = (process.env.SECOES || "L,M,N,O,P,Q,S,T").split(",").map((s) => s.trim().toUpperCase());
 const MARCA = "[Conferência]";
 const TEL_GILDA = "5511999990000";
 const CNJ = "5001234-56.2026.4.03.6183";
@@ -749,6 +749,110 @@ const sql = (q) => JSON.parse(execSync(`node scripts/msc-sql.mjs --local ${JSON.
       });
       await fecharTodas();
     }
+
+    // ======================= T. Legalmail e TI por escritório =======================
+    if (SECOES.includes("T")) {
+      secaoAtual = "T";
+      console.log("T. Legalmail e TI por escritório");
+      await admin.from("escritorio_integracoes").delete().eq("escritorio_id", ESC2).in("tipo", ["legalmail", "ti"]);
+      const p = await abrir(`canario+admin@${DOM}`, ESC2);
+      const pa = await abrir(`canario+advogado@${DOM}`, ESC2);
+      await item("T1", "Sem credencial: cards 'não configurado'; advogado não vê 'Buscar no Legalmail' no caso nem os diálogos em Novo caso", async () => {
+        await p.goto(`${BASE}/configuracoes?tab=integracoes`);
+        for (const t of ["legalmail", "ti"]) {
+          await visivel(p.locator(`[data-card-integracao="${t}"]`), `card ${t} ausente`);
+          await textoContem(p.locator(`[data-card-integracao="${t}"] [data-integracao-estado]`), /não configurado/, `${t}: badge não é 'não configurado'`);
+        }
+        await deslizar(p, p.locator('[data-card-integracao="legalmail"]'));
+        await legenda(p, "T1", "cards Legalmail e TI: não configurado");
+        await still(p, "T1-cards");
+        await pa.goto(`${BASE}/casos/${casoHelena.id}?tab=processos`);
+        await visivel(pa.getByRole("tab", { name: /Processos/ }), "aba Processos");
+        await ausente(pa.locator('[title*="Legalmail"]'), "advogado vê 'Buscar no Legalmail' sem credencial");
+        await pa.goto(`${BASE}/casos/novo`);
+        await visivel(pa.getByRole("heading", { level: 1 }), "Novo caso não abriu");
+        await ausente(pa.getByRole("button", { name: /Buscar no Legalmail/ }), "'Buscar no Legalmail' aparece sem credencial");
+        await ausente(pa.getByRole("button", { name: /Buscar no TI/ }), "'Buscar no TI' aparece sem credencial");
+        await legenda(pa, "T1", "Novo caso sem os botões de Legalmail e TI");
+        await still(pa, "T1-novo-caso-sem-botoes");
+      });
+      await item("T2", "Admin cadastra Legalmail e TI: badge 'ativo', chave some do campo, Testar → conectado (provedores simulados)", async () => {
+        await p.goto(`${BASE}/configuracoes?tab=integracoes`);
+        const lm = p.locator('[data-card-integracao="legalmail"]');
+        await visivel(lm, "card legalmail");
+        await deslizar(p, lm);
+        await legenda(p, "T2", "Legalmail: conta e chave → Salvar → Testar");
+        await digitar(p, p.locator("#legalmail-usuario"), "canario@exemplo.com.br");
+        await digitar(p, p.locator("#legalmail-segredo"), "chave-legalmail-canario");
+        await clicar(p, lm.getByRole("button", { name: "Salvar" }));
+        await textoContem(lm.locator("[data-integracao-estado]"), /ativo/, "legalmail não ficou 'ativo'");
+        if ((await p.locator("#legalmail-segredo").inputValue()) !== "") falha("a chave do Legalmail continuou no campo");
+        await clicar(p, lm.getByRole("button", { name: /Testar conexão/ }));
+        await textoContem(lm.locator('[data-teste-integracao="legalmail"]'), /Conectado/, "teste do Legalmail não conectou", 20000);
+        await still(p, "T2-legalmail");
+        const ti = p.locator('[data-card-integracao="ti"]');
+        await deslizar(p, ti);
+        await legenda(p, "T2", "TI: conta e token → Salvar → Testar");
+        await digitar(p, p.locator("#ti-usuario"), "canario@exemplo.com.br");
+        await digitar(p, p.locator("#ti-segredo"), "token-ti-canario");
+        await clicar(p, ti.getByRole("button", { name: "Salvar" }));
+        await textoContem(ti.locator("[data-integracao-estado]"), /ativo/, "ti não ficou 'ativo'");
+        await clicar(p, ti.getByRole("button", { name: /Testar conexão/ }));
+        await textoContem(ti.locator('[data-teste-integracao="ti"]'), /Conectado/, "teste do TI não conectou", 20000);
+        await still(p, "T2-ti");
+      });
+      await item("T3", "Advogado: 'Buscar no Legalmail' traz o processo da Helena; 'Buscar no TI' lista os clientes e preenche o Novo caso", async () => {
+        await pa.goto(`${BASE}/casos/${casoHelena.id}?tab=processos`);
+        await visivel(pa.locator('[title*="Legalmail"]').first(), "'Buscar no Legalmail' não apareceu com a credencial", 20000);
+        await legenda(pa, "T3", "Buscar no Legalmail com a conta do Canário");
+        await clicar(pa, pa.locator('[title*="Legalmail"]').first());
+        await visivel(pa.getByText("5001234-56.2026.4.03.6183").first(), "processo da Helena não veio do Legalmail simulado", 20000);
+        await still(pa, "T3-legalmail-resultado");
+        await pa.keyboard.press("Escape");
+        await pa.goto(`${BASE}/casos/novo`);
+        await visivel(pa.getByRole("button", { name: /Buscar no TI/ }), "'Buscar no TI' ausente", 20000);
+        await legenda(pa, "T3", "Buscar no TI: escolher Otávio preenche o formulário");
+        await clicar(pa, pa.getByRole("button", { name: /Buscar no TI/ }));
+        await visivel(pa.getByText("Otávio Lins Barreto").first(), "clientes do TI não listaram", 20000);
+        await still(pa, "T3-ti-lista");
+        await clicar(pa, pa.getByText("Otávio Lins Barreto").first());
+        await visivel(pa.locator('input[value="Otávio Lins Barreto"]').first(), "formulário não foi preenchido com o cliente do TI", 15000);
+        await still(pa, "T3-ti-preenchido");
+      });
+      await item("T4", "Escritório 1 (padrão): cards no legado ('configuração do sistema'); a busca não usa a chave do Canário", async () => {
+        const p1 = await abrir(`e2e+admin@${DOM}`, ESC1);
+        await p1.goto(`${BASE}/configuracoes?tab=integracoes`);
+        await visivel(p1.locator('[data-card-integracao="legalmail"]'), "card legalmail (escritório 1)");
+        await deslizar(p1, p1.locator('[data-card-integracao="legalmail"]'));
+        await textoContem(p1.locator('[data-card-integracao="legalmail"] [data-integracao-estado]'), /configuração do sistema/, "escritório 1 não mostra o legado");
+        await legenda(p1, "T4", "escritório 1: credencial legada do sistema, nunca a do Canário");
+        await still(p1, "T4-escritorio1-legado");
+        await fechar(p1);
+        const e2e = await sessao(`e2e+interno@${DOM}`, ESC1);
+        const r = await fn("check-legalmail-nome", e2e.jwt, ESC1, { nome: "Helena Bastos Ferraz" });
+        if (r.texto.includes("5001234-56.2026.4.03.6183")) falha("escritório 1 recebeu o processo pela chave do Canário");
+        return `escritório 1: HTTP ${r.status} (sem variável de ambiente no local), sem dados do Canário`;
+      });
+      await item("T5", "Desligar a integração some com os botões; religar traz de volta", async () => {
+        await p.goto(`${BASE}/configuracoes?tab=integracoes`);
+        const lm = p.locator('[data-card-integracao="legalmail"]');
+        await visivel(lm, "card legalmail");
+        await deslizar(p, lm);
+        await legenda(p, "T5", "chave 'ativa' desligada → botões somem");
+        await clicar(p, lm.getByRole("switch", { name: "Integração ativa" }));
+        await textoContem(lm.locator("[data-integracao-estado]"), /desligado/, "não ficou 'desligado'");
+        await pa.goto(`${BASE}/casos/${casoHelena.id}?tab=processos`);
+        await visivel(pa.getByRole("tab", { name: /Processos/ }), "aba Processos");
+        await ausente(pa.locator('[title*="Legalmail"]'), "botão continuou com a integração desligada");
+        await still(pa, "T5-desligada");
+        await clicar(p, lm.getByRole("switch", { name: "Integração ativa" }));
+        await textoContem(lm.locator("[data-integracao-estado]"), /ativo/, "não voltou a 'ativo'");
+        await pa.reload();
+        await visivel(pa.locator('[title*="Legalmail"]').first(), "botão não voltou ao religar", 20000);
+        await still(pa, "T5-religada");
+      });
+      await fecharTodas();
+    }
   } finally {
     console.log("limpando…");
     const passo = async (rotulo, f) => { try { await f(); } catch (e) { console.log(`  (limpeza ${rotulo}: ${e.message?.slice(0, 120)})`); } };
@@ -758,6 +862,7 @@ const sql = (q) => JSON.parse(execSync(`node scripts/msc-sql.mjs --local ${JSON.
     await passo("whatsapp_sessoes", () => admin.from("whatsapp_sessoes").delete().eq("telefone", TEL_GILDA));
     await passo("whatsapp_outbox", () => admin.from("whatsapp_outbox").delete().eq("telefone", TEL_GILDA));
     await passo("escritorio_integracoes", () => admin.from("escritorio_integracoes").delete().eq("escritorio_id", ESC2));
+    await passo("clientes importados do TI", () => admin.from("clientes").delete().eq("escritorio_id", ESC2).eq("nome", "Otávio Lins Barreto"));
     await passo("usuario_gmail_oauth", () => admin.from("usuario_gmail_oauth").delete().eq("escritorio_id", ESC2));
     await passo("inss_email_log", () => admin.from("inss_email_log").delete().like("gmail_message_id", "conf-msg-%"));
     await passo("publicacoes_dje", () => admin.from("publicacoes_dje").delete().in("djen_id", ["990001", "990002"]));
@@ -778,9 +883,9 @@ const sql = (q) => JSON.parse(execSync(`node scripts/msc-sql.mjs --local ${JSON.
     if (estudio) {
       const clipes = await estudio.encerrar();
       const ok = resultados.filter((r) => r.ok === true).length, ruim = resultados.filter((r) => r.ok === false).length, notas = resultados.filter((r) => r.ok === null).length;
-      const titulos = { L: "Integrações por escritório", M: "Marca Legal Connect (produto)", N: "Marca por escritório", O: "Verificação em duas etapas e o QG", P: "Token do MCP para outra pessoa", Q: "A tela só oferece o que o papel pode", S: "n8n fora das rotinas: DJEN no pg_cron, Webhooks e envio de WhatsApp \"Em breve\"" };
+      const titulos = { L: "Integrações por escritório", M: "Marca Legal Connect (produto)", N: "Marca por escritório", O: "Verificação em duas etapas e o QG", P: "Token do MCP para outra pessoa", Q: "A tela só oferece o que o papel pode", S: "n8n fora das rotinas: DJEN no pg_cron, Webhooks e envio de WhatsApp \"Em breve\"", T: "Legalmail e Tramitação Inteligente por escritório" };
       let md = `# Conferência do lote RBAC — seções L a Q\n\nAmbiente local, ${new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}. Executada pelo Playwright a partir do guia (planning/RBAC_TESTE_LOCAL.md), com provedores simulados.\n\n**Resumo: ${ok} OK · ${ruim} falhou · ${notas} nota(s).** Vídeo: \`video/ato*.webm\` (um clipe por sessão) e stills por item em \`stills/\`.\n\n`;
-      for (const s of ["L", "M", "N", "O", "P", "Q", "S"]) {
+      for (const s of ["L", "M", "N", "O", "P", "Q", "S", "T"]) {
         const its = resultados.filter((r) => r.secao === s);
         if (!its.length) continue;
         md += `## ${s}. ${titulos[s]}\n\n| Item | Resultado | Observação |\n|---|---|---|\n`;

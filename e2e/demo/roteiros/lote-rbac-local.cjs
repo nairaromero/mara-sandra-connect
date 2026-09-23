@@ -38,7 +38,7 @@ async function narrar(page, texto, ms = 3200) {
 }
 
 const MARCA = "[Filme]";
-const ATOS = (process.env.ATOS || "0,1,2,3,4,5,6,7").split(",")  // 8 = complemento: n8n fora das rotinas (grave à parte: ATOS=8 SAIDA=lote-rbac-n8n).map((s) => s.trim());
+const ATOS = (process.env.ATOS || "0,1,2,3,4,5,6,7").split(",")  // 8 = complemento n8n (ATOS=8 SAIDA=lote-rbac-n8n); 9 = complemento Legalmail/TI (ATOS=9 SAIDA=lote-rbac-legalmail-ti).map((s) => s.trim());
 const ato = (n) => ATOS.includes(String(n));
 
 // ---------- cartões de título (uma página em branco com o texto) ----------
@@ -536,6 +536,90 @@ async function cartao(page, titulo, sub, ms = 3800) {
       await cartao(p, "No release", "Aplicar migration_cron_djen em produção (job msc-djen-sync, 07:00 de Brasília) e desligar o workflow djen-sync no n8n. Webhooks e envio de WhatsApp voltam por function, quando forem retomados.", 5500);
       await fechar(p);
       gravados.push("ato8");
+    }
+
+    // ================= ATO 9 — COMPLEMENTO: LEGALMAIL E TI POR ESCRITÓRIO =================
+    // Um context por vez (cada um fechado antes do próximo): os clipes saem na
+    // ordem da história e sem tela parada.
+    if (ato(9)) {
+      await admin.from("escritorio_integracoes").delete().eq("escritorio_id", ESC2).in("tipo", ["legalmail", "ti"]);
+      // 1) advogado, antes da credencial
+      let pa = (await parte(`canario+advogado@${DOM}`, ESC2)).page;
+      await cartao(pa, "Complemento · Legalmail e TI por escritório", "Antes, qualquer escritório buscava na conta da Mara. Agora cada escritório cadastra a própria credencial; sem ela, a tela nem oferece o botão e a function recusa.", 6000);
+      await pa.goto(`${BASE}/casos/${casoHelena.id}?tab=processos`);
+      await pa.getByRole("tab", { name: /Processos/ }).waitFor({ timeout: 20000 });
+      await narrar(pa, "Para o advogado, o caso da Helena não oferece \"Buscar no Legalmail\": ainda não há credencial neste escritório.");
+      await ler(pa, 2000);
+      await still(pa, "ato9-01-sem-botao");
+      await fechar(pa);
+      // 2) admin cadastra
+      const p = (await parte(`canario+admin@${DOM}`, ESC2)).page;
+      await p.goto(`${BASE}/configuracoes?tab=integracoes`);
+      const lm = p.locator('[data-card-integracao="legalmail"]');
+      await lm.waitFor({ timeout: 20000 });
+      await deslizar(p, lm);
+      await narrar(p, "Integrações do Canário: Legalmail e Tramitação Inteligente ainda não configurados.");
+      await ler(p, 1500);
+      await still(p, "ato9-02-cards");
+      await narrar(p, "A administradora cadastra a conta do Legalmail. A chave é cifrada no servidor e testada contra o provedor (aqui, simulado).");
+      await digitar(p, p.locator("#legalmail-usuario"), "canario@exemplo.com.br");
+      await digitar(p, p.locator("#legalmail-segredo"), "chave-legalmail-canario");
+      await clicar(p, lm.getByRole("button", { name: "Salvar" }));
+      await lm.locator("[data-integracao-estado]").filter({ hasText: /ativo/ }).waitFor({ timeout: 15000 });
+      await clicar(p, lm.getByRole("button", { name: /Testar conexão/ }));
+      await lm.locator('[data-teste-integracao="legalmail"]').waitFor({ timeout: 20000 });
+      await ler(p, 2000);
+      await still(p, "ato9-03-legalmail-salvo");
+      const ti = p.locator('[data-card-integracao="ti"]');
+      await deslizar(p, ti);
+      await narrar(p, "O mesmo para o Tramitação Inteligente: conta, token, Salvar, Testar.");
+      await digitar(p, p.locator("#ti-usuario"), "canario@exemplo.com.br");
+      await digitar(p, p.locator("#ti-segredo"), "token-ti-canario");
+      await clicar(p, ti.getByRole("button", { name: "Salvar" }));
+      await ti.locator("[data-integracao-estado]").filter({ hasText: /ativo/ }).waitFor({ timeout: 15000 });
+      await clicar(p, ti.getByRole("button", { name: /Testar conexão/ }));
+      await ti.locator('[data-teste-integracao="ti"]').waitFor({ timeout: 20000 });
+      await ler(p, 1500);
+      await still(p, "ato9-04-ti-salvo");
+      await fechar(p);
+      // 3) advogado, com a credencial
+      pa = (await parte(`canario+advogado@${DOM}`, ESC2)).page;
+      await pa.goto(`${BASE}/casos/${casoHelena.id}?tab=processos`);
+      await pa.locator('[title*="Legalmail"]').first().waitFor({ timeout: 20000 });
+      await narrar(pa, "Com a credencial, o botão aparece. A busca roda na conta do Canário e traz o processo da Helena.");
+      await clicar(pa, pa.locator('[title*="Legalmail"]').first());
+      await pa.getByText("5001234-56.2026.4.03.6183").first().waitFor({ timeout: 20000 });
+      await ler(pa, 3500);
+      await still(pa, "ato9-05-busca-legalmail");
+      await pa.keyboard.press("Escape");
+      await pa.goto(`${BASE}/casos/novo`);
+      await pa.getByRole("button", { name: /Buscar no TI/ }).waitFor({ timeout: 20000 });
+      await narrar(pa, "Novo caso: \"Buscar no TI\" lista os clientes da conta do Canário; escolher um preenche o formulário.");
+      await clicar(pa, pa.getByRole("button", { name: /Buscar no TI/ }));
+      await pa.getByText("Otávio Lins Barreto").first().waitFor({ timeout: 20000 });
+      await ler(pa, 1500);
+      await clicar(pa, pa.getByText("Otávio Lins Barreto").first());
+      await pa.locator('input[value="Otávio Lins Barreto"]').first().waitFor({ timeout: 15000 });
+      await ler(pa, 2500);
+      await still(pa, "ato9-06-ti-preenchido");
+      await fechar(pa);
+      // 4) escritório 1
+      await tentar("isolamento do escritório 1", async () => {
+        const p1 = (await parte(`e2e+admin@${DOM}`, ESC1)).page;
+        await p1.goto(`${BASE}/configuracoes?tab=integracoes`);
+        const c1 = p1.locator('[data-card-integracao="legalmail"]');
+        await c1.waitFor({ timeout: 20000 });
+        await deslizar(p1, c1);
+        await narrar(p1, "No escritório 1 nada mudou: ele segue na credencial do sistema até cadastrar a sua — e nunca usa a do Canário.");
+        await ler(p1, 3000);
+        await still(p1, "ato9-07-escritorio1");
+        await fechar(p1);
+      });
+      // 5) fecho
+      const pf = (await parte(null, null, false)).page;
+      await cartao(pf, "Resultado", "Credencial por escritório, cifrada; sem ela, 412 e nenhum botão. O escritório padrão continua no legado até cadastrar a sua. Spec integracoes-legalmail-ti: 4 testes.", 5000);
+      await fechar(pf);
+      gravados.push("ato9");
     }
 
     // ================= ENCERRAMENTO =================
