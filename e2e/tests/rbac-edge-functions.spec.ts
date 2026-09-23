@@ -81,7 +81,8 @@ test.describe.serial("RBAC nas edge functions", () => {
       // 404 = barrado pelo exigirRecurso. No ambiente local algumas functions
       // param ANTES, por falta do segredo da integração (Legalmail, TI) — também
       // serve: não chegaram a tocar no dado. O que não pode é 2xx.
-      const semSegredo = r.status === 500 && /nao configurado|não configurado|ausente/i.test(r.texto);
+      const semSegredo = (r.status === 500 && /nao configurado|não configurado|ausente/i.test(r.texto))
+        || (r.status === 412 && /integracao_nao_configurada/.test(r.texto));
       respostas.push(`${fn}=${r.status}${semSegredo ? "(sem segredo)" : ""}`);
       expect(r.status === 404 || semSegredo, `${fn} com id do escritório 1 → ${r.status} ${r.texto.slice(0, 120)}`).toBe(true);
     }

@@ -178,9 +178,6 @@ serve(async (req) => {
   // site escrevia no `caso_id` que mandasse no corpo.
   const quem = await exigirUsuario(req, { tipo: "interno" });
   if (quem instanceof Response) return quem;
-  const integ = await integracaoDoEscritorio(quem.admin, quem.perfil.escritorio_id, "legalmail");
-  if (!integ) return semIntegracao("legalmail", corsHeaders);
-  const lm: CredencialLM = { base: baseLegalmail(), token: integ.segredo };
   if (!SUPABASE_URL || !SERVICE_ROLE) {
     return jsonResponse({ error: "supabase env vars ausentes" }, 500);
   }
@@ -212,6 +209,10 @@ serve(async (req) => {
   // A função grava com service role: o caso tem que ser visível a quem pediu.
   const semAcesso = await exigirRecurso(quem, "casos", casoId);
   if (semAcesso) return semAcesso;
+  // credencial do escritório só DEPOIS de saber que o caso é dele: id alheio responde 404, nunca 412
+  const integ = await integracaoDoEscritorio(quem.admin, quem.perfil.escritorio_id, "legalmail");
+  if (!integ) return semIntegracao("legalmail", corsHeaders);
+  const lm: CredencialLM = { base: baseLegalmail(), token: integ.segredo };
 
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE);
 

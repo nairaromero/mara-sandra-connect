@@ -214,9 +214,6 @@ serve(async (req) => {
   const quem = await exigirUsuario(req, { tipo: "interno" });
   if (quem instanceof Response) return quem;
 
-  const integ = await integracaoDoEscritorio(quem.admin, quem.perfil.escritorio_id, "ti");
-  if (!integ) return semIntegracao("ti", corsHeaders);
-  const ti: CredencialTI = { base: baseTI(integ.config), token: integ.segredo };
   if (!SUPABASE_URL || !SERVICE_ROLE) {
     return jsonResponse({ error: "supabase env vars ausentes" }, 500);
   }
@@ -241,6 +238,10 @@ serve(async (req) => {
     const semAcesso = await exigirRecurso(quem, "casos", casoId);
     if (semAcesso) return semAcesso;
   }
+  // credencial do escritório só DEPOIS de conferir o caso: id alheio responde 404, nunca 412
+  const integ = await integracaoDoEscritorio(quem.admin, quem.perfil.escritorio_id, "ti");
+  if (!integ) return semIntegracao("ti", corsHeaders);
+  const ti: CredencialTI = { base: baseTI(integ.config), token: integ.segredo };
   const cpfNorm = normalizeCPF(cpf);
   if (cpfNorm.length !== 11) {
     return jsonResponse({ error: "cpf deve ter 11 digitos" }, 400);
