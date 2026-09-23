@@ -523,6 +523,8 @@ escritório 1 não mudou, e forjar o header não abre nada.
 
 ## 6. Antes de ir para o staging
 
+> Plano completo, em ordem e com os comandos: [RBAC_STAGING_ROLLOUT.md](RBAC_STAGING_ROLLOUT.md) (2026-09-23).
+
 Nada disto foi aplicado fora do local. Para o staging: as 14 migrations do RBAC (mais `migration_cron_djen` e `migration_cron_whatsapp_outbox`, só produção) com
 `node scripts/msc-sql.mjs --staging --file …` **na ordem**, deploy das 26 edge functions alteradas
 (+ `qg-escritorios`), e só então o front. Como a #02 mexe em 41 tabelas, vale ensaiar de novo numa
