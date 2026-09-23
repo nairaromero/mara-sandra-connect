@@ -138,6 +138,8 @@ function agruparPorDia(eventos: AgendaEventoComJoins[]): Array<{
 }
 
 function AgendaPage() {
+  // criar evento e agenda:gerenciar; quem nao tem (financeiro) so consulta
+  const { pode } = useAuth();
   const [carregando, setCarregando] = useState(true);
   const [eventos, setEventos] = useState<AgendaEventoComJoins[]>([]);
   const [tarefasPericia, setTarefasPericia] = useState<TarefaComJoins[]>([]);
@@ -251,10 +253,12 @@ function AgendaPage() {
               contatar) ficam em Tarefas.
             </p>
           </div>
-          <Button onClick={() => setSheetModo({ kind: "criar" })}>
-            <Plus className="h-4 w-4" />
-            Novo evento
-          </Button>
+          {pode("agenda:gerenciar") && (
+            <Button onClick={() => setSheetModo({ kind: "criar" })}>
+              <Plus className="h-4 w-4" />
+              Novo evento
+            </Button>
+          )}
         </div>
 
         {/* Filtro por grupo + esconder concluídos.

@@ -662,7 +662,7 @@ function CasoDetalhePage() {
   const params = useParams({ from: "/_authenticated/casos/$id" });
   const casoId = params.id;
   const search = Route.useSearch();
-  const { usuario } = useAuth();
+  const { usuario, pode } = useAuth();
   const isInterno = usuario?.tipo === "interno";
 
   // Aba ativa controlada — permite deep-link via ?tab= (ex.: clicar numa
@@ -1083,7 +1083,7 @@ function CasoDetalhePage() {
             </div>
           </TabsContent>
 
-          {isInterno && (
+          {isInterno && pode("analises:ler") && (
             <TabsContent value="analise" className="mt-4">
               <TabAnaliseTecnica
                 casoId={casoId}
@@ -1153,6 +1153,8 @@ function CasoDetalhePage() {
 // A senha vem por RPC (get_senha_meu_inss) que decripta e registra auditoria;
 // o valor fica em cache na visita pra não gerar um log a cada toggle.
 function IdentidadeClienteLinha(props: { cliente: Cliente; isInterno: boolean }) {
+  // acoes de escrita dependem da permissao do vinculo (RBAC), nao do modo interno
+  const { pode } = useAuth();
   const { cliente, isInterno } = props;
   const [carregandoSenha, setCarregandoSenha] = useState(false);
   const [senhaValor, setSenhaValor] = useState<string | null>(null);
@@ -1338,7 +1340,7 @@ function IdentidadeClienteLinha(props: { cliente: Cliente; isInterno: boolean })
 
       {/* Telefone — só a equipe, mesma regra da Visão geral (o parceiro não vê
           contato do cliente). Sem número cadastrado, nem aparece. */}
-      {isInterno && cliente.telefone && (
+      {isInterno && pode("clientes:ler_contato") && cliente.telefone && (
         <span className="flex items-center gap-1">
           <span className="text-xs text-muted-foreground flex items-center gap-1">
             <Phone className="h-3.5 w-3.5" />
@@ -1371,6 +1373,8 @@ interface CasoHeaderProps {
 }
 
 function CasoHeader(props: CasoHeaderProps) {
+  // acoes de escrita dependem da permissao do vinculo (RBAC), nao do modo interno
+  const { pode } = useAuth();
   const { caso, cliente, isInterno, usuarioId, processosJudiciais, onChange } = props;
   const [syncingLM, setSyncingLM] = useState(false);
 
@@ -1474,7 +1478,7 @@ function CasoHeader(props: CasoHeaderProps) {
               CPF: {cpfFormatado} - {caso.tipo_beneficio}
             </CardDescription>
           </div>
-          {isInterno && (
+          {isInterno && pode("casos:editar") && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -1972,9 +1976,9 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
               )}
             </div>
             <Linha label="Nascimento" valor={formatDate(cliente.data_nascimento)} />
-            {isInterno && <Linha label="Telefone" valor={formatarTelefone(cliente.telefone) || "-"} />}
-            {isInterno && <Linha label="E-mail" valor={cliente.email || "-"} />}
-            {isInterno && (
+            {isInterno && pode("clientes:ler_contato") && <Linha label="Telefone" valor={formatarTelefone(cliente.telefone) || "-"} />}
+            {isInterno && pode("clientes:ler_contato") && <Linha label="E-mail" valor={cliente.email || "-"} />}
+            {isInterno && pode("clientes:ler_contato") && (
               // Senha MEU INSS inline: olhinho revela (RPC com audit) e o
               // copiar fica ao lado pra praticidade.
               <div className="pt-2 border-t flex items-center justify-between gap-2">
@@ -2020,7 +2024,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                 </div>
               </div>
             )}
-            {isInterno && (pedidoSenha || caso.parceiro_id) && (
+            {isInterno && pode("senha_inss:ler") && (pedidoSenha || caso.parceiro_id) && (
               <div className="flex items-center justify-end gap-2 text-xs">
                 {pedidoSenha ? (
                   <span className="flex items-center gap-1 min-w-0 text-muted-foreground">
@@ -2179,7 +2183,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                     placeholder="Rua, número, bairro, cidade/UF"
                   />
                 </div>
-                {isInterno && (
+                {isInterno && pode("casos:editar") && (
                   <div>
                     <Label className="text-xs">Observações</Label>
                     <Textarea
@@ -2190,7 +2194,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                   </div>
                 )}
 
-                {isInterno && (
+                {isInterno && pode("casos:editar") && (
                   /* ---- Dados do caso (edicao unificada, so interno) ---- */
                   <div className="border-t pt-3 space-y-3">
                     <p className="text-sm font-medium">Dados do caso</p>
@@ -2310,7 +2314,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                   </div>
                 )}
 
-                {isInterno && (
+                {isInterno && pode("senha_inss:ler") && (
                   /* Senha MEU INSS - sempre vazio. Vazio = manter, preenchido =
                     substituir via RPC criptografada. Status atual (ja tem ou
                     nao) eh mostrado em texto auxiliar. Parceiro usa botao
@@ -2345,7 +2349,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                   primaria (Salvar). Espacamento sm:justify-between joga
                   o destrutivo pra ponta. So quem tem clientes:excluir (admin,
                   desde a migration_rbac_08) - o banco recusa os demais. */}
-                {pode("clientes:excluir") && (
+                {isInterno && pode("clientes:excluir") && (
                   <Button
                     variant="destructive"
                     onClick={() => setConfExcluirCliente(true)}
@@ -2374,7 +2378,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
           </Dialog>
           {/* AlertDialog de confirmacao de exclusao. Acao destrutiva amplia o
             consentimento explicito do usuario - lista o que vai sumir. */}
-          {isInterno && (
+          {isInterno && pode("clientes:excluir") && (
             <AlertDialog
               open={confExcluirCliente}
               onOpenChange={(o) => {
@@ -2419,7 +2423,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
               </AlertDialogContent>
             </AlertDialog>
           )}
-          {isInterno && (
+          {isInterno && pode("casos:editar") && (
             <Dialog
               open={abrirPedirSenha}
               onOpenChange={(o) => !o && !enviandoPedidoSenha && setAbrirPedirSenha(false)}
@@ -2637,6 +2641,8 @@ interface TabAndamentosProps {
 const PROCESSO_NENHUM = "nenhum";
 
 function TabAndamentos(props: TabAndamentosProps) {
+  // acoes de escrita dependem da permissao do vinculo (RBAC), nao do modo interno
+  const { pode } = useAuth();
   const {
     casoId,
     andamentos,
@@ -3133,7 +3139,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                 {a.autor.nome}
               </span>
             )}
-            {isInterno && temParceiro && (
+            {isInterno && pode("casos:editar") && temParceiro && (
               <Button
                 type="button"
                 size="sm"
@@ -3158,7 +3164,7 @@ function TabAndamentos(props: TabAndamentosProps) {
               </Button>
             )}
           </div>
-          {isInterno && (
+          {isInterno && pode("casos:editar") && (
             <div className="flex items-center gap-1 shrink-0">
               <Button
                 size="sm"
@@ -3223,7 +3229,7 @@ function TabAndamentos(props: TabAndamentosProps) {
           (destacadoGlobal ? " " + DESTAQUE_CLASSE_GLOBAL : "")
         }
       >
-        {isInterno && (
+        {isInterno && pode("casos:editar") && (
           <input
             type="checkbox"
             checked={selecionadosVinculados.has(a.id)}
@@ -3305,7 +3311,7 @@ function TabAndamentos(props: TabAndamentosProps) {
               {ands.length} andamento{ands.length === 1 ? "" : "s"}
             </span>
             {/* Botao "+ Andamento" por processo - so para a equipe interna. */}
-            {isInterno && (
+            {isInterno && pode("casos:editar") && (
               <Button
                 size="sm"
                 variant="outline"
@@ -3368,7 +3374,7 @@ function TabAndamentos(props: TabAndamentosProps) {
       {/* Barra global de transferência (aparece quando há andamentos vinculados
           selecionados em qualquer accordion). Permite mover entre processos do
           mesmo tipo OU entre admin↔judicial. */}
-      {isInterno && selecionadosVinculados.size > 0 && (
+      {isInterno && pode("casos:editar") && selecionadosVinculados.size > 0 && (
         <div className="sticky top-0 z-10 bg-card border rounded-md p-3 flex items-end gap-2 flex-wrap shadow-sm">
           <div className="flex-1 min-w-[200px]">
             <Label className="text-xs">
@@ -3424,7 +3430,7 @@ function TabAndamentos(props: TabAndamentosProps) {
       {/* Barra: buscar teor das publicações (interno) + toggle de rotina. */}
       {(isInterno || totalRotina > 0) && (
         <div className="flex items-center justify-between gap-2">
-          {isInterno ? (
+          {isInterno && pode("casos:editar") ? (
             <Button
               size="sm"
               variant="outline"
@@ -3476,7 +3482,7 @@ function TabAndamentos(props: TabAndamentosProps) {
               <CardTitle className="text-base">Andamentos Administrativos</CardTitle>
               <CardDescription>Movimentações vinculadas a processos do INSS.</CardDescription>
             </div>
-            {isInterno && (
+            {isInterno && pode("casos:editar") && (
               <Button
                 size="sm"
                 onClick={() => abrirNovoTipo("admin")}
@@ -3553,7 +3559,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                   {abertoSemProcessoAdmin && (
                     <div className="border-t">
                       {/* Barra de transferencia */}
-                      {isInterno && (
+                      {isInterno && pode("casos:editar") && (
                         <div className="bg-muted/30 p-3 border-b flex items-end gap-2 flex-wrap">
                           <div className="flex-1 min-w-[200px]">
                             <Label className="text-xs">Transferir selecionados para</Label>
@@ -3620,7 +3626,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                             }
                           >
                             <div className="flex items-start gap-2">
-                              {isInterno && (
+                              {isInterno && pode("casos:editar") && (
                                 <input
                                   type="checkbox"
                                   checked={selecionadosSemProc.has(a.id)}
@@ -3651,7 +3657,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                 <CardTitle className="text-base">Andamentos Judiciais</CardTitle>
                 <CardDescription>Movimentações vinculadas a processos judiciais.</CardDescription>
               </div>
-              {isInterno && (
+              {isInterno && pode("casos:editar") && (
                 <Button
                   size="sm"
                   onClick={() => abrirNovoTipo("judicial")}
@@ -3698,7 +3704,7 @@ function TabAndamentos(props: TabAndamentosProps) {
           </CardHeader>
           <CardContent>
             {/* Barra de transferencia */}
-            {isInterno && (processosAdmin.length > 0 || processosJudiciais.length > 0) && (
+            {isInterno && pode("casos:editar") && (processosAdmin.length > 0 || processosJudiciais.length > 0) && (
               <div className="bg-muted/30 p-3 border rounded-md mb-3 flex items-end gap-2 flex-wrap">
                 <div className="flex-1 min-w-[200px]">
                   <Label className="text-xs">Transferir selecionados para</Label>
@@ -3745,7 +3751,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                   }
                 >
                   <div className="flex items-start gap-2">
-                    {isInterno && (
+                    {isInterno && pode("casos:editar") && (
                       <input
                         type="checkbox"
                         checked={selecionadosGerais.has(a.id)}
@@ -3763,7 +3769,7 @@ function TabAndamentos(props: TabAndamentosProps) {
       )}
 
       {/* ---- Dialog Novo andamento (unificado, controlado por tipoDialogoNovo) ---- */}
-      {isInterno && (
+      {isInterno && pode("casos:editar") && (
         <Dialog
           open={tipoDialogoNovo !== null}
           onOpenChange={(open) => {
@@ -3860,7 +3866,7 @@ function TabAndamentos(props: TabAndamentosProps) {
       )}
 
       {/* ---- Dialog Editar andamento ---- */}
-      {isInterno && (
+      {isInterno && pode("casos:editar") && (
         <Dialog
           open={editando !== null}
           onOpenChange={(open) => {
@@ -3971,7 +3977,7 @@ function TabDocumentos(props: TabDocumentosProps) {
   } = props;
   const foco = useFocoItem(focoId);
   // Usuario logado (usado pelo preview do parceiro para watermark)
-  const { usuario } = useAuth();
+  const { usuario, pode } = useAuth();
 
   // Modal para coletar motivo (dispensa ou atendimento)
   const [acaoAlvo, setAcaoAlvo] = useState<{
@@ -5194,7 +5200,7 @@ function TabDocumentos(props: TabDocumentosProps) {
               )}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              {isInterno && lista.length > 0 && (
+              {isInterno && pode("documentos:enviar") && lista.length > 0 && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -5228,7 +5234,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                 </DropdownMenu>
               )}
               {/* Numerar documentos sem prefixo (ordem de categoria) */}
-              {isInterno &&
+              {isInterno && pode("documentos:enviar") &&
                 (() => {
                   const semNumeroCount = documentos.filter(
                     (d) => !d.pasta_relativa && prefixoNumerico(d.nome_arquivo) === null,
@@ -5257,7 +5263,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                   );
                 })()}
               {/* Botoes de Drive: vincular pasta / sync / importar avulso */}
-              {isInterno && isGoogleDriveConfigured() && gdriveFolderId && (
+              {isInterno && pode("documentos:enviar") && isGoogleDriveConfigured() && gdriveFolderId && (
                 <Button
                   size="sm"
                   variant="outline"
@@ -5290,7 +5296,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                   )}
                 </Button>
               )}
-              {isInterno && isGoogleDriveConfigured() && gdriveFolderId && (
+              {isInterno && pode("documentos:enviar") && isGoogleDriveConfigured() && gdriveFolderId && (
                 (() => {
                   const semId = documentos.filter(
                     (d) => !d.gdrive_file_id,
@@ -5332,7 +5338,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                   );
                 })()
               )}
-              {isInterno && isGoogleDriveConfigured() && !gdriveFolderId && (
+              {isInterno && pode("documentos:enviar") && isGoogleDriveConfigured() && !gdriveFolderId && (
                 <Button
                   size="sm"
                   variant="outline"
@@ -5348,7 +5354,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                   Vincular pasta
                 </Button>
               )}
-              {isInterno && isGoogleDriveConfigured() && (
+              {isInterno && pode("documentos:enviar") && isGoogleDriveConfigured() && (
                 <Button
                   size="sm"
                   variant="outline"
@@ -5463,7 +5469,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                       }
                     >
                       <div className="flex items-center gap-3 min-w-0">
-                        {isInterno && (
+                        {isInterno && pode("documentos:excluir") && (
                           <input
                             type="checkbox"
                             checked={docsSelecionados.has(d.id)}
@@ -5502,7 +5508,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                         </Button>
                         {/* Interno: toggle de autorizacao pro parceiro baixar.
                           Padrao = nao baixa; equipe libera por doc. */}
-                        {isInterno && (
+                        {isInterno && pode("documentos:enviar") && (
                           <Button
                             size="sm"
                             variant={d.download_parceiro ? "secondary" : "outline"}
@@ -5532,7 +5538,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                             Baixar
                           </Button>
                         )}
-                        {isInterno && (
+                        {isInterno && pode("documentos:enviar") && (
                           <Button
                             size="sm"
                             variant="ghost"
@@ -5543,7 +5549,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                             <Pencil className="h-4 w-4" />
                           </Button>
                         )}
-                        {isInterno && (
+                        {isInterno && pode("documentos:excluir") && (
                           <Button
                             size="sm"
                             variant="ghost"
@@ -6046,7 +6052,7 @@ function TabDocumentos(props: TabDocumentosProps) {
         </DialogContent>
       </Dialog>
       {/* Dialog do Google Drive Picker (interno only). */}
-      {isInterno && (
+      {isInterno && pode("documentos:enviar") && (
         <DrivePickerDialog
           arquivosSelecionados={drivePicked?.files ?? null}
           accessToken={drivePicked?.accessToken ?? ""}
@@ -7539,6 +7545,8 @@ interface ResultadoBuscaLM {
 }
 
 function TabProcessos(props: TabProcessosProps) {
+  // acoes de escrita dependem da permissao do vinculo (RBAC), nao do modo interno
+  const { pode } = useAuth();
   const tiposBeneficio = useTiposBeneficio();
   const {
     casoId,
@@ -8141,7 +8149,7 @@ function TabProcessos(props: TabProcessosProps) {
                 </p>
               )}
             </div>
-            {isInterno && (
+            {isInterno && pode("casos:editar") && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0">
@@ -8203,7 +8211,7 @@ function TabProcessos(props: TabProcessosProps) {
               <CardTitle className="text-base">Processos administrativos</CardTitle>
               <CardDescription>Requerimentos protocolados no INSS.</CardDescription>
             </div>
-            {isInterno && (
+            {isInterno && pode("casos:editar") && (
               <Button size="sm" onClick={() => abrirNovoAdmin()}>
                 <Plus className="h-4 w-4 mr-2" />
                 Novo
@@ -8331,7 +8339,7 @@ function TabProcessos(props: TabProcessosProps) {
               <CardDescription>Ações ajuizadas relacionadas ao caso.</CardDescription>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              {isInterno && (
+              {isInterno && pode("casos:editar") && (
                 <Button
                   size="sm"
                   variant="outline"
@@ -8344,7 +8352,7 @@ function TabProcessos(props: TabProcessosProps) {
                   Buscar no Legalmail
                 </Button>
               )}
-              {isInterno && (
+              {isInterno && pode("casos:editar") && (
                 <Button size="sm" onClick={() => abrirNovoJud()}>
                   <Plus className="h-4 w-4 mr-2" />
                   Novo

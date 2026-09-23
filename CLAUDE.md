@@ -114,6 +114,11 @@ o sistema em produção. Quando chegar, vale o seguinte:
   gatilho pro código antigo, mas nenhuma decisão de acesso deve ler deles. No front:
   `const { pode, escritorio, vinculos } = useAuth()`; `pode("casos:editar")`. No SQL:
   `tem_permissao('casos:editar')`, `is_admin()`, `is_interno()` (todos sobre o vínculo ativo).
+- **Telas** (desde 2026-09-23): botão/menu de escrita aparece só com `isInterno && pode("x:y")`
+  — o `isInterno` fica porque a tela do parceiro é outra (ramos `!isInterno`) e o papel parceiro
+  também tem `casos:editar`. Página de gestão (Comercial, Etiquetas, Parceiros, Processos, Novo
+  caso, Publicações) confere a permissão além do tipo e devolve para /casos ou mostra "Área
+  restrita a quem gerencia…". Prova: `e2e/tests/rbac-telas.spec.ts`.
 - **Tabela nova de domínio** precisa de `escritorio_id not null` + FK + policy restritiva
   `isolamento_escritorio` + gatilho `aa_herdar_escritorio` — a `migration_rbac_02` é o
   molde (`private.tabelas_de_dominio()` lista quem fica de fora e por quê).

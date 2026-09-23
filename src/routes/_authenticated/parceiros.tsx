@@ -366,11 +366,11 @@ function ParceirosPage() {
   const isInterno = usuario?.tipo === "interno";
 
   useEffect(() => {
-    if (usuario && !isInterno) {
-      toast.error("Acesso restrito à equipe interna.");
+    if (usuario && (!isInterno || !pode("parceiros:gerenciar"))) {
+      toast.error("Acesso restrito a quem gerencia parceiros.");
       navigate({ to: "/casos" });
     }
-  }, [usuario, isInterno, navigate]);
+  }, [usuario, isInterno, pode, navigate]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),

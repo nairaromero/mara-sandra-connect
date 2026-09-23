@@ -300,8 +300,31 @@ admin. Quem vê e revoga: o dono e o emissor — outro admin não vê.
 
 
 
+### Q. A tela só oferece o que o papel pode (limpeza fina dos botões)
+
+O banco já barrava tudo isto desde a Fase 5; o que muda é que a tela deixou de oferecer o botão que ia
+falhar. Regra: ação de escrita aparece só com `isInterno && pode("permissão")`; página de gestão confere a
+permissão além do tipo. Nada mudou para o parceiro (a tela dele é outra).
+
+- [ ] Como `canario+financeiro` (só `casos:ler` + `repasses:ler`) → abrir o caso do **Kleber**: sem o menu
+      "Ações do caso" (⋯), sem Telefone/E-mail do cliente, sem bloco da senha do INSS, sem "Excluir cliente";
+      aba Documentos sem envio, renomear ou lixeira; aba Processos sem "Novo" (administrativo e judicial), sem o
+      menu ⋯ de cada processo e sem a busca no Legalmail. Como `canario+advogado` tudo isso volta.
+- [ ] Ainda como financeiro: **/comercial** e **/etiquetas** mostram "Área restrita a quem gerencia…";
+      **/processos**, **/casos/novo**, **/publicacoes** e **/parceiros** devolvem para /casos; **Agenda** abre,
+      mas sem "Novo evento"; **Clientes** sem o botão "Perícia" na linha.
+- [ ] Como `canario+assistente`: no caso do Kleber há "Ações do caso", Telefone, envio e renomear de documento
+      — mas **não** a lixeira do documento (`documentos:excluir` é de advogado/admin). /comercial e /etiquetas
+      fecham; /processos abre.
+- [ ] Como `canario+advogado`: Publicações → "Vincular" aparece; Etiquetas e Comercial abrem. Como
+      `canario+parceiro`: nada diferente de antes (nenhum botão interno vazou para a tela do parceiro).
+
+
+
+### I. Provas automáticas (rodar e conferir os números)
+
 ```bash
-bun run e2e:local                                         # suíte inteira: 116 testes (1 pulado no local: assunto do convite)
+bun run e2e:local                                         # suíte inteira: 119 testes (1 pulado no local: assunto do convite)
 bun run e2e:local e2e/tests/rbac-isolamento.spec.ts       # 16 ataques entre os dois escritórios
 bun run e2e:local e2e/tests/rbac-edge-functions.spec.ts   # 7 ataques nas edge functions
 bun run e2e:local e2e/tests/glossario.spec.ts             # 3: busca, permissões do banco, parceiro
@@ -313,9 +336,10 @@ bun run e2e:local e2e/tests/marca-escritorio.spec.ts       # 3: nome/cor/logo pe
 bun run e2e:local e2e/tests/mfa.spec.ts                   # 2: código no login e desativar em Segurança; QG exige AAL2 (cadastro pela tela, código TOTP calculado na spec)
 bun run e2e:local e2e/tests/mcp-terceiro.spec.ts          # 4: emitir para parceiro/assistente (MCP roda como o dono), não-admin não emite, dono/emissor veem, revogar e emissor rebaixado
 bun run e2e:local e2e/tests/marca-legal-connect.spec.ts   # 2: marca do produto no login/QG/rodapé; marca do escritório no topo
+bun run e2e:local e2e/tests/rbac-telas.spec.ts            # 3: financeiro, assistente e advogado no mesmo caso — a tela oferece só o que o papel pode
 ```
 
-- [ ] 116 passam. Os 23 do RBAC são ataques via API com a sessão real de cada papel: header
+- [ ] 119 passam. Os 23 do RBAC são ataques via API com a sessão real de cada papel: header
       forjado, filho apontando para pai de outro escritório (inclusive com service role), RPC
       com id alheio, vínculo desativado com o JWT ainda válido, staff lendo tabela de domínio,
       suporte escrevendo, eliminação sem segunda pessoa.

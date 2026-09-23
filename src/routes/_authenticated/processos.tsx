@@ -117,7 +117,7 @@ function diasDesde(iso: string | null): number | null {
 }
 
 function ProcessosPage() {
-  const { usuario } = useAuth();
+  const { usuario, pode } = useAuth();
   const isInterno = usuario?.tipo === "interno";
   const navigate = useNavigate();
 
@@ -134,8 +134,8 @@ function ProcessosPage() {
 
   // Parceiro não tem visão global — volta pra home dele.
   useEffect(() => {
-    if (usuario && !isInterno) navigate({ to: "/casos" });
-  }, [usuario, isInterno, navigate]);
+    if (usuario && (!isInterno || !pode("processos:ler"))) navigate({ to: "/casos" });
+  }, [usuario, isInterno, pode, navigate]);
 
   const carregar = useCallback(async () => {
     setCarregando(true);

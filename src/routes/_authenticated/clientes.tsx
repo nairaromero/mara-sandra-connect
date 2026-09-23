@@ -950,7 +950,7 @@ function ClientesPage() {
                             </TableCell>
                             <TableCell>
                               <div className="flex items-center gap-1 justify-end">
-                                {isInterno && casoMaisRecente && (
+                                {pode("agenda:gerenciar") && casoMaisRecente && (
                                   <Button
                                     size="sm"
                                     variant="ghost"

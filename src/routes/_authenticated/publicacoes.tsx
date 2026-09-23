@@ -94,7 +94,7 @@ function labelMes(key: string): string {
 }
 
 function PublicacoesPage() {
-  const { usuario } = useAuth();
+  const { usuario, pode } = useAuth();
   const isInterno = usuario?.tipo === "interno";
   const [pubs, setPubs] = useState<Array<PubView>>([]);
   const jaCarregouRef = useRef(false);
@@ -108,6 +108,10 @@ function PublicacoesPage() {
 
   // --- Triagem manual: vincular publicação órfã a um caso (interno) ---------
   const navigate = useNavigate();
+  // sem publicacoes:ler (financeiro) o banco devolve zero: manda pra home
+  useEffect(() => {
+    if (usuario && !pode("publicacoes:ler")) navigate({ to: "/casos" });
+  }, [usuario, pode, navigate]);
   const [vincularPub, setVincularPub] = useState<PubView | null>(null);
   const [casoOpcoes, setCasoOpcoes] = useState<Array<CasoOption>>([]);
   const [carregandoCasos, setCarregandoCasos] = useState(false);
@@ -436,7 +440,7 @@ function PublicacoesPage() {
                 </Button>
               )}
             </div>
-            {!vinculada && isInterno && (
+            {!vinculada && isInterno && pode("casos:editar") && (
               <Button size="sm" variant="outline" onClick={() => abrirVincular(p)}>
                 <Link2 className="h-4 w-4 mr-1.5" />
                 Vincular a um caso

@@ -76,7 +76,7 @@ function hora(iso: string | null): string {
 }
 
 function MovimentacoesPage() {
-  const { usuario } = useAuth();
+  const { usuario, pode } = useAuth();
   const isInterno = usuario?.tipo === "interno";
   const navigate = useNavigate();
 
@@ -92,8 +92,8 @@ function MovimentacoesPage() {
   const [analisando, setAnalisando] = useState(false);
 
   useEffect(() => {
-    if (usuario && !isInterno) navigate({ to: "/casos" });
-  }, [usuario, isInterno, navigate]);
+    if (usuario && (!isInterno || !pode("processos:ler"))) navigate({ to: "/casos" });
+  }, [usuario, isInterno, pode, navigate]);
 
   const carregar = useCallback(async () => {
     if (jaCarregouRef.current) setCarregandoPagina(true);
