@@ -22,10 +22,16 @@ const GMAIL_CLIENT_SECRET = Deno.env.get("GMAIL_CLIENT_SECRET") ?? "";
 const GMAIL_REDIRECT_URI = Deno.env.get("GMAIL_REDIRECT_URI") ?? "";
 const APP_BASE_URL = Deno.env.get("APP_BASE_URL") ?? "";
 const STATE_TTL_SECONDS = 15 * 60;
+// Sobrescritos so no ambiente LOCAL (mock de e2e/demo/mocks); fora dele, Google.
+const GOOGLE_TOKEN_URL = Deno.env.get("GOOGLE_TOKEN_URL") ?? "https://oauth2.googleapis.com/token";
+const GMAIL_API_BASE = (Deno.env.get("GMAIL_API_BASE") ?? "https://gmail.googleapis.com/gmail/v1").replace(/\/+$/, "");
 
 function redirectBack(motivo: "ok" | "error", detalhe?: string): Response {
   const base = APP_BASE_URL || "/";
   const url = new URL("/configuracoes", base);
+  // Configuracoes tem abas desde 2026-09-14: sem `tab` a pessoa caia no Perfil,
+  // longe do card do Gmail (e do toast de resultado).
+  url.searchParams.set("tab", "integracoes");
   url.searchParams.set("gmail", motivo);
   if (detalhe) url.searchParams.set("motivo", detalhe);
   return new Response(null, {
@@ -74,7 +80,7 @@ serve(async (req) => {
     redirect_uri: GMAIL_REDIRECT_URI,
     grant_type: "authorization_code",
   });
-  const r = await fetchT("https://oauth2.googleapis.com/token", {
+  const r = await fetchT(GOOGLE_TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
@@ -106,7 +112,7 @@ serve(async (req) => {
   let emailConectado = "";
   try {
     const pr = await fetchT(
-      "https://gmail.googleapis.com/gmail/v1/users/me/profile",
+      `${GMAIL_API_BASE}/users/me/profile`,
       { headers: { Authorization: `Bearer ${tok.access_token}` } },
     );
     if (pr.ok) {

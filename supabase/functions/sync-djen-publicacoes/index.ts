@@ -37,7 +37,8 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { escopado, escritorioDoSistema, exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
 
-const COMUNICA_BASE = "https://comunicaapi.pje.jus.br/api/v1";
+// COMUNICA_BASE_URL so existe no ambiente LOCAL (mock de e2e/demo/mocks); fora dele e a API real.
+const COMUNICA_BASE = (Deno.env.get("COMUNICA_BASE_URL") ?? "https://comunicaapi.pje.jus.br/api/v1").replace(/\/+$/, "");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 

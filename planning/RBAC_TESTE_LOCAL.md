@@ -336,6 +336,37 @@ permissão além do tipo. Nada mudou para o parceiro (a tela dele é outra).
 
 
 
+### R. Filme do lote e provedores simulados (mocks locais)
+
+Um filme único, gravado no ambiente local, percorre os seis itens com narração — um ato por item, um clipe por
+papel. Os provedores externos são **simulados** por `e2e/demo/mocks/provedores.cjs` (porta 8787): Evolution
+(WhatsApp), Comunica/DJEN, Google OAuth + Gmail, Resend (com caixa de entrada visível) e um "Claude simulado"
+que mostra o que o MCP devolveu. O contrato é o mesmo do provedor real: se ele responder no mesmo formato, a
+function se comporta igual — é isso que o mock prova sem chave de ninguém.
+
+```bash
+node e2e/demo/mocks/provedores.cjs                 # mocks em http://localhost:8787 (deixe rodando)
+# supabase/functions/.env (gitignorado) precisa das linhas abaixo; depois `bunx supabase stop && bunx supabase start`
+#   GMAIL_CLIENT_ID=mock-client-id   GMAIL_CLIENT_SECRET=mock-client-secret
+#   GMAIL_REDIRECT_URI=http://127.0.0.1:55321/functions/v1/gmail-oauth-callback   APP_BASE_URL=http://localhost:8080
+#   GOOGLE_OAUTH_AUTH_URL=http://localhost:8787/o/oauth2/v2/auth   GOOGLE_TOKEN_URL=http://host.docker.internal:8787/token
+#   GMAIL_API_BASE=http://host.docker.internal:8787/gmail/v1       COMUNICA_BASE_URL=http://host.docker.internal:8787/api/v1
+#   RESEND_BASE_URL=http://host.docker.internal:8787/resend        RESEND_API_KEY=re_mock_local
+bun run dev:local                                  # app em :8080
+node e2e/demo/roteiros/lote-rbac-local.cjs         # grava tudo (ATOS=2,6 grava só esses atos); limpa no fim e roda o seed
+```
+
+- [ ] Saída em `e2e/demo/saida/lote-rbac-local/` (gitignorada): `video/ato*.webm` + `stills/*.png` — conferir os
+      stills antes de assistir. Montagem em MP4 único: ver `.claude/skills/video-demo/SKILL.md`.
+- [ ] Os mocks só existem no local: as variáveis `*_BASE_URL` não vão para o staging nem para a produção (lá as
+      functions usam o endereço real, que é o padrão no código).
+- [ ] Bugs que o filme achou e já estão corrigidos neste lote: o callback do Gmail voltava para Configurações sem a
+      aba Integrações (a pessoa caía no Perfil, sem o card nem o toast); o `inss-email-processor` falhava em toda
+      mensagem com "token is not defined" depois da refatoração por escritório (o token do Gmail ficou fora do
+      escopo do laço).
+
+
+
 ### I. Provas automáticas (rodar e conferir os números)
 
 ```bash

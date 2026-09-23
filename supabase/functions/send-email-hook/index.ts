@@ -22,6 +22,9 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { Webhook } from "https://esm.sh/standardwebhooks@1.0.0";
 import { fetchT } from "../_shared/auth.ts";
 
+// RESEND_BASE_URL so existe no ambiente LOCAL (mock de e2e/demo/mocks); fora dele e o Resend.
+const RESEND_BASE = (Deno.env.get("RESEND_BASE_URL") ?? "https://api.resend.com").replace(/\/+$/, "");
+
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const HOOK_SECRET = Deno.env.get("SEND_EMAIL_HOOK_SECRET") || "";
 const FROM_EMAIL = "Legal Connect <noreply@marasandraconnect.com>";
@@ -180,7 +183,7 @@ serve(async (req) => {
 
   const { subject, html } = buildEmail(data.email_data, data.user.user_metadata ?? {});
 
-  const resp = await fetchT("https://api.resend.com/emails", {
+  const resp = await fetchT(`${RESEND_BASE}/emails`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${RESEND_API_KEY}`,

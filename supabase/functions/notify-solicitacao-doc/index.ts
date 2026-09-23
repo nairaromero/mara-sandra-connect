@@ -33,6 +33,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { exigirRecurso, exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
 import { marcaDoEscritorio, remetente, type MarcaEscritorio } from "../_shared/marca.ts";
 
+// RESEND_BASE_URL so existe no ambiente LOCAL (mock de e2e/demo/mocks); fora dele e o Resend.
+const RESEND_BASE = (Deno.env.get("RESEND_BASE_URL") ?? "https://api.resend.com").replace(/\/+$/, "");
+
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
@@ -372,7 +375,7 @@ serve(async (req) => {
   });
 
   // Envia via Resend API REST
-  const resp = await fetchT("https://api.resend.com/emails", {
+  const resp = await fetchT(`${RESEND_BASE}/emails`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${RESEND_API_KEY}`,

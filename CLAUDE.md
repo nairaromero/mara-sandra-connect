@@ -119,6 +119,11 @@ o sistema em produção. Quando chegar, vale o seguinte:
   também tem `casos:editar`. Página de gestão (Comercial, Etiquetas, Parceiros, Processos, Novo
   caso, Publicações) confere a permissão além do tipo e devolve para /casos ou mostra "Área
   restrita a quem gerencia…". Prova: `e2e/tests/rbac-telas.spec.ts`.
+- **Provedores simulados no local** (`e2e/demo/mocks/provedores.cjs`, porta 8787): Evolution, Comunica/DJEN,
+  Google OAuth + Gmail, Resend e "Claude simulado". As functions leem a base por env só quando definida
+  (`COMUNICA_BASE_URL`, `GOOGLE_OAUTH_AUTH_URL`, `GOOGLE_TOKEN_URL`, `GMAIL_API_BASE`, `RESEND_BASE_URL`);
+  sem a variável, endereço real. Essas variáveis ficam SÓ no `supabase/functions/.env` local — nunca em
+  segredo de staging/produção. Filme do lote: `node e2e/demo/roteiros/lote-rbac-local.cjs` (seção R do guia).
 - **Tabela nova de domínio** precisa de `escritorio_id not null` + FK + policy restritiva
   `isolamento_escritorio` + gatilho `aa_herdar_escritorio` — a `migration_rbac_02` é o
   molde (`private.tabelas_de_dominio()` lista quem fica de fora e por quê).

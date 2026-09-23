@@ -51,6 +51,10 @@ import { decryptSecret } from "../_shared/crypto.ts";
 import { chatWith } from "../_shared/ia-providers.ts";
 import { carregarIntegracao, type IntegracaoIA } from "../_shared/ia-integracao.ts";
 
+// Sobrescritos so no ambiente LOCAL (mock de e2e/demo/mocks); fora dele, Google.
+const GOOGLE_TOKEN_URL = Deno.env.get("GOOGLE_TOKEN_URL") ?? "https://oauth2.googleapis.com/token";
+const GMAIL_API_BASE = (Deno.env.get("GMAIL_API_BASE") ?? "https://gmail.googleapis.com/gmail/v1").replace(/\/+$/, "");
+
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const GMAIL_CLIENT_ID = Deno.env.get("GMAIL_CLIENT_ID") ?? "";
@@ -137,7 +141,7 @@ async function obterAccessToken(sb: SupabaseClient, escritorioId: string): Promi
     refresh_token: refreshToken,
     grant_type: "refresh_token",
   });
-  const r = await fetchT("https://oauth2.googleapis.com/token", {
+  const r = await fetchT(GOOGLE_TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
@@ -168,7 +172,7 @@ async function gmailListMessages(
   maxResults: number,
 ): Promise<string[]> {
   const url = new URL(
-    `https://gmail.googleapis.com/gmail/v1/users/${encodeURIComponent(userEmail)}/messages`,
+    `${GMAIL_API_BASE}/users/${encodeURIComponent(userEmail)}/messages`,
   );
   url.searchParams.set("q", query);
   url.searchParams.set("maxResults", String(maxResults));
@@ -195,7 +199,7 @@ async function gmailGetMessage(
   id: string,
 ): Promise<GmailMessage> {
   const url =
-    `https://gmail.googleapis.com/gmail/v1/users/${encodeURIComponent(userEmail)}/messages/${id}?format=full`;
+    `${GMAIL_API_BASE}/users/${encodeURIComponent(userEmail)}/messages/${id}?format=full`;
   const r = await fetchT(url, { headers: { Authorization: `Bearer ${token}` } });
   if (!r.ok) {
     throw new Error(`Gmail get(${id}) falhou: ${r.status} ${await r.text()}`);
@@ -1259,7 +1263,7 @@ serve(async (req) => {
     if (!lookups.nairaUsuarioId) {
       throw new Error("nenhum administrador ativo no escritório — pré-condição falhou");
     }
-    return { sb: sbEsc, query, ids, lookups };
+    return { sb: sbEsc, query, ids, lookups, token, gmailAddress };
   }
 
   try {
@@ -1272,7 +1276,7 @@ serve(async (req) => {
         porEscritorio.push({ escritorio_id: escritorioId, error: String(e) });
         continue;
       }
-      const { sb: sbEsc, query, ids, lookups } = prep;
+      const { sb: sbEsc, query, ids, lookups, token, gmailAddress } = prep;
       const sb = sbEsc;
 
     const resultados: ProcessamentoResultado[] = [];

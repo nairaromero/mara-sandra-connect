@@ -89,6 +89,8 @@ serve(async (req) => {
     state,
   });
 
-  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+  // GOOGLE_OAUTH_AUTH_URL so existe no ambiente LOCAL (mock); fora dele e o Google.
+  const authBase = Deno.env.get("GOOGLE_OAUTH_AUTH_URL") ?? "https://accounts.google.com/o/oauth2/v2/auth";
+  const authUrl = `${authBase}?${params.toString()}`;
   return jsonResponse({ auth_url: authUrl });
 });
