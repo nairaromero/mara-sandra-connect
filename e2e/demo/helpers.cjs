@@ -168,7 +168,14 @@ async function abrirEstudio(nomeRoteiro) {
   fs.mkdirSync(videoDir, { recursive: true });
   fs.mkdirSync(stillDir, { recursive: true });
 
-  const browser = await chromium.launch({ slowMo: 350 });
+  // DEMO_RESOLVER: regra de resolução para o Chromium (ex.: "MAP host 1.2.3.4").
+  // Serve quando o host EXISTE no servidor mas o DNS público ainda não publicou
+  // — foi o caso do QG de staging no dia do merge: worker e certificado no ar,
+  // registro recém-criado. A URL na tela continua a real.
+  const browser = await chromium.launch({
+    slowMo: 350,
+    args: process.env.DEMO_RESOLVER ? [`--host-resolver-rules=${process.env.DEMO_RESOLVER}`] : [],
+  });
   const contexts = [];
 
   return {
