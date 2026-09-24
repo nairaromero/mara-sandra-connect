@@ -74,9 +74,10 @@ Conferir: `select count(*) from escritorios` = 1 (padrão), `select count(*) fro
   "integração WhatsApp não configurada neste escritório" em vez de enviar. O staging não manda WhatsApp real,
   e sem pg_cron a function nem roda sozinha. Quem quiser exercitar envio no staging cadastra a credencial
   pela tela de Integrações, por escritório.
-- `APP_BASE_URL` existe mas **não** é `https://staging.marasandraconnect.com` (hash não bate com essa nem com a
-  de produção nem com ~20 variações). Como ela monta os links dos e-mails de notificação, conferir o valor no
-  painel (Edge Functions → Secrets) e corrigir antes de exercitar e-mail no staging. Pendente.
+- `APP_BASE_URL`: estava com um terceiro valor (nem o de staging nem o de produção). **Corrigida pela Naira em
+  24/09/2026** para `https://staging.marasandraconnect.com`, confirmado por hash. Ela monta os links dos e-mails
+  de aviso, o link de login do convite de parceiro e a volta do OAuth do Gmail. Em produção o valor é
+  `https://marasandraconnect.com` (também confirmado por hash) e não foi tocado.
 - Extras fora do plano, inofensivos: `TRELLO_API_KEY`, `TRELLO_TOKEN`, `TRELLO_LISTA_ID`.
 
 ### 2.3 Deploy das functions (uma por vez; nunca `--no-verify-jwt`)
