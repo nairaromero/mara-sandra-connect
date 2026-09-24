@@ -1516,7 +1516,7 @@ function CasoHeader(props: CasoHeaderProps) {
           )}
         </div>
         {/* Linha 2: etiquetas do cliente (editáveis pelo interno via popover). */}
-        <EtiquetasCliente clienteId={cliente.id} isInterno={isInterno} />
+        <EtiquetasCliente clienteId={cliente.id} isInterno={isInterno} podeEditar={isInterno && pode("casos:editar")} />
         {/* Linha 3: nascimento/idade, CPF e senha MEU INSS à mão (copiáveis). */}
         <IdentidadeClienteLinha cliente={cliente} isInterno={isInterno} />
       </CardHeader>
@@ -1933,10 +1933,13 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
           <CardHeader>
             <div className="flex items-center justify-between gap-2">
               <CardTitle className="text-base">Dados do cliente</CardTitle>
-              <Button size="sm" variant="outline" onClick={abrirDialogCliente}>
-                <Pencil className="h-3.5 w-3.5 mr-1" />
-                Editar
-              </Button>
+              {/* editar o cliente escreve em `clientes` (policy: casos:editar) */}
+              {isInterno && pode("casos:editar") && (
+                <Button size="sm" variant="outline" onClick={abrirDialogCliente}>
+                  <Pencil className="h-3.5 w-3.5 mr-1" />
+                  Editar
+                </Button>
+              )}
             </div>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">

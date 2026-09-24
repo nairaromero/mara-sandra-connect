@@ -92,6 +92,12 @@ test.describe.serial("telas: só o que o papel pode", () => {
     await expect(page.getByText(/^\s*Telefone:\s*$/), "sem clientes:ler_contato não há telefone").toHaveCount(0);
     await expect(page.getByText(/^\s*E-mail:\s*$/)).toHaveCount(0);
     await expect(page.getByText(/Senha MEU INSS/), "sem senha_inss:ler não há bloco da senha").toHaveCount(0);
+    // Escrevem em `clientes` e `clientes_etiquetas`, cujas policies exigem
+    // casos:editar — a tela não pode oferecer o que o banco vai recusar
+    // (os dois escaparam da primeira limpeza e apareceram no filme do staging).
+    await expect(page.getByRole("button", { name: "Editar", exact: true }), "sem casos:editar não edita o cliente").toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^Etiqueta$/ }), "sem casos:editar não vincula etiqueta").toHaveCount(0);
+    await expect(page.locator('[title="Remover etiqueta"]')).toHaveCount(0);
 
     await page.goto(`/casos/${CASO}?tab=documentos`);
     await expect(page.getByRole("tab", { name: /Documentos/ })).toHaveAttribute("data-state", "active");
@@ -147,6 +153,11 @@ test.describe.serial("telas: só o que o papel pode", () => {
     await page.goto(`/casos/${CASO}?tab=documentos`);
     await expect(page.getByText(NOME_DOC)).toBeVisible();
     await expect(page.locator('[aria-label="Deletar documento"]').first()).toBeVisible();
+
+    // contraprova do financeiro: com casos:editar, os dois botões estão lá
+    await page.goto(`/casos/${CASO}`);
+    await expect(page.getByRole("button", { name: "Editar", exact: true }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Etiqueta$/ })).toBeVisible();
 
     await page.goto("/etiquetas");
     await expect(page).toHaveURL(/\/etiquetas$/);

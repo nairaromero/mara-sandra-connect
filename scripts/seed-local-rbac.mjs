@@ -22,6 +22,7 @@
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 import { createClient } from "@supabase/supabase-js";
+import { createHmac } from "node:crypto";
 
 // --staging: mesmas contas e o mesmo Canário no projeto de STAGING (chaves do
 // .env.local); o espelho semanal chama assim no fim. Sem a flag, pilha local.
@@ -32,8 +33,15 @@ const st = STAGING
   : JSON.parse(execSync("bunx supabase status -o json", { stdio: ["ignore", "pipe", "ignore"] }).toString());
 if (STAGING && (!st.ANON_KEY || !st.SERVICE_ROLE_KEY)) { console.error("--staging precisa de STAGING_PUBLISHABLE_KEY e STAGING_SERVICE_ROLE_KEY no .env.local"); process.exit(1); }
 const API = st.API_URL;
-if (!/^http:\/\/(127\.0\.0\.1|localhost):/.test(API)) {
+// Sem --staging o alvo TEM de ser a pilha local: o seed grava muita coisa e um
+// engano de flag não pode cair em nuvem nenhuma. Com --staging, o alvo é o
+// projeto de staging (nunca produção, cujo ref é outro).
+if (!STAGING && !/^http:\/\/(127\.0\.0\.1|localhost):/.test(API)) {
   console.error(`alvo não é o Supabase local: ${API}`);
+  process.exit(1);
+}
+if (STAGING && !API.includes("alhqbpbekmxpoibrrnbi")) {
+  console.error(`--staging aponta para outro projeto: ${API}`);
   process.exit(1);
 }
 const SENHA = fs.readFileSync(".env.local", "utf8").match(/^STAGING_SYNTH_PASSWORD=(.*)$/m)?.[1]?.replace(/^"|"$/g, "").trim();
@@ -107,6 +115,37 @@ async function sessaoDe(conta, escritorioId) {
   return sb;
 }
 
+// ---- TOTP (RFC 6238), igual ao da spec mfa e do filme ----
+function base32Decode(str) {
+  const alf = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let bits = ""; const out = [];
+  for (const ch of str.replace(/=+$/, "").toUpperCase()) { const v = alf.indexOf(ch); if (v < 0) continue; bits += v.toString(2).padStart(5, "0"); }
+  for (let i = 0; i + 8 <= bits.length; i += 8) out.push(parseInt(bits.slice(i, i + 8), 2));
+  return Buffer.from(out);
+}
+function totp(secret, agora = Date.now()) {
+  const buf = Buffer.alloc(8); buf.writeBigUInt64BE(BigInt(Math.floor(agora / 1000 / 30)));
+  const h = createHmac("sha1", base32Decode(secret)).update(buf).digest();
+  const o = h[h.length - 1] & 0xf;
+  return ((((h[o] & 0x7f) << 24) | (h[o + 1] << 16) | (h[o + 2] << 8) | h[o + 3]) % 1_000_000).toString().padStart(6, "0");
+}
+
+// No staging o QG exige AAL2 (migration_rbac_11) e a sessão de senha nasce AAL1:
+// as funções `qg_*` recusam antes de qualquer coisa. Cadastra um autenticador
+// descartável, eleva a sessão e o remove no fim — a conta volta a ficar SEM
+// fator, que é como o filme e o primeiro acesso de verdade a encontram.
+async function elevarQg(sb) {
+  const { data: lista } = await sb.auth.mfa.listFactors();
+  for (const f of lista?.all ?? []) await sb.auth.mfa.unenroll({ factorId: f.id });
+  const en = await sb.auth.mfa.enroll({ factorType: "totp", friendlyName: "seed" });
+  falha("mfa.enroll (QG)", en.error);
+  const ch = await sb.auth.mfa.challenge({ factorId: en.data.id });
+  falha("mfa.challenge (QG)", ch.error);
+  const vf = await sb.auth.mfa.verify({ factorId: en.data.id, challengeId: ch.data.id, code: totp(en.data.totp.secret) });
+  falha("mfa.verify (QG)", vf.error);
+  return async () => { await sb.auth.mfa.unenroll({ factorId: en.data.id }); };
+}
+
 const TERMOS = /TERMOS_VERSAO = "([^"]+)"/.exec(fs.readFileSync("src/lib/legal/termos.ts", "utf8"))?.[1] ?? null;
 
 function cpfValido(semente) {
@@ -143,6 +182,8 @@ log("QG: 2 donos + 1 suporte");
 
 // 2. Escritório canário, criado PELO QG.
 const qg = await sessaoDe(CONTAS.qgDono);
+const baixarQg = STAGING ? await elevarQg(qg) : null;
+if (baixarQg) log("sessão do QG elevada (autenticador descartável)");
 let { data: canario } = await admin.from("escritorios").select("id, status").eq("slug", "canario").maybeSingle();
 if (!canario) {
   const r = await qg.rpc("qg_criar_escritorio", { p_nome: "Canário Advocacia", p_slug: "canario", p_cnpj: "12.345.678/0001-90", p_plano: "padrao" });
@@ -260,4 +301,7 @@ console.table((resumo ?? []).map((m) => ({ email: m.usuario.email, escritorio: m
 const { data: staff } = await admin.from("plataforma_staff").select("papel, break_glass, usuario:usuarios!plataforma_staff_usuario_id_fkey(email)");
 console.log("STAFF DO QG");
 console.table((staff ?? []).map((s) => ({ email: s.usuario.email, papel: s.papel, break_glass: s.break_glass })));
+// O autenticador do seed some: a conta do QG volta a ficar sem fator, e quem
+// abrir o QG de verdade (ou o filme) passa pelo cadastro na tela.
+if (baixarQg) { await baixarQg(); log("autenticador descartável do QG removido"); }
 console.log(`senha de todas as contas: STAGING_SYNTH_PASSWORD (.env.local)`);
