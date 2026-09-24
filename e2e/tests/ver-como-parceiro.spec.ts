@@ -11,14 +11,16 @@ test.use({ storageState: STORAGE_ADMIN });
 
 const admin = adminClient();
 let nomeCliente: string;
+let nomeParceiro: string;
 
 test.beforeAll(async () => {
   const { data: parceira } = await admin
     .from("usuarios")
-    .select("id")
+    .select("id, nome")
     .eq("email", ENV.parceiroEmail)
     .single();
   if (!parceira) throw new Error(`parceira de teste não encontrada: ${ENV.parceiroEmail}`);
+  nomeParceiro = parceira.nome ?? "parceiro";
   const sufixo = `Ver Como ${Date.now()}`;
   nomeCliente = `[E2E] ${sufixo}`;
   const { casoId } = await seedClienteCaso(admin, { sufixo, parceiroId: parceira.id });
@@ -35,8 +37,10 @@ test("admin vê como parceiro: kanban escopado, leitura, sem Cumprir", async ({ 
   await page.goto("/parceiros");
 
   // Botão "Ver como" do parceiro de teste. (Só admin o vê.)
+  // O botão DO parceiro de teste, pelo nome — não "o primeiro da lista": a tela
+  // ordena pelo mais recente, e qualquer parceiro criado depois passava à frente.
   const verComo = page
-    .getByRole("button", { name: new RegExp(`Ver como`, "i") })
+    .getByRole("button", { name: `Ver como ${nomeParceiro}`, exact: true })
     .first();
   await verComo.waitFor({ timeout: 20000 });
   await verComo.click();

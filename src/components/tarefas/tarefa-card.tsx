@@ -38,6 +38,7 @@ import {
   TIPO_LABEL,
   type TarefaComJoins,
 } from "@/lib/tarefas/types";
+import { usePodeAcao } from "@/components/acao-protegida";
 
 interface Props {
   tarefa: TarefaComJoins;
@@ -97,6 +98,13 @@ export function TarefaCard({
     (tarefa.metadata as { cumprimento_exigencia?: boolean })?.cumprimento_exigencia === true;
   const ehProtocoloRealizado =
     (tarefa.metadata as { protocolo_realizado?: boolean })?.protocolo_realizado === true;
+  // Os blocos de etapa são só ação: gravam em `tarefas` e em `andamentos`. A
+  // decisão é sobre ESTA tarefa — com escopo `atribuidos` (assistente) o banco
+  // aceita a tarefa de quem é responsável, e só ela.
+  const podeMexerEmTarefa = usePodeAcao({
+    escrever: "tarefas",
+    linha: tarefa as unknown as Record<string, unknown>,
+  });
   const destacado = useDestaqueAtivo(tarefa.id);
   // Arquivadas: quem concluiu/cancelou e quando (trigger de autoria).
   const autoria = descreverAutoriaStatus(tarefa);
@@ -293,7 +301,7 @@ export function TarefaCard({
           </div>
         )}
 
-        {ehAcompProcessual && (
+        {podeMexerEmTarefa && ehAcompProcessual && (
           <EtapasAcompanhamento
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}
@@ -302,7 +310,7 @@ export function TarefaCard({
           />
         )}
 
-        {ehAcompPericia && (
+        {podeMexerEmTarefa && ehAcompPericia && (
           <AcompanhamentoPericia
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}
@@ -311,7 +319,7 @@ export function TarefaCard({
           />
         )}
 
-        {ehAnaliseCasoNovo && (
+        {podeMexerEmTarefa && ehAnaliseCasoNovo && (
           <AnaliseCasoNovo
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}
@@ -319,7 +327,7 @@ export function TarefaCard({
             stopPropagation
           />
         )}
-        {ehAnaliseIndeferimento && (
+        {podeMexerEmTarefa && ehAnaliseIndeferimento && (
           <AnaliseIndeferimento
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}
@@ -327,7 +335,7 @@ export function TarefaCard({
             stopPropagation
           />
         )}
-        {ehMontagemInicial && (
+        {podeMexerEmTarefa && ehMontagemInicial && (
           <MontagemInicial
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}
@@ -336,7 +344,7 @@ export function TarefaCard({
           />
         )}
 
-        {ehAcompImplementacao && (
+        {podeMexerEmTarefa && ehAcompImplementacao && (
           <AcompanhamentoImplementacao
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}
@@ -345,7 +353,7 @@ export function TarefaCard({
           />
         )}
 
-        {ehComparecimento && (
+        {podeMexerEmTarefa && ehComparecimento && (
           <ComparecimentoPericia
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}
@@ -354,7 +362,7 @@ export function TarefaCard({
           />
         )}
 
-        {ehEnviarAviso && (
+        {podeMexerEmTarefa && ehEnviarAviso && (
           <EnviarAvisoParceiro
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}
@@ -363,7 +371,9 @@ export function TarefaCard({
           />
         )}
 
-        {ehProvidenciarDoc && (
+        {/* etapa nova do lote do kanban (#357): também é ação, também exige a
+            permissão de tarefa na LINHA */}
+        {podeMexerEmTarefa && ehProvidenciarDoc && (
           <EtapaProvidenciarDocumento
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}
@@ -372,7 +382,7 @@ export function TarefaCard({
           />
         )}
 
-        {ehCumprimentoExigencia && (
+        {podeMexerEmTarefa && ehCumprimentoExigencia && (
           <EtapaCumprimentoExigencia
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}
@@ -381,7 +391,7 @@ export function TarefaCard({
           />
         )}
 
-        {ehProtocoloRealizado && (
+        {podeMexerEmTarefa && ehProtocoloRealizado && (
           <EtapaProtocoloRealizado
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}

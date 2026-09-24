@@ -48,7 +48,7 @@ POOLER_STG="aws-0-sa-east-1.pooler.supabase.com"
 # Pilha local deste projeto (portas em supabase/config.toml).
 LOCAL_DB_URL="postgresql://postgres:postgres@127.0.0.1:55322/postgres"
 PORTA_APP=8080
-PORTA_E2E=8095
+PORTA_E2E="${PORTA_E2E:-8095}"   # outra sessão na 8095? PORTA_E2E=8097 bun run e2e:local
 # Os triggers chamam edge functions de DENTRO do container do banco: o
 # endereço é o do gateway na rede do Docker, não o 127.0.0.1 da máquina.
 EDGE_BASE_URL_LOCAL="http://kong:8000/functions/v1"

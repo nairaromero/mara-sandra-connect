@@ -14,6 +14,8 @@
 // Auth: JWT de usuario interno.
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
+import { exigirUsuario } from "../_shared/auth.ts";
+import { marcaDoEscritorio } from "../_shared/marca.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -22,7 +24,7 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-escritorio-id",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -46,22 +48,12 @@ serve(async (req) => {
 
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
 
-  // ---- Autorizacao: precisa ser usuario interno ----
-  const authHeader = req.headers.get("Authorization") || "";
-  const jwt = authHeader.replace(/^Bearer\s+/i, "");
-  if (!jwt) return jsonResponse({ error: "nao autenticado" }, 401);
-  const { data: userData, error: userErr } = await admin.auth.getUser(jwt);
-  if (userErr || !userData?.user) {
-    return jsonResponse({ error: "sessao invalida" }, 401);
-  }
-  const { data: perfil } = await admin
-    .from("usuarios")
-    .select("tipo, eh_admin")
-    .eq("id", userData.user.id)
-    .maybeSingle();
-  if (perfil?.tipo !== "interno") {
-    return jsonResponse({ error: "apenas usuarios internos podem convidar" }, 403);
-  }
+  // ---- Autorizacao: interno ATIVO do escritório ativo ----
+  // O convite é para o escritório de QUEM CONVIDA (RBAC multi-tenant).
+  const quem = await exigirUsuario(req, { tipo: "interno" });
+  if (quem instanceof Response) return quem;
+  const perfil = quem.perfil;
+  const escritorioId = perfil.escritorio_id; // nulo só em banco sem as migrations
 
   // ---- Body ----
   let body: Record<string, unknown>;
@@ -73,10 +65,23 @@ serve(async (req) => {
   const nome = String(body.nome || "").trim();
   const email = String(body.email || "").trim().toLowerCase();
   const tipo = body.tipo === "interno" ? "interno" : "parceiro";
-  // Convidar gente pra EQUIPE (interno) e so admin (Naira/Mara). Parceiro,
-  // qualquer interno continua podendo convidar (tela /parceiros).
-  if (tipo === "interno" && perfil?.eh_admin !== true) {
-    return jsonResponse({ error: "apenas administradores podem convidar internos" }, 403);
+  // Papel no escritório. Interno: admin, advogado (padrão), assistente ou
+  // financeiro. Parceiro é sempre "parceiro".
+  const PAPEIS_INTERNOS = ["admin", "advogado", "assistente", "financeiro"];
+  const papel = tipo === "parceiro"
+    ? "parceiro"
+    : PAPEIS_INTERNOS.includes(String(body.papel)) ? String(body.papel) : "advogado";
+  // Convidar gente pra EQUIPE (interno) e so de quem gerencia a equipe (admin).
+  // Parceiro, quem gerencia parceiros (todo advogado) continua podendo.
+  const podeConvidar = escritorioId
+    ? perfil.permissoes.includes(tipo === "interno" ? "equipe:gerenciar" : "parceiros:gerenciar")
+    : tipo === "parceiro" || perfil.eh_admin === true;
+  if (!podeConvidar) {
+    return jsonResponse({
+      error: tipo === "interno"
+        ? "apenas administradores podem convidar internos"
+        : "sem permissão para convidar parceiros",
+    }, 403);
   }
   const oab = String(body.oab || "").trim();
   const telefone = String(body.telefone || "").trim();
@@ -94,6 +99,9 @@ serve(async (req) => {
   }
 
   // ---- Convite via admin API ----
+  // O e-mail do convite (send-email-hook) mostra o ESCRITORIO que convidou:
+  // vai no user_metadata, que e o unico dado do usuario que o hook recebe.
+  const marca = await marcaDoEscritorio(admin, escritorioId);
   const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
     data: {
       nome,
@@ -101,6 +109,7 @@ serve(async (req) => {
       telefone,
       tipo,
       observacoes_iniciais: observacoes,
+      ...(escritorioId ? { escritorio_id: escritorioId, escritorio_nome: marca.nome } : {}),
     },
     redirectTo,
   });
@@ -114,6 +123,23 @@ serve(async (req) => {
         .eq("email", email)
         .maybeSingle();
       if (existente?.id) {
+        // Já tem conta. Se ainda NÃO é deste escritório, o convite vira vínculo
+        // (a pessoa passa a ver os dois no seletor) — com a sessão de quem
+        // convida, que é onde a permissão é conferida de novo.
+        let vinculado = false;
+        if (escritorioId) {
+          const { data: jaMembro } = await admin
+            .from("membros")
+            .select("id, status")
+            .eq("escritorio_id", escritorioId)
+            .eq("usuario_id", existente.id)
+            .maybeSingle();
+          if (!jaMembro) {
+            const v = await quem.rls.rpc("vincular_pessoa", { p_email: email, p_papel: papel });
+            if (v.error) return jsonResponse({ error: "erro ao vincular: " + v.error.message }, 400);
+            vinculado = true;
+          }
+        }
         let linkEnviado = false;
         let warning: string | undefined;
         if (body.reenviar_link === true) {
@@ -130,6 +156,7 @@ serve(async (req) => {
         return jsonResponse({
           ok: true,
           ja_existia: true,
+          vinculado,
           link_enviado: linkEnviado,
           ...(warning ? { warning } : {}),
           id: existente.id,
@@ -145,7 +172,7 @@ serve(async (req) => {
   // Cria/atualiza a linha em usuarios (nao ha trigger).
   const newId = data.user?.id || null;
   if (newId) {
-    const perfil: Record<string, unknown> = {
+    const novoPerfil: Record<string, unknown> = {
       id: newId,
       nome,
       email,
@@ -159,14 +186,17 @@ serve(async (req) => {
       ativo: true,
       // interno ja entra "onboarded" (boas-vindas e fluxo do parceiro).
       onboarded_em: tipo === "interno" ? new Date().toISOString() : null,
+      // É daqui que o vínculo nasce no escritório certo (gatilho de
+      // sincronização usuarios → membros).
+      ...(escritorioId ? { escritorio_origem_id: escritorioId } : {}),
     };
     // percentual_parceiro e "not null default 30": mandar null explicito viola a
     // constraint em vez de cair no default. So inclui a chave quando ha valor.
     if (tipo === "parceiro" && percentual !== null && !Number.isNaN(percentual)) {
-      perfil.percentual_parceiro = percentual;
+      novoPerfil.percentual_parceiro = percentual;
     }
 
-    const { error: upErr } = await admin.from("usuarios").upsert(perfil, {
+    const { error: upErr } = await admin.from("usuarios").upsert(novoPerfil, {
       onConflict: "id",
     });
     if (upErr) {
@@ -178,5 +208,17 @@ serve(async (req) => {
     }
   }
 
-  return jsonResponse({ ok: true, id: newId, nome, email, tipo });
+  // O gatilho só conhece admin/advogado/parceiro (é o vocabulário das colunas
+  // antigas). Papel diferente disso é ajustado no vínculo recém-criado.
+  if (newId && escritorioId && papel !== "advogado" && papel !== "parceiro") {
+    const { data: p } = await admin.from("papeis").select("id").is("escritorio_id", null).eq("chave", papel).maybeSingle();
+    if (p?.id) {
+      const { error: papelErr } = await admin.from("membros")
+        .update({ papel_id: p.id, convidado_por: quem.uid })
+        .eq("escritorio_id", escritorioId).eq("usuario_id", newId);
+      if (papelErr) console.error("papel do convidado não aplicado:", papelErr.message);
+    }
+  }
+
+  return jsonResponse({ ok: true, id: newId, nome, email, tipo, papel });
 });

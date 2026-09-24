@@ -13,6 +13,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { AcaoProtegida, usePodeAcao } from "@/components/acao-protegida";
 
 interface TipoBeneficio {
   id: string;
@@ -29,6 +30,10 @@ interface TipoBeneficio {
  * (some do dropdown, casos existentes mantem o valor e mostram "(atual)").
  */
 export function TiposBeneficioCard() {
+  // `tipos_beneficio` exige templates:gerenciar (admin e advogado). A aba só
+  // conferia se a pessoa era interna, então assistente e financeiro viam os
+  // três botões e o banco recusava o clique.
+  const podeMexer = usePodeAcao({ escrever: "tipos_beneficio" });
   const [tipos, setTipos] = useState<Array<TipoBeneficio>>([]);
   const [carregando, setCarregando] = useState(true);
   const [novoNome, setNovoNome] = useState("");
@@ -154,6 +159,7 @@ export function TiposBeneficioCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
+        <AcaoProtegida escrever="tipos_beneficio">
         <div className="flex gap-2">
           <Input
             value={novoNome}
@@ -172,6 +178,7 @@ export function TiposBeneficioCard() {
             Incluir
           </Button>
         </div>
+        </AcaoProtegida>
         {carregando ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -199,6 +206,7 @@ export function TiposBeneficioCard() {
                   )}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
+                  {podeMexer && (
                   <Button
                     size="sm"
                     variant="outline"
@@ -214,6 +222,8 @@ export function TiposBeneficioCard() {
                       "Reativar"
                     )}
                   </Button>
+                  )}
+                  {podeMexer && (
                   <Button
                     size="sm"
                     variant="ghost"
@@ -224,6 +234,7 @@ export function TiposBeneficioCard() {
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
+                  )}
                 </div>
               </li>
             ))}

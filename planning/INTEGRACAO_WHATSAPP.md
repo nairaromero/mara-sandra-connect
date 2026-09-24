@@ -1,5 +1,18 @@
 # Plano de integração — WhatsApp (Evolution API) → Mara Sandra Connect
 
+> **Multi-tenant (2026-09-23, `migration_rbac_09`):** a instância do Evolution passou a ser POR
+> ESCRITÓRIO — `escritorio_integracoes` (tipo `whatsapp`: `config.base_url`, `config.instance`,
+> `config.inbound_token`; chave da API cifrada em `segredo_cipher/iv`, gravada só pela function
+> `integracoes-escritorio`). O `whatsapp-inbound` resolve o escritório pelo `instance` do payload e
+> exige o token daquele escritório; as variáveis de ambiente (`EVOLUTION_*`, `WHATSAPP_INBOUND_TOKEN`)
+> seguem valendo só como legado do escritório padrão. **Saída sem n8n (2026-09-23, `migration_rbac_14`):** quem drena
+> `whatsapp_outbox` é a edge function `whatsapp-outbox-enviar`, chamada pelo pg_cron a cada minuto
+> (`migration_cron_whatsapp_outbox`, assinatura `cron:whatsapp-outbox`): reivindica o lote (agora com
+> `escritorio_id`), decifra a chave do escritório da linha em `escritorio_integracoes` e faz o POST em
+> `{base_url}/message/sendText/{instance}`; escritório sem integração falha com erro claro e entra no backoff.
+> O n8n não recebe chave nenhuma; o workflow de saída fica só como histórico. A fila segue PAUSADA
+> (gatilho de comentários desligado) até a retomada; o card mostra "Envio: pausado".
+
 > Documento de planejamento da integração com WhatsApp para os **parceiros**
 > (e, no futuro, **clientes**). Para arquitetura geral do app, ver
 > [ARQUITETURA.md](ARQUITETURA.md). Para o padrão de outbox/webhooks de saída

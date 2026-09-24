@@ -22,9 +22,12 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { Webhook } from "https://esm.sh/standardwebhooks@1.0.0";
 import { fetchT } from "../_shared/auth.ts";
 
+// RESEND_BASE_URL so existe no ambiente LOCAL (mock de e2e/demo/mocks); fora dele e o Resend.
+const RESEND_BASE = (Deno.env.get("RESEND_BASE_URL") ?? "https://api.resend.com").replace(/\/+$/, "");
+
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const HOOK_SECRET = Deno.env.get("SEND_EMAIL_HOOK_SECRET") || "";
-const FROM_EMAIL = "Mara Sandra Advocacia <noreply@marasandraconnect.com>";
+const FROM_EMAIL = "Legal Connect <noreply@marasandraconnect.com>";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 
 type EmailData = {
@@ -45,10 +48,16 @@ function verifyLink(emailData: EmailData, tokenHash: string, type: string) {
 // Paleta do app (src/styles.css, tema claro, oklch -> hex):
 //   background #FCFAF6 | card #FFFFFF | foreground #1B150F | primary #201914
 //   muted-fg #6A615B | border #DED6C9 | gold #AF7C00 | gold-soft #F7E6C3
-const LOGO_URL = "https://marasandraconnect.com/logo.png";
+// Marca do PRODUTO no cabecalho (PNG: Gmail/Outlook nao renderizam SVG). O
+// escritorio aparece no corpo do e-mail.
+const LOGO_URL = "https://marasandraconnect.com/marca/legal-connect-email.png";
 
-function buildEmail(emailData: EmailData): { subject: string; html: string } {
+// O escritorio so e conhecido no CONVITE (convidar-usuario poe escritorio_nome
+// no user_metadata). Nos demais e-mails a marca e a do produto.
+function buildEmail(emailData: EmailData, meta: Record<string, unknown> = {}): { subject: string; html: string } {
   const type = emailData.email_action_type;
+  const escritorio = typeof meta.escritorio_nome === "string" && meta.escritorio_nome.trim() ? meta.escritorio_nome.trim() : null;
+  const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
   const link = verifyLink(emailData, emailData.token_hash, type);
   const btn = (label: string) =>
     `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:28px auto 8px">` +
@@ -67,7 +76,7 @@ function buildEmail(emailData: EmailData): { subject: string; html: string } {
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:540px">` +
     // logo
     `<tr><td align="center" style="padding-bottom:28px">` +
-    `<img src="${LOGO_URL}" width="170" alt="Mara Sandra Vian Advocacia" style="display:block;border:0;max-width:170px;height:auto"></td></tr>` +
+    `<img src="${LOGO_URL}" width="200" alt="Legal Connect" style="display:block;border:0;max-width:200px;height:auto"></td></tr>` +
     // card
     `<tr><td style="background:#FFFFFF;border:1px solid #DED6C9;border-top:3px solid #AF7C00;border-radius:12px;padding:36px 40px" align="center">` +
     `<h2 style="margin:0 0 16px;font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:normal;color:#1B150F">${title}</h2>` +
@@ -76,23 +85,25 @@ function buildEmail(emailData: EmailData): { subject: string; html: string } {
     // footer
     `<tr><td align="center" style="padding-top:24px">` +
     `<p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#6A615B">` +
-    `Mara Sandra Vian Advocacia &middot; <a href="https://marasandraconnect.com" style="color:#AF7C00;text-decoration:none">marasandraconnect.com</a></p>` +
+    `Legal Connect &middot; <a href="https://marasandraconnect.com" style="color:#AF7C00;text-decoration:none">marasandraconnect.com</a></p>` +
     `</td></tr>` +
     `</table></td></tr></table></body>`;
 
   switch (type) {
     case "invite":
       return {
-        subject: "Voce foi convidado(a) - Mara Sandra Advocacia",
+        subject: escritorio ? `Voce foi convidado(a) - ${escritorio}` : "Voce foi convidado(a) - Legal Connect",
         html: wrap(
           "Voce foi convidado(a)",
-          `<p>Voce recebeu um convite para acessar a plataforma da Mara Sandra Advocacia. ` +
+          (escritorio
+            ? `<p>Voce recebeu um convite para acessar o sistema do escritorio <strong>${esc(escritorio)}</strong> no Legal Connect. `
+            : `<p>Voce recebeu um convite para acessar o Legal Connect. `) +
             `Clique abaixo para criar sua senha e entrar.</p>${btn("Aceitar convite")}`,
         ),
       };
     case "recovery":
       return {
-        subject: "Redefinir sua senha - Mara Sandra Advocacia",
+        subject: "Redefinir sua senha - Legal Connect",
         html: wrap(
           "Redefinir senha",
           `<p>Recebemos um pedido para redefinir a sua senha. Clique abaixo para escolher uma nova.</p>` +
@@ -101,7 +112,7 @@ function buildEmail(emailData: EmailData): { subject: string; html: string } {
       };
     case "magiclink":
       return {
-        subject: "Seu link de acesso - Mara Sandra Advocacia",
+        subject: "Seu link de acesso - Legal Connect",
         html: wrap(
           "Link de acesso",
           `<p>Use o botao abaixo para entrar na plataforma.</p>${btn("Entrar")}`,
@@ -109,7 +120,7 @@ function buildEmail(emailData: EmailData): { subject: string; html: string } {
       };
     case "signup":
       return {
-        subject: "Confirme seu e-mail - Mara Sandra Advocacia",
+        subject: "Confirme seu e-mail - Legal Connect",
         html: wrap(
           "Confirme seu e-mail",
           `<p>Confirme seu endereco de e-mail para ativar sua conta.</p>${btn("Confirmar e-mail")}`,
@@ -117,7 +128,7 @@ function buildEmail(emailData: EmailData): { subject: string; html: string } {
       };
     case "email_change": {
       return {
-        subject: "Confirme a troca de e-mail - Mara Sandra Advocacia",
+        subject: "Confirme a troca de e-mail - Legal Connect",
         html: wrap(
           "Troca de e-mail",
           `<p>Confirme a alteracao do seu endereco de e-mail.</p>${btn("Confirmar troca")}`,
@@ -126,7 +137,7 @@ function buildEmail(emailData: EmailData): { subject: string; html: string } {
     }
     case "reauthentication":
       return {
-        subject: "Seu codigo de confirmacao - Mara Sandra Advocacia",
+        subject: "Seu codigo de confirmacao - Legal Connect",
         html: wrap(
           "Codigo de confirmacao",
           `<p>Seu codigo de confirmacao e:</p>` +
@@ -135,7 +146,7 @@ function buildEmail(emailData: EmailData): { subject: string; html: string } {
       };
     default:
       return {
-        subject: "Acesso - Mara Sandra Advocacia",
+        subject: "Acesso - Legal Connect",
         html: wrap("Acesso", `<p>Use o botao abaixo para continuar.</p>${btn("Continuar")}`),
       };
   }
@@ -155,7 +166,7 @@ serve(async (req) => {
   const payload = await req.text();
 
   // Assinatura standardwebhooks — a lib espera o secret base64 sem o prefixo.
-  let data: { user: { email: string }; email_data: EmailData };
+  let data: { user: { email: string; user_metadata?: Record<string, unknown> }; email_data: EmailData };
   try {
     const wh = new Webhook(HOOK_SECRET.replace("v1,whsec_", ""));
     data = wh.verify(payload, {
@@ -170,9 +181,9 @@ serve(async (req) => {
     );
   }
 
-  const { subject, html } = buildEmail(data.email_data);
+  const { subject, html } = buildEmail(data.email_data, data.user.user_metadata ?? {});
 
-  const resp = await fetchT("https://api.resend.com/emails", {
+  const resp = await fetchT(`${RESEND_BASE}/emails`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${RESEND_API_KEY}`,

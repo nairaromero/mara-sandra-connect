@@ -198,7 +198,7 @@ function PrazoBadge({ prazoAt }: { prazoAt: string | null }) {
 // ===========================================================================
 
 function DocumentosPendentesPage() {
-  const { usuario } = useAuth();
+  const { usuario, podeEscrever } = useAuth();
   const isInterno = usuario?.tipo === "interno";
 
   const [loading, setLoading] = useState(true);
@@ -687,8 +687,11 @@ function DocumentosPendentesPage() {
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
-              {/* Radio "como atender" - so para interno + atendido */}
+              {/* Radio "como atender" - so para interno + atendido. Anexar sobe
+                  arquivo e insere em `documentos` (documentos:enviar): sem a
+                  permissão fica só "marcar como atendido". */}
               {isInterno &&
+                podeEscrever("documentos") &&
                 acaoAlvo &&
                 acaoAlvo.novoStatus === "atendido" && (
                   <div className="space-y-2">
@@ -932,6 +935,9 @@ interface SolicitacaoItemProps {
 
 function SolicitacaoItem(props: SolicitacaoItemProps) {
   const { s, isInterno, onAtendido, onDispensar, onEditar, onExcluir } = props;
+  // atender, dispensar, editar e excluir gravam em `solicitacoes_documento`,
+  // que passou a exigir casos:editar (migration_rbac_18).
+  const { podeEscrever } = useAuth();
   const isPendente = s.status === "pendente";
   const isAtendido = s.status === "atendido";
   const isDispensado = s.status === "dispensado";
@@ -1018,7 +1024,8 @@ function SolicitacaoItem(props: SolicitacaoItemProps) {
             </div>
           )}
         </div>
-        {isInterno && isPendente && (
+        {/* atender/dispensar grava em `solicitacoes_documento` (casos:editar) */}
+        {isInterno && isPendente && podeEscrever("solicitacoes_documento") && (
           <div className="flex gap-1">
             {ehSenha ? (
               <span className="text-xs text-muted-foreground self-center mr-1">
@@ -1066,7 +1073,7 @@ function SolicitacaoItem(props: SolicitacaoItemProps) {
         )}
         {/* Ja cumprida/dispensada: continua dando pra excluir de vez, senao
             pedido criado por engano fica preso no historico pra sempre. */}
-        {isInterno && !isPendente && (
+        {isInterno && !isPendente && podeEscrever("solicitacoes_documento") && (
           <Button
             size="sm"
             variant="ghost"

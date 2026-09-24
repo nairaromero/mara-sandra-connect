@@ -86,12 +86,33 @@ test.beforeAll(async () => {
   if (!parceiro) throw new Error(`parceiro de teste não encontrado: ${ENV.parceiroEmail}`);
   parceiroId = parceiro.id as string;
 
-  const { data: internos } = await admin
-    .from("usuarios")
-    .select("id")
-    .eq("tipo", "interno")
-    .eq("ativo", true)
-    .order("email");
+  // Dois internos DO MESMO ESCRITÓRIO do caso. Pegar "dois internos quaisquer"
+  // parou de servir quando o staging ganhou o escritório Canário (seed do lote
+  // RBAC, 24/09): o segundo sorteado era de outro escritório, a escada
+  // multi-tenant recusava e o teste falhava por motivo errado. Em banco sem o
+  // RBAC a consulta de vínculos não existe e vale a lista antiga.
+  const porEscritorio = await admin
+    .from("membros")
+    .select("usuario_id, usuarios!membros_usuario_id_fkey(id, email, tipo, ativo), escritorios!inner(padrao_sistema)")
+    .eq("status", "ativo")
+    .eq("escritorios.padrao_sistema", true);
+  let internos: Array<{ id: string }> | null = null;
+  if (!porEscritorio.error && (porEscritorio.data ?? []).length >= 2) {
+    internos = (porEscritorio.data as Array<{ usuarios: { id: string; email: string; tipo: string; ativo: boolean } }>)
+      .map((m) => m.usuarios)
+      .filter((u) => u && u.tipo === "interno" && u.ativo)
+      .sort((a, b) => a.email.localeCompare(b.email))
+      .map((u) => ({ id: u.id }));
+  }
+  if (!internos || internos.length < 2) {
+    const { data } = await admin
+      .from("usuarios")
+      .select("id")
+      .eq("tipo", "interno")
+      .eq("ativo", true)
+      .order("email");
+    internos = (data ?? []) as Array<{ id: string }>;
+  }
   if (!internos || internos.length < 2) throw new Error("preciso de 2 internos ativos");
   internoEscolhido = internos[0].id as string;
   internoQuePediu = internos[1].id as string;

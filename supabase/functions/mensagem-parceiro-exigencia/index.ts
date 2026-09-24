@@ -33,7 +33,7 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-region",
+    "authorization, x-client-info, apikey, content-type, x-region, x-escritorio-id",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -79,7 +79,7 @@ serve(async (req) => {
   }
 
   // A checagem vinha DEPOIS de ler o corpo: com corpo vazio a função respondia 200 sem saber quem chamou. Agora é a primeira coisa.
-  const quem = await exigirUsuario(req, { tipo: "interno" });
+  const quem = await exigirUsuario(req, { tipo: "interno", permissao: "ia:usar" });
   if (quem instanceof Response) return quem;
   if (!SUPABASE_URL || !SERVICE_ROLE) {
     return jsonResponse({ error: "secrets ausentes na funcao" }, 500);

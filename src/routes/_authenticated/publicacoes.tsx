@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
   ChevronDown,
@@ -15,6 +15,9 @@ import { toast } from "sonner";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { buscarPaginado } from "@/lib/supabase-paginado";
+import { Paginador } from "@/components/paginador";
+import { usePorPagina } from "@/hooks/use-lista-paginada";
 import { dataBR, diaDoEventoBR } from "@/lib/fuso";
 import { ClientOnly } from "@/components/client-only";
 import { Button } from "@/components/ui/button";
@@ -38,6 +41,9 @@ export const Route = createFileRoute("/_authenticated/publicacoes")({
 const VISTO_KEY = "msc:publicacoes_visto";
 // Janela da aba: publicações da última semana.
 const DIAS_JANELA = 7;
+// Uma página por vez, buscada no banco com o total. Antes era um `.limit(500)`
+// fixo: acima disso a tela simplesmente omitia as antigas.
+const POR_PAGINA_PADRAO = 50;
 const PREVIEW_CHARS = 600;
 
 type PubStatus = "vinculada" | "sem_processo";
@@ -88,15 +94,24 @@ function labelMes(key: string): string {
 }
 
 function PublicacoesPage() {
-  const { usuario } = useAuth();
+  const { usuario, pode } = useAuth();
   const isInterno = usuario?.tipo === "interno";
   const [pubs, setPubs] = useState<Array<PubView>>([]);
+  const jaCarregouRef = useRef(false);
   const [loading, setLoading] = useState(true);
+  const [carregandoPagina, setCarregandoPagina] = useState(false);
+  const [pagina, setPagina] = useState(1);
+  const [porPagina, setPorPagina] = usePorPagina("publicacoes", POR_PAGINA_PADRAO);
+  const [total, setTotal] = useState<number | null>(null);
   const [busca, setBusca] = useState("");
   const [expandido, setExpandido] = useState<Record<string, boolean>>({});
 
   // --- Triagem manual: vincular publicação órfã a um caso (interno) ---------
   const navigate = useNavigate();
+  // sem publicacoes:ler (financeiro) o banco devolve zero: manda pra home
+  useEffect(() => {
+    if (usuario && !pode("publicacoes:ler")) navigate({ to: "/casos" });
+  }, [usuario, pode, navigate]);
   const [vincularPub, setVincularPub] = useState<PubView | null>(null);
   const [casoOpcoes, setCasoOpcoes] = useState<Array<CasoOption>>([]);
   const [carregandoCasos, setCarregandoCasos] = useState(false);
@@ -113,14 +128,24 @@ function PublicacoesPage() {
     if (!vincularPub || casoOpcoes.length > 0) return;
     setCarregandoCasos(true);
     (async () => {
-      const { data, error } = await supabase
-        .from("casos")
-        .select("id, tipo_beneficio, status, cliente:cliente_id(nome, cpf)")
-        .order("created_at", { ascending: false })
-        .limit(1000);
+      let data: Array<Record<string, unknown>> = [];
+      let error: { message: string } | null = null;
+      try {
+        data = await buscarPaginado<Record<string, unknown>>((ini, fim) =>
+          supabase
+            .from("casos")
+            .select("id, tipo_beneficio, status, cliente:cliente_id(nome, cpf)")
+            .order("created_at", { ascending: false })
+            .order("id")
+            .range(ini, fim),
+        );
+      } catch (e) {
+        error = e as { message: string };
+        toast.error("Não consegui carregar os casos.", { description: error.message });
+      }
       if (!error) {
         setCasoOpcoes(
-          ((data || []) as Array<Record<string, unknown>>).map((r) => {
+          data.map((r) => {
             const cli = r.cliente as { nome?: string; cpf?: string } | null;
             return {
               id: String(r.id),
@@ -179,20 +204,26 @@ function PublicacoesPage() {
   }
 
   const carregar = useCallback(async () => {
-    setLoading(true);
+    if (jaCarregouRef.current) setCarregandoPagina(true);
+    else setLoading(true);
+    const inicio = (pagina - 1) * porPagina;
 
     if (isInterno) {
-      // Interno: fonte da verdade = publicacoes_dje (vinculadas + órfãs).
-      // Carrega tudo (até 500 mais recentes); a UI separa última semana em
-      // destaque e agrupa o resto por mês em seções recolhidas.
-      const { data, error } = await supabase
+      // Interno: fonte da verdade = publicacoes_dje (vinculadas + órfãs), da
+      // mais recente para a mais antiga, uma página por vez; a UI separa a
+      // última semana em destaque e agrupa o resto por mês.
+      const { data, error, count } = await supabase
         .from("publicacoes_dje")
         .select(
           "id, numero_processo, sigla_tribunal, nome_orgao, tipo_comunicacao, data_disponibilizacao, texto, status, caso_id, andamento_id, certidao_url, casos:caso_id(cliente:cliente_id(nome))",
+          { count: "exact" },
         )
         .order("data_disponibilizacao", { ascending: false, nullsFirst: false })
-        .limit(500);
+        .order("id")
+        .range(inicio, inicio + porPagina - 1);
+      if (error) toast.error("Não consegui carregar as publicações.", { description: error.message });
       if (!error) {
+        setTotal(count ?? null);
         setPubs(
           ((data || []) as Array<Record<string, unknown>>).map((r) => ({
             id: String(r.id),
@@ -213,16 +244,20 @@ function PublicacoesPage() {
       }
     } else {
       // Parceiro: vê só as vinculadas dos casos dele (via andamentos). RLS restringe.
-      const { data, error } = await supabase
+      const { data, error, count } = await supabase
         .from("andamentos")
         .select(
           "id, titulo, descricao, data_evento, caso_id, metadata, casos:caso_id(cliente:cliente_id(nome))",
+          { count: "exact" },
         )
         .eq("origem", "djen")
         .eq("visivel_parceiro", true)
         .order("data_evento", { ascending: false, nullsFirst: false })
-        .limit(200);
+        .order("id")
+        .range(inicio, inicio + porPagina - 1);
+      if (error) toast.error("Não consegui carregar as publicações.", { description: error.message });
       if (!error) {
+        setTotal(count ?? null);
         setPubs(
           ((data || []) as Array<Record<string, unknown>>).map((r) => {
             const m = (r.metadata as Record<string, unknown> | null) || {};
@@ -247,7 +282,14 @@ function PublicacoesPage() {
     }
 
     setLoading(false);
-  }, [isInterno]);
+    setCarregandoPagina(false);
+    jaCarregouRef.current = true;
+  }, [isInterno, pagina, porPagina]);
+
+  // tamanho da pagina mudou -> volta pra primeira
+  useEffect(() => {
+    setPagina(1);
+  }, [porPagina]);
 
   useEffect(() => {
     carregar();
@@ -398,7 +440,7 @@ function PublicacoesPage() {
                 </Button>
               )}
             </div>
-            {!vinculada && isInterno && (
+            {!vinculada && isInterno && pode("casos:editar") && (
               <Button size="sm" variant="outline" onClick={() => abrirVincular(p)}>
                 <Link2 className="h-4 w-4 mr-1.5" />
                 Vincular a um caso
@@ -445,7 +487,8 @@ function PublicacoesPage() {
             ? 'Publicações do Diário de Justiça (DJEN). A última semana fica em destaque; as anteriores ficam agrupadas por mês em "Publicações antigas".'
             : "Publicações do Diário de Justiça (DJEN) vinculadas aos processos dos seus clientes. A última semana em destaque; as anteriores agrupadas por mês."}
         </p>
-        {isInterno && pubs.length > 0 && (
+        {/* os badges resumem a PAGINA; em pagina antiga "0 na semana" so confunde */}
+        {isInterno && pagina === 1 && pubs.length > 0 && (
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
             <Badge variant="secondary">{resumo.total} na semana</Badge>
             <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">
@@ -541,6 +584,16 @@ function PublicacoesPage() {
             )}
           </>
         )}
+        <Paginador
+          pagina={pagina}
+          porPagina={porPagina}
+          total={total}
+          carregando={carregandoPagina}
+          onPagina={setPagina}
+          onPorPagina={setPorPagina}
+          opcoes={[25, 50, 100, 200]}
+          nome="publicações"
+        />
       </ClientOnly>
 
       <Dialog open={vincularPub !== null} onOpenChange={(o) => !o && setVincularPub(null)}>

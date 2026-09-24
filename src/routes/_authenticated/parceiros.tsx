@@ -210,7 +210,7 @@ interface UsoStorageRow {
 }
 
 function ParceirosPage() {
-  const { usuario, isAdmin } = useAuth();
+  const { usuario, isAdmin, pode } = useAuth();
   const navigate = useNavigate();
   const { entrarVerComo } = useVerComoParceiro();
   // "Ver como parceiro" (só admin, leitura): entra no modo e vai pro kanban.
@@ -366,11 +366,11 @@ function ParceirosPage() {
   const isInterno = usuario?.tipo === "interno";
 
   useEffect(() => {
-    if (usuario && !isInterno) {
-      toast.error("Acesso restrito à equipe interna.");
+    if (usuario && (!isInterno || !pode("parceiros:gerenciar"))) {
+      toast.error("Acesso restrito a quem gerencia parceiros.");
       navigate({ to: "/casos" });
     }
-  }, [usuario, isInterno, navigate]);
+  }, [usuario, isInterno, pode, navigate]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -506,7 +506,7 @@ function ParceirosPage() {
   async function loadParceiros() {
     setLoading(true);
     const { data, error } = await supabase
-      .from("usuarios")
+      .from("usuarios_escritorio")
       .select(
         "id, nome, email, emails_copia, oab, telefone, percentual_parceiro, ativo, desligado_em, created_at, onboarded_em, tipo",
       )
@@ -861,25 +861,32 @@ function ParceirosPage() {
                               )}
                               Reenviar
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => abrirEditar(p)}
-                              aria-label="Editar dados do convite"
-                              title="Editar dados antes de reenviar"
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => setExcluirAlvo(p)}
-                              aria-label="Cancelar convite"
-                              title="Cancelar convite (apaga o parceiro)"
-                              className="text-muted-foreground hover:text-destructive"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
+                            {/* `update-parceiro` exige admin na function */}
+                            {isAdmin && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => abrirEditar(p)}
+                                aria-label="Editar dados do convite"
+                                title="Editar dados antes de reenviar"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                            {/* apaga o parceiro: so quem tem parceiros:excluir
+                                (admin, migration_rbac_08); o banco recusa os demais */}
+                            {pode("parceiros:excluir") && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setExcluirAlvo(p)}
+                                aria-label="Cancelar convite"
+                                title="Cancelar convite (apaga o parceiro)"
+                                className="text-muted-foreground hover:text-destructive"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
                           </div>
                         </li>
                       ))}
@@ -988,14 +995,16 @@ function ParceirosPage() {
                               >
                                 <FileSignature className="h-3.5 w-3.5" />
                               </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => abrirEditar(p)}
-                                aria-label="Editar parceiro"
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </Button>
+                              {isAdmin && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => abrirEditar(p)}
+                                  aria-label="Editar parceiro"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
                               {!ehDaEquipe(p) &&
                                 (p.ativo ? (
                                   <Button
@@ -1116,14 +1125,16 @@ function ParceirosPage() {
                                     >
                                       <FileSignature className="h-3.5 w-3.5" />
                                     </Button>
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      onClick={() => abrirEditar(p)}
-                                      aria-label="Editar parceiro"
-                                    >
-                                      <Pencil className="h-3.5 w-3.5" />
-                                    </Button>
+                                    {isAdmin && (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => abrirEditar(p)}
+                                        aria-label="Editar parceiro"
+                                      >
+                                        <Pencil className="h-3.5 w-3.5" />
+                                      </Button>
+                                    )}
                                     {!ehDaEquipe(p) &&
                                       (p.ativo ? (
                                         <Button

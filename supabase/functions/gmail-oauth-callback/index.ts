@@ -22,10 +22,16 @@ const GMAIL_CLIENT_SECRET = Deno.env.get("GMAIL_CLIENT_SECRET") ?? "";
 const GMAIL_REDIRECT_URI = Deno.env.get("GMAIL_REDIRECT_URI") ?? "";
 const APP_BASE_URL = Deno.env.get("APP_BASE_URL") ?? "";
 const STATE_TTL_SECONDS = 15 * 60;
+// Sobrescritos so no ambiente LOCAL (mock de e2e/demo/mocks); fora dele, Google.
+const GOOGLE_TOKEN_URL = Deno.env.get("GOOGLE_TOKEN_URL") ?? "https://oauth2.googleapis.com/token";
+const GMAIL_API_BASE = (Deno.env.get("GMAIL_API_BASE") ?? "https://gmail.googleapis.com/gmail/v1").replace(/\/+$/, "");
 
 function redirectBack(motivo: "ok" | "error", detalhe?: string): Response {
   const base = APP_BASE_URL || "/";
   const url = new URL("/configuracoes", base);
+  // Configuracoes tem abas desde 2026-09-14: sem `tab` a pessoa caia no Perfil,
+  // longe do card do Gmail (e do toast de resultado).
+  url.searchParams.set("tab", "integracoes");
   url.searchParams.set("gmail", motivo);
   if (detalhe) url.searchParams.set("motivo", detalhe);
   return new Response(null, {
@@ -47,11 +53,16 @@ serve(async (req) => {
   if (oauthError) return redirectBack("error", `google:${oauthError}`);
   if (!code || !state) return redirectBack("error", "params_faltando");
 
-  // Valida state = usuario_id.nonce.ts.sig
+  // Valida state = usuario_id.escritorio_id.nonce.ts.sig (ou o antigo, sem
+  // escritório: cai no escritório padrão).
   const parts = state.split(".");
-  if (parts.length !== 4) return redirectBack("error", "state_malformado");
-  const [usuarioId, nonce, tsStr, sig] = parts;
-  const payload = `${usuarioId}.${nonce}.${tsStr}`;
+  if (parts.length !== 4 && parts.length !== 5) return redirectBack("error", "state_malformado");
+  const [usuarioId, escritorioNoState, nonce, tsStr, sig] = parts.length === 5
+    ? parts
+    : [parts[0], null, parts[1], parts[2], parts[3]];
+  const payload = parts.length === 5
+    ? `${usuarioId}.${escritorioNoState}.${nonce}.${tsStr}`
+    : `${usuarioId}.${nonce}.${tsStr}`;
   const ts = Number(tsStr);
   if (!Number.isFinite(ts)) return redirectBack("error", "state_ts_invalido");
 
@@ -69,7 +80,7 @@ serve(async (req) => {
     redirect_uri: GMAIL_REDIRECT_URI,
     grant_type: "authorization_code",
   });
-  const r = await fetchT("https://oauth2.googleapis.com/token", {
+  const r = await fetchT(GOOGLE_TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
@@ -101,7 +112,7 @@ serve(async (req) => {
   let emailConectado = "";
   try {
     const pr = await fetchT(
-      "https://gmail.googleapis.com/gmail/v1/users/me/profile",
+      `${GMAIL_API_BASE}/users/me/profile`,
       { headers: { Authorization: `Bearer ${tok.access_token}` } },
     );
     if (pr.ok) {
@@ -129,10 +140,18 @@ serve(async (req) => {
     auth: { persistSession: false },
   });
 
+  let escritorioId = escritorioNoState;
+  if (!escritorioId) {
+    const { data: padrao } = await sb.from("escritorios").select("id").eq("padrao_sistema", true).maybeSingle();
+    escritorioId = (padrao?.id as string | undefined) ?? null;
+  }
+  if (!escritorioId) return redirectBack("error", "sem_escritorio");
+
   const { error: upsertErr } = await sb
     .from("usuario_gmail_oauth")
     .upsert({
       usuario_id: usuarioId,
+      escritorio_id: escritorioId,
       email_conectado: emailConectado || "(desconhecido)",
       refresh_cipher: cipher,
       refresh_iv: iv,

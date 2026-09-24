@@ -18,8 +18,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { iaTokens, IA_MCP_URL, type IaToken } from "@/lib/ia/client";
+import { iaTokens, IA_MCP_URL, type IaToken, type IaTokenPessoa } from "@/lib/ia/client";
 import { dataBR } from "@/lib/fuso";
+import { useAuth } from "@/hooks/use-auth";
 
 function copiar(texto: string, msg = "Copiado") {
   navigator.clipboard.writeText(texto).then(
@@ -29,8 +30,14 @@ function copiar(texto: string, msg = "Copiado") {
 }
 
 export function ConexaoClaudeCard() {
+  const { usuario, pode } = useAuth();
+  const concede = pode("ia:mcp_conceder");
   const [carregando, setCarregando] = useState(true);
   const [tokens, setTokens] = useState<IaToken[]>([]);
+  // #385: o admin escolhe a quem emitir; "eu" = para si mesmo
+  const [pessoas, setPessoas] = useState<IaTokenPessoa[]>([]);
+  const [paraQuem, setParaQuem] = useState<string>("eu");
+  const [novoPara, setNovoPara] = useState<IaTokenPessoa | null>(null);
 
   const [nome, setNome] = useState("");
   const [escopo, setEscopo] = useState<"leitura" | "completo">("leitura");
@@ -50,16 +57,27 @@ export function ConexaoClaudeCard() {
     carregar();
   }, []);
 
+  useEffect(() => {
+    if (!concede) return;
+    iaTokens.pessoas().then(({ data, error }) => {
+      if (error) toast.error(error.message || "Falha ao listar as pessoas");
+      if (data) setPessoas(data.pessoas.filter((p) => p.usuario_id !== usuario?.id));
+    });
+  }, [concede, usuario?.id]);
+
   async function criar() {
     setCriando(true);
+    const alvo = paraQuem === "eu" ? null : pessoas.find((p) => p.usuario_id === paraQuem) ?? null;
     const { data, error } = await iaTokens.criar({
-      nome: nome.trim() || "Meu Claude",
+      nome: nome.trim() || (alvo ? `Claude de ${alvo.nome ?? alvo.email ?? "colega"}` : "Meu Claude"),
       escopo,
       dias: dias === "0" ? undefined : Number(dias),
+      ...(alvo ? { usuario_id: alvo.usuario_id } : {}),
     });
     setCriando(false);
     if (data?.ok) {
       setNovoToken(data.token);
+      setNovoPara(alvo);
       setNome("");
       await carregar();
     } else {
@@ -104,6 +122,12 @@ export function ConexaoClaudeCard() {
               <AlertTriangle className="h-3.5 w-3.5" />
               Copie agora - este token não será mostrado de novo.
             </p>
+            {novoPara && (
+              <p className="mb-2 text-xs" data-token-para>
+                Token de <strong>{novoPara.nome ?? novoPara.email}</strong>: envie a essa pessoa por um canal seguro.
+                Tudo que for feito com ele sai no nome dela, com o que ela pode ver no sistema.
+              </p>
+            )}
             <div className="flex items-center gap-2">
               <code className="flex-1 overflow-x-auto rounded bg-background px-2 py-1 text-xs">
                 {novoToken}
@@ -123,6 +147,28 @@ export function ConexaoClaudeCard() {
         )}
 
         {/* Gerar novo token */}
+        {concede && (
+          <div>
+            <Label className="text-xs">Para quem</Label>
+            <Select value={paraQuem} onValueChange={setParaQuem}>
+              <SelectTrigger className="w-full sm:w-[320px]" aria-label="Para quem emitir o token">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="eu">Para mim</SelectItem>
+                {pessoas.map((p) => (
+                  <SelectItem key={p.usuario_id} value={p.usuario_id}>
+                    {(p.nome ?? p.email) + (p.papel_nome ? ` · ${p.papel_nome}` : "")}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="mt-1 text-xs text-muted-foreground">
+              O token roda como a pessoa escolhida: ela vê pelo Claude o mesmo que vê no sistema. Só quem emitiu
+              (ou a própria pessoa) vê e revoga.
+            </p>
+          </div>
+        )}
         <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto_auto] sm:items-end">
           <div>
             <Label className="text-xs">Nome do token</Label>
@@ -190,6 +236,14 @@ export function ConexaoClaudeCard() {
                     <div className="flex items-center gap-2 text-sm font-medium">
                       <KeyRound className="h-3.5 w-3.5 shrink-0" />
                       {t.nome}
+                      {t.usuario_id !== usuario?.id && t.dono && (
+                        <span className="ml-1 text-xs text-muted-foreground" data-token-dono>
+                          · de {t.dono.nome ?? t.dono.email}
+                        </span>
+                      )}
+                      {t.usuario_id === usuario?.id && t.emitido_por && t.emitido_por !== usuario?.id && (
+                        <span className="ml-1 text-xs text-muted-foreground">· emitido por um administrador</span>
+                      )}
                       <Badge variant="outline" className="text-[10px]">
                         {t.escopo}
                       </Badge>

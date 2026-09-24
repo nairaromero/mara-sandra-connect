@@ -299,7 +299,7 @@ export function WebhooksCard() {
         .select("id, url, eventos, ativo, secret_id, parceiro:parceiro_id(nome, email)")
         .order("created_at", { ascending: false }),
       supabase
-        .from("usuarios")
+        .from("usuarios_escritorio")
         .select("id, nome, email")
         .eq("eh_parceiro", true)
         .eq("ativo", true)

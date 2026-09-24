@@ -19,7 +19,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { cursorVisivel } from "../cursor";
 import { STORAGE_INTERNO } from "../auth.setup";
-import { adminClient } from "../supabase-admin";
+import { adminClient, escritorioE2E } from "../supabase-admin";
 
 test.use({ storageState: STORAGE_INTERNO });
 test.setTimeout(90_000);
@@ -28,13 +28,12 @@ const GSI = /accounts\.google\.com\/gsi\/client/;
 
 // Qualquer caso sem pasta vinculada serve: so nele aparece "Vincular pasta".
 async function casoSemPasta(): Promise<string> {
-  const { data, error } = await adminClient()
-    .from("casos")
-    .select("id")
-    .is("gdrive_folder_id", null)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const admin = adminClient();
+  // Do escritório de quem abre a tela (o service role vê todos).
+  const escritorio = await escritorioE2E(admin);
+  let q = admin.from("casos").select("id").is("gdrive_folder_id", null);
+  if (escritorio) q = q.eq("escritorio_id", escritorio);
+  const { data, error } = await q.order("created_at", { ascending: false }).limit(1).maybeSingle();
   if (error || !data) throw new Error(`caso sem pasta: ${error?.message ?? "nenhum"}`);
   return data.id as string;
 }

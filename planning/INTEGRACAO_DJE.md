@@ -112,10 +112,13 @@ Futuro: no onboarding do parceiro, gravar a OAB dele como `tipo='parceiro'`.
 
 - Edge function `sync-djen-publicacoes` (mesma forma das outras: service role, paginação,
   respeitar rate limit / `User-Agent`).
-- Workflow n8n `djen-sync` (cron diário de manhã), janela incremental via `dataDisponibilizacao`.
-  JSON pronto pra importar: [`dje/n8n-djen-sync.json`](dje/n8n-djen-sync.json).
-  **O n8n NÃO chama a Comunica API direto** (geo-block) — só dispara a function, que roda em
-  São Paulo via header **`x-region: sa-east-1`** (obrigatório no cron).
+- Disparo diário pelo **pg_cron** (`msc-djen-sync`, 10:00 UTC = 07:00 Brasília, corpo `{"dias": 2}`),
+  via `pg_net` com a assinatura de sistema `cron:djen-sync` — `migration_cron_djen.sql`. O
+  `ops.headers_sistema` já manda o header **`x-region: sa-east-1`**, obrigatório porque a Comunica API
+  bloqueia chamada de fora do Brasil. Janela incremental via `dataDisponibilizacao`.
+  Até 2026-09-23 o disparo era o workflow `djen-sync` do n8n ([`dje/n8n-djen-sync.json`](dje/n8n-djen-sync.json),
+  guardado só como histórico) — decisão de 2026-09-23: nenhuma rotina do sistema passa pelo n8n; ele
+  segue instalado na máquina para uso futuro, com esse workflow **desligado**.
 - Atualiza `sync_log` (source `djen_publicacoes`, `last_synced_at`) — ver task de `sync_log`.
 
 ---

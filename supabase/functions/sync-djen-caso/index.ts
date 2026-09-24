@@ -17,7 +17,7 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
-import { exigirUsuario, fetchT } from "../_shared/auth.ts";
+import { exigirRecurso, exigirUsuario, fetchT } from "../_shared/auth.ts";
 
 const COMUNICA_BASE = "https://comunicaapi.pje.jus.br/api/v1";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -28,7 +28,7 @@ const MAX_PAGINAS = 10;
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-region",
+    "authorization, x-client-info, apikey, content-type, x-region, x-escritorio-id",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -102,7 +102,7 @@ serve(async (req) => {
 
   // Antes daqui não havia checagem: qualquer pessoa com a chave publicável do
   // site escrevia no `caso_id` que mandasse no corpo.
-  const quem = await exigirUsuario(req, { tipo: "interno" });
+  const quem = await exigirUsuario(req, { tipo: "interno", permissao: "casos:editar" });
   if (quem instanceof Response) return quem;
   if (!SUPABASE_URL || !SERVICE_ROLE) {
     return jsonResponse({ error: "supabase env vars ausentes" }, 500);
@@ -123,6 +123,9 @@ serve(async (req) => {
   if (!/^[0-9a-f-]{36}$/i.test(casoId)) {
     return jsonResponse({ error: "caso_id invalido" }, 400);
   }
+  // A função grava com service role: o caso tem que ser visível a quem pediu.
+  const semAcesso = await exigirRecurso(quem, "casos", casoId);
+  if (semAcesso) return semAcesso;
 
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
 

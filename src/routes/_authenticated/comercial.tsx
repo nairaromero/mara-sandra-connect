@@ -207,8 +207,9 @@ function resumoLead(lead: Lead) {
 }
 
 function ComercialPage() {
-  const { usuario } = useAuth();
-  const isInterno = usuario?.tipo === "interno";
+  const { usuario, pode } = useAuth();
+  // so quem gerencia o comercial (financeiro e assistente nao): o banco ja recusa
+  const isInterno = usuario?.tipo === "interno" && pode("comercial:gerenciar");
 
   const [leads, setLeads] = useState<Array<Lead>>([]);
   const [internos, setInternos] = useState<Array<Interno>>([]);
@@ -243,7 +244,7 @@ function ComercialPage() {
     if (!isInterno) return;
     carregar();
     supabase
-      .from("usuarios")
+      .from("usuarios_escritorio")
       .select("id, nome, email")
       .eq("tipo", "interno")
       .eq("ativo", true)
@@ -413,7 +414,7 @@ function ComercialPage() {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-2 text-center">
         <ShieldAlert className="h-8 w-8 text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">Área restrita a usuários internos.</p>
+        <p className="text-sm text-muted-foreground">Área restrita a quem gerencia o comercial.</p>
       </div>
     );
   }

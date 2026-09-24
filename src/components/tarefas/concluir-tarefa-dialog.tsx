@@ -57,6 +57,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { usePodeAcao } from "@/components/acao-protegida";
 
 // Etapa "Próxima tarefa do caso": null = ainda na etapa 1; "carregando" = a IA
 // está pensando; senão, a resposta dela (com ou sem sugestão). Um estado só:
@@ -83,6 +84,13 @@ export function ConcluirTarefaDialog(props: {
   /** excluída com motivo */
   onExcluida: (id: string) => void;
 }) {
+  // Trava própria: este popup grava direto em `tarefas` (concluir e excluir).
+  // Quem não pode escrever não o vê nem se algum caminho novo tentar abri-lo.
+  // O return fica lá embaixo: sair aqui pularia os hooks seguintes.
+  const podeMexer = usePodeAcao({
+    escrever: "tarefas",
+    linha: (props.tarefa ?? null) as unknown as Record<string, unknown> | null,
+  });
   const { tarefa, modoInicial, onClose, concluir, onCriarProxima, onExcluida } = props;
   const [motivo, setMotivo] = useState("");
   const [modoExcluir, setModoExcluir] = useState(false);
@@ -195,6 +203,8 @@ export function ConcluirTarefaDialog(props: {
     }
   }
 
+
+  if (!podeMexer) return null;
   return (
     <>
     <CumprirSolicitacaoDialog

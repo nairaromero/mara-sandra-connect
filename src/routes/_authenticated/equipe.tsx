@@ -10,6 +10,7 @@ import {
   Shield,
   ShieldAlert,
   ShieldCheck,
+  UserCog,
   UserMinus,
   UserPlus,
   Users,
@@ -67,13 +68,23 @@ interface InternoRow {
   eh_admin: boolean | null;
   onboarded_em: string | null;
   desligado_em: string | null;
+  /** Papel no escritório ativo: admin, advogado, assistente, financeiro. */
+  papel: string;
+  papel_nome: string;
+}
+
+interface PapelInterno {
+  chave: string;
+  nome: string;
+  descricao: string | null;
 }
 
 function EquipePage() {
-  const { usuario, isAdmin } = useAuth();
+  const { usuario, isAdmin, escritorio, pode } = useAuth();
   // Só admin (Naira/Mara) entra aqui. Os demais internos nem veem o item
   // na sidebar; se caírem pela URL, levam aviso + redirect.
-  const isInterno = isAdmin;
+  // a página inteira é de quem gerencia a equipe (RPCs exigem equipe:gerenciar)
+  const isInterno = isAdmin && pode("equipe:gerenciar");
 
   const [lista, setLista] = useState<Array<InternoRow>>([]);
   const [carregando, setCarregando] = useState(true);
@@ -81,14 +92,51 @@ function EquipePage() {
   const [email, setEmail] = useState("");
   const [enviando, setEnviando] = useState(false);
 
+  const [papeis, setPapeis] = useState<Array<PapelInterno>>([]);
+  const [papelConvite, setPapelConvite] = useState("advogado");
+
+  // A equipe é o que está em `membros` do escritório ATIVO (RBAC multi-tenant):
+  // papel e status moram no vínculo, não mais nas colunas de `usuarios`. A RLS
+  // já entrega só os vínculos deste escritório.
   const carregar = useCallback(async () => {
     setCarregando(true);
-    const { data, error } = await supabase
-      .from("usuarios")
-      .select("id, nome, email, ativo, eh_admin, onboarded_em, desligado_em")
-      .eq("tipo", "interno")
-      .order("nome", { ascending: true });
-    if (!error) setLista((data || []) as Array<InternoRow>);
+    const [membrosResp, papeisResp] = await Promise.all([
+      supabase
+        .from("membros")
+        .select(
+          "status, desativado_em, papel:papeis!inner(chave, nome, tipo_acesso), usuario:usuarios!membros_usuario_id_fkey(id, nome, email, onboarded_em)",
+        )
+        .eq("papel.tipo_acesso", "interno"),
+      supabase.from("papeis").select("chave, nome, descricao").eq("tipo_acesso", "interno").order("ordem"),
+    ]);
+    if (membrosResp.error) {
+      // Falha de consulta não é "equipe vazia".
+      console.error(membrosResp.error);
+      toast.error("Não consegui carregar a equipe.");
+    } else {
+      type Linha = {
+        status: string;
+        desativado_em: string | null;
+        papel: { chave: string; nome: string } | null;
+        usuario: { id: string; nome: string | null; email: string | null; onboarded_em: string | null } | null;
+      };
+      const linhas = ((membrosResp.data ?? []) as unknown as Array<Linha>)
+        .filter((m) => m.usuario)
+        .map<InternoRow>((m) => ({
+          id: m.usuario!.id,
+          nome: m.usuario!.nome,
+          email: m.usuario!.email,
+          onboarded_em: m.usuario!.onboarded_em,
+          ativo: m.status === "ativo",
+          desligado_em: m.status === "desativado" ? (m.desativado_em ?? new Date(0).toISOString()) : null,
+          eh_admin: m.papel?.chave === "admin",
+          papel: m.papel?.chave ?? "advogado",
+          papel_nome: m.papel?.nome ?? "Advogado",
+        }))
+        .sort((a, b) => (a.nome ?? "").localeCompare(b.nome ?? "", "pt-BR"));
+      setLista(linhas);
+    }
+    if (!papeisResp.error) setPapeis((papeisResp.data ?? []) as Array<PapelInterno>);
     setCarregando(false);
   }, []);
 
@@ -116,6 +164,7 @@ function EquipePage() {
           nome: nome.trim(),
           email: emailNorm,
           tipo: "interno",
+          papel: papelConvite,
           redirect_to: redirectTo,
         },
       });
@@ -125,8 +174,11 @@ function EquipePage() {
         toast.error(r.error);
         return;
       }
+      const rv = r as { vinculado?: boolean };
       toast.success(
-        r.ja_existia
+        rv.vinculado
+          ? `${emailNorm} já tinha conta: foi adicionado(a) a este escritório.`
+          : r.ja_existia
           ? "Esse e-mail já tem cadastro."
           : `Convite enviado para ${emailNorm}. Peça para verificar a caixa de entrada.`,
       );
@@ -162,6 +214,22 @@ function EquipePage() {
     } catch (err) {
       console.error(err);
       toast.error((err as { message?: string }).message || "Falha ao alterar papel de admin");
+    } finally {
+      setMudandoAdmin(null);
+    }
+  }
+
+  // ---- Papel (admin, advogado, assistente, financeiro) ----
+  async function definirPapel(u: InternoRow, papel: PapelInterno) {
+    setMudandoAdmin(u.id);
+    try {
+      const { error } = await supabase.rpc("definir_papel", { p_usuario_id: u.id, p_papel: papel.chave });
+      if (error) throw error;
+      toast.success(`${u.nome ?? "Pessoa"} agora é ${papel.nome.toLowerCase()}.`);
+      carregar();
+    } catch (err) {
+      console.error(err);
+      toast.error((err as { message?: string }).message || "Falha ao alterar o papel");
     } finally {
       setMudandoAdmin(null);
     }
@@ -258,8 +326,8 @@ function EquipePage() {
           Equipe interna
         </h1>
         <p className="text-sm text-muted-foreground">
-          Convide pessoas da equipe, defina quem é administrador(a) e desligue
-          quem saiu (as tarefas abertas passam pra outra pessoa).
+          Convide pessoas da equipe{escritorio ? ` de ${escritorio.escritorio_nome}` : ""}, defina o papel de
+          cada uma e desligue quem saiu (as tarefas abertas passam pra outra pessoa).
         </p>
       </div>
 
@@ -279,7 +347,7 @@ function EquipePage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+            <div className="grid gap-3 sm:grid-cols-[1fr_1fr_12rem_auto] sm:items-end">
               <div>
                 <Label className="text-xs">Nome completo</Label>
                 <Input
@@ -297,6 +365,21 @@ function EquipePage() {
                   placeholder="email@escritorio.com.br"
                 />
               </div>
+              <div>
+                <Label className="text-xs">Papel</Label>
+                <Select value={papelConvite} onValueChange={setPapelConvite}>
+                  <SelectTrigger aria-label="Papel do convidado">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {papeis.map((p) => (
+                      <SelectItem key={p.chave} value={p.chave}>
+                        {p.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <Button onClick={convidar} disabled={enviando}>
                 {enviando
                   ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -313,7 +396,7 @@ function EquipePage() {
               Usuários internos ({ativos.length})
             </CardTitle>
             <CardDescription>
-              Pessoas com acesso interno à plataforma. Admin (Naira/Mara) vê
+              Pessoas com acesso interno a este escritório. Administrador vê
               Equipe, Auditoria e as integrações e webhooks das Configurações.
             </CardDescription>
           </CardHeader>
@@ -357,6 +440,11 @@ function EquipePage() {
                             <Badge className="text-xs bg-gold-soft/60 text-foreground hover:bg-gold-soft/60 border border-gold/40">
                               <ShieldCheck className="h-3 w-3 mr-1" />
                               admin
+                            </Badge>
+                          )}
+                          {!u.eh_admin && u.papel !== "advogado" && (
+                            <Badge variant="outline" className="text-xs">
+                              {u.papel_nome.toLowerCase()}
                             </Badge>
                           )}
                           {!u.onboarded_em && (
@@ -404,6 +492,19 @@ function EquipePage() {
                                   Tornar admin
                                 </DropdownMenuItem>
                               )}
+                              {papeis
+                                .filter((p) => p.chave !== "admin" && p.chave !== u.papel)
+                                .map((p) => (
+                                  <DropdownMenuItem
+                                    key={p.chave}
+                                    disabled={souEu}
+                                    onSelect={() => definirPapel(u, p)}
+                                    title={p.descricao ?? undefined}
+                                  >
+                                    <UserCog className="h-4 w-4" />
+                                    Tornar {p.nome.toLowerCase()}
+                                  </DropdownMenuItem>
+                                ))}
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
                                 disabled={souEu}

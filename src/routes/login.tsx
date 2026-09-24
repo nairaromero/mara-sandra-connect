@@ -3,11 +3,15 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
+import { ehHostQG } from "@/lib/qg/host";
 import { consumirMotivoLogout } from "@/lib/auth/session-policy";
+import { precisaCodigo } from "@/lib/mfa";
+import { VerificacaoDuasEtapas } from "@/components/verificacao-duas-etapas";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { MarcaLegalConnect } from "@/components/marca-legal-connect";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/login")({
@@ -22,11 +26,26 @@ function LoginPage() {
   const [loadingPass, setLoadingPass] = useState(false);
   const [loadingMagic, setLoadingMagic] = useState(false);
   const [loadingRecovery, setLoadingRecovery] = useState(false);
+  // Quem tem verificacao em duas etapas entra em AAL1 depois da senha e so
+  // segue depois do codigo (a sessao vira AAL2). null = nao precisa.
+  const [mfa, setMfa] = useState<{ fatorId: string } | null>(null);
 
   useEffect(() => {
-    if (!authLoading && session) {
-      navigate({ to: "/casos" });
-    }
+    if (authLoading || !session) return;
+    let vivo = true;
+    precisaCodigo()
+      .then((r) => {
+        if (!vivo) return;
+        if (r.precisa && r.fatorId) setMfa({ fatorId: r.fatorId });
+        else navigate({ to: ehHostQG() ? "/qg" : "/casos" });
+      })
+      .catch(() => {
+        // sem resposta do MFA (ambiente antigo): segue como sempre
+        if (vivo) navigate({ to: ehHostQG() ? "/qg" : "/casos" });
+      });
+    return () => {
+      vivo = false;
+    };
   }, [authLoading, session, navigate]);
 
   // Explica por que a pessoa caiu aqui quando o logout foi automático — sem
@@ -53,8 +72,8 @@ function LoginPage() {
       toast.error("Não foi possível entrar", { description: error.message });
       return;
     }
+    // o efeito acima decide: codigo do autenticador, ou entrar
     toast.success("Bem-vindo(a)!");
-    navigate({ to: "/casos" });
   }
 
   async function handleMagicLink() {
@@ -107,16 +126,36 @@ function LoginPage() {
     <div className="flex min-h-screen items-center justify-center px-4 bg-gradient-to-br from-background via-background to-gold-soft/50">
       <div className="w-full max-w-md">
         <div className="mb-8 flex flex-col items-center gap-3">
-          <img
-            src="/logo.png"
-            alt="Mara Sandra Vian Advocacia"
-            className="h-36 w-auto object-contain"
-          />
+          <MarcaLegalConnect variante="empilhado" className="h-32 w-auto" />
           <p className="text-sm text-muted-foreground">
-            Plataforma interna · Previdenciário
+            Gestão de casos previdenciários para escritórios e parceiros
           </p>
         </div>
 
+        {mfa && (
+          <Card className="border-border/60 shadow-sm" data-login-mfa>
+            <CardHeader className="space-y-1">
+              <CardTitle className="text-lg">Verificação em duas etapas</CardTitle>
+              <CardDescription>Digite o código do seu aplicativo autenticador para entrar.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <VerificacaoDuasEtapas
+                modo="confirmar"
+                fatorId={mfa.fatorId}
+                rotuloConfirmar="Entrar"
+                onPronto={() => {
+                  setMfa(null);
+                  navigate({ to: ehHostQG() ? "/qg" : "/casos" });
+                }}
+                onCancelar={() => {
+                  void supabase.auth.signOut().then(() => setMfa(null));
+                }}
+              />
+            </CardContent>
+          </Card>
+        )}
+
+        {!mfa && (
         <Card className="border-border/60 shadow-sm">
           <CardHeader className="space-y-1">
             <CardTitle className="text-lg">Acessar a plataforma</CardTitle>
@@ -187,6 +226,7 @@ function LoginPage() {
             </form>
           </CardContent>
         </Card>
+        )}
 
         <p className="mt-6 text-center text-xs text-muted-foreground">
           Problemas para acessar? Fale com a equipe interna do escritório.

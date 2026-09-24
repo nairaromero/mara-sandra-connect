@@ -1,7 +1,9 @@
 # Plano de multi-tenant e RBAC
 
-> **Status: proposta.** Depende da decisão (a) × (b) que [DECISOES.md](DECISOES.md) §8
-> deixou em aberto — ela vira o D23. A **Fase 0 é urgente e não depende dessa decisão.**
+> **Status: construído localmente (2026-09-22), aguardando validação da Naira.**
+> Decisão registrada em [DECISOES.md](DECISOES.md) D23–D25. O que foi feito, os desvios e o
+> que falta estão em [§0](#0-estado-da-implementação-2026-09-22); como testar, em
+> [RBAC_TESTE_LOCAL.md](RBAC_TESTE_LOCAL.md). Nada aplicado no staging nem em produção.
 > Escrito em 2026-09-14 a partir de uma auditoria somente-leitura do banco, das 32 edge
 > functions, do frontend, dos scripts, workflows e testes, cruzada com documentação
 > oficial (Supabase, PostgreSQL), OWASP, AWS e normas da ANPD e da OAB.
@@ -38,6 +40,31 @@ Onde este documento divergir do banco, vale o banco — e corrija aqui
 - **Oito fases aditivas**, cada uma com portão de saída e rollback. Nenhuma fase muda o que
   o escritório 1 vê até a matriz de testes entre dois escritórios estar verde, e o primeiro
   cliente externo só entra depois do DPA e do runbook de incidente.
+
+---
+
+## 0. Estado da implementação (2026-09-22)
+
+Branch `feat/rbac-multi-tenant`, catorze migrations (`migration_rbac_01…14`; mais `migration_cron_djen` e `migration_cron_whatsapp_outbox`, só produção), 26 edge functions
+alteradas + `qg-escritorios`, front, QG, glossário e paginação. Aplicado e provado **só no banco
+local**: `bun run local:copiar && bun run local:rbac`, `bun run e2e:local` = 100/100 (69 existentes +
+23 de ataque entre escritórios + 3 do glossário + 5 de paginação) e `scripts/rbac-diff-visibilidade.mjs` mostrando que o
+escritório 1 vê exatamente as mesmas linhas de antes.
+
+| Fase | Estado | Observação |
+|---|---|---|
+| 0 · Contenção | parcial, por outros PRs | #297, #376, #383 fecharam parte; o que sobrou está coberto pelas policies novas (ver "falhas antigas" no guia) |
+| 1 · Fundações | **não feita** | sem pgTAP nem CI obrigatório; as provas são Playwright via API. PITR não ligado |
+| 2 · Modelo de acesso | feita | `escritorios`, `membros`, papéis × 26 permissões, sync das colunas antigas por gatilho |
+| 3 · `escritorio_id` | feita, com desvio | 41 tabelas, `NOT NULL`, herança por gatilho. **FK simples + gatilho** em vez de FK composta (D23) |
+| 4 · Isolamento | feita, com desvio | 41 policies restritivas; helpers sobre `membros`; **escritório ativo por header** (D24), não `IN (todos)` |
+| 5 · RBAC | feita | 58 policies `perm_*`; menu, botões e Equipe por permissão. Limpeza fina das telas em 23/09: ação de escrita só com `isInterno && pode(...)` (caso, documentos, processos, agenda, clientes, publicações); Comercial/Etiquetas/Parceiros/Processos/Novo caso conferem a permissão além do tipo. Nada mudou na tela do parceiro |
+| 6 · Produto | parcial | QG completo (D25); trocar de escritório; convite por papel; tela do escritório para aprovar/encerrar suporte + trilha na Auditoria (23/09); integrações por escritório — Gmail do INSS, DJEN e WhatsApp (23/09, `migration_rbac_09`); marca por escritório (23/09, `migration_rbac_10`); token do MCP emitido para outra pessoa (#385, `migration_rbac_12`). Legalmail/TI por escritório (23/09, `migration_rbac_13`: credencial cifrada por escritório, 412 sem ela, tela só oferece com credencial; escritório padrão no legado até cadastrar). Saída do WhatsApp por function (23/09, `migration_rbac_14` + `whatsapp-outbox-enviar` no pg_cron, chave do escritório da linha; fila segue pausada até retomar). **Faltam**: webhooks por function (tela "Em breve"), export por escritório. DJEN saiu do n8n para o pg_cron (23/09, `migration_cron_djen`) |
+| 7 · Contração | não feita | colunas antigas de `usuarios` seguem sincronizadas; nenhuma decisão de acesso as lê |
+| QG (§4.6) | feita, com desvio | funções `qg_*` em `public` (não schema `plataforma`); AAL2 por `app_config` com cadastro do autenticador e etapa do código (23/09, `migration_rbac_11`); desligada só no local pelo seed |
+
+Pré-requisitos antes de ir para o staging estão no fim do guia de teste. Onde o desenho
+abaixo divergir do que foi construído, vale o construído — e corrija aqui.
 
 ---
 

@@ -1,11 +1,14 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, ShieldCheck, ShieldAlert, RefreshCw } from "lucide-react";
+import { LifeBuoy, Loader2, ShieldCheck, ShieldAlert, RefreshCw } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
-import { formatarBR } from "@/lib/fuso";
+import { Paginador } from "@/components/paginador";
+import { useListaPaginada, usePorPagina } from "@/hooks/use-lista-paginada";
+import { ROTULO_TIPO_ATOR, rotuloAcao } from "@/lib/suporte/rotulos";
+import { dataHoraBR, formatarBR } from "@/lib/fuso";
 import { ClientOnly } from "@/components/client-only";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +29,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
+const POR_PAGINA_PADRAO = 25;
 
 export const Route = createFileRoute("/_authenticated/auditoria")({
   component: AuditoriaPage,
@@ -114,14 +119,23 @@ function TipoUsuarioBadge({ tipo }: { tipo: string | null | undefined }) {
 // ===========================================================================
 
 function AuditoriaPage() {
-  const { usuario, isAdmin } = useAuth();
+  const { usuario, isAdmin, pode } = useAuth();
   const navigate = useNavigate();
   // Só admin (Naira/Mara) entra aqui. Os demais internos nem veem o item
   // na sidebar; se caírem pela URL, levam aviso + redirect.
-  const isInterno = isAdmin;
+  // a trilha é de quem pode ler auditoria (auditoria:ler)
+  const isInterno = isAdmin && pode("auditoria:ler");
 
   const [rows, setRows] = useState<AcessoRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pagina, setPagina] = useState(1);
+  const [porPagina, setPorPagina] = usePorPagina("auditoria", POR_PAGINA_PADRAO);
+  const [total, setTotal] = useState<number | null>(null);
+  const [carregandoPagina, setCarregandoPagina] = useState(false);
+  const jaCarregouRef = useRef(false);
+  // Totais por ação vêm do banco (count), não das linhas carregadas — senão
+  // o card diria "100 leituras" só porque a primeira página tem 100.
+  const [totaisBanco, setTotaisBanco] = useState<{ leitura: number; escrita: number; escrita_remocao: number } | null>(null);
   const [filtroCliente, setFiltroCliente] = useState("");
   const [filtroAcao, setFiltroAcao] = useState<string>("todas");
   const [filtroDias, setFiltroDias] = useState<string>("30");
@@ -133,11 +147,34 @@ function AuditoriaPage() {
     }
   }, [usuario, isInterno, navigate]);
 
+  // Recorte comum (período + ação) da lista e das contagens.
+  function desdeISO(): string | null {
+    if (filtroDias === "todos") return null;
+    const dias = Number(filtroDias);
+    if (isNaN(dias)) return null;
+    const desde = new Date();
+    desde.setDate(desde.getDate() - dias);
+    return desde.toISOString();
+  }
+
+  async function contar(acao: "leitura" | "escrita" | "escrita_remocao"): Promise<number> {
+    let q = supabase.from("acessos_senha_inss").select("id", { count: "exact", head: true }).eq("acao", acao);
+    const desde = desdeISO();
+    if (desde) q = q.gte("acessado_em", desde);
+    const { count, error } = await q;
+    if (error) throw error;
+    return count ?? 0;
+  }
+
   async function load() {
-    setLoading(true);
+    if (jaCarregouRef.current) setCarregandoPagina(true);
+    else setLoading(true);
     try {
       // RLS na acessos_senha_inss já garante interno-only no SELECT.
       // O join com clientes/usuarios passa pelos próprios RLS deles.
+      // Uma página por vez, da mais recente pra mais antiga, com o total.
+      // Antes era `.limit(500)` sem aviso do que ficava fora.
+      const inicio = (pagina - 1) * porPagina;
       let query = supabase
         .from("acessos_senha_inss")
         .select(
@@ -150,41 +187,46 @@ function AuditoriaPage() {
           cliente:clientes(nome),
           usuario:usuarios(nome, email, tipo)
         `,
+          { count: "exact" },
         )
         .order("acessado_em", { ascending: false })
-        .limit(500);
+        .order("id")
+        .range(inicio, inicio + porPagina - 1);
 
-      // Filtro de período
-      if (filtroDias !== "todos") {
-        const dias = Number(filtroDias);
-        if (!isNaN(dias)) {
-          const desde = new Date();
-          desde.setDate(desde.getDate() - dias);
-          query = query.gte("acessado_em", desde.toISOString());
-        }
-      }
+      const desde = desdeISO();
+      if (desde) query = query.gte("acessado_em", desde);
+      if (filtroAcao !== "todas") query = query.eq("acao", filtroAcao);
 
-      // Filtro de ação
-      if (filtroAcao !== "todas") {
-        query = query.eq("acao", filtroAcao);
-      }
-
-      const { data, error } = await query;
+      const [{ data, error, count }, leitura, escrita, escrita_remocao] = await Promise.all([
+        query,
+        filtroAcao === "todas" || filtroAcao === "leitura" ? contar("leitura") : Promise.resolve(0),
+        filtroAcao === "todas" || filtroAcao === "escrita" ? contar("escrita") : Promise.resolve(0),
+        filtroAcao === "todas" || filtroAcao === "escrita_remocao" ? contar("escrita_remocao") : Promise.resolve(0),
+      ]);
       if (error) throw error;
       setRows((data as unknown as AcessoRow[]) ?? []);
+      setTotal(count ?? null);
+      setTotaisBanco({ leitura, escrita, escrita_remocao });
     } catch (err) {
       console.error(err);
       const msg = (err as { message?: string })?.message ?? "Falha ao carregar log de auditoria.";
       toast.error(msg);
     } finally {
       setLoading(false);
+      setCarregandoPagina(false);
+      jaCarregouRef.current = true;
     }
   }
+
+  // filtro ou tamanho mudou -> pagina 1
+  useEffect(() => {
+    setPagina(1);
+  }, [filtroAcao, filtroDias, porPagina]);
 
   useEffect(() => {
     if (isInterno) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isInterno, filtroAcao, filtroDias]);
+  }, [isInterno, filtroAcao, filtroDias, pagina, porPagina]);
 
   // Filtro de cliente é client-side (pra evitar round-trip por digitação)
   const rowsFiltradas = useMemo(() => {
@@ -194,6 +236,9 @@ function AuditoriaPage() {
   }, [rows, filtroCliente]);
 
   const totais = useMemo(() => {
+    // Com filtro de cliente (client-side), conta o que está na tela; sem ele,
+    // o total real do banco para o período/ação.
+    if (!filtroCliente.trim() && totaisBanco) return totaisBanco;
     const t = { leitura: 0, escrita: 0, escrita_remocao: 0 };
     for (const r of rowsFiltradas) {
       if (r.acao === "leitura") t.leitura++;
@@ -201,7 +246,7 @@ function AuditoriaPage() {
       else if (r.acao === "escrita_remocao") t.escrita_remocao++;
     }
     return t;
-  }, [rowsFiltradas]);
+  }, [rowsFiltradas, filtroCliente, totaisBanco]);
 
   if (!isInterno) {
     return (
@@ -218,11 +263,12 @@ function AuditoriaPage() {
         <div>
           <h1 className="font-serif text-3xl font-semibold tracking-tight flex items-center gap-2">
             <ShieldCheck className="h-7 w-7 text-[var(--gold)]" />
-            Auditoria de senhas MEU INSS
+            Auditoria
           </h1>
           <p className="text-sm text-muted-foreground">
-            Registro imutável de todo acesso (leitura, escrita ou remoção) à senha do MEU INSS dos
-            clientes. Obrigatório para conformidade LGPD.
+            Registro imutável de quem fez o quê neste escritório: acessos à senha do MEU INSS dos clientes
+            (leitura, escrita ou remoção) e tudo que a plataforma ou uma sessão de suporte fez aqui.
+            Obrigatório para conformidade LGPD.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => load()} disabled={loading}>
@@ -402,7 +448,90 @@ function AuditoriaPage() {
             )}
           </CardContent>
         </Card>
+        <Paginador
+          pagina={pagina}
+          porPagina={porPagina}
+          total={total}
+          carregando={carregandoPagina}
+          onPagina={setPagina}
+          onPorPagina={setPorPagina}
+          nome="acessos"
+        />
+
+        <TrilhaPlataforma />
       </ClientOnly>
     </div>
+  );
+}
+
+// O que a plataforma, o suporte e os administradores fizeram NESTE escritorio
+// (tabela auditoria, via RPC que resolve o nome de quem fez). So metadado.
+interface LinhaTrilha {
+  id: number;
+  quando: string;
+  tipo_ator: string;
+  ator_nome: string | null;
+  acao: string;
+  recurso: string | null;
+  recurso_id: string | null;
+  detalhes: Record<string, unknown>;
+  total: number;
+}
+
+function TrilhaPlataforma() {
+  const lista = useListaPaginada<LinhaTrilha>(
+    (offset, limite) => supabase.rpc("auditoria_plataforma", { p_limite: limite, p_offset: offset }),
+    "trilha",
+    { porPagina: 25, persistencia: "auditoria-plataforma" },
+  );
+  return (
+    <Card data-trilha-plataforma>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <LifeBuoy className="h-5 w-5 text-[var(--gold)]" />
+          Plataforma e suporte neste escritório
+        </CardTitle>
+        <CardDescription>
+          Cada pedido, aprovação e encerramento de acesso de suporte, cada tela que uma sessão de suporte abriu e
+          cada ação da equipe da plataforma sobre o escritório. Nada disso acontece sem ficar aqui.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="p-0">
+        {lista.erro && <p className="px-6 py-4 text-sm text-red-700">Não consegui carregar a trilha: {lista.erro}</p>}
+        {!lista.erro && !lista.carregando && lista.itens.length === 0 && (
+          <p className="px-6 py-8 text-center text-sm text-muted-foreground">Nenhuma ação da plataforma registrada.</p>
+        )}
+        {lista.itens.length > 0 && (
+          <ul className="divide-y">
+            {lista.itens.map((l) => (
+              <li key={l.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-6 py-3 text-sm">
+                <span className="w-36 shrink-0 tabular-nums text-muted-foreground">{dataHoraBR(l.quando)}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="font-medium">{l.ator_nome ?? ROTULO_TIPO_ATOR[l.tipo_ator] ?? l.tipo_ator}</span>
+                  <span className="text-muted-foreground"> · {ROTULO_TIPO_ATOR[l.tipo_ator] ?? l.tipo_ator}</span>
+                  <span className="block">
+                    {rotuloAcao(l.acao)}
+                    {l.acao === "suporte.abrir" && l.recurso ? (
+                      <code className="ml-1 rounded bg-muted px-1 text-xs">{l.recurso}</code>
+                    ) : null}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <Paginador
+          pagina={lista.pagina}
+          porPagina={lista.porPagina}
+          total={lista.total}
+          temMais={lista.temMais}
+          carregando={lista.carregando && lista.itens.length > 0}
+          onPagina={lista.irPara}
+          onPorPagina={lista.setPorPagina}
+          nome="registros"
+          className="border-t"
+        />
+      </CardContent>
+    </Card>
   );
 }

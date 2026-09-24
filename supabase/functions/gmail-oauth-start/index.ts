@@ -29,7 +29,7 @@ const GMAIL_SCOPES = "https://www.googleapis.com/auth/gmail.readonly";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-escritorio-id",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -53,7 +53,10 @@ serve(async (req) => {
   if (req.method !== "POST") return jsonResponse({ error: "method not allowed" }, 405);
 
   // Checagem no topo: antes ela vinha depois das variáveis de ambiente e do corpo, então a função respondia (400/500, e até 200) sem saber quem chamou. `exigirUsuario` também confere `ativo`, que faltava aqui.
-  const quem = await exigirUsuario(req, { tipo: "interno" });
+  // Conectar a caixa do INSS é configurar integração do escritório: só quem
+  // gerencia integrações (admin). O escritório ativo vai no state — a caixa é
+  // DELE, não da pessoa.
+  const quem = await exigirUsuario(req, { tipo: "interno", permissao: "integracoes:gerenciar" });
   if (quem instanceof Response) return quem;
 
   if (!GMAIL_CLIENT_ID || !GMAIL_REDIRECT_URI) {
@@ -65,9 +68,13 @@ serve(async (req) => {
   const sb = quem.admin;
   const usuarioId = quem.uid;
 
+  const escritorioId = quem.perfil.escritorio_id;
+  if (!escritorioId) return jsonResponse({ error: "sem escritório ativo" }, 400);
+
   const nonce = randomNonce();
   const ts = Math.floor(Date.now() / 1000);
-  const payload = `${usuarioId}.${nonce}.${ts}`;
+  // state = usuario.escritorio.nonce.ts.sig (o callback aceita o formato antigo de 4 partes)
+  const payload = `${usuarioId}.${escritorioId}.${nonce}.${ts}`;
   const sig = await signPayload(payload);
   const state = `${payload}.${sig}`;
 
@@ -82,6 +89,8 @@ serve(async (req) => {
     state,
   });
 
-  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+  // GOOGLE_OAUTH_AUTH_URL so existe no ambiente LOCAL (mock); fora dele e o Google.
+  const authBase = Deno.env.get("GOOGLE_OAUTH_AUTH_URL") ?? "https://accounts.google.com/o/oauth2/v2/auth";
+  const authUrl = `${authBase}?${params.toString()}`;
   return jsonResponse({ auth_url: authUrl });
 });

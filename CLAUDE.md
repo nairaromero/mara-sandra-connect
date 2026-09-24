@@ -26,7 +26,11 @@ feature branch  ──merge──▶  staging  ──merge (após validação)�
 - Edge functions: deploy no staging (`--project-ref alhqbpbekmxpoibrrnbi`) antes de produção.
 - **Quem pode chamar edge function** (desde 2026-09-20): toda function começa com
   `exigirUsuario` (sessão de pessoa, já conferindo `ativo`) ou `exigirSistema`
-  (cron/gatilho/n8n, por assinatura HMAC) do `supabase/functions/_shared/auth.ts`.
+  (cron/gatilho, por assinatura HMAC) do `supabase/functions/_shared/auth.ts`. Desde 2026-09-23
+  nenhuma rotina do sistema passa pelo n8n (o DJEN roda no pg_cron, `migration_cron_djen`; webhooks
+  está "Em breve" na tela e volta por function; a saída do WhatsApp já sai pela function
+  `whatsapp-outbox-enviar` no pg_cron, com a chave do escritório da linha — `migration_rbac_14` —, fila
+  pausada até retomar). O n8n fica instalado na máquina do Evolution para uso futuro — não criar rotina nova nele.
   `verify_jwt` fica declarado por function no `supabase/config.toml` — nunca na linha
   de comando. Lembrando que `verify_jwt=true` **não** fecha nada sozinho: a chave
   publicável do site é um JWT válido; quem fecha é a checagem dentro da função.
@@ -100,10 +104,91 @@ node scripts/msc-sql.mjs --local --file planning/sql-migrations/migration_x.sql
 - Gestão da equipe pela UI (`/equipe`, RPCs em migration_equipe_admin_desligar): `definir_admin`, `desligar_interno` (não apaga: `ativo=false` + ban no auth + tarefas abertas/agenda futura migram pra outra pessoa; histórico fica no nome), `reativar_interno`.
 - Autoria em tarefas (migration_tarefas_autoria): `created_by`, `status_alterado_por/_em` via trigger; exclusões vão pra `tarefas_excluidas`.
 
+## RBAC multi-tenant (branch `feat/rbac-multi-tenant`, só local por enquanto)
+
+Desenho em planning/MULTI_TENANT_RBAC.md (§0 = estado real), decisões D23–D25, teste em
+planning/RBAC_TESTE_LOCAL.md. Enquanto não chega ao staging, o resto deste arquivo descreve
+o sistema em produção. Quando chegar, vale o seguinte:
+
+- **Escritório ativo** = header `x-escritorio-id` que o front manda em toda chamada
+  (`src/lib/supabase.ts`), conferido no banco por `private.escritorio_ativo()` contra
+  `membros`. Header inválido → NULL (nada visível), nunca fallback. Nada é lido do JWT.
+- **Fonte da verdade de papel/status é `membros`** (admin/advogado/assistente/financeiro/
+  parceiro × 26 permissões). `usuarios.tipo/eh_admin/ativo` continuam sincronizados por
+  gatilho pro código antigo, mas nenhuma decisão de acesso deve ler deles. No front:
+  `const { pode, escritorio, vinculos } = useAuth()`; `pode("casos:editar")`. No SQL:
+  `tem_permissao('casos:editar')`, `is_admin()`, `is_interno()` (todos sobre o vínculo ativo).
+- **Telas** (desde 2026-09-24): ação de escrita passa pelo **gate único**, nunca por uma
+  permissão escrita à mão. `src/lib/rbac/exigencias.ts` espelha o que o SERVIDOR exige (tabela
+  por operação e escopo, RPC, edge function, bucket); na tela use
+  `podeEscrever("tarefas")` para o que cria, `podeEscreverLinha("tarefas", tarefa)` para o que
+  age sobre uma linha (escopo `atribuidos` só aceita a linha de quem está logado), `podeChamar`
+  para RPC/function, ou `<AcaoProtegida escrever="documentos" operacao="excluir">`.
+  `scripts/rbac-conferir-exigencias.mjs` (e a spec `rbac-exigencias`) compara o espelho com o
+  banco e acusa sobra ou falta — é a resposta automática para "ainda falta alguma?".
+  Contexto: a varredura de 23/09 mexeu só em rotas e nos gates que já existiam, e deixou ~40
+  botões oferecendo o que o banco recusa (planning/RBAC_AUDITORIA_TELAS.md). Página de gestão
+  (Comercial, Etiquetas, Parceiros, Processos, Novo caso, Publicações) confere a permissão além
+  do tipo e devolve para /casos ou mostra "Área restrita a quem gerencia…". Prova:
+  `e2e/tests/rbac-telas.spec.ts`.
+- **Legalmail e TI por escritório** (RBAC 13): credencial em `escritorio_integracoes` (cifrada), lida só pelas
+  functions via `_shared/integracoes.ts` (`integracaoDoEscritorio`); sem ela → 412 `integracao_nao_configurada`.
+  Na tela, `useIntegracoesEscritorio().tem("legalmail")` (RPC `minhas_integracoes`) decide se o botão aparece.
+  Nunca voltar a ler `LEGALMAIL_TOKEN`/`TI_TOKEN` direto: só o escritório padrão cai nesse legado, via o helper.
+- **Provedores simulados no local** (`e2e/demo/mocks/provedores.cjs`, porta 8787): Evolution, Comunica/DJEN,
+  Google OAuth + Gmail, Legalmail, TI, Resend e "Claude simulado". As functions leem a base por env só quando definida
+  (`COMUNICA_BASE_URL`, `GOOGLE_OAUTH_AUTH_URL`, `GOOGLE_TOKEN_URL`, `GMAIL_API_BASE`, `LEGALMAIL_BASE_URL`, `TI_BASE_URL`, `RESEND_BASE_URL`);
+  sem a variável, endereço real. Essas variáveis ficam SÓ no `supabase/functions/.env` local — nunca em
+  segredo de staging/produção. Filme do lote: `node e2e/demo/roteiros/lote-rbac-local.cjs` (seção R do guia).
+- **Tabela nova de domínio** precisa de `escritorio_id not null` + FK + policy restritiva
+  `isolamento_escritorio` + gatilho `aa_herdar_escritorio` — a `migration_rbac_02` é o
+  molde (`private.tabelas_de_dominio()` lista quem fica de fora e por quê).
+- **RPC `SECURITY DEFINER`** que recebe id de linha começa com
+  `private.exigir_no_escritorio('tabela'::regclass, p_id)` — o `postgres` tem BYPASSRLS.
+- **Edge function**: `exigirUsuario(req, { permissao: "x:y" })` resolve papel e escritório
+  via `meu_contexto()`; `exigirRecurso(quem, tabela, id)` antes de tocar em linha; client de
+  service role sempre `escopado(sb, escritorioId)`. Integrações de sistema (INSS, DJEN,
+  WhatsApp) são do escritório `padrao_sistema` na v1.
+- **QG (superadmin)** vive em `qg.<domínio>` (`qg.localhost:8080` local), rotas `/qg/*`,
+  staff em `plataforma_staff`, funções `qg_*` — só metadados e contagens. Conteúdo de
+  cliente só por `acessos_suporte` aprovado pelo admin do escritório (somente leitura,
+  com prazo, auditado). Eliminar dados exige segunda pessoa.
+- Setup local: `bun run local:copiar && bun run local:rbac` (seed idempotente com o
+  escritório Canário e as contas de teste). Nova edge function local → `supabase stop/start`.
+- **Listas**: nunca `.limit(n)` fixo pra "trazer tudo" — o PostgREST corta em 1.000 (`max_rows`)
+  **sem erro**. Lista inteira → `buscarPaginado` (`src/lib/supabase-paginado.ts`); lista longa na
+  tela → `<Paginador>` (`src/components/paginador.tsx`: "1–25 de N", « ‹ números › », itens por
+  página) com `useListaPaginada` (página buscada no banco: `.range()` + `count: "exact"`, ou RPC com
+  `p_limite/p_offset` e `total = count(*) over ()`) ou `usePaginaLocal` (fatia de lista já carregada).
+  Ordem estável (desempate por `id`); filtro/busca muda → página 1; tamanho lembrado por lista
+  (`usePorPagina`). Nada de "mostrar mais" acumulando. `qg_escritorios` e `conversas_threads` são os moldes.
+- **MCP (#385)**: `ia-config` emite token para a pessoa escolhida (`ia:mcp_conceder`), grava
+  `usuario_id` (dono) e `emitido_por`; `ia-mcp` roda como o dono e exige emissor admin ativo no
+  escritório do token; dono e emissor veem/revogam. Nunca voltar a exigir que o dono seja admin.
+- **MFA (TOTP)**: `src/lib/mfa.ts` + `<VerificacaoDuasEtapas>`; o login pede o código de quem tem
+  fator, o QG exige AAL2 quando `app_config.qg_exigir_aal2='true'` (banco, não só tela). Local:
+  `[auth.mfa.totp]` ligado no `supabase/config.toml`; a spec calcula o TOTP. Cloud: habilitar TOTP
+  em Authentication → Multi-factor.
+- **Marca**: a do PRODUTO (Legal Connect, `<MarcaLegalConnect>`) fica onde não há escritório
+  (login, favicon, QG, rodapé); a do ESCRITÓRIO ativo (`escritorio_config.marca`, `<MarcaEscritorio>`,
+  `useAuth().escritorio.marca`) no topo, nos e-mails (`_shared/marca.ts`) e nas mensagens. Nunca
+  escrever "Mara Sandra Vian"/`/logo.png` fixo em tela ou function.
+- **Glossário** (`/glossario`, `/qg/glossario`): termos em `src/lib/glossario/termos.ts`
+  (id estável, categoria, `publico` todos/interno/qg). Permissões dos papéis vêm do banco em
+  tempo real — não escrever matriz de permissão em texto. Papel, permissão ou conceito novo →
+  termo novo lá (e `veja` dos vizinhos).
+
 ## IA (importante)
 
-- IA fica disponível só pra usuários `tipo='interno'`. Parceiros não veem launcher de IA, integrações, nem assistant panel.
-- Verificação atual: `usuario?.tipo === "interno"` no `_authenticated.tsx`.
+- IA é de quem tem **`ia:usar`** (admin, advogado, assistente) e é interno. Parceiro não usa IA.
+- Onde vale: no front, `usuario?.tipo === "interno" && pode("ia:usar")` (`_authenticated.tsx`);
+  no SERVIDOR, desde 24/09, as functions de IA exigem a permissão — `ia-assistant`,
+  `ia-triagem-andamentos`, `sugerir-proxima-tarefa`, `mensagem-parceiro-exigencia`,
+  `extrair-agendamento-pericia` e `ia-analise`. Antes a tela era o único freio e a API respondia
+  a qualquer pessoa autenticada (planning/RBAC_CLASSE_INVERSA.md).
+- `ia-config` confere **por ação**: o cofre de chaves (status/testar/salvar/ativar/compartilhar)
+  pede `ia:usar`; as ações de token do MCP são da DONA do token, que pode ser parceira (#385) —
+  não feche essa porta de novo.
 
 ## Checagem de regressão (após TODA modificação)
 

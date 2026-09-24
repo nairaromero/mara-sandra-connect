@@ -266,7 +266,7 @@ export async function listarInternosAtivos(): Promise<
   Array<{ id: string; nome: string | null; email: string | null }>
 > {
   const { data, error } = await supabase
-    .from("usuarios")
+    .from("usuarios_escritorio")
     .select("id, nome, email")
     .eq("tipo", "interno")
     .eq("ativo", true)
