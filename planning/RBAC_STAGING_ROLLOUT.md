@@ -31,6 +31,12 @@ O que **não** muda: contas, senhas, dados dos clientes. Todo usuário existente
 
 ### 2.1 Migrations (registram em `ops.migrations_aplicadas` do staging)
 
+**Aplicadas no staging em 24/09/2026**, uma a uma, com conferência a cada passo (16/16 registradas).
+Estado depois: 1 escritório (padrão), 33 membros (31 ativos), 5 papéis, 26 permissões, 65 papel_permissoes,
+49 tabelas com `escritorio_id` (0 nulos em casos/clientes/tarefas), 44 policies `isolamento_escritorio`,
+58 `perm_*`, 28 funções `private`, 24 `qg_*`, `plataforma_staff` vazio (seed vem em 2.6).
+Todos esses números batem com o banco local.
+
 ```bash
 for m in 01_modelo_acesso 02_escritorio_id 03_isolamento 04_rpcs 05_qg 06_qg_paginacao 07_suporte_escritorio \
          08_excluir_so_admin 09_integracoes_por_escritorio 10_marca_por_escritorio 11_qg_aal2 12_mcp_para_terceiro \
