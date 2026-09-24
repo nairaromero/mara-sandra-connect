@@ -62,6 +62,23 @@ Conferir: `select count(*) from escritorios` = 1 (padrão), `select count(*) fro
 | `RESEND_API_KEY`, `SEND_EMAIL_HOOK_SECRET` | e-mails | como hoje |
 | `COMUNICA_BASE_URL`, `GOOGLE_*_URL`, `GMAIL_API_BASE`, `LEGALMAIL_BASE_URL`, `TI_BASE_URL`, `RESEND_BASE_URL` | **só o local** (mocks) | **NÃO definir** em staging/produção |
 
+**Conferido no staging em 24/09/2026** (`bunx supabase secrets list`, que devolve só o sha256 de cada valor):
+
+- Existem e conferem: `IA_MASTER_KEY`, `MSC_SYSTEM_SECRET` (com `msc_system_secret` no Vault desde 20/09),
+  `GMAIL_CLIENT_ID/SECRET`, `EVOLUTION_API_KEY`, `WHATSAPP_INBOUND_TOKEN`, `LEGALMAIL_TOKEN`, `TI_TOKEN`,
+  `RESEND_API_KEY`, `SEND_EMAIL_HOOK_SECRET`.
+- `GMAIL_REDIRECT_URI` **confirmado** pelo hash como o callback do projeto de staging (não o de produção).
+- **Nenhuma** variável de mock (`*_BASE_URL`, `GOOGLE_*_URL`, `GMAIL_API_BASE`) está definida lá. Continuar assim.
+- `EVOLUTION_BASE_URL` e `EVOLUTION_INSTANCE` **ficam de fora de propósito** (decisão da Naira, 24/09): sem elas
+  a `whatsapp-outbox-enviar` não acha a credencial legada do escritório padrão e marca a mensagem como
+  "integração WhatsApp não configurada neste escritório" em vez de enviar. O staging não manda WhatsApp real,
+  e sem pg_cron a function nem roda sozinha. Quem quiser exercitar envio no staging cadastra a credencial
+  pela tela de Integrações, por escritório.
+- `APP_BASE_URL` existe mas **não** é `https://staging.marasandraconnect.com` (hash não bate com essa nem com a
+  de produção nem com ~20 variações). Como ela monta os links dos e-mails de notificação, conferir o valor no
+  painel (Edge Functions → Secrets) e corrigir antes de exercitar e-mail no staging. Pendente.
+- Extras fora do plano, inofensivos: `TRELLO_API_KEY`, `TRELLO_TOKEN`, `TRELLO_LISTA_ID`.
+
 ### 2.3 Deploy das functions (uma por vez; nunca `--no-verify-jwt`)
 
 ```bash
