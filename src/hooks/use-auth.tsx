@@ -62,12 +62,24 @@ interface AuthContextValue {
    */
   pode: (permissao: string, escopoExigido?: string) => boolean;
   /**
-   * Pode escrever NESTA TABELA? Resolve sozinho a permissão e o escopo que o
-   * servidor exige (inclusive `documentos`, cujo excluir é outra permissão).
+   * Pode escrever nesta TABELA em ALGUMA linha? Use para o que cria (o botão
+   * "Nova tarefa") e para abas inteiras. Quem tem a permissão só no escopo
+   * `atribuidos` recebe true: ele escreve nas linhas dele.
    * Tabela sem policy de permissão devolve true: lá o banco só isola por
    * escritório e quem decide é o tipo/tela.
    */
   podeEscrever: (tabela: string, operacao?: Operacao) => boolean;
+  /**
+   * Pode escrever NESTA LINHA? Use sempre que a linha existir (editar, concluir,
+   * excluir): com escopo `atribuidos`, o banco só aceita se a pessoa for a
+   * responsável — é a diferença entre "o assistente mexe na tarefa dele" e
+   * "mexe na de qualquer um".
+   */
+  podeEscreverLinha: (
+    tabela: string,
+    linha: Record<string, unknown> | null | undefined,
+    operacao?: Operacao,
+  ) => boolean;
   /** Pode chamar esta RPC ou edge function (pelo nome)? */
   podeChamar: (nome: string) => boolean;
   /** Grava a preferência e recarrega a página no outro escritório. */
@@ -339,6 +351,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return escopoExigido === undefined || escopo === escopoExigido;
   }
 
+
   return (
     <AuthContext.Provider
       value={{
@@ -354,11 +367,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         podeEscrever: (tabela: string, operacao: Operacao = "inserir") => {
           const exige = exigenciaDeEscrita(tabela, operacao);
           // sem policy de permissão: o banco só isola por escritório
-          return exige ? podeCom(exige.permissao, exige.escopo) : true;
+          if (!exige) return true;
+          // com escopo `atribuidos` a pessoa escreve nas linhas dela: para
+          // "pode em alguma?" basta ter a permissão.
+          return podeCom(exige.permissao);
+        },
+        podeEscreverLinha: (
+          tabela: string,
+          linha: Record<string, unknown> | null | undefined,
+          operacao: Operacao = "atualizar",
+        ) => {
+          const exige = exigenciaDeEscrita(tabela, operacao);
+          if (!exige) return true;
+          if (rbacIndisponivel) return true;
+          const escopo = permissoes.get(exige.permissao);
+          if (escopo === undefined) return false;
+          if (escopo === "todos") return true;
+          // escopo restrito: o banco compara a coluna com quem está logado
+          if (!exige.proprio || escopo !== exige.proprio.escopo) return false;
+          if (!linha) return false;
+          return linha[exige.proprio.coluna] === session?.user?.id;
         },
         podeChamar: (nome: string) => {
           const exige = EXIGE_RPC[nome] ?? EXIGE_FUNCTION[nome];
-          return exige ? podeCom(exige.permissao, exige.escopo) : true;
+          return exige ? podeCom(exige.permissao) : true;
         },
         trocarEscritorio,
         recarregarVinculos: loadEscritorio,

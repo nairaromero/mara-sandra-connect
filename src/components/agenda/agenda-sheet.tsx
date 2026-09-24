@@ -118,9 +118,15 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
   const { marcar: marcarDestaque } = useDestaque();
   const editando = modo?.kind === "editar";
   // Quem não pode escrever na agenda ainda ABRE o evento para ler: o que some
-  // são Salvar, Excluir e Concluir. A exigência (permissão + escopo `todos`)
-  // vem do espelho, não de uma string escrita aqui.
-  const podeGerenciar = usePodeAcao({ escrever: "agenda_eventos" });
+  // são Salvar, Excluir e Concluir. Editando, a decisão é sobre O EVENTO (com
+  // escopo `atribuidos` o banco só aceita o de quem está logado); criando,
+  // basta a permissão.
+  const eventoAberto = modo?.kind === "editar" ? modo.evento : null;
+  const podeGerenciar = usePodeAcao(
+    eventoAberto
+      ? { escrever: "agenda_eventos", linha: eventoAberto as unknown as Record<string, unknown> }
+      : { escrever: "agenda_eventos" },
+  );
   const evento = modo?.kind === "editar" ? modo.evento : null;
   // Perícia e audiência se concluem pela tarefa delas (tarefa de perícia e tarefa
   // de audiência), não pelo agendamento (#332): nesses tipos não há Concluir nem

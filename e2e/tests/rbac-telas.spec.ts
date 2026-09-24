@@ -181,6 +181,7 @@ test.describe.serial("telas: só o que o papel pode", () => {
 
     await page.goto("/tarefas");
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    // o financeiro não tem tarefas:gerenciar em escopo nenhum
     await expect(page.getByRole("button", { name: /^Nova tarefa$/ }), "sem tarefas:gerenciar").toHaveCount(0);
 
     await page.goto("/agenda");
@@ -200,10 +201,11 @@ test.describe.serial("telas: só o que o papel pode", () => {
     await ctx.close();
   });
 
-  // O assistente TEM tarefas:gerenciar e agenda:gerenciar, mas com escopo
-  // `atribuidos`, e as policies cobram `todos`: o banco recusa. A tela tem de
-  // refletir isso (era o ponto cego que fazia ela oferecer e o clique falhar).
-  test("assistente: escopo atribuidos não abre tarefa nem agenda, e não gerencia tipos de benefício", async ({
+  // O assistente tem tarefas:gerenciar e agenda:gerenciar com escopo
+  // `atribuidos`: a policy aceita `todos` OU `atribuidos` na linha em que ele é
+  // o responsável. Logo ele CRIA (nasce responsável) e mexe no que é dele — e
+  // não mexe no que é de outra pessoa. A tela tem de dizer a mesma coisa.
+  test("assistente: cria tarefa e evento (escopo atribuidos), mas não gerencia tipos de benefício", async ({
     browser,
     baseURL,
   }) => {
@@ -211,10 +213,11 @@ test.describe.serial("telas: só o que o papel pode", () => {
     const page = await ctx.newPage();
     await cursorVisivel(page);
 
-    await page.goto("/tarefas");
-    await expect(page.getByRole("button", { name: /^Nova tarefa$/ })).toHaveCount(0);
+    // criar: a policy aceita porque ele nasce responsável pela linha
     await page.goto("/agenda");
-    await expect(page.getByRole("button", { name: "Novo evento" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Novo evento" })).toBeVisible();
+
+    // gerenciar o cadastro de benefícios é outra permissão (templates:gerenciar)
     await page.goto("/configuracoes?tab=beneficios");
     await expect(page.getByRole("tab", { name: "Tipos de benefício" })).toHaveCount(0);
 

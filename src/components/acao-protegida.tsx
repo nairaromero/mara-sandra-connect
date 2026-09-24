@@ -23,6 +23,12 @@ import type { Operacao } from "@/lib/rbac/exigencias";
 interface Props {
   /** Tabela em que a ação escreve (resolve permissão e escopo sozinho). */
   escrever?: string;
+  /**
+   * A LINHA sobre a qual a ação age, quando existe (a tarefa, o evento). Com
+   * escopo `atribuidos` o banco só aceita a linha de quem está logado, então
+   * sem isso a tela volta a oferecer o que vai falhar.
+   */
+  linha?: Record<string, unknown> | null;
   /** Operação na tabela; o padrão é inserir. `documentos` exige outra permissão para excluir. */
   operacao?: Operacao;
   /** Nome da RPC ou da edge function que a ação chama. */
@@ -41,10 +47,11 @@ interface Props {
 
 /** Resolve a decisão, sem JSX — para `disabled`, menus e early-returns. */
 export function usePodeAcao(opcoes: Omit<Props, "children" | "alternativa">): boolean {
-  const { usuario, pode, podeEscrever, podeChamar } = useAuth();
-  const { escrever, operacao, chamar, permissao, exigeInterno = true } = opcoes;
+  const { usuario, pode, podeEscrever, podeEscreverLinha, podeChamar } = useAuth();
+  const { escrever, linha, operacao, chamar, permissao, exigeInterno = true } = opcoes;
   if (exigeInterno && usuario?.tipo !== "interno") return false;
-  if (escrever && !podeEscrever(escrever, operacao)) return false;
+  if (escrever && linha !== undefined && !podeEscreverLinha(escrever, linha, operacao)) return false;
+  if (escrever && linha === undefined && !podeEscrever(escrever, operacao)) return false;
   if (chamar && !podeChamar(chamar)) return false;
   if (permissao && !pode(permissao)) return false;
   return true;

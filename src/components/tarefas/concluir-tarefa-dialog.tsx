@@ -84,7 +84,10 @@ export function ConcluirTarefaDialog(props: {
   // Trava própria: este popup grava direto em `tarefas` (concluir e excluir).
   // Quem não pode escrever não o vê nem se algum caminho novo tentar abri-lo.
   // O return fica lá embaixo: sair aqui pularia os hooks seguintes.
-  const podeMexer = usePodeAcao({ escrever: "tarefas" });
+  const podeMexer = usePodeAcao({
+    escrever: "tarefas",
+    linha: (props.tarefa ?? null) as unknown as Record<string, unknown> | null,
+  });
   const { tarefa, modoInicial, onClose, concluir, onCriarProxima, onExcluida } = props;
   const [motivo, setMotivo] = useState("");
   const [modoExcluir, setModoExcluir] = useState(false);

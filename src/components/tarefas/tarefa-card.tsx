@@ -93,11 +93,13 @@ export function TarefaCard({
     (tarefa.metadata as { cumprimento_exigencia?: boolean })?.cumprimento_exigencia === true;
   const ehProtocoloRealizado =
     (tarefa.metadata as { protocolo_realizado?: boolean })?.protocolo_realizado === true;
-  // Os blocos de etapa são só ação: gravam em `tarefas` e em `andamentos`. Quem
-  // não pode escrever na tarefa (financeiro; e o assistente, cujo escopo é
-  // `atribuidos` e a policy cobra `todos`) não vê nenhum deles — antes via
-  // todos e cada clique morria no banco (planning/RBAC_AUDITORIA_TELAS.md §4.1).
-  const podeMexerEmTarefa = usePodeAcao({ escrever: "tarefas" });
+  // Os blocos de etapa são só ação: gravam em `tarefas` e em `andamentos`. A
+  // decisão é sobre ESTA tarefa — com escopo `atribuidos` (assistente) o banco
+  // aceita a tarefa de quem é responsável, e só ela.
+  const podeMexerEmTarefa = usePodeAcao({
+    escrever: "tarefas",
+    linha: tarefa as unknown as Record<string, unknown>,
+  });
   const destacado = useDestaqueAtivo(tarefa.id);
   // Arquivadas: quem concluiu/cancelou e quando (trigger de autoria).
   const autoria = descreverAutoriaStatus(tarefa);

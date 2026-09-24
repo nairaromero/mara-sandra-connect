@@ -139,10 +139,13 @@ function agruparPorDia(eventos: AgendaEventoComJoins[]): Array<{
 
 function AgendaPage() {
   // criar evento e agenda:gerenciar; quem nao tem (financeiro) so consulta
-  const { podeEscrever } = useAuth();
-  // A policy de `agenda_eventos` cobra o escopo `todos`: `podeEscrever` resolve
-  // permissão E escopo pelo espelho (src/lib/rbac/exigencias.ts).
+  const { podeEscrever, podeEscreverLinha } = useAuth();
+  // "Novo evento" basta a permissão (quem tem escopo `atribuidos` cria o dele).
+  // Já a lixeira é decidida EVENTO A EVENTO: a policy aceita `todos`, ou
+  // `atribuidos` quando a pessoa é a responsável (src/lib/rbac/exigencias.ts).
   const podeGerenciarAgenda = podeEscrever("agenda_eventos");
+  const podeExcluirEvento = (e: { responsavel_id?: string | null }) =>
+    podeEscreverLinha("agenda_eventos", e as Record<string, unknown>, "excluir");
   const [carregando, setCarregando] = useState(true);
   const [eventos, setEventos] = useState<AgendaEventoComJoins[]>([]);
   const [tarefasPericia, setTarefasPericia] = useState<TarefaComJoins[]>([]);
@@ -333,6 +336,7 @@ function AgendaPage() {
             eventos={itensVisiveis}
             onEventoClick={abrirEditor}
             onEventoExcluir={podeGerenciarAgenda ? excluirDoPainel : undefined}
+            podeExcluirEvento={podeExcluirEvento}
           />
         ) : dias.length === 0 ? (
           <Card>

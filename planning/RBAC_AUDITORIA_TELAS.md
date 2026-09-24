@@ -6,6 +6,9 @@ botões sem trava na tela do caso.
 **Resposta curta:** sim, muitos. O item 6 consertou uma amostra, não a classe. A varredura
 completa achou ~40 pontos com o mesmo defeito, quase todos fora dos arquivos que o item 6 tocou.
 
+**Atenção ao ler:** a §5 da primeira versão deste laudo estava errada (escopo). A correção,
+com a prova, está na própria §5 — e a lição de método que ela deixou vale para o resto.
+
 Este documento é o laudo. Nada aqui foi corrigido ainda, exceto os dois pontos de 23-24/09
 (`casos.$id.tsx` "Editar" dos dados do cliente e `etiquetas-cliente.tsx`), já em `e63225d`.
 
@@ -123,25 +126,39 @@ escrevem em `tipos_beneficio`, que exige `templates:gerenciar` (admin e advogado
 O resto de Configurações está bem: marca, Gmail, WhatsApp, MCP e o QG inteiro conferem
 permissão de verdade.
 
-## 5. Forma D: o escopo que a tela joga fora (o achado mais importante)
+## 5. Forma D: o escopo que a tela jogava fora
 
-O modelo tem permissão **e escopo**: `papel_permissoes(permissao, escopo)`. Na matriz do
-desenho (§4.3 do MULTI_TENANT_RBAC), o assistente gerencia tarefas e agenda **dos casos
-atribuídos a ele** — escopo `atribuidos`.
+**Correção de 24/09 (mesma data, algumas horas depois).** A primeira versão desta seção
+dizia que o banco negava o assistente por completo em `tarefas` e `agenda_eventos` e que a
+promessa da matriz ("gerencia os atribuídos") não estava implementada. **As duas afirmações
+eram falsas**, e o erro foi meu: li a policy por uma consulta que recortava só o primeiro
+`tem_permissao(...)` da regra, e o recorte escondia o resto dela.
 
-O que existe hoje, conferido no banco de staging:
+A regra inteira é:
 
-1. As policies de `tarefas` e `agenda_eventos` exigem `tem_permissao('…', 'todos')`.
-2. O assistente tem essas permissões com escopo `atribuidos`.
-3. Logo, **o banco nega o assistente por completo** nessas duas tabelas. Provado com a conta
-   `canario+assistente` no staging: `INSERT` em `tarefas` e em `agenda_eventos` devolve `42501`,
-   enquanto o advogado passa.
-4. O front chama `minhas_permissoes()`, que devolve `(permissao, escopo)`, e **descarta o
-   escopo** (`use-auth.tsx:222`): `pode("tarefas:gerenciar")` é verdadeiro para o assistente.
+```sql
+tem_permissao('tarefas:gerenciar','todos')
+OR (tem_permissao('tarefas:gerenciar','atribuidos') AND responsavel_id = auth.uid())
+```
 
-Resultado: além do financeiro, o **assistente** enxerga todos os botões de tarefa e agenda e
-todos falham. E a intenção do desenho ("gerencia os atribuídos") não está implementada em
-lugar nenhum: hoje é tudo ou nada.
+Ou seja: o escopo **está** implementado, exatamente como a matriz promete. O assistente
+gerencia as tarefas e os eventos em que ele é o responsável, e só esses. Provado no staging
+com a conta `canario+assistente`: numa tarefa atribuída a ela, a Elisa lê, edita, conclui e
+cria outra para si; o que o primeiro teste pegou (`42501`) foi uma tarefa **sem responsável**,
+que de fato o banco recusa.
+
+O que sobra de real desta seção:
+
+1. O front descartava o escopo de `minhas_permissoes()`. Isso não fazia a tela oferecer demais
+   no caso do assistente — ela acertava por acidente, porque ele tem a permissão. O problema
+   aparece na **linha**: a tela oferecia mexer na tarefa de OUTRA pessoa, que o banco recusa.
+2. A correção certa é decidir por linha onde há linha: `podeEscreverLinha("tarefas", tarefa)`
+   compara `responsavel_id` com quem está logado, do mesmo jeito que a policy.
+
+Lição de método, que vale mais que o achado: **consulta que recorta regra de segurança mente**.
+O verificador (`scripts/rbac-conferir-exigencias.mjs`) passou a ler a regra inteira e a
+comparar também o ramo do escopo; sabotando o espelho de propósito, ele acusa as três
+operações de `tarefas`, que era o que faltava para este erro não passar batido.
 
 ## 6. A classe inversa: onde o servidor é mais frouxo que a tela sugere
 
@@ -176,8 +193,8 @@ ninguém confere permissão nenhuma.
 
 | Recomendação | Situação |
 |---|---|
-| P0 · escopo na tela | **feito**: `pode()` considera o escopo; `podeEscrever` resolve pelo espelho |
-| P0 · escopo no banco (implementar `atribuidos`) | **pendente de decisão** — ver §8.1 |
+| P0 · escopo na tela | **feito**: decisão por linha (`podeEscreverLinha`), igual à policy |
+| P0 · escopo no banco | **já existia** — a suposta lacuna era erro de leitura minha (§5) |
 | P0 · tarefas e agenda (28 pontos) | **feito** |
 | P1 · gates de permissão errada (forma C) | **feito** |
 | P1 · falhas engolidas | **feito** (sync de pasta e as duas da importação) |
@@ -190,21 +207,12 @@ O mecanismo: `src/lib/rbac/exigencias.ts` é o espelho do que o servidor exige;
 `scripts/rbac-conferir-exigencias.mjs` (rodado pela spec `rbac-exigencias`)
 compara o espelho com o banco a cada suíte.
 
-### 8.1 A decisão que sobrou: o escopo `atribuidos`
+### 8.1 Escopo: não havia decisão a tomar (ver §5)
 
-Hoje o assistente não escreve tarefa nem evento nenhum — o banco exige escopo
-`todos`. A matriz do desenho promete que ele gerencie **os atribuídos a ele**.
-São dois caminhos:
-
-- **Implementar a promessa**: as policies passam a aceitar
-  `tem_permissao('…','todos') or (tem_permissao('…','atribuidos') and <a linha é dele>)`.
-  Custo: uma migration por tabela e decidir o que é "dele" (responsável? dono do
-  caso?). A tela já está pronta para os dois casos.
-- **Tirar o escopo do modelo**: o assistente passa a ter `todos` ou não ter a
-  permissão. Custo: uma migration de uma linha; a matriz do desenho muda.
-
-Enquanto não se decide, a tela e o banco dizem a mesma coisa — que é o que
-importava para a pessoa não levar erro.
+A "decisão sobre o escopo" que esta seção descrevia nasceu de uma leitura errada da policy.
+O escopo já está implementado no banco como a matriz promete. O que faltava era a TELA
+decidir por linha, e isso foi feito: `podeEscreverLinha` compara a coluna de responsável com
+quem está logado, igual à policy.
 
 ### 8.2 A classe inversa continua aberta
 

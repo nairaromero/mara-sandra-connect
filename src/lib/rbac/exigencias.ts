@@ -22,16 +22,25 @@
 /** Escopos possíveis de `papel_permissoes.escopo`. */
 export type Escopo = "todos" | "atribuidos" | "indicados" | "proprios";
 
-/** Uma exigência do servidor: a permissão e, quando o servidor cobra, o escopo. */
+/**
+ * Uma exigência do servidor.
+ *
+ * A maioria das policies chama `tem_permissao('x:y', NULL)`: basta ter a
+ * permissão, em qualquer escopo. Duas tabelas (`tarefas` e `agenda_eventos`)
+ * cobram escopo com um OU:
+ *
+ *   tem_permissao('tarefas:gerenciar','todos')
+ *   OR (tem_permissao('tarefas:gerenciar','atribuidos') AND responsavel_id = auth.uid())
+ *
+ * Ou seja: quem tem escopo `atribuidos` (o assistente) MEXE nas linhas dele e
+ * só nelas. É por isso que a decisão da tela depende da LINHA quando há
+ * `proprio` — `podeEscrever` responde "pode em alguma linha?" e
+ * `podeEscreverLinha` responde "pode nesta?".
+ */
 export interface Exigencia {
   permissao: string;
-  /**
-   * Escopo que a policy cobra. `undefined` = a policy passa NULL e qualquer
-   * escopo serve. Quando vem `"todos"`, quem tem a permissão com escopo menor
-   * (o assistente, com `atribuidos`) É RECUSADO pelo banco — e a tela precisa
-   * saber disso, senão oferece o botão e a pessoa leva erro.
-   */
-  escopo?: Escopo;
+  /** O ramo alternativo da policy: escopo aceito + a coluna que aponta para a pessoa. */
+  proprio?: { escopo: Escopo; coluna: string };
 }
 
 export type Operacao = "inserir" | "atualizar" | "excluir";
@@ -57,9 +66,13 @@ export const ESCRITA: Record<string, { todas?: Exigencia } & Partial<Record<Oper
     excluir: { permissao: "documentos:excluir" },
   },
 
-  // escopo `todos` cobrado pela policy: ver o comentário de `Exigencia`.
-  tarefas: { todas: { permissao: "tarefas:gerenciar", escopo: "todos" } },
-  agenda_eventos: { todas: { permissao: "agenda:gerenciar", escopo: "todos" } },
+  // escopo: `todos`, ou `atribuidos` na linha de quem é responsável.
+  tarefas: {
+    todas: { permissao: "tarefas:gerenciar", proprio: { escopo: "atribuidos", coluna: "responsavel_id" } },
+  },
+  agenda_eventos: {
+    todas: { permissao: "agenda:gerenciar", proprio: { escopo: "atribuidos", coluna: "responsavel_id" } },
+  },
 
   etiquetas: { todas: { permissao: "etiquetas:gerenciar" } },
   tarefa_templates: { todas: { permissao: "templates:gerenciar" } },

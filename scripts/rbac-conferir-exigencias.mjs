@@ -30,12 +30,27 @@ function sql(q) {
 // ---------- o que o banco exige ----------
 const policies = sql(`
   select tablename as tabela, lower(cmd) as cmd,
-         substring(coalesce(qual, with_check) from 'tem_permissao\\(''([a-z_:]+)''') as permissao,
-         substring(coalesce(qual, with_check) from 'tem_permissao\\([^,]+, *''([a-z]+)''') as escopo
+         coalesce(qual, with_check) as regra
     from pg_policies
    where schemaname = 'public' and policyname like 'perm\\_%'
      and cmd in ('INSERT','UPDATE','DELETE')
    order by 1, 2`);
+
+// Lê a regra INTEIRA. Ela tem duas formas:
+//   tem_permissao('x:y', NULL)                                  -> qualquer escopo
+//   tem_permissao('x:y','todos') OR (tem_permissao('x:y','atribuidos') AND col = auth.uid())
+// Ler só o primeiro `tem_permissao(...)` (como este script fazia) faz a segunda
+// parecer "exige escopo todos" — foi assim que o espelho nasceu errado em 24/09.
+function lerRegra(regra) {
+  const perms = [...regra.matchAll(/tem_permissao\('([a-z_:]+)'::text, *(?:'([a-z]+)'::text|NULL)/g)]
+    .map((m) => ({ permissao: m[1], escopo: m[2] ?? null }));
+  if (perms.length === 0) return null;
+  const permissao = perms[0].permissao;
+  const restrito = perms.find((p) => p.escopo && p.escopo !== "todos");
+  if (!restrito) return { permissao, proprio: null };
+  const col = regra.match(/\(([a-z_]+) = \( SELECT auth\.uid\(\)/);
+  return { permissao, proprio: { escopo: restrito.escopo, coluna: col ? col[1] : "?" } };
+}
 
 // `substring` e não `regexp_matches(..., 'g')`: a função de conjunto quebra o
 // caminho do msc-sql local (que agrega o resultado).
@@ -73,13 +88,19 @@ function corpoDaChave(txt, chave) {
   return null;
 }
 
+function lerEntrada(txt) {
+  const perm = txt.match(/permissao: "([a-z_:]+)"/);
+  if (!perm) return null;
+  const pr = txt.match(/proprio: \{ escopo: "([a-z]+)", coluna: "([a-z_]+)" \}/);
+  return { permissao: perm[1], proprio: pr ? { escopo: pr[1], coluna: pr[2] } : null };
+}
 function frontEscrita(tabela, op) {
   const corpo = corpoDaChave(bloco("ESCRITA"), tabela);
   if (!corpo) return null;
-  const alvoOp = new RegExp(`${OP[op]}: \\{ permissao: "([a-z_:]+)"(?:, escopo: "([a-z]+)")? \\}`);
-  const todas = /todas: \{ permissao: "([a-z_:]+)"(?:, escopo: "([a-z]+)")? \}/;
-  const r = corpo.match(alvoOp) ?? corpo.match(todas);
-  return r ? { permissao: r[1], escopo: r[2] ?? null } : null;
+  const porOp = corpo.match(new RegExp(`${OP[op]}: \\{[^}]*(?:\\{[^}]*\\}[^}]*)*\\}`));
+  const todas = corpo.match(/todas: \{[^}]*(?:\{[^}]*\}[^}]*)*\}/);
+  const trecho = porOp?.[0] ?? todas?.[0];
+  return trecho ? lerEntrada(trecho) : null;
 }
 function frontMapa(nome) {
   const txt = bloco(nome);
@@ -93,10 +114,18 @@ function frontMapa(nome) {
 // ---------- comparação ----------
 const problemas = [];
 for (const p of policies) {
+  const banco = lerRegra(p.regra);
+  if (!banco) continue; // policy perm_* sem tem_permissao: nada a espelhar
   const f = frontEscrita(p.tabela, p.cmd);
-  if (!f) { problemas.push(`FALTA no front: ${p.tabela}.${p.cmd} exige ${p.permissao}${p.escopo ? ` (escopo ${p.escopo})` : ""}`); continue; }
-  if (f.permissao !== p.permissao) problemas.push(`PERMISSÃO DIFERENTE: ${p.tabela}.${p.cmd} — banco ${p.permissao}, front ${f.permissao}`);
-  if ((f.escopo ?? null) !== (p.escopo ?? null)) problemas.push(`ESCOPO DIFERENTE: ${p.tabela}.${p.cmd} — banco ${p.escopo ?? "qualquer"}, front ${f.escopo ?? "qualquer"}`);
+  if (!f) { problemas.push(`FALTA no front: ${p.tabela}.${p.cmd} exige ${banco.permissao}`); continue; }
+  if (f.permissao !== banco.permissao) {
+    problemas.push(`PERMISSÃO DIFERENTE: ${p.tabela}.${p.cmd} — banco ${banco.permissao}, front ${f.permissao}`);
+  }
+  const b = banco.proprio ? `${banco.proprio.escopo}/${banco.proprio.coluna}` : "não";
+  const t = f.proprio ? `${f.proprio.escopo}/${f.proprio.coluna}` : "não";
+  if (b !== t) {
+    problemas.push(`ESCOPO DIFERENTE: ${p.tabela}.${p.cmd} — banco aceita próprio: ${b}, front: ${t}`);
+  }
 }
 const rpcFront = frontMapa("RPC");
 const rpcBanco = {};

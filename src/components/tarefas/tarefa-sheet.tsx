@@ -154,8 +154,14 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   const { usuario } = useAuth();
   const editando = modo?.kind === "editar";
   // Salvar, Excluir e os blocos de etapa gravam em `tarefas` (e em `andamentos`).
-  // Sem a permissão — com o escopo que a policy cobra — a tarefa abre só para ler.
-  const podeMexer = usePodeAcao({ escrever: "tarefas" });
+  // Ao EDITAR, quem manda é a linha: com escopo `atribuidos` só a tarefa de quem
+  // está logado. Ao CRIAR, basta ter a permissão (ele nasce responsável por ela).
+  const tarefaAberta = modo?.kind === "editar" ? modo.tarefa : null;
+  const podeMexer = usePodeAcao(
+    tarefaAberta
+      ? { escrever: "tarefas", linha: tarefaAberta as unknown as Record<string, unknown> }
+      : { escrever: "tarefas" },
+  );
   const tarefa = modo?.kind === "editar" ? modo.tarefa : null;
 
   const [titulo, setTitulo] = useState("");
