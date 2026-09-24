@@ -172,6 +172,48 @@ sucesso falso (sync de pasta e as duas falhas da importação de planilha).
 O risco real de privilégio está na seção 6, que é outra conversa: tabelas e funções onde
 ninguém confere permissão nenhuma.
 
+## 7b. O que já foi feito (24/09, commit `edd080a`)
+
+| Recomendação | Situação |
+|---|---|
+| P0 · escopo na tela | **feito**: `pode()` considera o escopo; `podeEscrever` resolve pelo espelho |
+| P0 · escopo no banco (implementar `atribuidos`) | **pendente de decisão** — ver §8.1 |
+| P0 · tarefas e agenda (28 pontos) | **feito** |
+| P1 · gates de permissão errada (forma C) | **feito** |
+| P1 · falhas engolidas | **feito** (sync de pasta e as duas da importação) |
+| P2 · `isAdmin` onde a regra é permissão | **feito** em Configurações, Equipe e Auditoria |
+| P2 · rede de proteção | **feito**: 3 testes de papel novos + `rbac-exigencias` |
+| Classe inversa (§6) | **pendente** — ver §8.2 |
+
+O mecanismo: `src/lib/rbac/exigencias.ts` é o espelho do que o servidor exige;
+`podeEscrever`/`podeChamar`/`<AcaoProtegida>` leem dele; e
+`scripts/rbac-conferir-exigencias.mjs` (rodado pela spec `rbac-exigencias`)
+compara o espelho com o banco a cada suíte.
+
+### 8.1 A decisão que sobrou: o escopo `atribuidos`
+
+Hoje o assistente não escreve tarefa nem evento nenhum — o banco exige escopo
+`todos`. A matriz do desenho promete que ele gerencie **os atribuídos a ele**.
+São dois caminhos:
+
+- **Implementar a promessa**: as policies passam a aceitar
+  `tem_permissao('…','todos') or (tem_permissao('…','atribuidos') and <a linha é dele>)`.
+  Custo: uma migration por tabela e decidir o que é "dele" (responsável? dono do
+  caso?). A tela já está pronta para os dois casos.
+- **Tirar o escopo do modelo**: o assistente passa a ter `todos` ou não ter a
+  permissão. Custo: uma migration de uma linha; a matriz do desenho muda.
+
+Enquanto não se decide, a tela e o banco dizem a mesma coisa — que é o que
+importava para a pessoa não levar erro.
+
+### 8.2 A classe inversa continua aberta
+
+Nada da §6 foi mexido: tabelas de domínio sem exigência de permissão,
+`aplicar_template` (`SECURITY DEFINER` sem checagem) e as 19 edge functions que
+pedem só `tipo: "interno"`. Ali o risco é o oposto — a pessoa CONSEGUE o que o
+papel dela não deveria permitir — e cada caso é uma decisão de produto, não uma
+correção mecânica.
+
 ## 8. Recomendação, em ordem
 
 1. **P0 — Escopo (forma D).** Decidir entre implementar `atribuidos` de verdade nas policies de
