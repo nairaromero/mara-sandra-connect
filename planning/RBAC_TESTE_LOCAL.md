@@ -10,7 +10,7 @@ Docker aberto. Da raiz do repositório:
 
 ```bash
 bun run local:copiar   # banco local = cópia do staging (~3 min). Só se quiser zerar.
-bun run local:rbac     # aplica as 14 migrations do RBAC + cria escritório canário, contas e QG
+bun run local:rbac     # aplica as 18 migrations do RBAC + cria escritório canário, contas e QG
 bun run dev:local      # app em http://localhost:8080
 ```
 
@@ -66,6 +66,25 @@ Staff do QG **não é membro de escritório nenhum**: em `localhost:8080` essas 
 tela "Você não tem acesso a nenhum escritório" — é o esperado.
 
 > **Não use `e2e+interno` enquanto a suíte E2E roda** (duas sessões na mesma conta se derrubam).
+
+## 2b. Depois da auditoria de 24/09 (gate único e classe inversa)
+
+O lote seguiu com duas rodadas que mexeram em muita coisa. Para conferir tudo de uma vez:
+
+```bash
+bun run e2e:local                                        # 126 passam, 1 pulado, 1 falha conhecida do kanban
+node e2e/demo/roteiros/conferencia-lote-rbac.cjs         # 47 itens, com os provedores simulados
+node scripts/rbac-conferir-exigencias.mjs --local        # espelho do front x banco
+```
+
+O que essas rodadas mudaram, em uma linha cada:
+
+- a tela decide por `podeEscrever`/`podeEscreverLinha`/`<AcaoProtegida>`, nunca por permissão
+  escrita à mão (planning/RBAC_AUDITORIA_TELAS.md);
+- o escopo `atribuidos` vale por LINHA: o assistente mexe na tarefa e no compromisso dele;
+- o servidor passou a exigir permissão onde só a tela freava — 14 tabelas fora do alcance do
+  navegador, 3 RPCs privilegiadas e 13 functions (planning/RBAC_CLASSE_INVERSA.md);
+- IA exige `ia:usar` também no servidor: parceiro não usa o chat.
 
 ## 3. Lista de conferência
 

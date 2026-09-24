@@ -306,7 +306,7 @@ export const TERMOS: Array<Termo> = [
     sinonimos: ["documentos pendentes", "pendência", "solicitação"],
     categoria: "casos",
     definicao:
-      "Um pedido de documento a quem pode providenciar: interna (para a equipe), externa (para o parceiro) ou gerada por um template de exigência. Fica pendente até ser atendida ou dispensada. É o que o kanban de Tarefas do parceiro mostra e o que a tela Documentos pendentes lista para a equipe.",
+      "Um pedido de documento a quem pode providenciar: interna (para a equipe), externa (para o parceiro) ou gerada por um template de exigência. Fica pendente até ser atendida ou dispensada. É o que o kanban de Tarefas do parceiro mostra e o que a tela Documentos pendentes lista para a equipe. Pedir, atender, dispensar ou excluir é de quem edita casos — o financeiro acompanha, mas não mexe.",
     veja: ["exigencia", "template-tarefa", "documento"],
   },
   {
@@ -554,7 +554,7 @@ export const TERMOS: Array<Termo> = [
     categoria: "automacoes",
     publico: "interno",
     definicao:
-      "Um aviso automático que o sistema envia a um endereço externo quando algo acontece — novo andamento, documento, tarefa — para outro sistema reagir. O administrador configura em Configurações → Webhooks; cada envio vai assinado para o destino conferir a origem.",
+      "Um aviso automático que o sistema envia a um endereço externo quando algo acontece — novo andamento, documento, tarefa — para outro sistema reagir, com cada envio assinado para o destino conferir a origem. Hoje a aba Webhooks mostra “Em breve”: a entrega era feita pelo n8n, que saiu das rotinas do sistema, e volta quando for refeita por function.",
     veja: ["admin"],
   },
   {

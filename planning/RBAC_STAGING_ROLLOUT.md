@@ -32,6 +32,8 @@ O que **não** muda: contas, senhas, dados dos clientes. Todo usuário existente
 ### 2.1 Migrations (registram em `ops.migrations_aplicadas` do staging)
 
 **Aplicadas no staging em 24/09/2026**, uma a uma, com conferência a cada passo (16/16 registradas).
+Mais tarde no mesmo dia entraram as quatro da classe inversa (15 a 18,
+planning/RBAC_CLASSE_INVERSA.md), também aplicadas e registradas: 20 no total.
 Estado depois: 1 escritório (padrão), 33 membros (31 ativos), 5 papéis, 26 permissões, 65 papel_permissoes,
 49 tabelas com `escritorio_id` (0 nulos em casos/clientes/tarefas), 44 policies `isolamento_escritorio`,
 58 `perm_*`, 28 funções `private`, 24 `qg_*`, `plataforma_staff` vazio (seed vem em 2.6).
@@ -40,7 +42,9 @@ Todos esses números batem com o banco local.
 ```bash
 for m in 01_modelo_acesso 02_escritorio_id 03_isolamento 04_rpcs 05_qg 06_qg_paginacao 07_suporte_escritorio \
          08_excluir_so_admin 09_integracoes_por_escritorio 10_marca_por_escritorio 11_qg_aal2 12_mcp_para_terceiro \
-         13_integracoes_status 14_whatsapp_outbox_por_escritorio; do
+         13_integracoes_status 14_whatsapp_outbox_por_escritorio \
+         15_escrita_so_por_funcao 16_notificacao_e_comentario 17_rpc_com_permissao \
+         18_solicitacoes_e_alertas; do
   node scripts/msc-sql.mjs --staging --file planning/sql-migrations/migration_rbac_$m.sql || break
 done
 node scripts/msc-sql.mjs --staging --file planning/sql-migrations/migration_cron_djen.sql            # aviso (sem pg_cron), registra

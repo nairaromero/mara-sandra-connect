@@ -118,11 +118,19 @@ o sistema em produção. Quando chegar, vale o seguinte:
   gatilho pro código antigo, mas nenhuma decisão de acesso deve ler deles. No front:
   `const { pode, escritorio, vinculos } = useAuth()`; `pode("casos:editar")`. No SQL:
   `tem_permissao('casos:editar')`, `is_admin()`, `is_interno()` (todos sobre o vínculo ativo).
-- **Telas** (desde 2026-09-23): botão/menu de escrita aparece só com `isInterno && pode("x:y")`
-  — o `isInterno` fica porque a tela do parceiro é outra (ramos `!isInterno`) e o papel parceiro
-  também tem `casos:editar`. Página de gestão (Comercial, Etiquetas, Parceiros, Processos, Novo
-  caso, Publicações) confere a permissão além do tipo e devolve para /casos ou mostra "Área
-  restrita a quem gerencia…". Prova: `e2e/tests/rbac-telas.spec.ts`.
+- **Telas** (desde 2026-09-24): ação de escrita passa pelo **gate único**, nunca por uma
+  permissão escrita à mão. `src/lib/rbac/exigencias.ts` espelha o que o SERVIDOR exige (tabela
+  por operação e escopo, RPC, edge function, bucket); na tela use
+  `podeEscrever("tarefas")` para o que cria, `podeEscreverLinha("tarefas", tarefa)` para o que
+  age sobre uma linha (escopo `atribuidos` só aceita a linha de quem está logado), `podeChamar`
+  para RPC/function, ou `<AcaoProtegida escrever="documentos" operacao="excluir">`.
+  `scripts/rbac-conferir-exigencias.mjs` (e a spec `rbac-exigencias`) compara o espelho com o
+  banco e acusa sobra ou falta — é a resposta automática para "ainda falta alguma?".
+  Contexto: a varredura de 23/09 mexeu só em rotas e nos gates que já existiam, e deixou ~40
+  botões oferecendo o que o banco recusa (planning/RBAC_AUDITORIA_TELAS.md). Página de gestão
+  (Comercial, Etiquetas, Parceiros, Processos, Novo caso, Publicações) confere a permissão além
+  do tipo e devolve para /casos ou mostra "Área restrita a quem gerencia…". Prova:
+  `e2e/tests/rbac-telas.spec.ts`.
 - **Legalmail e TI por escritório** (RBAC 13): credencial em `escritorio_integracoes` (cifrada), lida só pelas
   functions via `_shared/integracoes.ts` (`integracaoDoEscritorio`); sem ela → 412 `integracao_nao_configurada`.
   Na tela, `useIntegracoesEscritorio().tem("legalmail")` (RPC `minhas_integracoes`) decide se o botão aparece.
@@ -172,8 +180,15 @@ o sistema em produção. Quando chegar, vale o seguinte:
 
 ## IA (importante)
 
-- IA fica disponível só pra usuários `tipo='interno'`. Parceiros não veem launcher de IA, integrações, nem assistant panel.
-- Verificação atual: `usuario?.tipo === "interno"` no `_authenticated.tsx`.
+- IA é de quem tem **`ia:usar`** (admin, advogado, assistente) e é interno. Parceiro não usa IA.
+- Onde vale: no front, `usuario?.tipo === "interno" && pode("ia:usar")` (`_authenticated.tsx`);
+  no SERVIDOR, desde 24/09, as functions de IA exigem a permissão — `ia-assistant`,
+  `ia-triagem-andamentos`, `sugerir-proxima-tarefa`, `mensagem-parceiro-exigencia`,
+  `extrair-agendamento-pericia` e `ia-analise`. Antes a tela era o único freio e a API respondia
+  a qualquer pessoa autenticada (planning/RBAC_CLASSE_INVERSA.md).
+- `ia-config` confere **por ação**: o cofre de chaves (status/testar/salvar/ativar/compartilhar)
+  pede `ia:usar`; as ações de token do MCP são da DONA do token, que pode ser parceira (#385) —
+  não feche essa porta de novo.
 
 ## Checagem de regressão (após TODA modificação)
 

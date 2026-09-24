@@ -9,7 +9,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-for m in 01_modelo_acesso 02_escritorio_id 03_isolamento 04_rpcs 05_qg 06_qg_paginacao 07_suporte_escritorio 08_excluir_so_admin 09_integracoes_por_escritorio 10_marca_por_escritorio 11_qg_aal2 12_mcp_para_terceiro 13_integracoes_status 14_whatsapp_outbox_por_escritorio; do
+for m in 01_modelo_acesso 02_escritorio_id 03_isolamento 04_rpcs 05_qg 06_qg_paginacao 07_suporte_escritorio 08_excluir_so_admin 09_integracoes_por_escritorio 10_marca_por_escritorio 11_qg_aal2 12_mcp_para_terceiro 13_integracoes_status 14_whatsapp_outbox_por_escritorio \
+         15_escrita_so_por_funcao 16_notificacao_e_comentario 17_rpc_com_permissao \
+         18_solicitacoes_e_alertas; do
   echo "==> migration_rbac_$m"
   node scripts/msc-sql.mjs --local --file "planning/sql-migrations/migration_rbac_$m.sql" | tail -n 3
 done

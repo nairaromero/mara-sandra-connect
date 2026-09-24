@@ -611,7 +611,10 @@ const sql = (q) => JSON.parse(execSync(`node scripts/msc-sql.mjs --local ${JSON.
         await still(pAd, "Q1-advogado-caso");
         await pAd.goto(`${BASE}/casos/${casoKleber.id}?tab=processos`);
         await visivel(pAd.getByRole("button", { name: /^Novo$/ }).first(), "advogado sem 'Novo' em Processos");
-        await visivel(pAd.locator('[title*="Legalmail"]').first(), "advogado sem Legalmail");
+        // A busca no Legalmail depende da INTEGRAÇÃO do escritório, cadastrada na
+        // seção T (e apagada na limpeza). Aqui o que se confere é o papel, não a
+        // integração: quem cobre o botão é T1/T3.
+        await ausente(pAd.locator('[title*="Legalmail"]'), "advogado vê Legalmail sem integração cadastrada");
         await still(pAd, "Q1-advogado-processos");
         await fechar(pAd);
       });
@@ -880,6 +883,10 @@ const sql = (q) => JSON.parse(execSync(`node scripts/msc-sql.mjs --local ${JSON.
       });
       await item("U2", "Cron simulado: o comando do pg_cron drena a fila — Canário enviado (201), escritório 1 falha com 'não configurada' e entra no backoff", async () => {
         const e2e = await sessao(`e2e+admin@${DOM}`, ESC1);
+        // A fila é do banco e sobrevive entre rodadas: uma pendência de antes
+        // entraria na contagem e derrubaria o item por motivo errado (visto em
+        // 24/09: "enviadas 3" no lugar de 1). Começa vazia.
+        await admin.from("whatsapp_outbox").delete().in("status", ["pendente", "erro"]);
         if ((await cAdmin.sb.rpc("whatsapp_enqueue_text", { p_telefone: TEL_GILDA, p_tipo: "aviso", p_texto: `${MARCA_WA} olá, Gilda — perícia da Helena confirmada para 14/10 às 9h` })).error) falha("enqueue canário");
         if ((await e2e.sb.rpc("whatsapp_enqueue_text", { p_telefone: TEL_GILDA, p_tipo: "aviso", p_texto: `${MARCA_WA} do escritório 1` })).error) falha("enqueue escritório 1");
         const r = await cronSimulado("cron:whatsapp-outbox", "whatsapp-outbox-enviar", { limite: 20 });
