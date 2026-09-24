@@ -116,6 +116,15 @@ bunx supabase functions deploy whatsapp-inbound --project-ref alhqbpbekmxpoibrrn
 bunx supabase functions deploy whatsapp-outbox-enviar --project-ref alhqbpbekmxpoibrrnbi
 ```
 
+**Feito no staging em 24/09/2026**: 33 functions publicadas e ACTIVE (o plano listava 32; faltava
+`extrair-agendamento-pericia`, que também foi). Conferido pelo `functions list`: o `verify_jwt` de cada uma
+bate com o declarado no `supabase/config.toml`, nenhuma divergência, nenhuma function no config sem publicar
+e nenhuma publicada fora do config. Nenhum deploy usou `--no-verify-jwt`.
+
+Fumaça sem credencial (todas negaram, como esperado): `integracoes-escritorio` e `qg-escritorios` 401 no
+gateway; `whatsapp-outbox-enviar` 401 "chamada de sistema sem assinatura"; `sync-djen-publicacoes` 401
+"não autenticado"; `ia-mcp` 401 "token ausente".
+
 ### 2.4 Auth (painel do Supabase, projeto staging)
 
 - [ ] Authentication → Multi-factor → **TOTP ligado** (sem isso o cadastro do autenticador falha e o QG, que exige AAL2, não abre para ninguém).
