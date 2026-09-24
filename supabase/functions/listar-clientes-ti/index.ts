@@ -88,7 +88,7 @@ serve(async (req) => {
   // Sem esta linha, qualquer pessoa com a chave publicável do site (que está
   // no bundle) recebia a base inteira do Tramitação: nome, CPF, e-mail,
   // telefone e data de nascimento.
-  const quem = await exigirUsuario(req, { tipo: "interno" });
+  const quem = await exigirUsuario(req, { tipo: "interno", permissao: "casos:ler" });
   if (quem instanceof Response) return quem;
 
   const integ = await integracaoDoEscritorio(quem.admin, quem.perfil.escritorio_id, "ti");

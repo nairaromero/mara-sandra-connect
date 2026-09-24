@@ -158,7 +158,7 @@ serve(async (req) => {
   // não quem chamou — qualquer pessoa rodava a triagem em nome de um interno.
   // O cron que justificava esse atalho está comentado desde o lote de setembro
   // (migration_cron_processos.sql), então o fallback sai inteiro.
-  const quem = await exigirUsuario(req, { tipo: "interno" });
+  const quem = await exigirUsuario(req, { tipo: "interno", permissao: "ia:usar" });
   if (quem instanceof Response) return quem;
   const usuarioId = quem.uid;
   const admin = quem.admin;

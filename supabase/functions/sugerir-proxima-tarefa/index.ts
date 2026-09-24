@@ -144,7 +144,7 @@ serve(async (req) => {
   if (req.method !== "POST") return jsonResponse({ error: "metodo nao permitido" }, 405);
 
   // Checagem no topo: antes ela vinha depois das variáveis de ambiente e do corpo, então a função respondia (400/500, e até 200) sem saber quem chamou. `exigirUsuario` também confere `ativo`, que faltava aqui.
-  const quem = await exigirUsuario(req, { tipo: "interno" });
+  const quem = await exigirUsuario(req, { tipo: "interno", permissao: "ia:usar" });
   if (quem instanceof Response) return quem;
   if (!SUPABASE_URL || !SERVICE_ROLE) return jsonResponse({ error: "secrets ausentes" }, 500);
 

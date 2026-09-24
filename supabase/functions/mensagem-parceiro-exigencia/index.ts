@@ -79,7 +79,7 @@ serve(async (req) => {
   }
 
   // A checagem vinha DEPOIS de ler o corpo: com corpo vazio a função respondia 200 sem saber quem chamou. Agora é a primeira coisa.
-  const quem = await exigirUsuario(req, { tipo: "interno" });
+  const quem = await exigirUsuario(req, { tipo: "interno", permissao: "ia:usar" });
   if (quem instanceof Response) return quem;
   if (!SUPABASE_URL || !SERVICE_ROLE) {
     return jsonResponse({ error: "secrets ausentes na funcao" }, 500);

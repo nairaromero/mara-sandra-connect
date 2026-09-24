@@ -164,7 +164,7 @@ serve(async (req) => {
   }
 
   // Chamada pelos três jobs de cron e pela tela de processos.
-  const quem = await exigirUsuarioOuSistema(req, "cron:datajud", { tipo: "interno" });
+  const quem = await exigirUsuarioOuSistema(req, "cron:datajud", { tipo: "interno", permissao: "casos:editar" });
   if (quem instanceof Response) return quem;
   if (!SUPABASE_URL || !SERVICE_ROLE) {
     return jsonResponse({ error: "supabase env vars ausentes" }, 500);

@@ -92,6 +92,36 @@ sincronização **consomem cota** dos provedores e gravam no caso.
 
 ---
 
+## Situação: aplicado em 24/09/2026
+
+A Naira aprovou tudo, e a decisão sobre a IA foi **exigir `ia:usar`** (o chat fecha para o
+parceiro). Aplicado no banco local e no de staging, com as functions publicadas no staging:
+
+| Passo | Migration / mudança | Situação |
+|---|---|---|
+| 1 · escrita só por função (14 tabelas + 2 gatilhos) | `migration_rbac_15_escrita_so_por_funcao` | aplicado |
+| 2 · notificação por destinatário e comentário do autor | `migration_rbac_16_notificacao_e_comentario` + sineta dispensa em vez de apagar | aplicado |
+| 3 · três RPCs privilegiadas com permissão | `migration_rbac_17_rpc_com_permissao` | aplicado |
+| 4 · solicitações e alertas com `casos:editar`; webhooks sem escrita | `migration_rbac_18_solicitacoes_e_alertas` | aplicado |
+| 5 · 13 edge functions com permissão + `ia-assistant` fechado | deploy no staging | aplicado |
+
+Provado no staging depois de aplicar, com as contas reais:
+
+| Tentativa | Antes | Agora |
+|---|---|---|
+| financeiro apaga pedido de documento | apagava de vez | recusado pela policy |
+| financeiro chama a IA de triagem | passava | 403 |
+| financeiro abre o chat de IA | passava | 403 |
+| financeiro aplica template de tarefas | criava | 42501 |
+| advogado abre o chat de IA | passava | passa (para no 412 de IA não configurada) |
+| parceira responde pedido do caso dela | respondia | continua respondendo |
+
+Uma ressalva de desenho que apareceu na execução: `ia-config` **não** exige `ia:usar` no topo.
+Ela faz duas coisas, e a exigência é por ação — o cofre de chaves (status, testar, salvar,
+ativar, compartilhar) pede `ia:usar`; as ações de token do MCP continuam abertas à DONA do
+token, que por desenho (#385) pode ser parceira. Sem essa separação, a dona perdia o direito de
+ver e revogar o próprio token, o que a suíte pegou na hora.
+
 ## Ordem sugerida de execução
 
 1. **Sem decisão nenhuma** (impacto zero no produto): revogar a escrita das 14 tabelas do 1b e

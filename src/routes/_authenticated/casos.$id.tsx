@@ -5666,7 +5666,8 @@ function TabDocumentos(props: TabDocumentosProps) {
                   : "Documentos que o escritório precisa. Envie por 'Adicionar' abaixo."}
               </CardDescription>
             </div>
-            {isInterno && (
+            {/* pedir documento grava em `solicitacoes_documento` (casos:editar) */}
+            {isInterno && podeEscrever("solicitacoes_documento") && (
               <SolicitarDocBotao casoId={casoId} usuarioId={usuarioId} onChange={onChange} />
             )}
           </div>
@@ -5781,7 +5782,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                         );
                       })()}
                     </div>
-                    {isInterno && isPendente && (
+                    {isInterno && isPendente && podeEscrever("solicitacoes_documento") && (
                       <div className="flex gap-1">
                         {ehPedidoSenhaMeuInss(s.tipo) ? (
                           <span className="text-xs text-muted-foreground self-center mr-1">

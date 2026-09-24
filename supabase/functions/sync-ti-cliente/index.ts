@@ -211,7 +211,7 @@ serve(async (req) => {
   // importava notas do Tramitação para o `caso_id` que mandasse no corpo.
   // Vem antes das variáveis de ambiente de propósito: quem não pode chamar
   // não precisa saber o que está ou não configurado.
-  const quem = await exigirUsuario(req, { tipo: "interno" });
+  const quem = await exigirUsuario(req, { tipo: "interno", permissao: "casos:editar" });
   if (quem instanceof Response) return quem;
 
   if (!SUPABASE_URL || !SERVICE_ROLE) {

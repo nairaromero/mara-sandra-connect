@@ -41,6 +41,12 @@ serve(async (req) => {
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
 
   // ---- Autorizacao: pessoa ATIVA no escritório ativo ----
+  // Autorização em dois níveis, porque esta function faz duas coisas:
+  //   - cofre de chaves de IA (status/testar/salvar/ativar/compartilhar): é de
+  //     quem usa IA, e a permissão `ia:usar` é conferida ADIANTE, por ação;
+  //   - tokens do MCP (token_*): o DONO pode ser qualquer pessoa escolhida pelo
+  //     admin, inclusive parceiro (#385) — exigir `ia:usar` aqui tirava da dona
+  //     o direito de ver e revogar o próprio token.
   const quem = await exigirUsuario(req);
   if (quem instanceof Response) return quem;
   const uid = quem.uid;
@@ -56,6 +62,15 @@ serve(async (req) => {
     return jsonResponse({ error: "body json invalido" }, 400);
   }
   const action = String(body.action || "");
+
+  // Cofre de IA: exige ser interno e ter `ia:usar` (decisão de 24/09 — antes
+  // bastava estar autenticado, e a tela era o único freio).
+  const ACOES_DE_IA = ["status", "testar", "salvar", "ativar", "compartilhar"];
+  if (ACOES_DE_IA.includes(action)) {
+    if (quem.perfil.tipo !== "interno" || !quem.perfil.permissoes.includes("ia:usar")) {
+      return jsonResponse({ error: "sem permissao para usar IA", code: "sem_permissao" }, 403);
+    }
+  }
 
   try {
     if (action === "status") {

@@ -149,7 +149,8 @@ const dirFn = path.resolve("supabase/functions");
 for (const d of fs.readdirSync(dirFn)) {
   const idx = path.join(dirFn, d, "index.ts");
   if (!fs.existsSync(idx)) continue;
-  const m = fs.readFileSync(idx, "utf8").match(/exigirUsuario\(req,[^)]*permissao: "([a-z_:]+)"/);
+  // `exigirUsuario` e `exigirUsuarioOuSistema` (esta com o nome do job no meio)
+  const m = fs.readFileSync(idx, "utf8").match(/exigirUsuario(?:OuSistema)?\(req,[^)]*permissao: "([a-z_:]+)"/);
   if (m && !fnFront[d]) problemas.push(`FALTA no front: function ${d} exige ${m[1]}`);
   else if (m && fnFront[d].permissao !== m[1]) problemas.push(`PERMISSÃO DIFERENTE: function ${d} — código ${m[1]}, front ${fnFront[d].permissao}`);
   else if (!m && fnFront[d]) problemas.push(`SOBRA no front: function ${d} não exige permissão`);

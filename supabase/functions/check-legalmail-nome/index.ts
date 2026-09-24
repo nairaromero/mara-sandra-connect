@@ -79,7 +79,7 @@ serve(async (req) => {
   }
 
   // Consome cota do Legalmail: só quem é do escritório.
-  const quem = await exigirUsuario(req, { tipo: "interno" });
+  const quem = await exigirUsuario(req, { tipo: "interno", permissao: "processos:ler" });
   if (quem instanceof Response) return quem;
   // credencial DO ESCRITÓRIO ativo (nunca a de outro): sem ela, 412 e a tela esconde o botão
   const integ = await integracaoDoEscritorio(quem.admin, quem.perfil.escritorio_id, "legalmail");

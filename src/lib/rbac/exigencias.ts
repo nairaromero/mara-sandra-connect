@@ -74,6 +74,11 @@ export const ESCRITA: Record<string, { todas?: Exigencia } & Partial<Record<Oper
     todas: { permissao: "agenda:gerenciar", proprio: { escopo: "atribuidos", coluna: "responsavel_id" } },
   },
 
+  // classe inversa (24/09): passaram a exigir permissão — antes qualquer pessoa
+  // do escritório escrevia (planning/RBAC_CLASSE_INVERSA.md).
+  solicitacoes_documento: { todas: { permissao: "casos:editar" } },
+  alertas_duplicidade: { todas: { permissao: "casos:editar" } },
+
   etiquetas: { todas: { permissao: "etiquetas:gerenciar" } },
   tarefa_templates: { todas: { permissao: "templates:gerenciar" } },
   tipos_beneficio: { todas: { permissao: "templates:gerenciar" } },
@@ -93,6 +98,10 @@ export const RPC: Record<string, Exigencia> = {
   reativar_parceiro: { permissao: "parceiros:gerenciar" },
   escritorio_definir_marca: { permissao: "escritorio:configurar" },
   gmail_inss_status: { permissao: "integracoes:gerenciar" },
+  // funções privilegiadas que passaram a conferir permissão (migration_rbac_17)
+  aplicar_template: { permissao: "tarefas:gerenciar" },
+  vincular_publicacao_dje: { permissao: "casos:editar" },
+  set_senha_meu_inss: { permissao: "senha_inss:ler" },
 };
 
 /** Edge functions que pedem permissão em `exigirUsuario`. */
@@ -102,6 +111,22 @@ export const FUNCTION: Record<string, Exigencia> = {
   "ia-analise": { permissao: "ia:usar" },
   "extrair-dados-cliente": { permissao: "ia:usar" },
   "excluir-parceiro": { permissao: "parceiros:excluir" },
+  // classe inversa (24/09): antes pediam só "ser interna"
+  "ia-assistant": { permissao: "ia:usar" },
+  // `ia-config` fica de fora de propósito: o cofre de IA exige `ia:usar`
+  // por AÇÃO (status/testar/salvar/ativar/compartilhar), enquanto as ações de
+  // token do MCP são da dona do token, que pode ser parceira (#385).
+  "ia-triagem-andamentos": { permissao: "ia:usar" },
+  "sugerir-proxima-tarefa": { permissao: "ia:usar" },
+  "mensagem-parceiro-exigencia": { permissao: "ia:usar" },
+  "extrair-agendamento-pericia": { permissao: "ia:usar" },
+  "sync-datajud-movimentacoes": { permissao: "casos:editar" },
+  "sync-djen-caso": { permissao: "casos:editar" },
+  "sync-legalmail-caso": { permissao: "casos:editar" },
+  "sync-ti-cliente": { permissao: "casos:editar" },
+  "listar-processos-legalmail": { permissao: "processos:ler" },
+  "listar-clientes-ti": { permissao: "casos:ler" },
+  "check-legalmail-nome": { permissao: "processos:ler" },
 };
 
 /** Storage: bucket → exigência de escrita (upload/remover). */

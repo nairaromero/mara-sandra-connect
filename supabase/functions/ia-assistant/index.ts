@@ -87,7 +87,12 @@ serve(async (req) => {
   }
 
   // ---- Autorizacao: pessoa ATIVA no escritório ativo; papel vem do vínculo ----
-  const quem = await exigirUsuario(req);
+  // Decisão da Naira (24/09/2026): o chat de IA exige `ia:usar`, que hoje é de
+  // admin, advogado e assistente. O código abaixo ainda sabe montar o prompt do
+  // parceiro (é da Fase 0), mas o parceiro não tem a permissão — e a regra do
+  // produto (CLAUDE.md) sempre disse que IA é só para quem é interno. Sem isto,
+  // a tela escondia o launcher e a API continuava aberta.
+  const quem = await exigirUsuario(req, { tipo: "interno", permissao: "ia:usar" });
   if (quem instanceof Response) return quem;
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
   const uid = quem.uid;
