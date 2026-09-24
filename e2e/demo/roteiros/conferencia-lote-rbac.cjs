@@ -347,7 +347,9 @@ const sql = (q) => JSON.parse(execSync(`node scripts/msc-sql.mjs --local ${JSON.
         const s = await sessao(`qg+suporte@${DOM}`, ESC2);
         const ped = await s.sb.rpc("qg_suporte_solicitar", { p_escritorio_id: ESC2, p_motivo: `${MARCA} conferir a marca em sessão de suporte`, p_horas: 1 });
         if (ped.error) falha(`pedido: ${ped.error.message}`);
-        const ap = await cAdmin.sb.rpc("suporte_responder", { p_id: ped.data, p_aprovar: true });
+        // a RPC devolve { id, ticket } (o número sai do servidor, migration_rbac_19)
+        const pedId = ped.data?.[0]?.id;
+        const ap = await cAdmin.sb.rpc("suporte_responder", { p_id: pedId, p_aprovar: true });
         if (ap.error) falha(`aprovar: ${ap.error.message}`);
         const ps = await abrir(`qg+suporte@${DOM}`, ESC2);
         await ps.goto(`${BASE}/tarefas`);
@@ -358,7 +360,7 @@ const sql = (q) => JSON.parse(execSync(`node scripts/msc-sql.mjs --local ${JSON.
         await legenda(ps, "N6", "sessão de suporte: marca do Canário no topo");
         await still(ps, "N6-suporte-marca");
         await fechar(ps);
-        await cAdmin.sb.rpc("suporte_encerrar", { p_id: ped.data });
+        await cAdmin.sb.rpc("suporte_encerrar", { p_id: pedId });
         if (!/Can[áa]rio|Associados/.test(alt)) falha(`marca vista pelo suporte: ${alt}`);
       });
       await fecharTodas();

@@ -116,7 +116,6 @@ async function cartao(page, titulo, sub, ms = 3800) {
       await narrar(pQ, "Para olhar um caso do Canário, o suporte precisa PEDIR acesso — com motivo, ticket e prazo.");
       await clicar(pQ, pQ.getByRole("button", { name: "Pedir acesso de suporte" }));
       await digitar(pQ, pQ.locator("#acao-motivo"), `${MARCA} conferir tarefa que não aparece para a equipe`);
-      await digitar(pQ, pQ.locator("#acao-ticket"), "T-1042");
       await still(pQ, "ato1-02-pedido");
       const dlg = pQ.getByRole("dialog");
       // o X de fechar do Radix é o último botão do diálogo (texto "Close"): fica de fora

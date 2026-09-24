@@ -70,8 +70,9 @@ test.describe.serial("suporte: lado do escritório", () => {
   test("aviso no topo, aprovar na aba Suporte, trilha na Auditoria, encerrar", async ({ browser, baseURL }) => {
     // 1) plataforma pede (API)
     const { sb: sup } = await como(`qg+suporte@${DOM}`, ESC2);
-    const pedido = await sup.rpc("qg_suporte_solicitar", { p_escritorio_id: ESC2, p_motivo: MOTIVO, p_ticket: "T-E2E", p_horas: 1 });
+    const pedido = await sup.rpc("qg_suporte_solicitar", { p_escritorio_id: ESC2, p_motivo: MOTIVO, p_horas: 1 });
     expect(pedido.error).toBeNull();
+    const { id: pedidoId, ticket: ticketGerado } = (pedido.data as Array<{ id: string; ticket: string }>)[0];
     expect((await sup.from("casos").select("id", { count: "exact", head: true })).count, "pendente não abre nada").toBe(0);
 
     // 2) admin do Canário vê o aviso e aprova pela tela
@@ -87,14 +88,17 @@ test.describe.serial("suporte: lado do escritório", () => {
       await aviso.getByRole("link", { name: "Ver pedido" }).click();
       await expect(page).toHaveURL(/tab=suporte/);
 
-      const card = page.locator(`[data-pedido="${pedido.data}"]`);
+      const card = page.locator(`[data-pedido="${pedidoId}"]`);
       await expect(card).toBeVisible();
       await expect(card).toContainText(MOTIVO);
-      await expect(card).toContainText("ticket T-E2E");
+      // O número sai do servidor (migration_rbac_19): a spec confere o FORMATO e
+      // que é o mesmo que a RPC devolveu, não um texto digitado.
+      await expect(card).toContainText(`ticket ${ticketGerado}`);
+      expect(ticketGerado).toMatch(/^SUP-\d{4}-\d{4,}$/);
       await card.getByRole("button", { name: "Aprovar por 1 h" }).click();
-      await expect(page.locator('[data-secao="andamento"]').locator(`[data-pedido="${pedido.data}"]`)).toContainText("em andamento");
+      await expect(page.locator('[data-secao="andamento"]').locator(`[data-pedido="${pedidoId}"]`)).toContainText("em andamento");
       await expect(aviso).toHaveCount(0);
-      const { data: linha } = await admin.from("acessos_suporte").select("status, inicio, fim").eq("id", pedido.data).single();
+      const { data: linha } = await admin.from("acessos_suporte").select("status, inicio, fim").eq("id", pedidoId).single();
       expect(linha?.status).toBe("aprovado");
       expect(linha?.fim).toBeTruthy();
 
@@ -115,19 +119,20 @@ test.describe.serial("suporte: lado do escritório", () => {
 
       // 5) admin encerra: some na hora
       await page.goto("/configuracoes?tab=suporte");
-      await page.locator('[data-secao="andamento"]').locator(`[data-pedido="${pedido.data}"]`).getByRole("button", { name: "Encerrar agora" }).click();
-      await expect(page.locator('[data-secao="historico"]').locator(`[data-pedido="${pedido.data}"]`)).toContainText("encerrado");
+      await page.locator('[data-secao="andamento"]').locator(`[data-pedido="${pedidoId}"]`).getByRole("button", { name: "Encerrar agora" }).click();
+      await expect(page.locator('[data-secao="historico"]').locator(`[data-pedido="${pedidoId}"]`)).toContainText("encerrado");
       expect((await sup.from("casos").select("id", { count: "exact", head: true })).count, "depois de encerrado").toBe(0);
-      const { data: fim } = await admin.from("acessos_suporte").select("status").eq("id", pedido.data).single();
+      const { data: fim } = await admin.from("acessos_suporte").select("status").eq("id", pedidoId).single();
       expect(fim?.status).toBe("encerrado");
 
       // 6) segundo pedido: recusar
       const pedido2 = await sup.rpc("qg_suporte_solicitar", { p_escritorio_id: ESC2, p_motivo: MOTIVO + " (2)", p_horas: 2 });
       expect(pedido2.error).toBeNull();
+      const pedido2Id = (pedido2.data as Array<{ id: string }>)[0].id;
       await page.reload();
-      const card2 = page.locator(`[data-pedido="${pedido2.data}"]`);
+      const card2 = page.locator(`[data-pedido="${pedido2Id}"]`);
       await card2.getByRole("button", { name: "Recusar" }).click();
-      await expect(page.locator('[data-secao="historico"]').locator(`[data-pedido="${pedido2.data}"]`)).toContainText("recusado");
+      await expect(page.locator('[data-secao="historico"]').locator(`[data-pedido="${pedido2Id}"]`)).toContainText("recusado");
       expect((await sup.from("casos").select("id", { count: "exact", head: true })).count).toBe(0);
     } finally {
       await ctx.close();
@@ -137,10 +142,11 @@ test.describe.serial("suporte: lado do escritório", () => {
   test("quem não é admin não vê aviso nem aba; RPCs recusam", async ({ browser, baseURL }) => {
     const { sb: sup } = await como(`qg+suporte@${DOM}`, ESC2);
     const pedido = await sup.rpc("qg_suporte_solicitar", { p_escritorio_id: ESC2, p_motivo: MOTIVO + " (3)", p_horas: 1 });
+    const pedido3Id = (pedido.data as Array<{ id: string }>)[0].id;
     expect(pedido.error).toBeNull();
 
     const { sb: adv, session } = await como(`canario+advogado@${DOM}`, ESC2);
-    expect((await adv.rpc("suporte_encerrar", { p_id: pedido.data })).error?.code).toBe("42501");
+    expect((await adv.rpc("suporte_encerrar", { p_id: pedido3Id })).error?.code).toBe("42501");
     expect((await adv.rpc("auditoria_plataforma")).error?.code).toBe("42501");
 
     const ctx = await contextoProduto(browser, baseURL!, session, ESC2);

@@ -405,13 +405,11 @@ function QgEscritorio() {
 function AcaoDialog(props: { acao: Acao | null; escritorio: QgEscritorio; onFechar: () => void; onFeito: () => void }) {
   const { acao, escritorio } = props;
   const [motivo, setMotivo] = useState("");
-  const [ticket, setTicket] = useState("");
   const [horas, setHoras] = useState("4");
   const [enviando, setEnviando] = useState(false);
 
   useEffect(() => {
     setMotivo("");
-    setTicket("");
     setHoras("4");
   }, [acao]);
 
@@ -455,20 +453,24 @@ function AcaoDialog(props: { acao: Acao | null; escritorio: QgEscritorio; onFech
     if (!acao) return;
     setEnviando(true);
     let erro: string | undefined;
+    let ticketGerado: string | undefined;
     if (acao.tipo === "suspender") {
       erro = (await supabase.rpc("qg_suspender_escritorio", { p_id: escritorio.id, p_motivo: motivo })).error?.message;
     } else if (acao.tipo === "encerrar") {
       erro = (await supabase.rpc("qg_encerrar_escritorio", { p_id: escritorio.id, p_motivo: motivo })).error?.message;
     } else if (acao.tipo === "suporte" || acao.tipo === "break_glass") {
-      erro = (
-        await supabase.rpc("qg_suporte_solicitar", {
-          p_escritorio_id: escritorio.id,
-          p_motivo: motivo,
-          p_ticket: ticket || null,
-          p_horas: Number(horas) || 4,
-          p_break_glass: acao.tipo === "break_glass",
-        })
-      ).error?.message;
+      // O número do pedido é gerado pelo servidor (migration_rbac_19): quem pede
+      // não digita mais. Digitado, ele repetia — no staging três pedidos saíram
+      // com o mesmo "T-2026" — e um número repetido não acha nada na auditoria.
+      const r = await supabase.rpc("qg_suporte_solicitar", {
+        p_escritorio_id: escritorio.id,
+        p_motivo: motivo,
+        p_horas: Number(horas) || 4,
+        p_break_glass: acao.tipo === "break_glass",
+      });
+      erro = r.error?.message;
+      const gerado = (r.data as Array<{ ticket: string }> | null)?.[0]?.ticket;
+      if (!erro && gerado) ticketGerado = gerado;
     } else if (acao.tipo === "desativar") {
       erro = (await supabase.rpc("qg_desativar_membro", { p_escritorio_id: escritorio.id, p_usuario_id: acao.membro.usuario_id, p_motivo: motivo })).error?.message;
     } else if (acao.tipo === "titular") {
@@ -476,7 +478,11 @@ function AcaoDialog(props: { acao: Acao | null; escritorio: QgEscritorio; onFech
     }
     setEnviando(false);
     if (erro) return toast.error(erro);
-    toast.success("Feito. Ficou registrado na auditoria do escritório.");
+    toast.success(
+      ticketGerado
+        ? `Pedido ${ticketGerado} enviado. Ficou registrado na auditoria do escritório.`
+        : "Feito. Ficou registrado na auditoria do escritório.",
+    );
     props.onFeito();
   }
 
@@ -495,15 +501,15 @@ function AcaoDialog(props: { acao: Acao | null; escritorio: QgEscritorio; onFech
             <Textarea id="acao-motivo" value={motivo} onChange={(e) => setMotivo(e.target.value)} rows={3} placeholder="Mínimo de 10 caracteres" />
           </div>
           {ehSuporte && (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="acao-ticket">Ticket</Label>
-                <Input id="acao-ticket" value={ticket} onChange={(e) => setTicket(e.target.value)} placeholder="opcional" />
-              </div>
+            <div className="grid gap-3">
               <div>
                 <Label htmlFor="acao-horas">Duração (horas)</Label>
                 <Input id="acao-horas" type="number" min={1} max={72} value={horas} onChange={(e) => setHoras(e.target.value)} />
               </div>
+              <p className="text-xs text-muted-foreground" data-ticket-automatico>
+                O número do pedido sai automático (SUP-ano-sequência) e aparece aqui e na
+                auditoria do escritório.
+              </p>
             </div>
           )}
         </div>

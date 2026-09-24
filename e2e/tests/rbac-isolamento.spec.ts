@@ -349,7 +349,8 @@ test.describe.serial("RBAC multi-tenant", () => {
 
   test("QG: suporte só com aprovação do escritório, só leitura, e some ao encerrar", async () => {
     const sup = await como(`qg+suporte@${DOM}`, ESC2);
-    const pedido = await sup.rpc("qg_suporte_solicitar", { p_escritorio_id: ESC2, p_motivo: "Conferir tarefa que não aparece para a equipe", p_ticket: "T-1", p_horas: 1 });
+    const pedido = await sup.rpc("qg_suporte_solicitar", { p_escritorio_id: ESC2, p_motivo: "Conferir tarefa que não aparece para a equipe", p_horas: 1 });
+    const pedidoId = (pedido.data as Array<{ id: string }>)[0].id;
     expect(pedido.error).toBeNull();
 
     expect(comLinhas(await visiveis(sup)), "pedido pendente ainda não abre nada").toEqual([]);
@@ -358,10 +359,10 @@ test.describe.serial("RBAC multi-tenant", () => {
 
     // advogado do escritório não aprova; o admin sim
     const adv = await como(`canario+advogado@${DOM}`, ESC2);
-    expect((await adv.rpc("suporte_responder", { p_id: pedido.data, p_aprovar: true })).error).toBeTruthy();
+    expect((await adv.rpc("suporte_responder", { p_id: pedidoId, p_aprovar: true })).error).toBeTruthy();
     const cAdmin = await como(`canario+admin@${DOM}`, ESC2);
-    expect(((await cAdmin.rpc("suporte_pedidos")).data ?? []).some((p: { id: string }) => p.id === pedido.data)).toBe(true);
-    expect((await cAdmin.rpc("suporte_responder", { p_id: pedido.data, p_aprovar: true })).error).toBeNull();
+    expect(((await cAdmin.rpc("suporte_pedidos")).data ?? []).some((p: { id: string }) => p.id === pedidoId)).toBe(true);
+    expect((await cAdmin.rpc("suporte_responder", { p_id: pedidoId, p_aprovar: true })).error).toBeNull();
 
     // agora lê o canário — e SÓ o canário
     const v = await visiveis(sup);
@@ -381,7 +382,7 @@ test.describe.serial("RBAC multi-tenant", () => {
     expect(trilha.map((t) => t.acao)).toEqual(expect.arrayContaining(["suporte.solicitar", "suporte.aprovar", "suporte.abrir"]));
     expect((await adv.from("auditoria").select("id")).data ?? [], "advogado não tem auditoria:ler").toHaveLength(0);
 
-    expect((await sup.rpc("qg_suporte_encerrar", { p_id: pedido.data })).error).toBeNull();
+    expect((await sup.rpc("qg_suporte_encerrar", { p_id: pedidoId })).error).toBeNull();
     expect(comLinhas(await visiveis(sup)), "depois de encerrado").toEqual([]);
   });
 

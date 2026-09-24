@@ -155,7 +155,6 @@ async function painel(page, titulo, corpoHtml, ms = 5000) {
       await narrar(pQ, "Para olhar um caso do Canário, o suporte precisa PEDIR acesso, com motivo, ticket e prazo.");
       await clicar(pQ, pQ.getByRole("button", { name: "Pedir acesso de suporte" }));
       await digitar(pQ, pQ.locator("#acao-motivo"), `${MARCA} conferir tarefa que não aparece para a equipe`);
-      await digitar(pQ, pQ.locator("#acao-ticket"), "T-2026");
       await still(pQ, "ato1-02-pedido");
       const dlg = pQ.getByRole("dialog");
       await clicar(pQ, dlg.locator("button").filter({ hasText: /\S/ }).filter({ hasNotText: /Cancelar|Close|Fechar/ }).last());
