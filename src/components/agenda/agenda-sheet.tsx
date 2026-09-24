@@ -49,6 +49,7 @@ import {
   excluirEvento,
 } from "@/lib/agenda/queries";
 import { type AgendaEventoComJoins, type AgendaTipo, TIPO_LABEL } from "@/lib/agenda/types";
+import { ehTokenJudicial, processoDoToken, tokenDoProcesso } from "@/lib/processos/token";
 import { calcularDueAtRelativo } from "@/lib/agenda/helpers";
 import {
   comoLocalBR,
@@ -149,6 +150,10 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
     Array<{ id: string; nome: string | null; email: string | null }>
   >([]);
   const [processosDoCaso, setProcessosDoCaso] = useState<ProcessoDoCasoOpcao[]>([]);
+  // Falha/atraso ao ler os processos NÃO pode virar "caso sem processo": com o
+  // processo obrigatório em perícia e audiência (card #357), lista vazia por
+  // erro deixaria passar compromisso sem frente, calado.
+  const [processosProntos, setProcessosProntos] = useState(false);
   // Templates de agenda (com pelo menos 1 item destino=agenda).
   const [templates, setTemplates] = useState<TarefaTemplateRow[]>([]);
   const [templateSelecionado, setTemplateSelecionado] = useState<string>("");
@@ -297,7 +302,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
   useEffect(() => {
     if (!avisoAplicavel || avisoEditado || !ctxCaso) return;
     const natureza: "admin" | "judicial" =
-      templateSelecionado === "pericia_judicial" || processoToken.startsWith("judicial:")
+      templateSelecionado === "pericia_judicial" || ehTokenJudicial(processoToken)
         ? "judicial"
         : "admin";
     let cancelado = false;
@@ -350,11 +355,20 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
   useEffect(() => {
     if (!casoId) {
       setProcessosDoCaso([]);
+      setProcessosProntos(true); // sem caso não há frente a escolher
       return;
     }
+    setProcessosProntos(false);
     listarProcessosDoCaso(casoId)
-      .then(setProcessosDoCaso)
-      .catch(() => {});
+      .then((ps) => {
+        setProcessosDoCaso(ps);
+        setProcessosProntos(true);
+      })
+      .catch((e) => {
+        console.error("listarProcessosDoCaso:", e);
+        setProcessosDoCaso([]);
+        setProcessosProntos(false);
+      });
   }, [casoId]);
 
   // Sincroniza form com modo na abertura.
@@ -397,13 +411,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
       setStartInput(isoToInputDatetime(e.start_at));
       setEndInput(isoToInputDatetime(e.end_at));
       setCasoId(e.caso_id);
-      setProcessoToken(
-        e.processo_admin_id
-          ? `admin:${e.processo_admin_id}`
-          : e.processo_judicial_id
-            ? `judicial:${e.processo_judicial_id}`
-            : "",
-      );
+      setProcessoToken(tokenDoProcesso(e));
       setResponsavelId(e.responsavel_id);
       setTemplateSelecionado("");
     }
@@ -490,17 +498,13 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
     processo_admin_id: string | null;
     processo_judicial_id: string | null;
   } {
-    if (!processoToken || !casoId) {
-      return { processo_admin_id: null, processo_judicial_id: null };
-    }
-    if (processoToken.startsWith("admin:")) {
-      return { processo_admin_id: processoToken.slice(6), processo_judicial_id: null };
-    }
-    if (processoToken.startsWith("judicial:")) {
-      return { processo_admin_id: null, processo_judicial_id: processoToken.slice(9) };
-    }
-    return { processo_admin_id: null, processo_judicial_id: null };
+    if (!casoId) return { processo_admin_id: null, processo_judicial_id: null };
+    return processoDoToken(processoToken);
   }
+
+  // Perícia/audiência com frente cadastrada no caso: processo obrigatório.
+  const processoObrigatorio =
+    (tipo === "pericia" || tipo === "audiencia") && !!casoId && processosDoCaso.length > 0;
 
   async function salvar() {
     if (!titulo.trim()) {
@@ -515,6 +519,24 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
     const endIso = inputDatetimeToIso(endInput);
     if (new Date(endIso).getTime() < new Date(startIso).getTime()) {
       toast.error("Fim não pode ser antes do início.");
+      return;
+    }
+    // Perícia e audiência SEMPRE correm dentro de um processo (Naira,
+    // 2026-09-18, card #357) — e é o processo que decide a coluna em que o
+    // parceiro vê o compromisso. Com frente no caso, escolher é obrigatório.
+    if ((tipo === "pericia" || tipo === "audiencia") && casoId && !processosProntos) {
+      toast.error("Não consegui carregar os processos do caso", {
+        description: "Perícia e audiência precisam do processo — tente de novo em instantes.",
+      });
+      return;
+    }
+    if (processoObrigatorio && !processoToken) {
+      toast.error(
+        tipo === "audiencia"
+          ? "Escolha o processo da audiência"
+          : "Escolha o processo da perícia",
+        { description: "Toda perícia ou audiência corre dentro de um processo." },
+      );
       return;
     }
     setSalvando(true);
@@ -829,16 +851,22 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
 
           {casoId && processosDoCaso.length > 0 && (
             <div className="space-y-1.5">
-              <Label>Processo (opcional)</Label>
+              <Label>{processoObrigatorio ? "Processo *" : "Processo (opcional)"}</Label>
               <Select
-                value={processoToken || "sem"}
+                // Obrigatório e ainda sem escolha: `undefined` deixa o
+                // placeholder aparecer. Com "sem" (item que nem é renderizado
+                // nesse modo) o campo ficava em branco, marcado com * e sem
+                // dizer o que falta — achado 12 da revisão do Yuri.
+                value={processoObrigatorio ? processoToken || undefined : processoToken || "sem"}
                 onValueChange={(v) => setProcessoToken(v === "sem" ? "" : v)}
               >
-                <SelectTrigger>
-                  <SelectValue placeholder="Nenhum" />
+                <SelectTrigger aria-label="Processo do compromisso">
+                  <SelectValue placeholder={processoObrigatorio ? "Escolha o processo" : "Nenhum"} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="sem">Sem processo específico</SelectItem>
+                  {!processoObrigatorio && (
+                    <SelectItem value="sem">Sem processo específico</SelectItem>
+                  )}
                   {processosDoCaso.map((p) => (
                     <SelectItem key={`${p.natureza}:${p.id}`} value={`${p.natureza}:${p.id}`}>
                       {p.rotulo}

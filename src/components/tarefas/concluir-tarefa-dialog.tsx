@@ -31,6 +31,7 @@ import {
   Plus,
   Scale,
   Sparkles,
+  Upload,
   User,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -43,6 +44,8 @@ import {
   type SugestaoProximaTarefa,
 } from "@/lib/tarefas/proxima-sugerida";
 import { atualizarTarefa, excluirTarefaComMotivo } from "@/lib/tarefas/queries";
+import { usePedidoDaTarefa } from "@/lib/tarefas/pedido-documento";
+import { CumprirSolicitacaoDialog } from "@/components/documentos/cumprir-solicitacao-dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -116,6 +119,18 @@ export function ConcluirTarefaDialog(props: {
   useEffect(() => () => fluxo.current?.abort(), []);
 
   const pendente = tarefa ? checklistPendente(tarefa) : null;
+  // Tarefa "Providenciar documentos": concluir por aqui NÃO fecha o pedido de
+  // documento (Naira, 2026-09-18). `undefined` = ainda carregando — não avisa
+  // nem libera nada antes de saber.
+  const pedido = usePedidoDaTarefa(tarefa?.metadata);
+  const pedidoAberto =
+    pedido && pedido !== "erro" && pedido.status === "pendente" ? pedido : null;
+  // Achado 7 da revisão do Yuri: enquanto carrega, o Concluir ficava liberado
+  // e um clique rápido escapava do aviso; e erro de leitura virava silêncio,
+  // que é o mesmo que dizer "pode concluir" sem ter conferido.
+  const conferindoPedido = pedido === undefined;
+  const pedidoIlegivel = pedido === "erro";
+  const [cumprindo, setCumprindo] = useState<string | null>(null);
 
   function fechar() {
     fluxo.current?.abort();
@@ -191,6 +206,17 @@ export function ConcluirTarefaDialog(props: {
 
   if (!podeMexer) return null;
   return (
+    <>
+    <CumprirSolicitacaoDialog
+      solicitacaoId={cumprindo}
+      onFechar={() => setCumprindo(null)}
+      onCumprida={() => {
+        // O banco conclui a tarefa sozinho quando o pedido é atendido; o
+        // popup já não tem o que perguntar.
+        toast.success("Tarefa concluída junto com o pedido.");
+        fechar();
+      }}
+    />
     <Dialog open={tarefa !== null} onOpenChange={(o) => !o && fechar()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto">
         {proxima ? (
@@ -206,6 +232,35 @@ export function ConcluirTarefaDialog(props: {
               <DialogTitle>{modoExcluir ? "Excluir tarefa" : "Concluir tarefa"}</DialogTitle>
               <DialogDescription>{tarefa?.titulo}</DialogDescription>
             </DialogHeader>
+
+            {/* Pedido de documento ainda aberto: concluir a tarefa deixaria o
+                pedido pendente pra sempre. Não bloqueia — avisa e oferece
+                cumprir na hora. */}
+            {pedidoAberto && !modoExcluir && (
+              <div className="space-y-2 rounded-md border border-amber-400/50 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                <div className="flex gap-2">
+                  <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                  <span>
+                    O pedido de <strong>{pedidoAberto.rotulo}</strong> continua aberto. Concluir
+                    esta tarefa não fecha o pedido — ele segue em Documentos pendentes.
+                  </span>
+                </div>
+                <Button size="sm" onClick={() => setCumprindo(pedidoAberto.id)}>
+                  <Upload className="h-4 w-4 mr-2" />
+                  Anexar documento e cumprir o pedido
+                </Button>
+              </div>
+            )}
+
+            {pedidoIlegivel && !modoExcluir && (
+              <div className="flex gap-2 rounded-md border border-amber-400/50 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                <span>
+                  Não consegui conferir o pedido de documento desta tarefa. Recarregue a página
+                  antes de concluir — pode ser que ele continue aberto.
+                </span>
+              </div>
+            )}
 
             {/* Tarefa de desfecho: não conclui pelo Feito — só exclui com motivo. */}
             {pendente && !modoExcluir && (
@@ -230,13 +285,20 @@ export function ConcluirTarefaDialog(props: {
                 )}
                 <div className="flex flex-col gap-2 pt-1">
                   {!pendente && (
-                    <Button onClick={concluirTarefa} disabled={salvando !== null}>
+                    <Button
+                      onClick={concluirTarefa}
+                      disabled={salvando !== null || conferindoPedido}
+                    >
                       {salvando === "concluir" ? (
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                       ) : (
                         <CheckCircle2 className="h-4 w-4 mr-2" />
                       )}
-                      Concluir tarefa
+                      {conferindoPedido
+                        ? "Conferindo o pedido…"
+                        : pedidoAberto
+                          ? "Concluir mesmo assim"
+                          : "Concluir tarefa"}
                     </Button>
                   )}
                   <Button
@@ -298,6 +360,7 @@ export function ConcluirTarefaDialog(props: {
         )}
       </DialogContent>
     </Dialog>
+    </>
   );
 }
 

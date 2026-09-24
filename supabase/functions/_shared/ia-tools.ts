@@ -845,6 +845,19 @@ export const WRITE_TOOLS: ToolSpec[] = [
       };
       const desc = optStr(args.descricao);
       if (desc) row.descricao = desc;
+      // Frente do pedido (card #357): é o processo que decide a coluna do
+      // kanban do parceiro. Com UMA frente no caso, ela é óbvia e entra
+      // sozinha; com mais de uma, quem escolhe é gente — fica null e o pedido
+      // segue a fase do caso, como antes.
+      const [{ data: admins }, { data: judiciais }] = await Promise.all([
+        client.from("processos_admin").select("id").eq("caso_id", caso_id),
+        client.from("processos_judiciais").select("id").eq("caso_id", caso_id),
+      ]);
+      const totalFrentes = (admins?.length ?? 0) + (judiciais?.length ?? 0);
+      if (totalFrentes === 1) {
+        if (admins?.length === 1) row.processo_admin_id = admins[0].id;
+        else if (judiciais?.length === 1) row.processo_judicial_id = judiciais[0].id;
+      }
       const { data, error } = await client
         .from("solicitacoes_documento")
         .insert(row)

@@ -22,6 +22,7 @@ import { AnaliseIndeferimento } from "@/components/tarefas/analise-indeferimento
 import { EnviarAvisoParceiro } from "@/components/tarefas/enviar-aviso-parceiro";
 import { EtapaCumprimentoExigencia } from "@/components/tarefas/etapa-cumprimento-exigencia";
 import { EtapaProtocoloRealizado } from "@/components/tarefas/etapa-protocolo-realizado";
+import { EtapaProvidenciarDocumento } from "@/components/tarefas/etapa-providenciar-documento";
 import {
   descreverAutoriaStatus,
   ehAnaliseInicial,
@@ -82,6 +83,10 @@ export function TarefaCard({
   const ehComparecimento =
     (tarefa.metadata as { confirmar_comparecimento?: boolean })?.confirmar_comparecimento === true;
   const ehEnviarAviso = !!(tarefa.metadata as { enviar_aviso?: object })?.enviar_aviso;
+  // Pedido de documento interno: cumprir direto do card, sem abrir a tarefa
+  // (Naira, 2026-09-18).
+  const ehProvidenciarDoc =
+    (tarefa.metadata as { providenciar_documento?: boolean })?.providenciar_documento === true;
   // Chip "Perícia · dd/mm" / "Audiência · dd/mm": a tarefa carrega a data do
   // evento que a ancorou (pedido da Naira: dava pra saber que a tarefa era
   // SOBRE uma perícia, mas não de quando).
@@ -359,6 +364,17 @@ export function TarefaCard({
 
         {podeMexerEmTarefa && ehEnviarAviso && (
           <EnviarAvisoParceiro
+            tarefa={tarefa}
+            onUpdated={onChanged ?? (() => {})}
+            compacto
+            stopPropagation
+          />
+        )}
+
+        {/* etapa nova do lote do kanban (#357): também é ação, também exige a
+            permissão de tarefa na LINHA */}
+        {podeMexerEmTarefa && ehProvidenciarDoc && (
+          <EtapaProvidenciarDocumento
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}
             compacto
