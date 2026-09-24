@@ -12,7 +12,7 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
-import { exigirUsuario, fetchT } from "../_shared/auth.ts";
+import { escopado, exigirUsuario, fetchT } from "../_shared/auth.ts";
 import { baseLegalmail, baseTI, integracaoDoEscritorio, semIntegracao } from "../_shared/integracoes.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -108,7 +108,11 @@ serve(async (req) => {
     );
   }
 
-  const supabase = createClient(SUPABASE_URL, SERVICE_ROLE);
+  // Service role SEMPRE escopado ao escritório (CLAUDE.md): sem isso a lista
+  // marcava como "já cadastrado" o CPF de OUTRO escritório e escondia o cliente
+  // daqui — achado de 24/09, com um cliente do escritório padrão sumindo um
+  // nome da lista do Canário.
+  const supabase = escopado(createClient(SUPABASE_URL, SERVICE_ROLE), quem.perfil.escritorio_id);
   const { data: locais, error } = await supabase.from("clientes").select("cpf");
   if (error) {
     return jsonResponse({ error: "erro listar clientes locais", detail: error.message }, 500);

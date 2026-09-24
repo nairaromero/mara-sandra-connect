@@ -34,7 +34,7 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
-import { exigirUsuario, fetchT } from "../_shared/auth.ts";
+import { escopado, exigirUsuario, fetchT } from "../_shared/auth.ts";
 import { baseLegalmail, baseTI, integracaoDoEscritorio, semIntegracao } from "../_shared/integracoes.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -104,7 +104,11 @@ serve(async (req) => {
     return jsonResponse({ error: "supabase env vars ausentes" }, 500);
   }
 
-  const admin = quem.admin;
+  // Service role SEMPRE escopado (CLAUDE.md): as duas leituras abaixo decidem o
+  // que some da lista por "já existe aqui", e sem escopo o processo ou o cliente
+  // de OUTRO escritório escondia um item daqui (irmã do achado de 24/09 em
+  // listar-clientes-ti).
+  const admin = escopado(quem.admin, quem.perfil.escritorio_id);
 
   let limiteNovos = 800;
   let soResumo = false;
