@@ -119,11 +119,12 @@ function TipoUsuarioBadge({ tipo }: { tipo: string | null | undefined }) {
 // ===========================================================================
 
 function AuditoriaPage() {
-  const { usuario, isAdmin } = useAuth();
+  const { usuario, isAdmin, pode } = useAuth();
   const navigate = useNavigate();
   // Só admin (Naira/Mara) entra aqui. Os demais internos nem veem o item
   // na sidebar; se caírem pela URL, levam aviso + redirect.
-  const isInterno = isAdmin;
+  // a trilha é de quem pode ler auditoria (auditoria:ler)
+  const isInterno = isAdmin && pode("auditoria:ler");
 
   const [rows, setRows] = useState<AcessoRow[]>([]);
   const [loading, setLoading] = useState(true);

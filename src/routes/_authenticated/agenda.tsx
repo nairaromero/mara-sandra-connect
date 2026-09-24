@@ -139,7 +139,10 @@ function agruparPorDia(eventos: AgendaEventoComJoins[]): Array<{
 
 function AgendaPage() {
   // criar evento e agenda:gerenciar; quem nao tem (financeiro) so consulta
-  const { pode } = useAuth();
+  const { podeEscrever } = useAuth();
+  // A policy de `agenda_eventos` cobra o escopo `todos`: `podeEscrever` resolve
+  // permissão E escopo pelo espelho (src/lib/rbac/exigencias.ts).
+  const podeGerenciarAgenda = podeEscrever("agenda_eventos");
   const [carregando, setCarregando] = useState(true);
   const [eventos, setEventos] = useState<AgendaEventoComJoins[]>([]);
   const [tarefasPericia, setTarefasPericia] = useState<TarefaComJoins[]>([]);
@@ -253,7 +256,7 @@ function AgendaPage() {
               contatar) ficam em Tarefas.
             </p>
           </div>
-          {pode("agenda:gerenciar") && (
+          {podeGerenciarAgenda && (
             <Button onClick={() => setSheetModo({ kind: "criar" })}>
               <Plus className="h-4 w-4" />
               Novo evento
@@ -329,7 +332,7 @@ function AgendaPage() {
           <AgendaMes
             eventos={itensVisiveis}
             onEventoClick={abrirEditor}
-            onEventoExcluir={excluirDoPainel}
+            onEventoExcluir={podeGerenciarAgenda ? excluirDoPainel : undefined}
           />
         ) : dias.length === 0 ? (
           <Card>

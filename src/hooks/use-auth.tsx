@@ -7,6 +7,7 @@ import {
   type UsuarioRow,
 } from "@/lib/supabase";
 import { garantirInicioSessao, limparMarcadores } from "@/lib/auth/session-policy";
+import { exigenciaDeEscrita, FUNCTION as EXIGE_FUNCTION, RPC as EXIGE_RPC, type Operacao } from "@/lib/rbac/exigencias";
 
 /** Um escritório que a pessoa pode abrir: vínculo, ou acesso de suporte aprovado. */
 export interface Vinculo {
@@ -52,8 +53,23 @@ interface AuthContextValue {
   semEscritorio: "nenhum" | "suspenso" | null;
   /** true durante uma sessão de suporte da plataforma (somente leitura). */
   emSuporte: boolean;
-  /** Permissão no escritório ativo (`recurso:acao`). false enquanto carrega. */
-  pode: (permissao: string) => boolean;
+  /**
+   * Permissão no escritório ativo (`recurso:acao`). false enquanto carrega.
+   * `escopoExigido` é para quando a policy do banco cobra um escopo: passe-o e
+   * quem tem a permissão com escopo menor recebe false, como o banco faria.
+   * Na dúvida prefira `podeEscrever`/`podeChamar`: eles leem a exigência do
+   * espelho em `src/lib/rbac/exigencias.ts` e não deixam errar a permissão.
+   */
+  pode: (permissao: string, escopoExigido?: string) => boolean;
+  /**
+   * Pode escrever NESTA TABELA? Resolve sozinho a permissão e o escopo que o
+   * servidor exige (inclusive `documentos`, cujo excluir é outra permissão).
+   * Tabela sem policy de permissão devolve true: lá o banco só isola por
+   * escritório e quem decide é o tipo/tela.
+   */
+  podeEscrever: (tabela: string, operacao?: Operacao) => boolean;
+  /** Pode chamar esta RPC ou edge function (pelo nome)? */
+  podeChamar: (nome: string) => boolean;
   /** Grava a preferência e recarrega a página no outro escritório. */
   trocarEscritorio: (escritorioId: string) => Promise<void>;
   /** Relê vínculos e marca (depois de mudar a marca do escritório, por exemplo). */
@@ -81,7 +97,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [vinculos, setVinculos] = useState<Array<Vinculo>>([]);
   const [escritorio, setEscritorio] = useState<Vinculo | null>(null);
   const [semEscritorio, setSemEscritorio] = useState<"nenhum" | "suspenso" | null>(null);
-  const [permissoes, setPermissoes] = useState<Set<string>>(new Set());
+  // permissão -> escopo (`todos`, `atribuidos`, `indicados`, `proprios`). O
+  // escopo vem de `minhas_permissoes()` e é o que as policies de `tarefas` e
+  // `agenda_eventos` cobram: descartá-lo fazia a tela oferecer ao assistente o
+  // que o banco recusa (auditoria de 24/09, planning/RBAC_AUDITORIA_TELAS.md).
+  const [permissoes, setPermissoes] = useState<Map<string, string>>(new Map());
   // Banco sem as migrations do RBAC (front publicado antes do banco): vale o
   // comportamento antigo — as checagens de tipo/admin decidem, `pode()` não barra.
   const [rbacIndisponivel, setRbacIndisponivel] = useState(false);
@@ -110,7 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setVinculos([]);
         setEscritorio(null);
         setSemEscritorio(null);
-        setPermissoes(new Set());
+        setPermissoes(new Map());
       }
     });
 
@@ -204,7 +224,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (!escolhido) {
       setEscritorioAtivoId(null);
-      setPermissoes(new Set());
+      setPermissoes(new Map());
       return;
     }
     if (escolhido.escritorio_id !== salvo) {
@@ -219,7 +239,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.warn("minhas_permissoes falhou:", permResp.error);
       return;
     }
-    setPermissoes(new Set(((permResp.data ?? []) as Array<{ permissao: string }>).map((p) => p.permissao)));
+    setPermissoes(new Map(((permResp.data ?? []) as Array<{ permissao: string; escopo: string | null }>)
+      .map((p) => [p.permissao, p.escopo ?? "todos"] as const)));
   }
 
   async function trocarEscritorio(escritorioId: string) {
@@ -291,7 +312,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setVinculos([]);
     setEscritorio(null);
     setSemEscritorio(null);
-    setPermissoes(new Set());
+    setPermissoes(new Map());
   }
 
   // Permite a tela de /boas-vindas atualizar o usuario apos marcar
@@ -308,6 +329,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       ? { ...usuario, tipo: escritorio.tipo_acesso, eh_admin: escritorio.papel === "admin" }
       : usuario;
 
+  // Uma pessoa PODE quando tem a permissão e, se a policy cobrar escopo, quando
+  // o escopo dela é o cobrado. `rbacIndisponivel` (banco sem as migrations do
+  // RBAC) mantém o comportamento antigo: quem decide são as checagens de tipo.
+  function podeCom(permissao: string, escopoExigido?: string): boolean {
+    if (rbacIndisponivel) return true;
+    const escopo = permissoes.get(permissao);
+    if (escopo === undefined) return false;
+    return escopoExigido === undefined || escopo === escopoExigido;
+  }
+
   return (
     <AuthContext.Provider
       value={{
@@ -319,7 +350,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         escritorio,
         semEscritorio,
         emSuporte: escritorio?.suporte === true,
-        pode: (permissao: string) => rbacIndisponivel || permissoes.has(permissao),
+        pode: podeCom,
+        podeEscrever: (tabela: string, operacao: Operacao = "inserir") => {
+          const exige = exigenciaDeEscrita(tabela, operacao);
+          // sem policy de permissão: o banco só isola por escritório
+          return exige ? podeCom(exige.permissao, exige.escopo) : true;
+        },
+        podeChamar: (nome: string) => {
+          const exige = EXIGE_RPC[nome] ?? EXIGE_FUNCTION[nome];
+          return exige ? podeCom(exige.permissao, exige.escopo) : true;
+        },
         trocarEscritorio,
         recarregarVinculos: loadEscritorio,
         loading,

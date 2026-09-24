@@ -166,4 +166,76 @@ test.describe.serial("telas: só o que o papel pode", () => {
     await expect(page.getByText("Área restrita a quem gerencia o comercial.")).toHaveCount(0);
     await ctx.close();
   });
+
+  // As telas que a primeira limpeza não alcançou (auditoria de 24/09,
+  // planning/RBAC_AUDITORIA_TELAS.md): tarefas, agenda, documentos pendentes e
+  // tipos de benefício. O financeiro é o canário — interno, com casos:ler e
+  // repasses:ler e mais nada.
+  test("financeiro: tarefas, agenda, documentos pendentes e tipos de benefício sem ação", async ({
+    browser,
+    baseURL,
+  }) => {
+    const ctx = await contexto(browser, baseURL!, `canario+financeiro@${DOM}`, ESC2);
+    const page = await ctx.newPage();
+    await cursorVisivel(page);
+
+    await page.goto("/tarefas");
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Nova tarefa$/ }), "sem tarefas:gerenciar").toHaveCount(0);
+
+    await page.goto("/agenda");
+    await expect(page.getByRole("button", { name: "Novo evento" }), "sem agenda:gerenciar").toHaveCount(0);
+    await expect(page.locator('[title="Excluir agendamento"]'), "nem a lixeira do calendário").toHaveCount(0);
+
+    await page.goto(`/casos/${CASO}?tab=atividades`);
+    await expect(page.getByRole("button", { name: /^Nova tarefa$/ })).toHaveCount(0);
+
+    await page.goto("/documentos");
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+
+    // aba Tipos de benefício exige templates:gerenciar: nem aparece
+    await page.goto("/configuracoes?tab=beneficios");
+    await expect(page.getByRole("tab", { name: "Tipos de benefício" })).toHaveCount(0);
+    await expect(page.getByText("Meu perfil", { exact: true })).toBeVisible();
+    await ctx.close();
+  });
+
+  // O assistente TEM tarefas:gerenciar e agenda:gerenciar, mas com escopo
+  // `atribuidos`, e as policies cobram `todos`: o banco recusa. A tela tem de
+  // refletir isso (era o ponto cego que fazia ela oferecer e o clique falhar).
+  test("assistente: escopo atribuidos não abre tarefa nem agenda, e não gerencia tipos de benefício", async ({
+    browser,
+    baseURL,
+  }) => {
+    const ctx = await contexto(browser, baseURL!, `canario+assistente@${DOM}`, ESC2);
+    const page = await ctx.newPage();
+    await cursorVisivel(page);
+
+    await page.goto("/tarefas");
+    await expect(page.getByRole("button", { name: /^Nova tarefa$/ })).toHaveCount(0);
+    await page.goto("/agenda");
+    await expect(page.getByRole("button", { name: "Novo evento" })).toHaveCount(0);
+    await page.goto("/configuracoes?tab=beneficios");
+    await expect(page.getByRole("tab", { name: "Tipos de benefício" })).toHaveCount(0);
+
+    // o que ele PODE continua no lugar: enviar documento (documentos:enviar)
+    await page.goto(`/casos/${CASO}?tab=documentos`);
+    await expect(page.locator('[aria-label="Renomear documento"]').first()).toBeVisible();
+    await expect(page.locator('[aria-label="Deletar documento"]'), "sem documentos:excluir").toHaveCount(0);
+    await ctx.close();
+  });
+
+  // Contraprova: o advogado tem tudo isso com escopo `todos`.
+  test("advogado: tarefas, agenda e tipos de benefício disponíveis", async ({ browser, baseURL }) => {
+    const ctx = await contexto(browser, baseURL!, `canario+advogado@${DOM}`, ESC2);
+    const page = await ctx.newPage();
+    await cursorVisivel(page);
+
+    await page.goto("/agenda");
+    await expect(page.getByRole("button", { name: "Novo evento" })).toBeVisible();
+    await page.goto("/configuracoes?tab=beneficios");
+    await expect(page.getByRole("tab", { name: "Tipos de benefício" })).toHaveAttribute("data-state", "active");
+    await expect(page.getByRole("button", { name: "Incluir" })).toBeVisible();
+    await ctx.close();
+  });
 });

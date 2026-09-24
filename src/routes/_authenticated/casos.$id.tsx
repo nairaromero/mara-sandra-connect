@@ -3987,7 +3987,7 @@ function TabDocumentos(props: TabDocumentosProps) {
   } = props;
   const foco = useFocoItem(focoId);
   // Usuario logado (usado pelo preview do parceiro para watermark)
-  const { usuario, pode } = useAuth();
+  const { usuario, pode, podeEscrever } = useAuth();
 
   // Modal para coletar motivo (dispensa ou atendimento)
   const [acaoAlvo, setAcaoAlvo] = useState<{
@@ -4349,17 +4349,27 @@ function TabDocumentos(props: TabDocumentosProps) {
           "\n\nRemover também do sistema?\n\n" +
           "OK = apaga aqui também.\n" +
           "Cancelar = mantém aqui; use \"Subir pendentes\" pra devolvê-los ao Drive.";
-        if (window.confirm(msg)) {
+        // Apagar é OUTRA permissão (documentos:excluir): quem só envia sincroniza
+        // sem a pergunta. Antes ela aparecia e o banco recusava calado.
+        if (podeEscrever("documentos", "excluir") && window.confirm(msg)) {
           const removidosIds = new Set<string>();
           for (const d of apagadosNoDrive) {
-            try {
-              await supabase.storage.from("documentos").remove([d.storage_path]);
-              await supabase.from("documentos").delete().eq("id", d.id);
-              removidos++;
-              removidosIds.add(d.id);
-            } catch (err) {
-              console.warn("[drive] falha ao remover", d.nome_arquivo, err);
+            // O supabase-js NÃO lança em erro de RLS: devolve { error }. Contar
+            // sem olhar isso fazia a tela dizer "N removido(s)" com zero removido.
+            const { error: errStorage } = await supabase.storage
+              .from("documentos")
+              .remove([d.storage_path]);
+            if (errStorage) {
+              console.warn("[drive] falha ao remover do storage", d.nome_arquivo, errStorage);
+              continue;
             }
+            const { error: errLinha } = await supabase.from("documentos").delete().eq("id", d.id);
+            if (errLinha) {
+              console.warn("[drive] falha ao remover do banco", d.nome_arquivo, errLinha);
+              continue;
+            }
+            removidos++;
+            removidosIds.add(d.id);
           }
           aindaSumidos = aindaSumidos.filter((id) => !removidosIds.has(id));
         }
@@ -5191,7 +5201,8 @@ function TabDocumentos(props: TabDocumentosProps) {
             <div>
               <CardTitle className="text-base">Documentos do caso</CardTitle>
               <CardDescription>Arquivos anexados a este caso.</CardDescription>
-              {isInterno && gdriveFolderId && (
+              {/* desvincular grava em `casos` (casos:editar) */}
+              {isInterno && podeEscrever("casos") && gdriveFolderId && (
                 <div className="mt-1 text-xs text-muted-foreground flex items-center gap-1">
                   <span>Pasta vinculada:</span>
                   <span className="font-medium text-foreground">
@@ -5233,6 +5244,9 @@ function TabDocumentos(props: TabDocumentosProps) {
                       Baixar
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
+                    {/* apagar documento é OUTRA permissão (documentos:excluir):
+                        o menu abre com documentos:enviar, o item só com esta */}
+                    {podeEscrever("documentos", "excluir") && (
                     <DropdownMenuItem
                       onClick={deletarSelecionados}
                       className="text-destructive focus:text-destructive"
@@ -5240,6 +5254,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                       <Trash2 className="h-4 w-4 mr-2" />
                       Excluir
                     </DropdownMenuItem>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}
@@ -5375,12 +5390,15 @@ function TabDocumentos(props: TabDocumentosProps) {
                   Importar arquivos
                 </Button>
               )}
-              <UploadDoc
-                casoId={casoId}
-                usuarioId={usuarioId}
-                gdriveFolderId={gdriveFolderId}
-                onChange={onChange}
-              />
+              {/* enviar documento escreve na tabela `documentos` (documentos:enviar) */}
+              {podeEscrever("documentos") && (
+                <UploadDoc
+                  casoId={casoId}
+                  usuarioId={usuarioId}
+                  gdriveFolderId={gdriveFolderId}
+                  onChange={onChange}
+                />
+              )}
             </div>
           </div>
         </CardHeader>
@@ -5919,8 +5937,10 @@ function TabDocumentos(props: TabDocumentosProps) {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            {/* Radio "como atender" - so para interno + atendido */}
-            {isInterno && acaoAlvo && acaoAlvo.novoStatus === "atendido" && (
+            {/* Radio "como atender" - so para interno + atendido. Anexar sobe
+                arquivo e insere em `documentos` (documentos:enviar): sem a
+                permissão, sobra só "marcar como atendido". */}
+            {isInterno && podeEscrever("documentos") && acaoAlvo && acaoAlvo.novoStatus === "atendido" && (
               <div className="space-y-2">
                 <Label className="text-xs">Como atender</Label>
                 <div className="flex flex-col gap-2">

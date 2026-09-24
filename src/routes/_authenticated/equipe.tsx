@@ -80,10 +80,11 @@ interface PapelInterno {
 }
 
 function EquipePage() {
-  const { usuario, isAdmin, escritorio } = useAuth();
+  const { usuario, isAdmin, escritorio, pode } = useAuth();
   // Só admin (Naira/Mara) entra aqui. Os demais internos nem veem o item
   // na sidebar; se caírem pela URL, levam aviso + redirect.
-  const isInterno = isAdmin;
+  // a página inteira é de quem gerencia a equipe (RPCs exigem equipe:gerenciar)
+  const isInterno = isAdmin && pode("equipe:gerenciar");
 
   const [lista, setLista] = useState<Array<InternoRow>>([]);
   const [carregando, setCarregando] = useState(true);

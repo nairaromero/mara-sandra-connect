@@ -144,7 +144,7 @@ function AbaConfig({
 // ===========================================================================
 
 function ConfiguracoesPage() {
-  const { usuario, isAdmin } = useAuth();
+  const { usuario, isAdmin, pode, podeEscrever } = useAuth();
   const navigate = useNavigate();
   const search = Route.useSearch();
   const usuarioId = usuario ? usuario.id : null;
@@ -325,11 +325,17 @@ function ConfiguracoesPage() {
   // carregamento do papel: esta tela só sai do spinner depois que o `usuario`
   // carregou, e o isAdmin vem desse mesmo objeto.
   const ehInterno = dados.tipo === "interno";
+  // Cada aba pela PERMISSÃO que o servidor cobra, não por `eh_admin` (a coluna
+  // legada). Hoje o resultado coincide para quase tudo, mas "Tipos de benefício"
+  // já divergia: era oferecida a todo interno e o banco exige templates:gerenciar
+  // (auditoria de 24/09, planning/RBAC_AUDITORIA_TELAS.md §4.4).
   const abas = [
     "perfil",
     "seguranca",
-    ...(ehInterno ? ["beneficios"] : []),
-    ...(isAdmin ? ["escritorio", "integracoes", "webhooks", "suporte"] : []),
+    ...(ehInterno && podeEscrever("tipos_beneficio") ? ["beneficios"] : []),
+    ...(pode("escritorio:configurar") ? ["escritorio"] : []),
+    ...(pode("integracoes:gerenciar") ? ["integracoes", "webhooks"] : []),
+    ...(isAdmin ? ["suporte"] : []),
   ];
   const tab = search.tab && abas.includes(search.tab) ? search.tab : "perfil";
   function irParaAba(v: string) {
@@ -382,7 +388,7 @@ function ConfiguracoesPage() {
               icone={KeyRound}
               rotulo="Segurança"
             />
-            {ehInterno && (
+            {ehInterno && podeEscrever("tipos_beneficio") && (
               <AbaConfig
                 value="beneficios"
                 ativa={tab === "beneficios"}
@@ -665,8 +671,8 @@ function ConfiguracoesPage() {
             <DuasEtapasCard />
           </TabsContent>
 
-          {/* Tipos de beneficio (so interno gerencia o cadastro) */}
-          {ehInterno && (
+          {/* Tipos de benefício: exige templates:gerenciar (admin e advogado) */}
+          {ehInterno && podeEscrever("tipos_beneficio") && (
             <TabsContent value="beneficios">
               <TiposBeneficioCard />
             </TabsContent>

@@ -60,6 +60,7 @@ import {
 } from "@/lib/fuso";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
+import { usePodeAcao } from "@/components/acao-protegida";
 import {
   criarTarefa,
   listarCasosResumo,
@@ -116,6 +117,10 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
   const aberto = modo !== null;
   const { marcar: marcarDestaque } = useDestaque();
   const editando = modo?.kind === "editar";
+  // Quem não pode escrever na agenda ainda ABRE o evento para ler: o que some
+  // são Salvar, Excluir e Concluir. A exigência (permissão + escopo `todos`)
+  // vem do espelho, não de uma string escrita aqui.
+  const podeGerenciar = usePodeAcao({ escrever: "agenda_eventos" });
   const evento = modo?.kind === "editar" ? modo.evento : null;
   // Perícia e audiência se concluem pela tarefa delas (tarefa de perícia e tarefa
   // de audiência), não pelo agendamento (#332): nesses tipos não há Concluir nem
@@ -1100,7 +1105,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
         </div>
 
         <SheetFooter className="gap-2 sm:gap-2">
-          {editando && (
+          {editando && podeGerenciar && (
             <Button
               variant="ghost"
               onClick={excluir}
@@ -1115,7 +1120,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
               Excluir
             </Button>
           )}
-          {editando && !concluiPelaTarefa && (
+          {editando && podeGerenciar && !concluiPelaTarefa && (
             <Button
               variant="outline"
               onClick={alternarConclusao}
@@ -1130,11 +1135,13 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
             </Button>
           )}
           <Button variant="outline" onClick={fechar} disabled={salvando}>
-            Cancelar
+            {podeGerenciar ? "Cancelar" : "Fechar"}
           </Button>
-          <Button onClick={salvar} disabled={salvando}>
-            {salvando ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
-          </Button>
+          {podeGerenciar && (
+            <Button onClick={salvar} disabled={salvando}>
+              {salvando ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
+            </Button>
+          )}
         </SheetFooter>
       </SheetContent>
 

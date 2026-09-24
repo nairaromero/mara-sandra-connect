@@ -19,6 +19,7 @@ import { listarAgenda } from "@/lib/agenda/queries";
 import { type AgendaEventoComJoins, tipoBadge } from "@/lib/agenda/types";
 import { DESTAQUE_CLASSE_GLOBAL, useDestaqueAtivo } from "@/lib/destaque/destaque-context";
 import { formatarBR, horaBR } from "@/lib/fuso";
+import { AcaoProtegida } from "@/components/acao-protegida";
 
 // Mesma regra da tela /tarefas (Naira, 2026-09-09): Ativos = "A fazer";
 // Arquivados = "Feito" + a lista de excluídas (que já inclui as canceladas
@@ -127,10 +128,12 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
               : `${totalEventos} evento${totalEventos === 1 ? "" : "s"} · ${totalTarefas} tarefa${totalTarefas === 1 ? "" : "s"} · use o template para abrir um pacote.`}
           </p>
         </div>
-        <Button size="sm" onClick={() => setSheetModo({ kind: "criar", casoIdInicial: casoId })}>
-          <Plus className="h-4 w-4" />
-          Nova tarefa
-        </Button>
+        <AcaoProtegida escrever="tarefas">
+          <Button size="sm" onClick={() => setSheetModo({ kind: "criar", casoIdInicial: casoId })}>
+            <Plus className="h-4 w-4" />
+            Nova tarefa
+          </Button>
+        </AcaoProtegida>
       </div>
 
       <Tabs value={aba} onValueChange={(v) => setAba(v as "ativos" | "arquivados")}>

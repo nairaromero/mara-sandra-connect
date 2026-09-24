@@ -861,15 +861,18 @@ function ParceirosPage() {
                               )}
                               Reenviar
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => abrirEditar(p)}
-                              aria-label="Editar dados do convite"
-                              title="Editar dados antes de reenviar"
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
+                            {/* `update-parceiro` exige admin na function */}
+                            {isAdmin && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => abrirEditar(p)}
+                                aria-label="Editar dados do convite"
+                                title="Editar dados antes de reenviar"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
                             {/* apaga o parceiro: so quem tem parceiros:excluir
                                 (admin, migration_rbac_08); o banco recusa os demais */}
                             {pode("parceiros:excluir") && (
@@ -992,14 +995,16 @@ function ParceirosPage() {
                               >
                                 <FileSignature className="h-3.5 w-3.5" />
                               </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => abrirEditar(p)}
-                                aria-label="Editar parceiro"
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </Button>
+                              {isAdmin && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => abrirEditar(p)}
+                                  aria-label="Editar parceiro"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
                               {!ehDaEquipe(p) &&
                                 (p.ativo ? (
                                   <Button
@@ -1120,14 +1125,16 @@ function ParceirosPage() {
                                     >
                                       <FileSignature className="h-3.5 w-3.5" />
                                     </Button>
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      onClick={() => abrirEditar(p)}
-                                      aria-label="Editar parceiro"
-                                    >
-                                      <Pencil className="h-3.5 w-3.5" />
-                                    </Button>
+                                    {isAdmin && (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => abrirEditar(p)}
+                                        aria-label="Editar parceiro"
+                                      >
+                                        <Pencil className="h-3.5 w-3.5" />
+                                      </Button>
+                                    )}
                                     {!ehDaEquipe(p) &&
                                       (p.ativo ? (
                                         <Button

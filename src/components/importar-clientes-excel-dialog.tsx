@@ -43,6 +43,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useAuth } from "@/hooks/use-auth";
 
 interface ImportarClientesExcelDialogProps {
   aberto: boolean;
@@ -64,6 +65,12 @@ interface Resultado {
   casosCriados: number;
   tarefasAnalise: number;
   errosLinha: Array<{ linha: number; cpf: string; msg: string }>;
+  /**
+   * O que a planilha pedia e o papel de quem importou não permite. Antes isso
+   * era engolido em `console.warn` e a importação dizia que deu tudo certo
+   * (auditoria de 24/09, planning/RBAC_AUDITORIA_TELAS.md §4.2).
+   */
+  semPermissao: Array<string>;
 }
 
 function onlyDigits(s: string | null | undefined): string {
@@ -79,6 +86,13 @@ export function ImportarClientesExcelDialog(
   const [parsing, setParsing] = useState(false);
   const [linhas, setLinhas] = useState<Array<LinhaProcessada>>([]);
   const [importando, setImportando] = useState(false);
+  // A planilha pode pedir etiqueta nova (etiquetas:gerenciar) e a tarefa de
+  // análise (tarefas:gerenciar) — permissões que nem todo mundo com
+  // `casos:editar` tem. Em vez de tentar e engolir o erro, a importação pula e
+  // DIZ o que pulou.
+  const { podeEscrever } = useAuth();
+  // etiquetas que a planilha pediu e o papel não deixa criar (relatadas no fim)
+  const faltantesSemPermissao: Array<string> = [];
   const [resultado, setResultado] = useState<Resultado | null>(null);
 
   // Reseta quando fecha
@@ -205,7 +219,9 @@ export function ImportarClientesExcelDialog(
     for (const e of existentes) out.set(e.nome, e.id);
     // Cria as que faltam
     const faltantes = set.filter((n) => !out.has(n));
-    if (faltantes.length > 0) {
+    if (faltantes.length > 0 && !podeEscrever("etiquetas")) {
+      faltantesSemPermissao.push(...faltantes);
+    } else if (faltantes.length > 0) {
       const insResp = await supabase
         .from("etiquetas")
         .insert(faltantes.map((nome) => ({ nome })))
@@ -230,6 +246,7 @@ export function ImportarClientesExcelDialog(
       clientesPulados: linhas.filter((l) => l.status === "duplicado").length,
       casosCriados: 0,
       tarefasAnalise: 0,
+      semPermissao: [],
       errosLinha: [],
     };
 
@@ -324,7 +341,13 @@ export function ImportarClientesExcelDialog(
 
               // Sem parceiro na planilha o trigger não roda: cria aqui a mesma
               // tarefa de análise, senão o caso nasce sem próximo passo.
-              if (!parceiroId) {
+              if (!parceiroId && !podeEscrever("tarefas")) {
+                // sem tarefas:gerenciar (com o escopo que a policy cobra) o
+                // banco recusaria: registra e segue, em vez de fingir sucesso.
+                if (!res.semPermissao.includes("tarefa de análise")) {
+                  res.semPermissao.push("tarefa de análise");
+                }
+              } else if (!parceiroId) {
                 const nomeCliente = (l.raw["Nome"] || "").trim() || "cliente";
                 const tarefaResp = await supabase.from("tarefas").insert({
                   caso_id: casoId,
@@ -431,6 +454,11 @@ export function ImportarClientesExcelDialog(
         }
       }
 
+      if (faltantesSemPermissao.length > 0) {
+        res.semPermissao.push(
+          `etiqueta(s) nova(s): ${Array.from(new Set(faltantesSemPermissao)).join(", ")}`,
+        );
+      }
       setResultado(res);
       if (res.clientesCriados > 0) onImported();
       if (res.errosLinha.length === 0) {
@@ -623,6 +651,12 @@ export function ImportarClientesExcelDialog(
                 </Badge>
               )}
             </div>
+            {resultado.semPermissao.length > 0 && (
+              <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
+                Seu papel não permite criar: {resultado.semPermissao.join("; ")}. O resto da
+                planilha entrou normalmente — peça a quem gerencia para completar.
+              </p>
+            )}
             {resultado.errosLinha.length > 0 && (
               <div className="border rounded max-h-[300px] overflow-y-auto">
                 <table className="w-full text-xs">

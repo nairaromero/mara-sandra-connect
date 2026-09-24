@@ -194,7 +194,7 @@ function PrazoBadge({ prazoAt }: { prazoAt: string | null }) {
 // ===========================================================================
 
 function DocumentosPendentesPage() {
-  const { usuario } = useAuth();
+  const { usuario, podeEscrever } = useAuth();
   const isInterno = usuario?.tipo === "interno";
 
   const [loading, setLoading] = useState(true);
@@ -683,8 +683,11 @@ function DocumentosPendentesPage() {
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
-              {/* Radio "como atender" - so para interno + atendido */}
+              {/* Radio "como atender" - so para interno + atendido. Anexar sobe
+                  arquivo e insere em `documentos` (documentos:enviar): sem a
+                  permissão fica só "marcar como atendido". */}
               {isInterno &&
+                podeEscrever("documentos") &&
                 acaoAlvo &&
                 acaoAlvo.novoStatus === "atendido" && (
                   <div className="space-y-2">

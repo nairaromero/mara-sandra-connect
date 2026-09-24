@@ -108,6 +108,7 @@ import { chaveDiaBR, hojeChaveBR } from "@/lib/fuso";
 import { useDestaque } from "@/lib/destaque/destaque-context";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
+import { usePodeAcao } from "@/components/acao-protegida";
 
 type Modo =
   | {
@@ -152,6 +153,9 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   const { marcar: marcarDestaque } = useDestaque();
   const { usuario } = useAuth();
   const editando = modo?.kind === "editar";
+  // Salvar, Excluir e os blocos de etapa gravam em `tarefas` (e em `andamentos`).
+  // Sem a permissão — com o escopo que a policy cobra — a tarefa abre só para ler.
+  const podeMexer = usePodeAcao({ escrever: "tarefas" });
   const tarefa = modo?.kind === "editar" ? modo.tarefa : null;
 
   const [titulo, setTitulo] = useState("");
@@ -1183,7 +1187,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
       >
         <SheetHeader>
           <SheetTitle>{editando ? "Editar tarefa" : "Nova tarefa"}</SheetTitle>
-          {editando && tarefa && (
+          {editando && podeMexer && tarefa && (
             <SheetDescription className="space-y-0.5">
               {/* Autoria (trigger): quem criou e quem concluiu/cancelou. */}
               <span className="block">
@@ -1199,56 +1203,56 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
         </SheetHeader>
 
         <div className="space-y-4 py-4">
-          {editando && tarefa &&
+          {editando && podeMexer && tarefa &&
             (tarefa.metadata as { acompanhamento_processual?: boolean })?.acompanhamento_processual && (
               <EtapasAcompanhamento tarefa={tarefa} onUpdated={onSaved} />
           )}
 
-          {editando && tarefa &&
+          {editando && podeMexer && tarefa &&
             (tarefa.metadata as { acompanhamento_pericia?: boolean })
               ?.acompanhamento_pericia === true && (
               <AcompanhamentoPericia tarefa={tarefa} onUpdated={onSaved} />
             )}
 
-          {editando && tarefa &&
+          {editando && podeMexer && tarefa &&
             ((tarefa.metadata as { montagem_inicial?: boolean })?.montagem_inicial === true ||
               (tarefa.metadata as { montagem_requerimento?: boolean })?.montagem_requerimento === true) && (
               <MontagemInicial tarefa={tarefa} onUpdated={onSaved} />
             )}
 
-          {editando && tarefa &&
+          {editando && podeMexer && tarefa &&
             ehAnaliseInicial(tarefa.metadata) && (
               <AnaliseCasoNovo tarefa={tarefa} onUpdated={onSaved} />
             )}
 
-          {editando && tarefa &&
+          {editando && podeMexer && tarefa &&
             (tarefa.metadata as { analise_indeferimento?: boolean })?.analise_indeferimento === true && (
               <AnaliseIndeferimento tarefa={tarefa} onUpdated={onSaved} />
             )}
 
-          {editando && tarefa &&
+          {editando && podeMexer && tarefa &&
             (tarefa.metadata as { acompanhamento_implementacao?: boolean })
               ?.acompanhamento_implementacao === true && (
               <AcompanhamentoImplementacao tarefa={tarefa} onUpdated={onSaved} />
             )}
 
-          {editando && tarefa &&
+          {editando && podeMexer && tarefa &&
             (tarefa.metadata as { confirmar_comparecimento?: boolean })
               ?.confirmar_comparecimento === true && (
               <ComparecimentoPericia tarefa={tarefa} onUpdated={onSaved} />
             )}
 
-          {editando && tarefa &&
+          {editando && podeMexer && tarefa &&
             !!(tarefa.metadata as { enviar_aviso?: object })?.enviar_aviso && (
               <EnviarAvisoParceiro tarefa={tarefa} onUpdated={onSaved} />
             )}
 
-          {editando && tarefa &&
+          {editando && podeMexer && tarefa &&
             (tarefa.metadata as { cumprimento_exigencia?: boolean })?.cumprimento_exigencia && (
               <EtapaCumprimentoExigencia tarefa={tarefa} onUpdated={onSaved} />
             )}
 
-          {editando && tarefa &&
+          {editando && podeMexer && tarefa &&
             (tarefa.metadata as { protocolo_realizado?: boolean })?.protocolo_realizado && (
               <EtapaProtocoloRealizado tarefa={tarefa} onUpdated={onSaved} />
             )}
@@ -1871,7 +1875,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
         </div>
 
         <SheetFooter className="gap-2 sm:gap-2">
-          {editando && (
+          {editando && podeMexer && (
             <Button
               variant="ghost"
               onClick={abrirExcluir}
@@ -1883,13 +1887,15 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
             </Button>
           )}
           <Button variant="outline" onClick={fechar} disabled={salvando}>
-            Cancelar
+            {podeMexer ? "Cancelar" : "Fechar"}
           </Button>
           {/* Sem argumento de propósito: passar o evento do clique aqui faria
               `justificativa` chegar preenchida e pular o diálogo do prazo fatal. */}
-          <Button onClick={() => void salvar()} disabled={salvando}>
-            {salvando ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
-          </Button>
+          {podeMexer && (
+            <Button onClick={() => void salvar()} disabled={salvando}>
+              {salvando ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
+            </Button>
+          )}
         </SheetFooter>
       </SheetContent>
 
@@ -1997,7 +2003,9 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Popup de conclusão/exclusão: Status="Feito" ou o botão Excluir. */}
+      {/* Popup de conclusão/exclusão: Status="Feito" ou o botão Excluir.
+          Só para quem pode escrever na tarefa — ele grava direto. */}
+      {podeMexer && (
       <ConcluirTarefaDialog
         tarefa={concluindoNoSheet}
         modoInicial={modoPopupSheet}
@@ -2019,6 +2027,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
           onClose();
         }}
       />
+      )}
     </Sheet>
   );
 }

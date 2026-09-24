@@ -37,6 +37,7 @@ import {
   TIPO_LABEL,
   type TarefaComJoins,
 } from "@/lib/tarefas/types";
+import { usePodeAcao } from "@/components/acao-protegida";
 
 interface Props {
   tarefa: TarefaComJoins;
@@ -92,6 +93,11 @@ export function TarefaCard({
     (tarefa.metadata as { cumprimento_exigencia?: boolean })?.cumprimento_exigencia === true;
   const ehProtocoloRealizado =
     (tarefa.metadata as { protocolo_realizado?: boolean })?.protocolo_realizado === true;
+  // Os blocos de etapa são só ação: gravam em `tarefas` e em `andamentos`. Quem
+  // não pode escrever na tarefa (financeiro; e o assistente, cujo escopo é
+  // `atribuidos` e a policy cobra `todos`) não vê nenhum deles — antes via
+  // todos e cada clique morria no banco (planning/RBAC_AUDITORIA_TELAS.md §4.1).
+  const podeMexerEmTarefa = usePodeAcao({ escrever: "tarefas" });
   const destacado = useDestaqueAtivo(tarefa.id);
   // Arquivadas: quem concluiu/cancelou e quando (trigger de autoria).
   const autoria = descreverAutoriaStatus(tarefa);
@@ -288,7 +294,7 @@ export function TarefaCard({
           </div>
         )}
 
-        {ehAcompProcessual && (
+        {podeMexerEmTarefa && ehAcompProcessual && (
           <EtapasAcompanhamento
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}
@@ -297,7 +303,7 @@ export function TarefaCard({
           />
         )}
 
-        {ehAcompPericia && (
+        {podeMexerEmTarefa && ehAcompPericia && (
           <AcompanhamentoPericia
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}
@@ -306,7 +312,7 @@ export function TarefaCard({
           />
         )}
 
-        {ehAnaliseCasoNovo && (
+        {podeMexerEmTarefa && ehAnaliseCasoNovo && (
           <AnaliseCasoNovo
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}
@@ -314,7 +320,7 @@ export function TarefaCard({
             stopPropagation
           />
         )}
-        {ehAnaliseIndeferimento && (
+        {podeMexerEmTarefa && ehAnaliseIndeferimento && (
           <AnaliseIndeferimento
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}
@@ -322,7 +328,7 @@ export function TarefaCard({
             stopPropagation
           />
         )}
-        {ehMontagemInicial && (
+        {podeMexerEmTarefa && ehMontagemInicial && (
           <MontagemInicial
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}
@@ -331,7 +337,7 @@ export function TarefaCard({
           />
         )}
 
-        {ehAcompImplementacao && (
+        {podeMexerEmTarefa && ehAcompImplementacao && (
           <AcompanhamentoImplementacao
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}
@@ -340,7 +346,7 @@ export function TarefaCard({
           />
         )}
 
-        {ehComparecimento && (
+        {podeMexerEmTarefa && ehComparecimento && (
           <ComparecimentoPericia
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}
@@ -349,7 +355,7 @@ export function TarefaCard({
           />
         )}
 
-        {ehEnviarAviso && (
+        {podeMexerEmTarefa && ehEnviarAviso && (
           <EnviarAvisoParceiro
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}
@@ -358,7 +364,7 @@ export function TarefaCard({
           />
         )}
 
-        {ehCumprimentoExigencia && (
+        {podeMexerEmTarefa && ehCumprimentoExigencia && (
           <EtapaCumprimentoExigencia
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}
@@ -367,7 +373,7 @@ export function TarefaCard({
           />
         )}
 
-        {ehProtocoloRealizado && (
+        {podeMexerEmTarefa && ehProtocoloRealizado && (
           <EtapaProtocoloRealizado
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}
