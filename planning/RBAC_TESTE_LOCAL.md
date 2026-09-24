@@ -529,3 +529,19 @@ Nada disto foi aplicado fora do local. Para o staging: as 14 migrations do RBAC 
 `node scripts/msc-sql.mjs --staging --file …` **na ordem**, deploy das 26 edge functions alteradas
 (+ `qg-escritorios`), e só então o front. Como a #02 mexe em 41 tabelas, vale ensaiar de novo numa
 cópia fresca (`bun run local:copiar && bun run local:rbac`) no dia — leva ~4 min.
+
+## Validação da Naira, 24/09/2026 (os seis itens do lote)
+
+Percorridos um a um no ambiente local, com as contas do escritório Canário, e validados por ela:
+
+| # | Item | Onde testou |
+|---|---|---|
+| 1 | Tela do escritório para aprovar suporte | Configurações → Suporte, pedido T-2 pendente, aprovar/recusar/encerrar |
+| 2 | Integrações por escritório (INSS/DJEN/WhatsApp, Legalmail, TI) | Configurações → Integrações, contra os provedores simulados |
+| 3 | Marca por escritório | Configurações → Escritório, nome, cor e logo; contraprova no outro escritório |
+| 4 | Segundo fator do QG | `qg.localhost:8080` com `qg_exigir_aal2` ligada no local e devolvida a `false` depois |
+| 5 | Token de MCP para terceiro | Configurações → Integrações, cartão do Claude, emissão para a assistente |
+| 6 | Limpeza dos botões nas telas | Mesmo caso visto por financeiro, assistente e advogado |
+
+Nada de código mudou nessa rodada: foi conferência. O que mudou fora do código está registrado em
+planning/RBAC_STAGING_ROLLOUT.md (migrations, functions e segredos do staging).
