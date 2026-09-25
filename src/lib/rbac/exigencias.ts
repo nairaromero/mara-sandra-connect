@@ -102,6 +102,9 @@ export const RPC: Record<string, Exigencia> = {
   aplicar_template: { permissao: "tarefas:gerenciar" },
   vincular_publicacao_dje: { permissao: "casos:editar" },
   set_senha_meu_inss: { permissao: "senha_inss:ler" },
+  // relógio de prazos (#397): escopo `atribuidos` só na tarefa de quem pede;
+  // decidir_prorrogacao é do admin (is_admin), sem permissão a espelhar.
+  pedir_prorrogacao: { permissao: "tarefas:gerenciar" },
 };
 
 /** Edge functions que pedem permissão em `exigirUsuario`. */

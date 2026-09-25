@@ -948,6 +948,29 @@ async function processarMensagem(
     }
   }
 
+  // Indeferimento (#397): a data do e-mail é a data do indeferimento — é dela
+  // que o relógio do caso conta análise/montagem/revisão/protocolo (o gatilho
+  // do banco lê `metadata.data_indeferimento` da Análise). O NB vai para o
+  // processo, sem sobrescrever o que alguém já digitou.
+  const dataIndeferimento = templateFinal === "indeferido"
+    ? new Date(msg.date ? new Date(msg.date).getTime() : Date.now())
+        .toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" })
+    : null;
+  // Exigência INSS: fatal = hoje + 30 (o mesmo do item FATAL). Vai no metadata
+  // para o "Aguardando documentos" ganhar o teto fatal − 3 no banco (#397).
+  const prazoFatalEm = templateFinal === "exigencia"
+    ? new Date(Date.now() + 30 * 86400_000)
+        .toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" })
+    : null;
+  if (templateFinal === "indeferido" && match.processo_admin_id && campos.nb) {
+    const { error: errNb } = await sb
+      .from("processos_admin")
+      .update({ numero_beneficio: campos.nb })
+      .eq("id", match.processo_admin_id)
+      .is("numero_beneficio", null);
+    if (errNb) res.erros.push(`processo NB: ${errNb.message}`);
+  }
+
   // Cria tarefas (1+ por template).
   for (let i = 0; i < template.itens.length; i++) {
     const item = template.itens[i];
@@ -1074,6 +1097,8 @@ async function processarMensagem(
           classificacao,
           match_via: match.via,
           campos_extraidos: campos,
+          ...(dataIndeferimento ? { data_indeferimento: dataIndeferimento } : {}),
+          ...(prazoFatalEm ? { prazo_fatal_em: prazoFatalEm } : {}),
           ...resolved.metadata_extra,
           ...(item.meta ?? {}),         // passthrough (ex: acompanhamento_processual)
         },

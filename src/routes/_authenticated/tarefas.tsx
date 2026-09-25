@@ -53,6 +53,7 @@ import { TarefasExcluidas } from "@/components/tarefas/tarefas-excluidas";
 import { SecoesPorMes } from "@/components/tarefas/secoes-por-mes";
 import { agruparPorMes } from "@/lib/tarefas/agrupar-mes";
 import { RadarCasosOrfaos } from "@/components/tarefas/radar-casos-orfaos";
+import { RadarPrazos } from "@/components/tarefas/relogio-prazo";
 import {
   contarTarefas,
   listarInternosAtivos,
@@ -165,7 +166,7 @@ function bucketDaTarefa(t: TarefaComJoins): Bucket {
 }
 
 function TarefasPage() {
-  const { usuario } = useAuth();
+  const { usuario, isAdmin } = useAuth();
   const [carregando, setCarregando] = useState(true);
   const [tarefas, setTarefas] = useState<TarefaComJoins[]>([]);
   const [internos, setInternos] = useState<Array<{ id: string; nome: string | null }>>([]);
@@ -378,6 +379,10 @@ function TarefasPage() {
         {/* Radar: casos sem tarefa aberta nem evento futuro — ninguém é
             lembrado deles. Some sozinho quando não há órfãos. */}
         <RadarCasosOrfaos />
+
+        {/* Radar de prazos (#397): relógios abertos e pedidos de prorrogação —
+            quem decide é a Mara (admin). */}
+        {isAdmin && <RadarPrazos />}
 
         {/* Filtros */}
         <div className="flex flex-wrap items-center gap-2 rounded-md border p-3 bg-card">

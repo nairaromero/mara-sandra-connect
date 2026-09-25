@@ -19,6 +19,7 @@ import { MontagemInicial } from "@/components/tarefas/montagem-inicial";
 import { ComparecimentoPericia } from "@/components/tarefas/comparecimento-pericia";
 import { AnaliseCasoNovo } from "@/components/tarefas/analise-caso-novo";
 import { AnaliseIndeferimento } from "@/components/tarefas/analise-indeferimento";
+import { AguardandoExigencia, AnaliseDeferimento } from "@/components/tarefas/decisoes-janela";
 import { EnviarAvisoParceiro } from "@/components/tarefas/enviar-aviso-parceiro";
 import { EtapaCumprimentoExigencia } from "@/components/tarefas/etapa-cumprimento-exigencia";
 import { EtapaProtocoloRealizado } from "@/components/tarefas/etapa-protocolo-realizado";
@@ -77,6 +78,11 @@ export function TarefaCard({
   const ehAnaliseCasoNovo = ehAnaliseInicial(tarefa.metadata);
   const ehAnaliseIndeferimento =
     (tarefa.metadata as { analise_indeferimento?: boolean })?.analise_indeferimento === true;
+  // Janelas de prazo (#397): decisão no teto (dilação) / desfecho do deferimento.
+  const ehAguardandoExigencia =
+    (tarefa.metadata as { aguardando_exigencia?: boolean })?.aguardando_exigencia === true;
+  const ehAnaliseDeferimento =
+    (tarefa.metadata as { analise_deferimento?: boolean })?.analise_deferimento === true;
   const ehAcompImplementacao =
     (tarefa.metadata as { acompanhamento_implementacao?: boolean })
       ?.acompanhamento_implementacao === true;
@@ -329,6 +335,22 @@ export function TarefaCard({
         )}
         {podeMexerEmTarefa && ehAnaliseIndeferimento && (
           <AnaliseIndeferimento
+            tarefa={tarefa}
+            onUpdated={onChanged ?? (() => {})}
+            compacto
+            stopPropagation
+          />
+        )}
+        {podeMexerEmTarefa && ehAguardandoExigencia && (
+          <AguardandoExigencia
+            tarefa={tarefa}
+            onUpdated={onChanged ?? (() => {})}
+            compacto
+            stopPropagation
+          />
+        )}
+        {podeMexerEmTarefa && ehAnaliseDeferimento && (
+          <AnaliseDeferimento
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}
             compacto
