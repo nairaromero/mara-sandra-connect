@@ -100,7 +100,10 @@ test("análise abre o relógio e a montagem nasce na data fixa (D+20)", async ({
   const m = await montagem();
   expect(diaDoInstanteBR(m!.due_at)).toBe(recua(diaBR(D + 20)));
   expect((m!.metadata as { relogio_etapa?: string }).relogio_etapa).toBe("montagem");
-  // A montagem carrega o relógio DESTE requerimento (o caso pode ter outro).
+  // A montagem é do requerimento indeferido e carrega o relógio DELE.
+  const { data: proc } = await admin.from("processos_admin").select("id").eq("caso_id", casoId).single();
+  expect((await admin.from("tarefas").select("processo_admin_id").eq("id", m!.id).single()).data!
+    .processo_admin_id).toBe(proc!.id);
   const { data: rel } = await admin.from("relogios_prazo").select("id").eq("caso_id", casoId).single();
   expect((m!.metadata as { relogio_id?: string }).relogio_id).toBe(rel!.id);
 });
@@ -110,10 +113,9 @@ test("adiar: justificativa, reta final e pedido à Mara", async ({ page }) => {
   const tituloMontagem = m!.titulo as string;
   await abrirTarefaNoCaso(page, casoId, tituloMontagem);
 
-  // A montagem nasce sem processo (o judicial ainda não existe); o form só
-  // salva com a escolha feita.
-  await page.getByRole("combobox").filter({ hasText: "Escolha o processo" }).click();
-  await page.getByRole("option", { name: "Cliente sem processo" }).click();
+  // A montagem nasce no requerimento indeferido (#397: cada processo é
+  // independente) — o form já vem com o processo escolhido.
+  await expect(page.getByRole("combobox").filter({ hasText: "Escolha o processo" })).toHaveCount(0);
 
   const linha = page.getByTestId("relogio-linha");
   const montagemEm = recua(diaBR(D + 20));

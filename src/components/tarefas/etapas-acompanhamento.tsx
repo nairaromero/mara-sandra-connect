@@ -125,6 +125,7 @@ export function EtapasAcompanhamento({
           responsavelId: tarefa.responsavel_id,
           autorId: usuario?.id ?? null,
           processoAdminId: tarefa.processo_admin_id,
+          processoJudicialId: tarefa.processo_judicial_id,
         });
       }
       await supabase

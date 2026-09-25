@@ -104,9 +104,15 @@ export function AcompanhamentoPericia({
     try {
       const agora = new Date();
       let semVinculo = false;
+      // O processo desta perícia: vai no andamento E na corrente seguinte
+      // (Concedido/Indeferido), que é deste processo e de nenhum outro (#397).
+      let vinculo: { processo_admin_id: string | null; processo_judicial_id: string | null } = {
+        processo_admin_id: tarefa.processo_admin_id,
+        processo_judicial_id: tarefa.processo_judicial_id,
+      };
 
       if (tarefa.caso_id) {
-        const vinculo = await resolverProcesso();
+        vinculo = await resolverProcesso();
         semVinculo = !vinculo.processo_admin_id && !vinculo.processo_judicial_id;
         const { data: and, error } = await supabase
           .from("andamentos")
@@ -170,6 +176,8 @@ export function AcompanhamentoPericia({
             clienteNome: tarefa.caso?.cliente?.nome ?? "cliente",
             responsavelId: tarefa.responsavel_id,
             autorId: usuario?.id ?? null,
+            processoAdminId: vinculo.processo_admin_id,
+            processoJudicialId: vinculo.processo_judicial_id,
           });
         } catch (e) {
           toast.warning("Resultado registrado, mas o template de sequência falhou", {

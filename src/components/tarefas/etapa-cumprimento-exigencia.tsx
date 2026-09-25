@@ -105,15 +105,30 @@ export function EtapaCumprimentoExigencia({
           .catch(() => {});
       }
 
-      // 2) Fecha a tarefa FATAL do mesmo caso/template.
+      // 2) Fecha a tarefa FATAL DESTA exigência: mesmo caso, template e
+      //    PROCESSO (#397 — cumprir a exigência de um requerimento não fecha
+      //    o FATAL de outro nem o do judicial). O robô do e-mail INSS grava
+      //    metadata.template; a tela, template_aplicado.
       if (tarefa.caso_id && template) {
-        await supabase
+        let q = supabase
           .from("tarefas")
           .update({ status: "feito" })
           .eq("caso_id", tarefa.caso_id)
           .eq("status", "a_fazer")
           .like("titulo", "FATAL%")
-          .filter("metadata->>template_aplicado", "eq", template);
+          .or(`metadata->>template_aplicado.eq.${template},metadata->>template.eq.${template}`);
+        q = tarefa.processo_admin_id
+          ? q.eq("processo_admin_id", tarefa.processo_admin_id)
+          : q.is("processo_admin_id", null);
+        q = tarefa.processo_judicial_id
+          ? q.eq("processo_judicial_id", tarefa.processo_judicial_id)
+          : q.is("processo_judicial_id", null);
+        const { error: errFatal } = await q;
+        if (errFatal) {
+          toast.warning("Exigência cumprida, mas a tarefa FATAL não fechou", {
+            description: errFatal.message + " — conclua o FATAL à mão.",
+          });
+        }
       }
 
       // 3) Cria tarefa "Acompanhamento Processual - aguardando agendamento de

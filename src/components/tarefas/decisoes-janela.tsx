@@ -294,6 +294,7 @@ export function AnaliseDeferimento({
         responsavelId: tarefa.responsavel_id,
         autorId: usuario?.id ?? null,
         processoAdminId: tarefa.processo_admin_id,
+        processoJudicialId: tarefa.processo_judicial_id,
       });
       if (r.primeiraTarefaId) marcarDestaque(r.primeiraTarefaId);
       await andamentoInterno(

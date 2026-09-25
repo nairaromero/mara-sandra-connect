@@ -100,6 +100,10 @@ export function AnaliseIndeferimento({
         clienteNome,
         responsavelId: tarefa.responsavel_id,
         autorId: usuario?.id ?? null,
+        // A montagem é deste requerimento: a corrente de outro processo do
+        // caso não a bloqueia nem é bloqueada por ela (#397).
+        processoAdminId: tarefa.processo_admin_id,
+        processoJudicialId: tarefa.processo_judicial_id,
         metadataTarefas: doRelogio,
       });
       if (r.primeiraTarefaId) marcarDestaque(r.primeiraTarefaId);
@@ -122,6 +126,7 @@ export function AnaliseIndeferimento({
         .insert({
           caso_id: tarefa.caso_id,
           processo_admin_id: tarefa.processo_admin_id,
+          processo_judicial_id: tarefa.processo_judicial_id,
           responsavel_id: respRecurso,
           tipo: "prazo",
           prioridade: 1,

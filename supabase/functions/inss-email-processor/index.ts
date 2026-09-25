@@ -469,7 +469,36 @@ async function acharCliente(
   sb: SupabaseClient,
   c: CamposEmail,
 ): Promise<MatchCliente> {
-  // 1. Nome completo case-insensitive (trim em ambos os lados).
+  // 1. Protocolo → processos_admin.numero_req_normalizado. PRIMEIRO (#397):
+  // o protocolo diz o processo exato. Pelo nome/CPF o robô pegava o caso mais
+  // recente do cliente — com dois casos, o e-mail do requerimento do caso
+  // antigo caía no novo, sem processo.
+  if (c.protocolo) {
+    const norm = c.protocolo.replace(/\D/g, "");
+    if (norm) {
+      const { data, error } = await sb
+        .from("processos_admin")
+        .select("id, caso_id")
+        .eq("numero_req_normalizado", norm)
+        .limit(2);
+      if (!error && data && data.length === 1) {
+        const procAdmin = data[0];
+        const { data: caso } = await sb
+          .from("casos")
+          .select("cliente_id")
+          .eq("id", procAdmin.caso_id)
+          .maybeSingle();
+        return {
+          cliente_id: caso?.cliente_id ?? null,
+          caso_id: procAdmin.caso_id,
+          processo_admin_id: procAdmin.id,
+          via: "protocolo",
+        };
+      }
+    }
+  }
+
+  // 2. Nome completo case-insensitive (trim em ambos os lados).
   // Decisão (Naira): match é EXATO no nome completo, sem fuzzy. Mas
   // normalizamos espaços (colapsa múltiplos) pra não falhar por digitação.
   if (c.nome_cliente) {
@@ -494,7 +523,7 @@ async function acharCliente(
     }
   }
 
-  // 2. CPF — normaliza pra dígitos só (banco guarda sem pontuação;
+  // 3. CPF — normaliza pra dígitos só (banco guarda sem pontuação;
   // o e-mail manda com pontuação). Compara contra ambos os formatos por
   // segurança (caso algum cliente antigo tenha sido salvo formatado).
   if (c.cpf) {
@@ -510,32 +539,6 @@ async function acharCliente(
       if (!error && data && data.length === 1) {
         const casoId = await casoMaisRecente(sb, data[0].id);
         return { cliente_id: data[0].id, caso_id: casoId, processo_admin_id: null, via: "cpf" };
-      }
-    }
-  }
-
-  // 3. Protocolo → processos_admin.numero_req_normalizado.
-  if (c.protocolo) {
-    const norm = c.protocolo.replace(/\D/g, "");
-    if (norm) {
-      const { data, error } = await sb
-        .from("processos_admin")
-        .select("id, caso_id")
-        .eq("numero_req_normalizado", norm)
-        .limit(2);
-      if (!error && data && data.length === 1) {
-        const procAdmin = data[0];
-        const { data: caso } = await sb
-          .from("casos")
-          .select("cliente_id")
-          .eq("id", procAdmin.caso_id)
-          .maybeSingle();
-        return {
-          cliente_id: caso?.cliente_id ?? null,
-          caso_id: procAdmin.caso_id,
-          processo_admin_id: procAdmin.id,
-          via: "protocolo",
-        };
       }
     }
   }
@@ -930,15 +933,28 @@ async function processarMensagem(
     match.caso_id &&
     (templateFinal === "concedido" || templateFinal === "indeferido")
   ) {
-    const { data: correnteJa } = await sb
+    // Só a corrente do MESMO requerimento (#397): o concedido do requerimento
+    // 1 não pode engolir o indeferido do requerimento 2. Sem processo casado,
+    // vale só o que é recente (60 dias) e também sem processo — senão uma
+    // corrente de meses atrás bloqueava para sempre.
+    let q = sb
       .from("tarefas")
       .select("id")
       .eq("caso_id", match.caso_id)
       .neq("status", "cancelado")
       .or(
         `metadata->>template_aplicado.eq.${templateFinal},metadata->>template.eq.${templateFinal}`,
-      )
-      .limit(1);
+      );
+    q = match.processo_admin_id
+      ? q.eq("processo_admin_id", match.processo_admin_id)
+      : q.is("processo_admin_id", null)
+          .gte("created_at", new Date(Date.now() - 60 * 86400_000).toISOString());
+    const { data: correnteJa, error: errDedup } = await q.limit(1);
+    // Falha da consulta não pode virar "não tem corrente" (duplicaria).
+    if (errDedup) {
+      res.erros.push(`dedup corrente: ${errDedup.message}`);
+      return res;
+    }
     if (correnteJa && correnteJa.length > 0) {
       res.pulado_por_dedup = true;
       res.tarefas_criadas.push(

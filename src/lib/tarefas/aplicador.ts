@@ -61,21 +61,30 @@ export async function aplicarTemplateProgramatico(input: {
 
   // Dedup cruzado: o mesmo template pode chegar por DOIS caminhos (botão de
   // desfecho aqui × inss-email-processor quando o e-mail da decisão chega).
-  // Se o caso já tem tarefa aberta desta corrente — de qualquer origem —,
-  // não abre de novo. O processor grava metadata.template; nós,
-  // metadata.template_aplicado.
-  const { data: correnteJa } = await supabase
+  // Se o MESMO PROCESSO já tem tarefa aberta desta corrente — de qualquer
+  // origem —, não abre de novo. Outro requerimento/processo do caso é outra
+  // corrente (#397: um processo não bloqueia o outro). O processor grava
+  // metadata.template; nós, metadata.template_aplicado.
+  let dedup = supabase
     .from("tarefas")
     .select("id")
     .eq("caso_id", input.casoId)
     .eq("status", "a_fazer")
     .or(
       `metadata->>template_aplicado.eq.${input.nomeTemplate},metadata->>template.eq.${input.nomeTemplate}`,
-    )
-    .limit(1);
+    );
+  dedup = input.processoAdminId
+    ? dedup.eq("processo_admin_id", input.processoAdminId)
+    : dedup.is("processo_admin_id", null);
+  dedup = input.processoJudicialId
+    ? dedup.eq("processo_judicial_id", input.processoJudicialId)
+    : dedup.is("processo_judicial_id", null);
+  const { data: correnteJa, error: errDedup } = await dedup.limit(1);
+  // Falha da consulta não pode virar "não tem corrente" e duplicar.
+  if (errDedup) throw errDedup;
   if (correnteJa && correnteJa.length > 0) {
     throw new Error(
-      `A corrente do template "${input.nomeTemplate}" já está aberta neste caso — não vou duplicar.`,
+      `A corrente do template "${input.nomeTemplate}" já está aberta neste processo — não vou duplicar.`,
     );
   }
 
