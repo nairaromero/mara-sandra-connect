@@ -3,18 +3,28 @@
 // o template terminava no vazio. Agora a decisão É o botão:
 //
 //   1. Ajuizar        → abre a corrente "Montagem de inicial" (judicial).
-//   2. Recurso adm.   → tarefa "Preparar recurso administrativo" (+5d).
+//   2. Recurso ord.   → tarefa "Preparar recurso ordinário", com o responsável
+//                       escolhido na hora (Mara, 25/09). No relógio do caso
+//                       (#397) ela vence no fatal − 1 (indeferimento + 29).
 //   3. Não prosseguir → motivo obrigatório vira andamento visível ao parceiro.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { CheckCircle2, FileX2, Gavel, Loader2, Undo2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/lib/supabase";
 import { aplicarTemplateProgramatico } from "@/lib/tarefas/aplicador";
+import { listarInternosAtivos } from "@/lib/tarefas/queries";
 import { instanteBR, partesBR } from "@/lib/fuso";
 import { useAuth } from "@/hooks/use-auth";
 import { useDestaque } from "@/lib/destaque/destaque-context";
@@ -42,11 +52,24 @@ export function AnaliseIndeferimento({
 }: Props) {
   const { usuario } = useAuth();
   const { marcar: marcarDestaque } = useDestaque();
-  const [modo, setModo] = useState<null | "encerrar">(null);
+  const [modo, setModo] = useState<null | "encerrar" | "recurso">(null);
+  const [respRecurso, setRespRecurso] = useState<string>("");
+  const [internos, setInternos] = useState<Array<{ id: string; nome: string | null }>>([]);
+
+  useEffect(() => {
+    if (modo !== "recurso" || internos.length > 0) return;
+    listarInternosAtivos()
+      .then(setInternos)
+      .catch(() => toast.error("Não consegui carregar a equipe."));
+  }, [modo, internos.length]);
   const [motivo, setMotivo] = useState("");
   const [agindo, setAgindo] = useState(false);
 
   if (tarefa.status === "feito" || tarefa.status === "cancelado") return null;
+  // A corrente (montagem ou recurso) segue o relógio DESTE processo (#397):
+  // o caso pode ter outro requerimento indeferido com a própria contagem.
+  const relogioId = (tarefa.metadata as { relogio_id?: string } | null)?.relogio_id;
+  const doRelogio = relogioId ? { relogio_id: relogioId } : {};
   const clienteNome = tarefa.caso?.cliente?.nome ?? "cliente";
   // Cliente interno do escritório não tem parceiro indicador pra avisar.
   const temParceiro = !!tarefa.caso?.parceiro_id;
@@ -77,6 +100,11 @@ export function AnaliseIndeferimento({
         clienteNome,
         responsavelId: tarefa.responsavel_id,
         autorId: usuario?.id ?? null,
+        // A montagem é deste requerimento: a corrente de outro processo do
+        // caso não a bloqueia nem é bloqueada por ela (#397).
+        processoAdminId: tarefa.processo_admin_id,
+        processoJudicialId: tarefa.processo_judicial_id,
+        metadataTarefas: doRelogio,
       });
       if (r.primeiraTarefaId) marcarDestaque(r.primeiraTarefaId);
       await concluir();
@@ -90,7 +118,7 @@ export function AnaliseIndeferimento({
   }
 
   async function recursoAdm() {
-    if (agindo || !tarefa.caso_id) return;
+    if (agindo || !tarefa.caso_id || !respRecurso) return;
     setAgindo(true);
     try {
       const { data: nova, error } = await supabase
@@ -98,18 +126,19 @@ export function AnaliseIndeferimento({
         .insert({
           caso_id: tarefa.caso_id,
           processo_admin_id: tarefa.processo_admin_id,
-          responsavel_id: tarefa.responsavel_id,
+          processo_judicial_id: tarefa.processo_judicial_id,
+          responsavel_id: respRecurso,
           tipo: "prazo",
           prioridade: 1,
           status: "a_fazer",
-          titulo: "Preparar recurso administrativo - " + clienteNome,
+          titulo: "Preparar recurso ordinário - " + clienteNome,
           descricao:
-            "Decisão da análise do indeferimento: recorrer administrativamente. " +
-            "Confira o prazo do recurso na carta de indeferimento — o prazo desta " +
-            "tarefa é lembrete de segurança.",
+            "Decisão da análise do indeferimento: recurso ordinário. O prazo da lei " +
+            "é de 30 dias do indeferimento — no relógio do caso, esta tarefa vence " +
+            "no dia anterior ao fatal.",
           due_at: dueDias(5),
           origem: "manual",
-          metadata: { origem_tarefa_id: tarefa.id, recurso_administrativo: true },
+          metadata: { origem_tarefa_id: tarefa.id, recurso_administrativo: true, ...doRelogio },
         })
         .select("id")
         .single();
@@ -121,8 +150,8 @@ export function AnaliseIndeferimento({
         caso_id: tarefa.caso_id,
         processo_admin_id: tarefa.processo_admin_id,
         origem: "interno",
-        titulo: "Análise do indeferimento — vamos recorrer administrativamente",
-        descricao: "Analisamos o indeferimento e vamos apresentar recurso administrativo.",
+        titulo: "Análise do indeferimento — vamos apresentar recurso ordinário",
+        descricao: "Analisamos o indeferimento e vamos apresentar recurso ordinário ao INSS.",
         data_evento: new Date().toISOString(),
         criado_por: usuario?.id ?? null,
         visivel_parceiro: true,
@@ -134,7 +163,7 @@ export function AnaliseIndeferimento({
         });
       }
       await concluir();
-      toast.success("Análise concluída — tarefa do recurso administrativo aberta.");
+      toast.success("Análise concluída — tarefa do recurso ordinário aberta.");
       onUpdated();
     } catch (e) {
       toast.error((e as { message?: string }).message || "Não consegui abrir o recurso.");
@@ -202,9 +231,15 @@ export function AnaliseIndeferimento({
           )}
           Ajuizar (montagem de inicial)
         </Button>
-        <Button type="button" size="sm" variant="outline" disabled={agindo} onClick={recursoAdm}>
+        <Button
+          type="button"
+          size="sm"
+          variant={modo === "recurso" ? "default" : "outline"}
+          disabled={agindo}
+          onClick={() => setModo(modo === "recurso" ? null : "recurso")}
+        >
           <Undo2 className="mr-1 h-4 w-4" />
-          Recurso administrativo
+          Recurso ordinário
         </Button>
         <Button
           type="button"
@@ -217,6 +252,31 @@ export function AnaliseIndeferimento({
           Não prosseguir
         </Button>
       </div>
+      {modo === "recurso" && (
+        <div className="space-y-1.5">
+          <Label className="text-xs">Quem prepara o recurso?</Label>
+          <Select value={respRecurso} onValueChange={setRespRecurso}>
+            <SelectTrigger aria-label="Responsável pelo recurso">
+              <SelectValue placeholder="Escolha o responsável" />
+            </SelectTrigger>
+            <SelectContent>
+              {internos.map((u) => (
+                <SelectItem key={u.id} value={u.id}>
+                  {u.nome ?? "(sem nome)"}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button type="button" size="sm" disabled={agindo || !respRecurso} onClick={recursoAdm}>
+            {agindo ? (
+              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+            ) : (
+              <CheckCircle2 className="mr-1 h-4 w-4" />
+            )}
+            Abrir recurso e concluir
+          </Button>
+        </div>
+      )}
       {modo === "encerrar" && (
         <div className="space-y-1.5">
           <Label className="text-xs">

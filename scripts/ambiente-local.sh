@@ -188,11 +188,11 @@ SQL
     -f "$dir/coleta.sql" >/dev/null
 
   credencial_staging
-  pg_dump "$STG_CONN" --role=postgres --schema-only -n public -n ops --no-owner -f "$dir/esquema.sql"
+  pg_dump "$STG_CONN" --role=postgres --schema-only -n public -n ops -n private --no-owner -f "$dir/esquema.sql"
   credencial_staging
   # Dump só de dados avisa das FKs circulares (comentarios, usuarios…); o
   # restore desliga os triggers, então o aviso é ruído — erro de verdade passa.
-  pg_dump "$STG_CONN" --role=postgres --data-only -n public -n ops -f "$dir/dados.sql" \
+  pg_dump "$STG_CONN" --role=postgres --data-only -n public -n ops -n private -f "$dir/dados.sql" \
     2> >(grep -v -e 'circular foreign-key' -e '^pg_dump: detail:' -e '^pg_dump: hint:' >&2)
   unset PGPASSWORD
   echo "    esquema $(du -h "$dir/esquema.sql" | cut -f1), dados $(du -h "$dir/dados.sql" | cut -f1)"

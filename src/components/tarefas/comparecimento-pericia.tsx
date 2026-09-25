@@ -91,12 +91,23 @@ export function ComparecimentoPericia({
 
       // 2) Consequência.
       if (tarefa.caso_id) {
-        const { data: acomp } = await supabase
+        // Só o acompanhamento DESTE processo: a perícia de outro requerimento
+        // ou do judicial tem o dela (#397 — um processo não mexe no outro).
+        let q = supabase
           .from("tarefas")
           .select("id, status")
           .eq("caso_id", tarefa.caso_id)
           .eq("metadata->>acompanhamento_pericia", "true")
           .eq("status", "a_fazer");
+        q = tarefa.processo_admin_id
+          ? q.eq("processo_admin_id", tarefa.processo_admin_id)
+          : q.is("processo_admin_id", null);
+        q = tarefa.processo_judicial_id
+          ? q.eq("processo_judicial_id", tarefa.processo_judicial_id)
+          : q.is("processo_judicial_id", null);
+        const { data: acomp, error: errAcomp } = await q;
+        // Erro não pode virar "não existe": criaria acompanhamento duplicado.
+        if (errAcomp) throw errAcomp;
 
         if (compareceu) {
           // Garante que o acompanhamento do resultado existe.

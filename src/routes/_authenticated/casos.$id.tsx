@@ -158,6 +158,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { PainelDatasCaso } from "@/components/casos/painel-datas-caso";
 
 export const Route = createFileRoute("/_authenticated/casos/$id")({
   component: CasoDetalhePage,
@@ -343,6 +344,8 @@ interface ProcessoAdmin {
   data_protocolo: string | null;
   decisao: string | null;
   data_decisao: string | null;
+  // NB — número do benefício que o INSS dá na decisão (#397).
+  numero_beneficio?: string | null;
   tramitacao_id: string | null;
   ultima_sync: string | null;
   created_at: string;
@@ -360,6 +363,10 @@ interface ProcessoJudicial {
   comarca: string | null;
   uf: string | null;
   data_distribuicao: string | null;
+  // Situação marcada pela equipe (#397): o painel do caso sugere "parece
+  // encerrado" pelas movimentações, mas quem decide é a pessoa.
+  situacao?: "em_andamento" | "encerrado";
+  encerrado_em?: string | null;
   legalmail_id: string | null;
   ultima_sync: string | null;
   created_at: string;
@@ -668,7 +675,7 @@ function CasoDetalhePage() {
   const params = useParams({ from: "/_authenticated/casos/$id" });
   const casoId = params.id;
   const search = Route.useSearch();
-  const { usuario, pode } = useAuth();
+  const { usuario, pode, podeEscrever } = useAuth();
   const isInterno = usuario?.tipo === "interno";
 
   // Aba ativa controlada — permite deep-link via ?tab= (ex.: clicar numa
@@ -960,6 +967,19 @@ function CasoDetalhePage() {
           processosJudiciais={processosJudiciais}
           onChange={carregar}
         />
+
+        {/* Datas que controlam o prazo do caso (#397): entrada, protocolo
+            adm, indeferimento + NB e o relógio até o protocolo judicial. */}
+        {isInterno && (
+          <PainelDatasCaso
+            casoId={casoId}
+            entradaEm={caso.created_at}
+            processosAdmin={processosAdmin}
+            processosJudiciais={processosJudiciais}
+            podeEditarProcesso={podeEscrever("processos_judiciais", "atualizar")}
+            onChange={carregar}
+          />
+        )}
 
         <Tabs value={aba} onValueChange={setAba} className="w-full">
           {/* Tabs em uma unica linha com scroll horizontal em telas estreitas.
@@ -7717,6 +7737,7 @@ function TabProcessos(props: TabProcessosProps) {
   const [dataProtocolo, setDataProtocolo] = useState("");
   const [decisao, setDecisao] = useState("");
   const [dataDecisao, setDataDecisao] = useState("");
+  const [numeroBeneficio, setNumeroBeneficio] = useState("");
   const [etapaAdmin, setEtapaAdmin] = useState("");
   const [parentAdmin, setParentAdmin] = useState("");
   const [tipoBeneficioAdmin, setTipoBeneficioAdmin] = useState("");
@@ -7729,6 +7750,8 @@ function TabProcessos(props: TabProcessosProps) {
   const [comarca, setComarca] = useState("");
   const [uf, setUf] = useState("");
   const [dataDist, setDataDist] = useState("");
+  const [situacaoJud, setSituacaoJud] = useState<"em_andamento" | "encerrado">("em_andamento");
+  const [encerradoEm, setEncerradoEm] = useState("");
   const [etapaJud, setEtapaJud] = useState("");
   const [parentJud, setParentJud] = useState("");
   const [salvandoJud, setSalvandoJud] = useState(false);
@@ -7842,6 +7865,7 @@ function TabProcessos(props: TabProcessosProps) {
     setDataProtocolo("");
     setDecisao("");
     setDataDecisao("");
+    setNumeroBeneficio("");
     setEtapaAdmin("");
     setParentAdmin("");
     setTipoBeneficioAdmin("");
@@ -7857,6 +7881,7 @@ function TabProcessos(props: TabProcessosProps) {
     setDataProtocolo(p.data_protocolo || "");
     setDecisao(p.decisao || "");
     setDataDecisao(p.data_decisao || "");
+    setNumeroBeneficio(p.numero_beneficio || "");
     setEtapaAdmin(p.etapa_tipo || "");
     setParentAdmin(p.parent_id || "");
     setTipoBeneficioAdmin(p.tipo_beneficio || "");
@@ -7870,6 +7895,8 @@ function TabProcessos(props: TabProcessosProps) {
     setComarca("");
     setUf("");
     setDataDist("");
+    setSituacaoJud("em_andamento");
+    setEncerradoEm("");
     setEtapaJud("");
     setParentJud("");
   }
@@ -7885,6 +7912,8 @@ function TabProcessos(props: TabProcessosProps) {
     setComarca(p.comarca || "");
     setUf(p.uf || "");
     setDataDist(p.data_distribuicao || "");
+    setSituacaoJud(p.situacao ?? "em_andamento");
+    setEncerradoEm(p.encerrado_em || "");
     setEtapaJud(p.etapa_tipo || "");
     setParentJud(p.parent_id || "");
     setAbrirJud(true);
@@ -8071,6 +8100,7 @@ function TabProcessos(props: TabProcessosProps) {
         data_protocolo: dataProtocolo || null,
         decisao: decisao.trim() || null,
         data_decisao: dataDecisao || null,
+        numero_beneficio: numeroBeneficio.trim() || null,
         etapa_tipo: etapaAdmin || null,
         parent_id: parentAdmin || null,
         parent_tipo: parentTipo,
@@ -8158,6 +8188,8 @@ function TabProcessos(props: TabProcessosProps) {
         comarca: comarca.trim() || null,
         uf: uf.trim() || null,
         data_distribuicao: dataDist || null,
+        situacao: situacaoJud,
+        encerrado_em: situacaoJud === "encerrado" ? encerradoEm || null : null,
         etapa_tipo: etapaJud || null,
         parent_id: parentJud || null,
         parent_tipo: parentTipo,
@@ -8295,6 +8327,9 @@ function TabProcessos(props: TabProcessosProps) {
                   {node.judicial?.data_distribuicao
                     ? " - Distribuído em " + formatDate(node.judicial.data_distribuicao)
                     : ""}
+                  {node.judicial?.situacao === "encerrado" &&
+                    " - Encerrado" +
+                      (node.judicial.encerrado_em ? " em " + formatDate(node.judicial.encerrado_em) : "")}
                 </p>
               )}
             </div>
@@ -8449,6 +8484,14 @@ function TabProcessos(props: TabProcessosProps) {
                       type="date"
                       value={dataDecisao}
                       onChange={(e) => setDataDecisao(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Número do benefício (NB)</Label>
+                    <Input
+                      value={numeroBeneficio}
+                      onChange={(e) => setNumeroBeneficio(e.target.value)}
+                      placeholder="Ex.: 123.456.789-0"
                     />
                   </div>
                 </div>
@@ -8615,6 +8658,33 @@ function TabProcessos(props: TabProcessosProps) {
                         value={dataDist}
                         onChange={(e) => setDataDist(e.target.value)}
                       />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-xs">Situação</Label>
+                        <Select
+                          value={situacaoJud}
+                          onValueChange={(v) => setSituacaoJud(v as "em_andamento" | "encerrado")}
+                        >
+                          <SelectTrigger aria-label="Situação do processo">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="em_andamento">Em andamento</SelectItem>
+                            <SelectItem value="encerrado">Encerrado</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {situacaoJud === "encerrado" && (
+                        <div>
+                          <Label className="text-xs">Encerrado em</Label>
+                          <Input
+                            type="date"
+                            value={encerradoEm}
+                            onChange={(e) => setEncerradoEm(e.target.value)}
+                          />
+                        </div>
+                      )}
                     </div>
                   </div>
                   <DialogFooter>
