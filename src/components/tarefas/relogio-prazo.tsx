@@ -301,6 +301,9 @@ export function RadarPrazos() {
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">
                       {l.cliente_nome ?? "(sem nome)"}
+                      {l.processo_rotulo && (
+                        <span className="ml-2 text-xs font-normal">{l.processo_rotulo}</span>
+                      )}
                       <span className="ml-2 text-xs font-normal text-muted-foreground">
                         dia {l.dia_atual} de {diasEntre(l.origem_em, l.limite_em)}
                       </span>

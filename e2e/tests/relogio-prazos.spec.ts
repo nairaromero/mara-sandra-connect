@@ -100,6 +100,9 @@ test("análise abre o relógio e a montagem nasce na data fixa (D+20)", async ({
   const m = await montagem();
   expect(diaDoInstanteBR(m!.due_at)).toBe(recua(diaBR(D + 20)));
   expect((m!.metadata as { relogio_etapa?: string }).relogio_etapa).toBe("montagem");
+  // A montagem carrega o relógio DESTE requerimento (o caso pode ter outro).
+  const { data: rel } = await admin.from("relogios_prazo").select("id").eq("caso_id", casoId).single();
+  expect((m!.metadata as { relogio_id?: string }).relogio_id).toBe(rel!.id);
 });
 
 test("adiar: justificativa, reta final e pedido à Mara", async ({ page }) => {
@@ -223,3 +226,44 @@ async function montagem() {
 async function trocarData(page: Page, dia: string) {
   await page.locator("#t-due").fill(`${dia}T18:00`);
 }
+
+test("dois requerimentos indeferidos no mesmo caso: cada um com a sua contagem", async ({ page }) => {
+  // Segundo requerimento, indeferido 5 dias depois do primeiro.
+  const D2 = D + 5;
+  const { data: proc2, error } = await admin
+    .from("processos_admin")
+    .insert({ caso_id: casoId, numero_requerimento: "9876543210", data_protocolo: diaBR(-50) })
+    .select("id")
+    .single();
+  if (error) throw new Error(error.message);
+  const { error: errT } = await admin.from("tarefas").insert({
+    caso_id: casoId,
+    processo_admin_id: proc2.id,
+    tipo: "interna",
+    titulo: `Analise de Indeferimento (2º) - ${nomeCliente}`,
+    due_at: new Date().toISOString(),
+    origem: "sync_inss_email",
+    metadata: { template: "indeferido", analise_indeferimento: true, data_indeferimento: diaBR(D2) },
+  });
+  if (errT) throw new Error(errT.message);
+
+  // Os dois relógios seguem abertos, cada um com a sua origem.
+  const { data: abertos } = await admin
+    .from("relogios_prazo")
+    .select("origem_em, processo_admin_id")
+    .eq("caso_id", casoId)
+    .eq("status", "aberto")
+    .order("origem_em");
+  expect(abertos!.map((r) => r.origem_em)).toEqual([diaBR(D), diaBR(D2)]);
+
+  await page.goto(`/casos/${casoId}`);
+  const reqs = page.getByTestId("painel-admin");
+  await expect(reqs).toHaveCount(2);
+  const segundo = reqs.filter({ hasText: "nº 9876543210" });
+  await expect(segundo).toContainText(dataBR(diaBR(D2)));
+  await expect(segundo.getByTestId("relogio-do-caso")).toContainText(
+    `dia ${-D2} de ${diasEntre(diaBR(D2), recua(diaBR(D2 + 40)))}`,
+  );
+  const primeiro = reqs.filter({ hasText: "nº 1234567890" });
+  await expect(primeiro.getByTestId("relogio-do-caso")).toContainText("dia 12 de");
+});

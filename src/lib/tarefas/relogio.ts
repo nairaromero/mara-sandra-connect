@@ -13,6 +13,7 @@ export interface RelogioPrazo {
   id: string;
   caso_id: string;
   processo_admin_id: string | null;
+  processo_judicial_id: string | null;
   tipo: RelogioTipo;
   origem_em: string; // "YYYY-MM-DD"
   origem_estimada: boolean;
@@ -48,16 +49,36 @@ export async function buscarRelogio(id: string): Promise<RelogioPrazo | null> {
   return (data as RelogioPrazo | null) ?? null;
 }
 
-export async function buscarRelogioDoCaso(casoId: string): Promise<RelogioPrazo | null> {
+/** Relógios do caso, mais recente primeiro — um por processo (#397). */
+export async function buscarRelogiosDoCaso(casoId: string): Promise<RelogioPrazo[]> {
   const { data, error } = await supabase
     .from("relogios_prazo")
     .select("*")
     .eq("caso_id", casoId)
     .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .order("id");
   if (error) throw error;
-  return (data as RelogioPrazo | null) ?? null;
+  return (data ?? []) as RelogioPrazo[];
+}
+
+/**
+ * O relógio aberto que vale para uma tarefa nova com este processo — mesma
+ * regra do gatilho: o do processo; sem processo, o único aberto do caso.
+ */
+export function relogioDoProcesso(
+  relogios: RelogioPrazo[],
+  processoAdminId: string | null,
+  processoJudicialId: string | null,
+): RelogioPrazo | null {
+  const abertos = relogios.filter((r) => r.status === "aberto");
+  const doProcesso = abertos.find(
+    (r) =>
+      (r.processo_admin_id ?? null) === processoAdminId &&
+      (r.processo_judicial_id ?? null) === processoJudicialId,
+  );
+  if (doProcesso) return doProcesso;
+  if (!processoAdminId && !processoJudicialId && abertos.length === 1) return abertos[0];
+  return null;
 }
 
 /** Dias entre dois dias de calendário "YYYY-MM-DD" (b − a). */
@@ -188,6 +209,7 @@ export interface LinhaRadar {
   relogio_id: string;
   caso_id: string;
   cliente_nome: string | null;
+  processo_rotulo: string | null;
   tipo: RelogioTipo;
   origem_em: string;
   origem_estimada: boolean;

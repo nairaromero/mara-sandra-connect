@@ -66,6 +66,10 @@ export function AnaliseIndeferimento({
   const [agindo, setAgindo] = useState(false);
 
   if (tarefa.status === "feito" || tarefa.status === "cancelado") return null;
+  // A corrente (montagem ou recurso) segue o relógio DESTE processo (#397):
+  // o caso pode ter outro requerimento indeferido com a própria contagem.
+  const relogioId = (tarefa.metadata as { relogio_id?: string } | null)?.relogio_id;
+  const doRelogio = relogioId ? { relogio_id: relogioId } : {};
   const clienteNome = tarefa.caso?.cliente?.nome ?? "cliente";
   // Cliente interno do escritório não tem parceiro indicador pra avisar.
   const temParceiro = !!tarefa.caso?.parceiro_id;
@@ -96,6 +100,7 @@ export function AnaliseIndeferimento({
         clienteNome,
         responsavelId: tarefa.responsavel_id,
         autorId: usuario?.id ?? null,
+        metadataTarefas: doRelogio,
       });
       if (r.primeiraTarefaId) marcarDestaque(r.primeiraTarefaId);
       await concluir();
@@ -128,7 +133,7 @@ export function AnaliseIndeferimento({
             "no dia anterior ao fatal.",
           due_at: dueDias(5),
           origem: "manual",
-          metadata: { origem_tarefa_id: tarefa.id, recurso_administrativo: true },
+          metadata: { origem_tarefa_id: tarefa.id, recurso_administrativo: true, ...doRelogio },
         })
         .select("id")
         .single();

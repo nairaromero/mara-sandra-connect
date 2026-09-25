@@ -5,7 +5,11 @@
 -- (adiar tarefa `prazo_fatal` pede justificativa) só vivia na tela e movia a
 -- própria referência a cada adiamento.
 --
--- Agora o prazo é do CASO, contado da data do indeferimento (D):
+-- Agora o prazo é do PROCESSO (Mara, 25/09: dois requerimentos indeferidos em
+-- datas diferentes, cada um com o seu prazo; idem cada processo judicial),
+-- contado da data do indeferimento (D). Um relógio aberto por processo
+-- (administrativo ou judicial); análise sem processo vinculado fica num
+-- relógio "do caso", à parte:
 --
 --   judicial  análise D+10 (Mara) → montagem D+20 (Bia) → revisão D+25 (Mara)
 --             → protocolo D+30 (Bia). Limite D+40: só a Mara libera.
@@ -103,8 +107,18 @@ create table if not exists public.relogios_prazo (
   updated_at        timestamptz not null default now(),
   check (limite_em >= planejado_em)
 );
-create unique index if not exists relogios_prazo_um_aberto_por_caso
-  on public.relogios_prazo (caso_id) where status = 'aberto';
+-- Processo judicial: a contagem é por processo, administrativo ou judicial.
+alter table public.relogios_prazo
+  add column if not exists processo_judicial_id uuid references public.processos_judiciais (id) on delete set null;
+
+-- Um relógio aberto por PROCESSO (nulos contam como "sem processo" = do caso).
+drop index if exists public.relogios_prazo_um_aberto_por_caso;
+create unique index if not exists relogios_prazo_um_aberto_por_processo
+  on public.relogios_prazo (
+    caso_id,
+    coalesce(processo_admin_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    coalesce(processo_judicial_id, '00000000-0000-0000-0000-000000000000'::uuid))
+  where status = 'aberto';
 create index if not exists relogios_prazo_escritorio_idx on public.relogios_prazo (escritorio_id);
 
 create table if not exists public.pedidos_prorrogacao (
@@ -130,9 +144,10 @@ create index if not exists pedidos_prorrogacao_escritorio_idx on public.pedidos_
 -- Escritório: mesmo gatilho de herança das outras tabelas de domínio (o filho
 -- herda do caso) e a policy restritiva de isolamento.
 drop trigger if exists aa_herdar_escritorio on public.relogios_prazo;
-create trigger aa_herdar_escritorio before insert or update of escritorio_id, caso_id, processo_admin_id
+create trigger aa_herdar_escritorio before insert or update of escritorio_id, caso_id, processo_admin_id, processo_judicial_id
   on public.relogios_prazo
-  for each row execute function private.tg_herdar_escritorio('caso_id=casos', 'processo_admin_id=processos_admin');
+  for each row execute function private.tg_herdar_escritorio(
+    'caso_id=casos', 'processo_admin_id=processos_admin', 'processo_judicial_id=processos_judiciais');
 
 drop trigger if exists aa_herdar_escritorio on public.pedidos_prorrogacao;
 create trigger aa_herdar_escritorio before insert or update of escritorio_id, caso_id, tarefa_id, relogio_id
@@ -274,15 +289,27 @@ begin
     return new;
   end if;
 
-  -- O relógio da corrente: o que veio no metadata (a etapa anterior passa o
-  -- dela adiante), senão o aberto do caso.
+  -- O relógio da corrente: o que veio no metadata (a etapa anterior e os
+  -- botões da análise passam o dela adiante); senão o aberto do MESMO
+  -- processo (administrativo/judicial, ou nenhum = relógio do caso).
   if v_meta ? 'relogio_id' then
     select * into v_rel from public.relogios_prazo
      where id = (v_meta->>'relogio_id')::uuid and caso_id = new.caso_id and status = 'aberto';
   end if;
   if v_rel.id is null then
-    select * into v_rel from public.relogios_prazo
-     where caso_id = new.caso_id and status = 'aberto';
+    select * into v_rel from public.relogios_prazo r
+     where r.caso_id = new.caso_id and r.status = 'aberto'
+       and r.processo_admin_id is not distinct from new.processo_admin_id
+       and r.processo_judicial_id is not distinct from new.processo_judicial_id;
+  end if;
+  -- Etapa seguinte criada à mão sem processo (montagem aplicada pelo template):
+  -- vale o relógio do caso só quando não há dúvida — um único aberto.
+  if v_rel.id is null and v_etapa <> 'analise'
+     and new.processo_admin_id is null and new.processo_judicial_id is null
+     and (select count(*) from public.relogios_prazo r
+           where r.caso_id = new.caso_id and r.status = 'aberto') = 1 then
+    select * into v_rel from public.relogios_prazo r
+     where r.caso_id = new.caso_id and r.status = 'aberto';
   end if;
 
   if v_etapa = 'analise' then
@@ -319,9 +346,9 @@ begin
       return new;
     end if;
     insert into public.relogios_prazo
-      (caso_id, processo_admin_id, tipo, origem_em, origem_estimada, etapas, planejado_em, limite_em, created_by)
+      (caso_id, processo_admin_id, processo_judicial_id, tipo, origem_em, origem_estimada, etapas, planejado_em, limite_em, created_by)
     values
-      (new.caso_id, new.processo_admin_id, 'judicial', v_origem, v_est,
+      (new.caso_id, new.processo_admin_id, new.processo_judicial_id, 'judicial', v_origem, v_est,
        public.relogio_etapas('judicial', v_origem),
        private.relogio_planejado('judicial', v_origem),
        private.relogio_limite('judicial', v_origem),
@@ -629,11 +656,14 @@ revoke all on function public.relogio_etapas(text, date) from anon;
 -- 8. Radar da Mara: relógios abertos, com o sinal de cada um
 -- ---------------------------------------------------------------------------
 -- security invoker: a RLS de relógios/tarefas vale (só interno, só o escritório).
+-- O retorno ganhou a coluna do processo: CREATE OR REPLACE não troca colunas.
+drop function if exists public.radar_prazos();
 create or replace function public.radar_prazos()
 returns table (
   relogio_id        uuid,
   caso_id           uuid,
   cliente_nome      text,
+  processo_rotulo   text,
   tipo              text,
   origem_em         date,
   origem_estimada   boolean,
@@ -665,7 +695,9 @@ language sql stable security invoker set search_path = '' as $$
      where t.status = 'a_fazer' and (t.metadata->>'relogio_id') is not null
      order by t.metadata->>'relogio_id', t.due_at
   )
-  select a.id, a.caso_id, cl.nome, a.tipo, a.origem_em, a.origem_estimada,
+  select a.id, a.caso_id, cl.nome,
+         coalesce('Req. ' || pa.numero_requerimento, 'Proc. ' || pj.numero_processo),
+         a.tipo, a.origem_em, a.origem_estimada,
          a.planejado_em, a.limite_em, a.liberado_ate,
          (a.hoje - a.origem_em)::integer,
          ta.id, ta.titulo, ta.etapa, u.nome,
@@ -688,6 +720,8 @@ language sql stable security invoker set search_path = '' as $$
     left join public.casos c on c.id = a.caso_id
     left join public.clientes cl on cl.id = c.cliente_id
     left join public.usuarios u on u.id = ta.responsavel_id
+    left join public.processos_admin pa on pa.id = a.processo_admin_id
+    left join public.processos_judiciais pj on pj.id = a.processo_judicial_id
    order by a.planejado_em, a.origem_em
 $$;
 

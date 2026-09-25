@@ -43,6 +43,9 @@ export async function aplicarTemplateProgramatico(input: {
   autorId: string | null;
   processoAdminId?: string | null;
   processoJudicialId?: string | null;
+  /** Vai no metadata das TAREFAS (ex.: relogio_id, para a corrente seguir o
+   *  relógio do processo de onde veio — #397). */
+  metadataTarefas?: Record<string, unknown>;
 }): Promise<ResultadoAplicacao> {
   const { data: tpl, error } = await supabase
     .from("tarefa_templates")
@@ -148,6 +151,7 @@ export async function aplicarTemplateProgramatico(input: {
           template_aplicado: tpl.nome,
           template_item_index: i,
           aplicado_por_desfecho: true,
+          ...(input.metadataTarefas ?? {}),
           ...(item.meta ?? {}),
         },
       })

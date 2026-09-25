@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
 import { RelogioDoCaso } from "@/components/tarefas/relogio-prazo";
 import { dataBR, diaDoEventoBR } from "@/lib/fuso";
-import { buscarRelogioDoCaso, type RelogioPrazo } from "@/lib/tarefas/relogio";
+import { buscarRelogiosDoCaso, type RelogioPrazo } from "@/lib/tarefas/relogio";
 
 interface ProcessoAdminDatas {
   id: string;
@@ -127,15 +127,15 @@ export function PainelDatasCaso({
     onChange();
   }
 
-  const [relogio, setRelogio] = useState<RelogioPrazo | null>(null);
+  const [relogios, setRelogios] = useState<RelogioPrazo[]>([]);
   const [erro, setErro] = useState(false);
 
   useEffect(() => {
     let cancelado = false;
     setErro(false);
-    buscarRelogioDoCaso(casoId)
+    buscarRelogiosDoCaso(casoId)
       .then((r) => {
-        if (!cancelado) setRelogio(r);
+        if (!cancelado) setRelogios(r);
       })
       .catch(() => {
         // Falha de leitura não pode virar "sem relógio" calada.
@@ -149,41 +149,60 @@ export function PainelDatasCaso({
     // decisão (recurso, protocolo, prorrogação).
   }, [casoId, processosAdmin, processosJudiciais]);
 
-  // O processo do relógio manda; sem relógio, o indeferido mais recente, e
-  // senão o requerimento mais recente com protocolo.
-  const indeferido = processosAdmin.find((p) => /indefer/i.test(p.decisao ?? ""));
-  const processo =
-    (relogio?.processo_admin_id && processosAdmin.find((p) => p.id === relogio.processo_admin_id)) ||
-    indeferido ||
-    processosAdmin.find((p) => p.data_protocolo) ||
-    processosAdmin[0] ||
-    null;
-  const dataIndeferimento =
-    relogio && !relogio.origem_estimada ? relogio.origem_em : indeferido?.data_decisao ?? null;
-  const nb = (relogio ? processo?.numero_beneficio : indeferido?.numero_beneficio) ?? null;
+  // Um relógio por processo: vale o mais recente de cada um (a lista já vem
+  // do mais novo para o mais antigo).
+  const relogioDe = (adminId: string | null, judicialId: string | null) =>
+    relogios.find(
+      (r) => (r.processo_admin_id ?? null) === adminId && (r.processo_judicial_id ?? null) === judicialId,
+    ) ?? null;
+  const relogioSemProcesso = relogioDe(null, null);
 
   return (
     <div className="rounded-lg border bg-card p-3 space-y-3" data-testid="painel-datas-caso">
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Dado rotulo="Entrada do caso" valor={dataBR(entradaEm)} />
-        <Dado
-          rotulo="Protocolo administrativo"
-          valor={processo?.data_protocolo ? dataBR(processo.data_protocolo) : "—"}
-          detalhe={processo?.numero_requerimento ? "nº " + processo.numero_requerimento : "sem número"}
-        />
-        <Dado
-          rotulo="Indeferimento"
-          valor={dataIndeferimento ? dataBR(dataIndeferimento) : "—"}
-          detalhe={nb ? "NB " + nb : dataIndeferimento ? "NB não informado" : undefined}
-          alerta={!!relogio?.origem_estimada}
-          alertaTexto="data não informada — o prazo contou da criação da análise"
-        />
-      </div>
+      <Dado rotulo="Entrada do caso" valor={dataBR(entradaEm)} />
+
+      {processosAdmin.map((p) => {
+        const relogio = relogioDe(p.id, null);
+        const indeferido = /indefer/i.test(p.decisao ?? "") || !!relogio;
+        const dataDecisao =
+          relogio && !relogio.origem_estimada ? relogio.origem_em : p.data_decisao;
+        return (
+          <div key={p.id} className="space-y-2 border-t pt-3" data-testid="painel-admin">
+            <p className="text-sm font-medium">
+              Requerimento {p.numero_requerimento ? "nº " + p.numero_requerimento : "sem número"}
+            </p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Dado
+                rotulo="Protocolo administrativo"
+                valor={p.data_protocolo ? dataBR(p.data_protocolo) : "—"}
+              />
+              <Dado
+                rotulo={indeferido ? "Indeferimento" : "Decisão"}
+                valor={dataDecisao ? dataBR(dataDecisao) : "—"}
+                detalhe={!indeferido && p.decisao ? p.decisao : undefined}
+                alerta={!!relogio?.origem_estimada}
+                alertaTexto="data não informada — o prazo contou da criação da análise"
+              />
+              <Dado rotulo="Número do benefício (NB)" valor={p.numero_beneficio || "—"} />
+            </div>
+            {relogio && <LinhaRelogio relogio={relogio} />}
+          </div>
+        );
+      })}
+
+      {relogioSemProcesso && (
+        <div className="space-y-1 border-t pt-3">
+          <p className="text-sm font-medium">Prazo sem processo vinculado</p>
+          <LinhaRelogio relogio={relogioSemProcesso} />
+        </div>
+      )}
+
       {processosJudiciais.length > 0 && (
         <div className="space-y-2 border-t pt-3" data-testid="painel-judicial">
           {processosJudiciais.map((p) => {
             const sinal = sinais[p.id];
             const encerrado = p.situacao === "encerrado";
+            const relogio = relogioDe(null, p.id);
             return (
               <div key={p.id} className="flex flex-wrap items-start gap-2">
                 <Gavel className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
@@ -226,6 +245,7 @@ export function PainelDatasCaso({
                       )}
                     </p>
                   )}
+                  {relogio && <LinhaRelogio relogio={relogio} />}
                 </div>
               </div>
             );
@@ -237,17 +257,20 @@ export function PainelDatasCaso({
           )}
         </div>
       )}
-      {relogio && (
-        <div className="flex items-start gap-2 border-t pt-3">
-          <CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-          <RelogioDoCaso relogio={relogio} />
-        </div>
-      )}
       {erro && (
         <p className="text-xs text-destructive">
           Não consegui carregar o prazo do caso. Recarregue a página.
         </p>
       )}
+    </div>
+  );
+}
+
+function LinhaRelogio({ relogio }: { relogio: RelogioPrazo }) {
+  return (
+    <div className="flex items-start gap-2">
+      <CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+      <RelogioDoCaso relogio={relogio} />
     </div>
   );
 }

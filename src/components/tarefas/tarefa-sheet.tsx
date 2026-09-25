@@ -122,7 +122,8 @@ import {
   ETAPA_LABEL,
   avaliarAdiamento,
   buscarRelogio,
-  buscarRelogioDoCaso,
+  buscarRelogiosDoCaso,
+  relogioDoProcesso,
   mensagemTrava,
   recuaFimDeSemana,
   relogioEtapasPrevistas,
@@ -368,7 +369,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   const [pedindoProrrogacao, setPedindoProrrogacao] = useState<string | null>(null);
   // Relógio aberto do caso, ao CRIAR (montagem aplicada à mão num caso que já
   // tem relógio: a data vem da etapa, não do form).
-  const [relogioDoCasoNovo, setRelogioDoCasoNovo] = useState<RelogioPrazo | null>(null);
+  const [relogiosDoCaso, setRelogiosDoCaso] = useState<RelogioPrazo[]>([]);
   // Avisos do agendamento (data passada / perícia duplicada) num AlertDialog;
   // a ref pula as checagens UMA vez quando a pessoa manda seguir.
   const [avisosAgenda, setAvisosAgenda] = useState<string[] | null>(null);
@@ -424,6 +425,13 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   const metaMainSel = (mainItemSel?.meta ?? {}) as Record<string, unknown>;
   const fatalPadraoDias = (tplSel?.itens.find((i) => typeof i.meta?.fatal_padrao_dias === "number")
     ?.meta?.fatal_padrao_dias ?? null) as number | null;
+  // O relógio vale por PROCESSO: o do processo escolhido no form (#397).
+  const procEscolhido = processoDoToken(processoToken);
+  const relogioDoCasoNovo = relogioDoProcesso(
+    relogiosDoCaso,
+    procEscolhido.processo_admin_id,
+    procEscolhido.processo_judicial_id,
+  );
   const montagemComRelogio =
     metaMainSel.montagem_inicial === true &&
     metaMainSel.montagem_requerimento !== true &&
@@ -466,12 +474,12 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   }, [relogioId]);
 
   useEffect(() => {
-    setRelogioDoCasoNovo(null);
+    setRelogiosDoCaso([]);
     if (editando || !casoId) return;
     let cancelado = false;
-    buscarRelogioDoCaso(casoId)
+    buscarRelogiosDoCaso(casoId)
       .then((r) => {
-        if (!cancelado) setRelogioDoCasoNovo(r);
+        if (!cancelado) setRelogiosDoCaso(r);
       })
       .catch((e) => console.error("[tarefa-sheet] relógio do caso:", e));
     return () => {
@@ -774,7 +782,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
       );
     }
     if (montagemComRelogio && relogioDoCasoNovo?.etapas.montagem) {
-      return "Vence em " + dataBR(relogioDoCasoNovo.etapas.montagem) + " (dia 20 do prazo do caso).";
+      return "Vence em " + dataBR(relogioDoCasoNovo.etapas.montagem) + " (dia 20 do prazo deste processo).";
     }
     return "Data calculada pelo sistema.";
   }
