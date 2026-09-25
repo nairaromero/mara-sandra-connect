@@ -17,6 +17,7 @@ import { cursorVisivel } from "../cursor";
 import { ENV } from "../env";
 import { adminClient, cleanupE2E, seedClienteCaso } from "../supabase-admin";
 import { abrirNovaTarefaNoCaso, abrirTarefaNoCaso } from "../tarefas";
+import { dataBR, diaBR, diaDoInstanteBR, recua } from "../datas";
 
 test.use({ storageState: STORAGE_INTERNO });
 test.describe.configure({ mode: "serial" });
@@ -62,7 +63,7 @@ test("formulário: a Data some onde o sistema calcula", async ({ page }) => {
   // Concedido: vence amanhã, vai até o 10º dia.
   await escolher(/^Concedido/);
   await expect(page.getByTestId("data-automatica")).toContainText(
-    `Vence amanhã (${dataBR(diaBR(1))}). Pode ser adiada até ${dataBR(diaBR(10))}`,
+    `Vence amanhã (${dataBR(diaBR(1))}). Pode ser adiada até ${dataBR(recua(diaBR(10)))}`,
   );
 
   // Exigência INSS: fatal já vem hoje + 30; o Aguardando vai até fatal − 3.
@@ -72,6 +73,11 @@ test("formulário: a Data some onde o sistema calcula", async ({ page }) => {
     `Pode ser adiada até ${dataBR(recua(diaBR(27)))}`,
   );
   await expect(page.locator("#t-due")).toHaveCount(0);
+
+  // Trocar para a judicial NÃO herda o hoje + 30 do INSS: o fatal é da publicação.
+  await page.getByRole("combobox").filter({ hasText: /Exigência INSS/ }).first().click();
+  await page.getByRole("option", { name: /^Exigência Judicial/ }).click();
+  await expect(page.locator("#t-prazo-fatal")).toHaveValue("");
 });
 
 test("aguardando documentos: trava no teto e pede a decisão da dilação", async ({ page }) => {
@@ -138,7 +144,7 @@ test("análise do deferimento: entrar com revisão abre a corrente do requerimen
     .single();
   if (error) throw new Error(error.message);
   expect(diaDoInstanteBR(an!.due_at as string)).toBe(diaBR(1));
-  expect((an!.metadata as { teto_em: string }).teto_em).toBe(diaBR(10));
+  expect((an!.metadata as { teto_em: string }).teto_em).toBe(recua(diaBR(10)));
 
   await abrirTarefaNoCaso(page, casoId, titulo);
   await page.getByRole("dialog").getByRole("button", { name: "Entrar com revisão" }).click();
@@ -207,26 +213,3 @@ test("painel do caso: processo judicial com baixa definitiva sugere encerrado", 
     .single();
   expect(depois).toMatchObject({ situacao: "encerrado", encerrado_em: diaBR(-10) });
 });
-
-/** Dia de calendário de Brasília, `n` dias a partir de hoje ("YYYY-MM-DD"). */
-function diaBR(n: number): string {
-  const hoje = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
-  const [y, m, d] = hoje.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
-}
-
-/** Sábado/domingo recuam para a sexta (mesma regra do banco). */
-function recua(dia: string): string {
-  const [y, m, d] = dia.split("-").map(Number);
-  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-  const menos = dow === 6 ? 1 : dow === 0 ? 2 : 0;
-  return new Date(Date.UTC(y, m - 1, d - menos)).toISOString().slice(0, 10);
-}
-
-function diaDoInstanteBR(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
-}
-
-function dataBR(dia: string): string {
-  return dia.split("-").reverse().join("/");
-}

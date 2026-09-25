@@ -179,28 +179,54 @@ create trigger ab_suporte_nao_escreve before insert or update or delete on publi
 -- ---------------------------------------------------------------------------
 -- 3. Datas das etapas
 -- ---------------------------------------------------------------------------
+-- ÚNICA tabela de dias do relógio: etapas, data planejada e limite saem daqui
+-- (o radar também). Toda data que cai em sábado/domingo recua para a sexta,
+-- como o resto do sistema (prazo do parceiro, FATAL da exigência judicial).
+create or replace function private.relogio_dias(p_tipo text)
+returns table (etapa text, dias integer, ordem integer)
+language sql immutable set search_path = '' as $$
+  select v.etapa, v.dias, v.ordem from (values
+    ('judicial', 'analise', 10, 1), ('judicial', 'montagem', 20, 2),
+    ('judicial', 'revisao', 25, 3), ('judicial', 'protocolo', 30, 4),
+    ('recurso',  'analise', 10, 1), ('recurso',  'recurso',  29, 2)
+  ) v(tipo, etapa, dias, ordem)
+  where v.tipo = p_tipo
+$$;
+
 create or replace function public.relogio_etapas(p_tipo text, p_origem date) returns jsonb
 language sql immutable set search_path = '' as $$
-  select case p_tipo
-    when 'judicial' then jsonb_build_object(
-      'analise',   p_origem + 10,
-      'montagem',  p_origem + 20,
-      'revisao',   p_origem + 25,
-      'protocolo', p_origem + 30)
-    when 'recurso' then jsonb_build_object(
-      'analise',   p_origem + 10,
-      'recurso',   p_origem + 29)
-  end
+  select jsonb_object_agg(d.etapa, private.recua_fim_de_semana(p_origem + d.dias))
+    from private.relogio_dias(p_tipo) d
 $$;
 
+-- Planejado = a data da última etapa (protocolo / recurso).
 create or replace function private.relogio_planejado(p_tipo text, p_origem date) returns date
 language sql immutable set search_path = '' as $$
-  select case p_tipo when 'judicial' then p_origem + 30 when 'recurso' then p_origem + 29 end
+  select private.recua_fim_de_semana(p_origem + d.dias)
+    from private.relogio_dias(p_tipo) d
+   order by d.ordem desc limit 1
 $$;
 
+-- Limite: judicial D+40 (só a Mara libera); recurso D+30, o fatal da lei.
 create or replace function private.relogio_limite(p_tipo text, p_origem date) returns date
 language sql immutable set search_path = '' as $$
-  select case p_tipo when 'judicial' then p_origem + 40 when 'recurso' then p_origem + 30 end
+  select private.recua_fim_de_semana(
+    p_origem + case p_tipo when 'judicial' then 40 when 'recurso' then 30 end)
+$$;
+
+-- Dias que a etapa tinha no plano: data dela − data da etapa anterior.
+create or replace function private.relogio_dias_previstos(p_etapas jsonb, p_origem date, p_etapa text)
+returns integer
+language sql immutable set search_path = '' as $$
+  select ((p_etapas->>p_etapa)::date - coalesce(
+            (select (p_etapas->>d2.etapa)::date
+               from private.relogio_dias(
+                      case when p_etapas ? 'recurso' then 'recurso' else 'judicial' end) d1
+               join private.relogio_dias(
+                      case when p_etapas ? 'recurso' then 'recurso' else 'judicial' end) d2
+                 on d2.ordem = d1.ordem - 1
+              where d1.etapa = p_etapa),
+            p_origem))::integer
 $$;
 
 -- ---------------------------------------------------------------------------
@@ -224,13 +250,15 @@ begin
   -- Janelas: vence amanhã, pode ir até o teto.
   if v_meta->>'aguardando_exigencia' = 'true' or v_meta->>'analise_deferimento' = 'true' then
     if v_meta->>'analise_deferimento' = 'true' then
-      v_teto := v_hoje + 10;
+      v_teto := private.recua_fim_de_semana(v_hoje + 10);
+      new.metadata := v_meta || jsonb_build_object('teto_em', v_teto);
     else
-      v_teto := private.recua_fim_de_semana(
-        coalesce(nullif(v_meta->>'prazo_fatal_em', '')::date, v_hoje + 30) - 3);
+      -- O fatal fica gravado: é dele que a decisão da dilação tira a data.
+      v_origem := coalesce(nullif(v_meta->>'prazo_fatal_em', '')::date, v_hoje + 30);
+      v_teto := private.recua_fim_de_semana(v_origem - 3);
+      new.metadata := v_meta || jsonb_build_object('teto_em', v_teto, 'prazo_fatal_em', v_origem);
     end if;
     new.due_at := private.fim_do_dia_brt(least(v_hoje + 1, v_teto));
-    new.metadata := v_meta || jsonb_build_object('teto_em', v_teto);
     return new;
   end if;
 
@@ -257,12 +285,7 @@ begin
      where caso_id = new.caso_id and status = 'aberto';
   end if;
 
-  if v_rel.id is null then
-    -- Só a análise do indeferimento abre relógio. Montagem aplicada à mão sem
-    -- análise (ou recurso sem relógio) segue a regra antiga.
-    if v_etapa <> 'analise' then
-      return new;
-    end if;
+  if v_etapa = 'analise' then
     v_origem := nullif(v_meta->>'data_indeferimento', '')::date;
     if v_origem is null and new.processo_admin_id is not null then
       select pa.data_decisao into v_origem from public.processos_admin pa
@@ -271,6 +294,29 @@ begin
     if v_origem is null then
       v_origem := private.dia_brt(now());
       v_est := true;
+    end if;
+    -- Relógio aberto de OUTRO indeferimento (corrente abandonada, protocolo
+    -- nunca marcado) não pode capturar a análise nova com datas vencidas:
+    -- encerra o antigo e abre um novo. Mesmo indeferimento (template
+    -- reaplicado, e-mail repetido) continua no mesmo relógio. Sem data
+    -- informada, só reaproveita se o antigo ainda tiver tarefa aberta.
+    if v_rel.id is not null
+       and ((not v_est and v_rel.origem_em <> v_origem)
+            or (v_est and not exists (
+                  select 1 from public.tarefas t
+                   where t.status = 'a_fazer' and t.metadata->>'relogio_id' = v_rel.id::text))) then
+      update public.relogios_prazo
+         set status = 'encerrado', concluido_em = now(), updated_at = now()
+       where id = v_rel.id;
+      v_rel := null;
+    end if;
+  end if;
+
+  if v_rel.id is null then
+    -- Só a análise do indeferimento abre relógio. Montagem aplicada à mão sem
+    -- análise (ou recurso sem relógio) segue a regra antiga.
+    if v_etapa <> 'analise' then
+      return new;
     end if;
     insert into public.relogios_prazo
       (caso_id, processo_admin_id, tipo, origem_em, origem_estimada, etapas, planejado_em, limite_em, created_by)
@@ -616,7 +662,7 @@ language sql stable security invoker set search_path = '' as $$
            (t.metadata->>'relogio_id')::uuid as relogio_id,
            t.id, t.titulo, t.metadata->>'relogio_etapa' as etapa, t.due_at, t.created_at, t.responsavel_id
       from public.tarefas t
-     where t.status = 'a_fazer' and t.metadata ? 'relogio_id'
+     where t.status = 'a_fazer' and (t.metadata->>'relogio_id') is not null
      order by t.metadata->>'relogio_id', t.due_at
   )
   select a.id, a.caso_id, cl.nome, a.tipo, a.origem_em, a.origem_estimada,
@@ -624,22 +670,14 @@ language sql stable security invoker set search_path = '' as $$
          (a.hoje - a.origem_em)::integer,
          ta.id, ta.titulo, ta.etapa, u.nome,
          private.dia_brt(ta.due_at),
-         -- dias que a etapa tinha no plano: data dela − data da anterior
-         case ta.etapa
-           when 'analise'   then 10
-           when 'montagem'  then 10
-           when 'revisao'   then 5
-           when 'protocolo' then 5
-           when 'recurso'   then 19
-         end,
+         private.relogio_dias_previstos(a.etapas, a.origem_em, ta.etapa),
          (private.dia_brt(ta.due_at) - private.dia_brt(ta.created_at))::integer,
          case
            when ta.id is null then 'sem_tarefa'
            when private.dia_brt(ta.due_at) < a.hoje then 'atrasada'
            when a.hoje >= a.planejado_em - 3 then 'reta_final'
            when (private.dia_brt(ta.due_at) - private.dia_brt(ta.created_at)) * 2 <
-                case ta.etapa when 'analise' then 10 when 'montagem' then 10
-                              when 'revisao' then 5 when 'protocolo' then 5 when 'recurso' then 19 end
+                private.relogio_dias_previstos(a.etapas, a.origem_em, ta.etapa)
              then 'espremida'
            else 'ok'
          end,
@@ -652,6 +690,11 @@ language sql stable security invoker set search_path = '' as $$
     left join public.usuarios u on u.id = ta.responsavel_id
    order by a.planejado_em, a.origem_em
 $$;
+
+-- Tarefas abertas de relógio: o radar e o fechamento procuram por aqui.
+create index if not exists tarefas_relogio_abertas_idx
+  on public.tarefas ((metadata->>'relogio_id'))
+  where status = 'a_fazer' and (metadata->>'relogio_id') is not null;
 
 revoke all on function public.radar_prazos() from public, anon;
 grant execute on function public.radar_prazos() to authenticated;

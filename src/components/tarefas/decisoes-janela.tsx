@@ -23,10 +23,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { useDestaque } from "@/lib/destaque/destaque-context";
-import { dataBR, hojeChaveBR, instanteBR } from "@/lib/fuso";
+import { dataBR, hojeChaveBR } from "@/lib/fuso";
 import { supabase } from "@/lib/supabase";
 import { aplicarTemplateProgramatico } from "@/lib/tarefas/aplicador";
-import { recuaFimDeSemana, somarDias } from "@/lib/tarefas/relogio";
+import { recuaFimDeSemana, somarDias, venceNoDia } from "@/lib/tarefas/relogio";
 import type { TarefaComJoins } from "@/lib/tarefas/types";
 
 interface Props {
@@ -41,12 +41,6 @@ interface MetaJanela {
   prazo_fatal_em?: string;
   template?: string;
   template_aplicado?: string;
-}
-
-/** 18h (fim do expediente) do dia "YYYY-MM-DD" em Brasília. */
-function fimDoDiaBR(dia: string): string {
-  const [y, m, d] = dia.split("-").map(Number);
-  return instanteBR(y, m, d, 18, 0).toISOString();
 }
 
 /** Conclui a tarefa DEPOIS do efeito; erro sobe (senão um 2º clique duplica). */
@@ -141,8 +135,10 @@ export function AguardandoExigencia({
 
   const judicial = (meta.template_aplicado ?? meta.template) === "exigencia_judicial";
   const cliente = tarefa.caso?.cliente?.nome ?? "cliente";
-  // Petição vence na véspera do fatal (regra da casa: fatal − 1).
-  const fatal = meta.prazo_fatal_em ?? somarDias(meta.teto_em, 3);
+  // Petição vence na véspera do fatal (regra da casa: fatal − 1). O banco
+  // grava o fatal junto com o teto; sem ele (tarefa anterior a isso), o teto
+  // é o limite seguro.
+  const fatal = meta.prazo_fatal_em ?? meta.teto_em;
   const venceDilacao = recuaFimDeSemana(somarDias(fatal, -1));
 
   async function pedirDilacao() {
@@ -165,7 +161,7 @@ export function AguardandoExigencia({
           descricao:
             "Os documentos da exigência não chegaram até o prazo do parceiro. " +
             "Prazo fatal: " + dataBR(fatal) + ".",
-          due_at: fimDoDiaBR(venceDilacao),
+          due_at: venceNoDia(venceDilacao),
           origem: "manual",
           metadata: { origem_tarefa_id: tarefa.id, dilacao_prazo: true, prazo_fatal: true, prazo_fatal_em: fatal },
         })

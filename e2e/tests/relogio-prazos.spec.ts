@@ -18,6 +18,7 @@ import { STORAGE_ADMIN, STORAGE_INTERNO } from "../auth.setup";
 import { cursorVisivel } from "../cursor";
 import { adminClient, cleanupE2E, seedClienteCaso } from "../supabase-admin";
 import { abrirTarefaNoCaso } from "../tarefas";
+import { dataBR, diaBR, diaDoInstanteBR, diasEntre, recua, somarDias } from "../datas";
 
 test.use({ storageState: STORAGE_INTERNO });
 test.describe.configure({ mode: "serial" });
@@ -82,8 +83,8 @@ test("análise abre o relógio e a montagem nasce na data fixa (D+20)", async ({
     .single();
   expect(relogio).toMatchObject({
     origem_em: diaBR(D),
-    planejado_em: diaBR(D + 30),
-    limite_em: diaBR(D + 40),
+    planejado_em: recua(diaBR(D + 30)),
+    limite_em: recua(diaBR(D + 40)),
     status: "aberto",
   });
 
@@ -97,7 +98,7 @@ test("análise abre o relógio e a montagem nasce na data fixa (D+20)", async ({
     })
     .not.toBeNull();
   const m = await montagem();
-  expect(diaDoInstanteBR(m!.due_at)).toBe(diaBR(D + 20));
+  expect(diaDoInstanteBR(m!.due_at)).toBe(recua(diaBR(D + 20)));
   expect((m!.metadata as { relogio_etapa?: string }).relogio_etapa).toBe("montagem");
 });
 
@@ -112,17 +113,21 @@ test("adiar: justificativa, reta final e pedido à Mara", async ({ page }) => {
   await page.getByRole("option", { name: "Cliente sem processo" }).click();
 
   const linha = page.getByTestId("relogio-linha");
-  await expect(linha).toContainText("Montagem da inicial até " + dataBR(diaBR(D + 20)));
-  await expect(linha).toContainText("Caso no dia 12 de 40");
+  const montagemEm = recua(diaBR(D + 20));
+  const planejado = recua(diaBR(D + 30));
+  await expect(linha).toContainText("Montagem da inicial até " + dataBR(montagemEm));
+  await expect(linha).toContainText(`Caso no dia 12 de ${diasEntre(diaBR(D), recua(diaBR(D + 40)))}`);
 
-  // 1. Dois dias depois da data da etapa: pede justificativa e avisa que sai da revisão.
-  await trocarData(page, diaBR(D + 22));
+  // 1. Depois da data da etapa: pede justificativa e diz quanto sai da revisão.
+  const alem = diaBR(D + 22);
+  const n = diasEntre(montagemEm, alem);
+  await trocarData(page, alem);
   await page.getByRole("button", { name: "Salvar" }).click();
-  await expect(page.getByText("Isso tira 2 dias da etapa seguinte")).toBeVisible();
+  await expect(page.getByText(`Isso tira ${n} ${n === 1 ? "dia" : "dias"} da etapa seguinte`)).toBeVisible();
   await page.getByRole("button", { name: "Manter o prazo" }).click();
 
-  // 2. Reta final (D+28, a 2 dias do D+30): só até amanhã.
-  await trocarData(page, diaBR(D + 28));
+  // 2. Reta final (véspera da data do caso): só até amanhã.
+  await trocarData(page, somarDias(planejado, -1));
   await page.getByRole("button", { name: "Salvar" }).click();
   await expect(page.getByText("Reta final do prazo: só dá para adiar até amanhã")).toBeVisible();
 
@@ -143,7 +148,7 @@ test("adiar: justificativa, reta final e pedido à Mara", async ({ page }) => {
     .single();
   expect(pedido).toMatchObject({ status: "pendente", ate: diaBR(D + 35) });
   // O prazo não andou.
-  expect(diaDoInstanteBR((await montagem())!.due_at)).toBe(diaBR(D + 20));
+  expect(diaDoInstanteBR((await montagem())!.due_at)).toBe(recua(diaBR(D + 20)));
 });
 
 test("o banco trava mesmo sem passar pela tela", async () => {
@@ -197,7 +202,9 @@ test("painel de datas no topo do caso", async ({ page }) => {
   await expect(painel).toContainText("nº 1234567890");
   await expect(painel).toContainText("Indeferimento");
   await expect(painel).toContainText(dataBR(diaBR(D)));
-  await expect(painel.getByTestId("relogio-do-caso")).toContainText("dia 12 de 40");
+  await expect(painel.getByTestId("relogio-do-caso")).toContainText(
+    `dia 12 de ${diasEntre(diaBR(D), recua(diaBR(D + 40)))}`,
+  );
   await expect(painel.getByTestId("relogio-do-caso")).toContainText(
     "liberado pela Mara até " + dataBR(diaBR(D + 35)),
   );
@@ -215,19 +222,4 @@ async function montagem() {
 
 async function trocarData(page: Page, dia: string) {
   await page.locator("#t-due").fill(`${dia}T18:00`);
-}
-
-/** Dia de calendário de Brasília, `n` dias a partir de hoje ("YYYY-MM-DD"). */
-function diaBR(n: number): string {
-  const hoje = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
-  const [y, m, d] = hoje.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
-}
-
-function diaDoInstanteBR(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
-}
-
-function dataBR(dia: string): string {
-  return dia.split("-").reverse().join("/");
 }

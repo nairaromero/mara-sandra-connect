@@ -144,7 +144,10 @@ export function PainelDatasCaso({
     return () => {
       cancelado = true;
     };
-  }, [casoId]);
+    // A página recarrega os processos a cada mudança no caso (aba de tarefas
+    // inclusive): acompanha isso para o relógio não ficar velho depois de uma
+    // decisão (recurso, protocolo, prorrogação).
+  }, [casoId, processosAdmin, processosJudiciais]);
 
   // O processo do relógio manda; sem relógio, o indeferido mais recente, e
   // senão o requerimento mais recente com protocolo.

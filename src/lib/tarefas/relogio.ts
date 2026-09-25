@@ -4,7 +4,7 @@
 // a tela avisar antes de salvar e traduzir a recusa do banco.
 
 import { supabase } from "@/lib/supabase";
-import { chaveDiaBR, dataBR, hojeChaveBR } from "@/lib/fuso";
+import { chaveDiaBR, dataBR, hojeChaveBR, instanteBR } from "@/lib/fuso";
 
 export type RelogioTipo = "judicial" | "recurso";
 export type RelogioEtapa = "analise" | "montagem" | "revisao" | "protocolo" | "recurso";
@@ -72,15 +72,19 @@ export function somarDias(dia: string, n: number): string {
   return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
 }
 
-/** Datas do relógio judicial a partir do indeferimento (espelha public.relogio_etapas). */
+/**
+ * Datas do relógio judicial a partir do indeferimento (espelha
+ * private.relogio_dias + public.relogio_etapas: fim de semana recua pra sexta).
+ */
 export function relogioEtapasPrevistas(origem: string) {
-  return {
-    analise: somarDias(origem, 10),
-    montagem: somarDias(origem, 20),
-    revisao: somarDias(origem, 25),
-    protocolo: somarDias(origem, 30),
-    limite: somarDias(origem, 40),
-  };
+  const d = (n: number) => recuaFimDeSemana(somarDias(origem, n));
+  return { analise: d(10), montagem: d(20), revisao: d(25), protocolo: d(30), limite: d(40) };
+}
+
+/** 18h (fim do expediente) do dia "YYYY-MM-DD" em Brasília — como private.fim_do_dia_brt. */
+export function venceNoDia(dia: string): string {
+  const [y, m, d] = dia.split("-").map(Number);
+  return instanteBR(y, m, d, 18, 0).toISOString();
 }
 
 /** Sábado/domingo recuam para a sexta (espelha private.recua_fim_de_semana). */
@@ -138,10 +142,10 @@ export function avaliarAdiamento(
   return { tipo: "justificar", tiraDaProxima: tira };
 }
 
-/** Recusa do banco (MSC01/02/03) → mensagem para a pessoa. */
+/** Recusa do banco (MSC01–04) → mensagem para a pessoa. */
 export function mensagemTrava(err: unknown): string | null {
   const e = err as { code?: string; message?: string } | null;
-  if (!e?.code || !["MSC01", "MSC02", "MSC03"].includes(e.code)) return null;
+  if (!e?.code || !["MSC01", "MSC02", "MSC03", "MSC04"].includes(e.code)) return null;
   return e.message ?? "Prazo travado.";
 }
 

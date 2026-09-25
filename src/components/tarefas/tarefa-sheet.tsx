@@ -427,7 +427,8 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   const montagemComRelogio =
     metaMainSel.montagem_inicial === true &&
     metaMainSel.montagem_requerimento !== true &&
-    relogioDoCasoNovo?.status === "aberto";
+    relogioDoCasoNovo?.status === "aberto" &&
+    !!relogioDoCasoNovo.etapas.montagem;
   const dataAutomatica =
     !editando &&
     !!tplSel &&
@@ -478,11 +479,15 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
     };
   }, [editando, casoId]);
 
-  // Exigência INSS: o fatal já vem com hoje + 30 (editável se o INSS der menos).
+  // Trocou de template: o fatal é de cada template, nunca herdado do anterior
+  // (o padrão hoje + 30 da exigência INSS vazava para a judicial). A exigência
+  // INSS já vem com hoje + 30, editável se o INSS der menos.
   useEffect(() => {
-    if (editando || !fatalPadraoDias) return;
-    setPrazoFatal((atual) => atual || somarDias(hojeChaveBR(), fatalPadraoDias));
-  }, [editando, fatalPadraoDias]);
+    if (editando) return;
+    setPrazoFatal(fatalPadraoDias ? somarDias(hojeChaveBR(), fatalPadraoDias) : "");
+    setPrazoDias("");
+    setPrazoDiasCustom("");
+  }, [editando, templateSelecionado, fatalPadraoDias]);
 
   // Contexto do caso (parceiro, nomes) pro aviso — atualiza quando muda o caso.
   useEffect(() => {
@@ -756,7 +761,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
     if (metaMainSel.analise_deferimento === true) {
       return (
         "Vence amanhã (" + dataBR(amanha) + "). Pode ser adiada até " +
-        dataBR(somarDias(hojeChaveBR(), 10)) +
+        dataBR(recuaFimDeSemana(somarDias(hojeChaveBR(), 10))) +
         "; depois, decida: está tudo certo ou entrar com revisão."
       );
     }
@@ -809,6 +814,21 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
       return false;
     }
     const dueCalculado = isoFromInputDateTime(dueDate);
+    if (justificativa === undefined) setVeredicto(null);
+    // Janela (sem relógio): até o teto é livre; passar dele o banco recusa.
+    const tetoJanela = (tarefa?.metadata as { teto_em?: string } | null)?.teto_em;
+    if (
+      justificativa === undefined && tarefa && tetoJanela && !relogioRef && !isAdmin &&
+      dueCalculado && tarefa.due_at && dueCalculado > tarefa.due_at &&
+      chaveDiaBR(dueCalculado) > tetoJanela
+    ) {
+      toast.error("Prazo travado", {
+        description:
+          "Esta tarefa vai no máximo até " + dataBR(tetoJanela) +
+          ". A partir daí, decida pelos botões da tarefa.",
+      });
+      return false;
+    }
     if (justificativa === undefined && relogio && relogioRef && tarefa) {
       const v = avaliarAdiamento(relogio, relogioRef.etapa, tarefa.due_at, dueCalculado, isAdmin);
       if (v.tipo === "so_ate_amanha") {

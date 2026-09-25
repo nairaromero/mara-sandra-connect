@@ -8,6 +8,7 @@ import { test, expect } from "@playwright/test";
 import { STORAGE_INTERNO } from "../auth.setup";
 import { adminClient, cleanupE2E, seedClienteCaso } from "../supabase-admin";
 import { abrirNovaTarefaNoCaso } from "../tarefas";
+import { diaBR, diaDoInstanteBR, recua } from "../datas";
 
 test.use({ storageState: STORAGE_INTERNO });
 
@@ -85,8 +86,8 @@ test("template indeferido cria 2 tarefas, ambas com responsável", async ({ page
   expect(relogio).toMatchObject({
     origem_em: indeferidoEm,
     origem_estimada: false,
-    planejado_em: diaBR(-12 + 30),
-    limite_em: diaBR(-12 + 40),
+    planejado_em: recua(diaBR(-12 + 30)),
+    limite_em: recua(diaBR(-12 + 40)),
   });
   const { data: analise } = await admin
     .from("tarefas")
@@ -94,16 +95,5 @@ test("template indeferido cria 2 tarefas, ambas com responsável", async ({ page
     .eq("caso_id", casoId)
     .like("titulo", "Analise de Indeferimento%")
     .single();
-  expect(diaDoInstanteBR(analise!.due_at as string)).toBe(diaBR(-12 + 10));
+  expect(diaDoInstanteBR(analise!.due_at as string)).toBe(recua(diaBR(-12 + 10)));
 });
-
-/** Dia de calendário de Brasília, `n` dias a partir de hoje ("YYYY-MM-DD"). */
-function diaBR(n: number): string {
-  const hoje = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
-  const [y, m, d] = hoje.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
-}
-
-function diaDoInstanteBR(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
-}
