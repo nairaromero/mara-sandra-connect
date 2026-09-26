@@ -45,7 +45,7 @@ que sumiu, um item de menu que não aparece, um "..." com menos opções.
 
 Antes de abrir chamado:
 
-1. Confira seu papel em **Configurações → Perfil**.
+1. Confira seu papel: ele aparece na **etiqueta ao lado do seu nome**, no alto da tela ("Administrador", "Advogado", "Assistente", "Financeiro").
 2. Compare com o **Glossário** (menu lateral → Glossário): cada papel tem um
    verbete com a lista de permissões **lida do banco em tempo real** — é a
    resposta oficial para "isso é do meu papel?".
@@ -164,24 +164,43 @@ sozinho.
 
 ---
 
-## 9. Kanban de tarefas: a coluna vem do processo
+## 9. A fase do caso passa a se manter sozinha
 
-No quadro de tarefas, a coluna de cada item passa a seguir a **fase do processo
-daquele item**, não um campo separado que podia divergir. Tarefa de caso com
-duas frentes (administrativa e judicial) fica na frente do processo a que ela
-pertence.
+A fase (Em análise · Administrativo · Judicial) virou um **resumo dos processos
+do caso**, mantido pelo sistema:
 
-**Caso real.** Você arrastava o card e ele "voltava". Agora ele acompanha o
-processo: para mudar de coluna, o que muda é a fase do processo.
+- ação ajuizada → **judicial**;
+- requerimento **protocolado** → administrativo (requerimento sem protocolo
+  **não** promove — decisão de 18/09);
+- nada disso ainda → em análise.
+
+A fase **só avança** (nunca volta sozinha), e caso finalizado não é mexido por
+cadastro de processo.
+
+**Caso real.** Você cadastra a ação ajuizada e a fase do caso vira Judicial
+sozinha — não é engano nem alguém mexendo, é o cadastro do processo. Se a fase
+está "errada", olhe primeiro os processos do caso: é de lá que ela vem.
+
+**Para os parceiros**, a mesma mudança tem outro efeito visível: no kanban
+deles, a coluna de cada item vem do **processo daquele item**. Um cliente que
+corre nas duas frentes passa a aparecer **nas duas colunas** — são 95 casos
+assim hoje, que antes caíam todos em judicial.
 
 ---
 
-## 10. Hora de Brasília em tudo
+## 10. Datas e horas sempre no calendário de Brasília
 
-Cards de agenda, perícia e prazos passaram a mostrar a hora no fuso de
-Brasília, sempre — antes alguns pontos usavam a hora do computador de quem
-olhava. Se você anotou algum horário com uma hora de diferença em setembro,
-confira: o certo é o que a tela mostra agora.
+Alguns pontos da tela usavam o fuso **do computador de quem olhava**. Quem
+trabalha no Brasil quase não via diferença; quem abriu o sistema de fora, sim —
+e aí um prazo que vence às 23h59 aparecia como **do dia seguinte**.
+
+Corrigido nos lugares onde doía: o "Enviar até" da solicitação (na tela do caso
+e em Documentos pendentes) e a linha do tempo de andamentos — andamento que vem
+só com a data (importação de planilha, DJEN) não cai mais na véspera nem inventa
+hora.
+
+**Caso real.** Se em setembro você viu um prazo marcando um dia a mais do que o
+combinado, era isto. O que a tela mostra agora é o calendário de Brasília.
 
 ---
 
@@ -276,7 +295,9 @@ Para eles muda pouco, e é bom que saibam o pouco:
 
 - continuam vendo **só os casos que indicaram**, com os andamentos marcados como
   visíveis, os documentos, as solicitações e os próprios repasses;
-- **IA não é para parceiro** — se algum via algo de IA, deixa de ver;
+- no **kanban de tarefas deles**, um cliente que corre nas duas frentes passa a
+  aparecer nas duas colunas, cada item na coluna do processo a que pertence
+  (item 9) — é a mudança mais visível do lado do parceiro;
 - quem ainda não aceitou os termos continua sendo levado ao aceite no primeiro acesso;
 - as listas longas agora vêm **paginadas** ("1–25 de N", com « ‹ 1 2 3 › »), em
   vez de carregar tudo de uma vez — inclusive no celular.

@@ -278,17 +278,18 @@ async function painel(page, titulo, corpoHtml, ms = 5600) {
 
       // A prova onde ela mora: o banco. A assistente tenta mexer nas duas.
       const comoElisa = await sessao(`canario+assistente@${DOM}`, ESC);
+      // 'feito' é o status válido (tarefas_status_check: a_fazer | feito | cancelado)
       const tentaOutra = await comoElisa.sb.from("tarefas")
-        .update({ status: "concluida" }).eq("id", doDiego.id).select("id");
+        .update({ status: "feito" }).eq("id", doDiego.id).select("id");
       const tentaSua = await comoElisa.sb.from("tarefas")
-        .update({ status: "concluida" }).eq("id", daElisa.id).select("id");
+        .update({ status: "feito" }).eq("id", daElisa.id).select("id");
 
       const p2 = (await parte(`canario+assistente@${DOM}`)).page;
       await painel(p2, "A Elisa tentando concluir as duas tarefas",
         `<p><b>A tarefa do Diego</b> — “Redigir a petição inicial”:</p>
-         <pre class="erro">${esc(tentaOutra.error?.message || `${(tentaOutra.data ?? []).length} linha(s) alterada(s) — o banco não deixou passar nada`)}</pre>
+         <pre class="erro">${esc(tentaOutra.error?.message || `${(tentaOutra.data ?? []).length} linha(s) alterada(s): o banco simplesmente não encontrou a tarefa para ela mexer`)}</pre>
          <p><b>A tarefa dela</b> — “Conferir CNIS do cliente”:</p>
-         <pre class="ok">${esc(tentaSua.error ? tentaSua.error.message : `concluída (${(tentaSua.data ?? []).length} linha)`)}</pre>
+         <pre class="ok">${esc(tentaSua.error ? tentaSua.error.message : `marcada como feita (${(tentaSua.data ?? []).length} linha alterada)`)}</pre>
          <p>Na tela, isso aparece como botão que não existe na tarefa de outra pessoa. O caminho é <b>reatribuir a tarefa</b> a quem vai executá-la — e então o botão aparece.</p>`, 8500);
       await still(p2, "ato5-02-resposta-do-banco");
       await narrar(p2, "Quem recusa é o banco, não a tela. É por isso que reatribuir resolve e insistir não.");
@@ -339,8 +340,13 @@ async function painel(page, titulo, corpoHtml, ms = 5600) {
       await tentar("a trilha da auditoria", async () => {
         await pc.goto(`${BASE}/auditoria`);
         await pc.getByRole("heading", { level: 1 }).waitFor({ timeout: 25000 });
-        await narrar(pc, "Quem mexeu, em quem, o que era e o que ficou: está tudo aqui.");
-        await ler(pc, 4500);
+        // a trilha do escritório fica no FIM da página (em cima ficam os
+        // acessos à senha do MEU INSS) — sem rolar, a cena mostra outra coisa
+        const trilha = pc.locator("[data-trilha-plataforma]");
+        await trilha.waitFor({ timeout: 20000 });
+        await deslizar(pc, trilha);
+        await narrar(pc, "Na trilha do escritório: quem mexeu, em quem, o que era e o que ficou.");
+        await ler(pc, 5000);
         await still(pc, "ato6-06-auditoria");
       });
       await fechar(pc);
@@ -356,7 +362,7 @@ async function painel(page, titulo, corpoHtml, ms = 5600) {
       // o caso vai a 'finalizado' só para a cena, e volta no finally
       await admin.from("casos").update({ fase: "finalizado" }).eq("id", casoEncerrar.id);
       await p.goto(`${BASE}/casos/${casoEncerrar.id}`);
-      await p.getByRole("heading", { level: 1 }).waitFor({ timeout: 25000 });
+      await p.getByText(casoEncerrar.cliente?.nome ?? "").first().waitFor({ timeout: 30000 });
       await narrar(p, `O caso de ${casoEncerrar.cliente?.nome ?? "um cliente"} está finalizado.`);
       await ler(p, 3200);
       await still(p, "ato7-01-finalizado");
@@ -401,11 +407,12 @@ async function painel(page, titulo, corpoHtml, ms = 5600) {
       await cartao(p, "8 · Se alguém da plataforma pedir acesso",
         "Existe um caminho formal, com número, prazo e registro. Pedido que chega por WhatsApp não existe.");
       await tentar("o pedido de suporte", async () => {
+        // a coluna é `staff_id` (quem pede é gente do QG, não do escritório)
         const { data: staff } = await admin.from("plataforma_staff").select("usuario_id").limit(1).maybeSingle();
         const { data: pedido, error } = await admin.from("acessos_suporte").insert({
-          escritorio_id: ESC, solicitante_id: staff?.usuario_id ?? carla.id,
+          escritorio_id: ESC, staff_id: staff?.usuario_id ?? carla.id,
           motivo: "Conferir por que o e-mail de aviso ao parceiro não saiu no caso 4821.",
-          horas: 24, status: "pendente",
+          horas: 24, escopo: "leitura", status: "pendente",
         }).select("id, ticket").single();
         if (error) throw new Error(error.message);
         criados.suporte.push(pedido.id);
