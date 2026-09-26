@@ -233,7 +233,8 @@ torná-la administradora". Detalhes que importam:
 - sete permissões são **sensíveis** (gerenciar equipe, configurar escritório, ler
   auditoria, integrações, excluir cliente, excluir parceiro, emitir token do MCP)
   e a tela pede confirmação escrevendo o que a pessoa passa a poder;
-- **tudo fica na auditoria**, com quem mexeu, em quem, o que era e o que ficou.
+- **tudo fica na auditoria**, com quem mexeu, em quem, o que era e o que ficou —
+  na **Trilha do escritório**, no fim da página de Auditoria.
 
 ---
 
