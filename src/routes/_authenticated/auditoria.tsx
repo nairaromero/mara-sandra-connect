@@ -490,11 +490,12 @@ function TrilhaPlataforma() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <LifeBuoy className="h-5 w-5 text-[var(--gold)]" />
-          Plataforma e suporte neste escritório
+          Trilha do escritório
         </CardTitle>
         <CardDescription>
-          Cada pedido, aprovação e encerramento de acesso de suporte, cada tela que uma sessão de suporte abriu e
-          cada ação da equipe da plataforma sobre o escritório. Nada disso acontece sem ficar aqui.
+          Ajustes de permissão (quem mexeu, em quem, o que era e o que ficou), integrações salvas, e cada pedido,
+          aprovação e encerramento de acesso de suporte — com cada tela que uma sessão de suporte abriu. Nada disso
+          acontece sem ficar aqui.
         </CardDescription>
       </CardHeader>
       <CardContent className="p-0">

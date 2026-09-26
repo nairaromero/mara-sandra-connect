@@ -203,4 +203,36 @@ test.describe.serial("permissões por pessoa", () => {
     expect(r.data ?? []).toHaveLength(0);
     await ctx.close();
   });
+
+  // migration_rbac_24. A permissão `auditoria:ler` é sensível e concedível, e a
+  // rota já abria para quem a tinha — mas o SERVIDOR cobrava o papel admin nos
+  // dois lados da tela, e um deles falhava CALADO (a policy devolvia zero
+  // linhas, indistinguível de "nunca ninguém abriu uma senha").
+  test("auditoria segue a permissão, não o papel — e recusa quem não a tem", async () => {
+    const carla = await como(`canario+admin@${DOM}`, ESC2);
+    const diego = await como(`canario+advogado@${DOM}`, ESC2);
+
+    const semPermissao = await diego.rpc("auditoria_plataforma", { p_limite: 3, p_offset: 0 });
+    expect(semPermissao.error?.message, "advogado sem a permissão não lê a trilha").toMatch(/sem permissão/i);
+    const inssAntes = await diego.from("acessos_senha_inss").select("id").limit(3);
+    expect(inssAntes.error, "a policy não estoura, filtra").toBeNull();
+
+    expect(
+      (await carla.rpc("definir_permissao_do_membro", {
+        p_usuario_id: idAdvogado, p_permissao: "auditoria:ler", p_estado: "conceder",
+      })).error,
+    ).toBeNull();
+
+    const comPermissao = await diego.rpc("auditoria_plataforma", { p_limite: 3, p_offset: 0 });
+    expect(comPermissao.error, "com a permissão concedida, a trilha abre sem virar admin").toBeNull();
+    expect(Array.isArray(comPermissao.data)).toBe(true);
+
+    // e a admin continua lendo, que é o padrão que não podia mudar
+    const daAdmin = await carla.rpc("auditoria_plataforma", { p_limite: 3, p_offset: 0 });
+    expect(daAdmin.error).toBeNull();
+
+    expect((await carla.rpc("resetar_permissoes_do_membro", { p_usuario_id: idAdvogado })).error).toBeNull();
+    const depois = await diego.rpc("auditoria_plataforma", { p_limite: 3, p_offset: 0 });
+    expect(depois.error?.message, "tirou o ajuste, fecha de novo").toMatch(/sem permissão/i);
+  });
 });
