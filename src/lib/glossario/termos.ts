@@ -68,24 +68,43 @@ export const TERMOS: Array<Termo> = [
     sinonimos: ["perfil", "função"],
     categoria: "papeis",
     definicao:
-      "O conjunto de permissões que o vínculo dá. São cinco: Administrador, Advogado, Assistente, Financeiro e Parceiro. Só o administrador troca o papel de alguém (Equipe → menu da pessoa → “Tornar …”), e a troca vale na próxima ação da pessoa — ela não precisa sair e entrar.",
-    veja: ["permissao", "admin", "advogado", "assistente", "financeiro", "parceiro"],
+      "O conjunto de permissões que o vínculo dá. São cinco: Administrador, Advogado, Assistente, Financeiro e Parceiro. Só o administrador troca o papel de alguém (Equipe → menu da pessoa → “Tornar …”), e a troca vale na próxima ação da pessoa — ela não precisa sair e entrar. O papel é o padrão: uma pessoa pode ter permissões a mais ou a menos que ele, uma a uma (ver ajuste de permissão). Trocar o papel desfaz os ajustes anteriores.",
+    veja: ["permissao", "ajuste-de-permissao", "admin", "advogado", "assistente", "financeiro", "parceiro"],
   },
   {
     id: "permissao",
     termo: "Permissão",
     categoria: "papeis",
     definicao:
-      "Cada ação que o sistema controla tem um nome no formato recurso:ação — por exemplo casos:editar ou equipe:gerenciar. O papel reúne permissões. O menu e os botões só aparecem para quem tem a permissão, e o banco recusa quem tentar sem ela, mesmo chamando a API direto: sumir da tela e ser recusado são a mesma regra vista de dois lados.",
-    veja: ["escopo", "papel", "rls"],
+      "Cada ação que o sistema controla tem um nome no formato recurso:ação — por exemplo casos:editar ou equipe:gerenciar. O papel reúne permissões, e o administrador pode somar ou tirar uma delas de uma pessoa específica. O menu e os botões só aparecem para quem tem a permissão, e o banco recusa quem tentar sem ela, mesmo chamando a API direto: sumir da tela e ser recusado são a mesma regra vista de dois lados.",
+    veja: ["escopo", "papel", "ajuste-de-permissao", "permissao-sensivel", "rls"],
   },
   {
     id: "escopo",
     termo: "Escopo",
     categoria: "papeis",
     definicao:
-      "Até onde uma permissão alcança. “Todos” é tudo do escritório; “atribuídos” é só o que está no nome da pessoa (as tarefas e compromissos do assistente); “indicados” é só os casos que a pessoa indicou (o parceiro); “próprios” é só o que é dela (os repasses do parceiro).",
+      "Até onde uma permissão alcança. “Todos” é tudo do escritório; “atribuídos” é só o que está no nome da pessoa (as tarefas e compromissos do assistente); “indicados” é só os casos que a pessoa indicou (o parceiro); “próprios” é só o que é dela (os repasses do parceiro). Em tarefas e agenda o administrador pode mudar o alcance de uma pessoa entre “todos” e “só os atribuídos”, sem trocar o papel dela.",
     veja: ["permissao"],
+  },
+  {
+    id: "ajuste-de-permissao",
+    termo: "Ajuste de permissão",
+    sinonimos: ["permissão individual", "exceção", "permissão por pessoa"],
+    categoria: "papeis",
+    publico: "interno",
+    definicao:
+      "Uma permissão somada ou tirada de UMA pessoa, por cima do papel dela. Fica em Equipe → menu da pessoa → Permissões: a lista mostra tudo que o sistema controla, com o que o papel dá já marcado, e o administrador marca ou desmarca o que quiser. O que se guarda é só a diferença — por isso a linha ajustada aparece com a etiqueta “ajustado” e um “voltar ao papel”, e melhorar o papel mais tarde continua alcançando essa pessoa. Vale para quem tem acesso interno — a tela Equipe não lista parceiros, e o papel de parceiro não se ajusta. Quem ajusta é quem gerencia a equipe; ninguém ajusta a si mesma nem concede o que não tem; e cada mudança fica na auditoria, com o que era e o que ficou.",
+    veja: ["permissao", "permissao-sensivel", "papel", "equipe", "auditoria"],
+  },
+  {
+    id: "permissao-sensivel",
+    termo: "Permissão sensível",
+    categoria: "papeis",
+    publico: "interno",
+    definicao:
+      "As permissões que mudam o alcance da pessoa no escritório inteiro: gerenciar a equipe, configurar o escritório, ler a auditoria, mexer nas integrações, excluir cliente, excluir parceiro e emitir token do MCP. Elas aparecem marcadas na lista de permissões e, para conceder, a tela pede confirmação dizendo o que a pessoa passa a poder.",
+    veja: ["ajuste-de-permissao", "permissao", "admin"],
   },
   {
     id: "admin",
@@ -94,8 +113,8 @@ export const TERMOS: Array<Termo> = [
     categoria: "papeis",
     papel: "admin",
     definicao:
-      "Tornar alguém administrador é entregar o escritório a essa pessoa: ela convida e desliga gente, troca papéis (inclusive o seu), vê a auditoria, mexe nas integrações (IA, Google, webhooks), emite token do MCP, exclui clientes e parceiros e é quem aprova ou recusa o acesso de suporte da plataforma. Todo escritório precisa de pelo menos um administrador ativo — o sistema não deixa rebaixar nem desligar o último.",
-    veja: ["equipe", "auditoria", "acesso-suporte", "token-mcp"],
+      "Tornar alguém administrador é entregar o escritório a essa pessoa: ela convida e desliga gente, troca papéis (inclusive o seu), vê a auditoria, mexe nas integrações (IA, Google, webhooks), emite token do MCP, exclui clientes e parceiros e é quem aprova ou recusa o acesso de suporte da plataforma. Quando a ideia é dar só uma dessas coisas a alguém, não é preciso torná-la administradora: dá para conceder aquela permissão sozinha (ver ajuste de permissão). Todo escritório precisa de pelo menos uma pessoa que gerencie a equipe — o sistema não deixa tirar a última.",
+    veja: ["equipe", "ajuste-de-permissao", "auditoria", "acesso-suporte", "token-mcp"],
   },
   {
     id: "advogado",
@@ -104,8 +123,8 @@ export const TERMOS: Array<Termo> = [
     categoria: "papeis",
     papel: "advogado",
     definicao:
-      "O papel de quem toca os casos. Cria e edita clientes e casos, tarefas, agenda, documentos, andamentos e análises; lê publicações, processos e a senha do MEU INSS; usa a IA; gerencia parceiros, etiquetas e templates. Não vê Equipe, Auditoria nem integrações, e não exclui cliente nem parceiro — isso é só do administrador, porque não tem volta. É o “interno” de antes dos papéis.",
-    veja: ["assistente", "admin", "caso"],
+      "O papel de quem toca os casos. Cria e edita clientes e casos, tarefas, agenda, documentos, andamentos e análises; lê publicações, processos e a senha do MEU INSS; usa a IA; gerencia parceiros, etiquetas e templates. Não vê Equipe, Auditoria nem integrações, e não exclui cliente nem parceiro — isso é do administrador, porque não tem volta (só se ele conceder a exclusão a uma pessoa em particular). É o “interno” de antes dos papéis.",
+    veja: ["assistente", "admin", "ajuste-de-permissao", "caso"],
   },
   {
     id: "assistente",
@@ -160,8 +179,8 @@ export const TERMOS: Array<Termo> = [
     categoria: "papeis",
     publico: "interno",
     definicao:
-      "A tela (só do administrador) com quem tem acesso interno ao escritório: papel de cada um, convite com papel, “Tornar …” para trocar o papel, desligar e reativar. Parceiros ficam na tela Parceiros, não aqui.",
-    veja: ["admin", "papel", "desligar"],
+      "A tela de quem tem acesso interno ao escritório: papel de cada um, convite com papel, “Tornar …” para trocar o papel, desligar e reativar, e o painel de permissões de cada pessoa. Abre para quem gerencia a equipe — normalmente o administrador, mas essa permissão pode ser concedida a alguém sem tornar essa pessoa administradora. Parceiros ficam na tela Parceiros, não aqui.",
+    veja: ["admin", "papel", "ajuste-de-permissao", "desligar"],
   },
   {
     id: "desligar",
@@ -197,8 +216,8 @@ export const TERMOS: Array<Termo> = [
     categoria: "papeis",
     publico: "interno",
     definicao:
-      "O registro de quem fez o quê: leituras da senha do MEU INSS, ações da plataforma sobre o escritório (suspensão, troca de titular, suporte) e cada tela que uma sessão de suporte abriu. Só o administrador vê. O que a plataforma faz com o escritório fica visível para o escritório, sempre.",
-    veja: ["senha-meu-inss", "acesso-suporte", "admin"],
+      "O registro de quem fez o quê: leituras da senha do MEU INSS, ajustes de permissão (quem mexeu, em quem, o que era e o que ficou), ações da plataforma sobre o escritório (suspensão, troca de titular, suporte) e cada tela que uma sessão de suporte abriu. Vê quem tem a permissão de ler auditoria — por padrão só o administrador, mas ela pode ser concedida a uma pessoa. O que a plataforma faz com o escritório fica visível para o escritório, sempre.",
+    veja: ["senha-meu-inss", "ajuste-de-permissao", "acesso-suporte", "admin"],
   },
   {
     id: "token-mcp",
@@ -207,8 +226,8 @@ export const TERMOS: Array<Termo> = [
     categoria: "papeis",
     publico: "interno",
     definicao:
-      "A chave que deixa o Claude Desktop (ou outra ferramenta de IA) consultar o sistema em nome de uma pessoa. Só o administrador emite — para si ou para alguém do escritório, escolhido numa lista — e o token vale só naquele escritório e roda como a pessoa (ela vê pelo Claude o que vê no sistema). O dono e quem emitiu veem e revogam; se quem emitiu deixa de ser administrador, o token para.",
-    veja: ["ia", "admin"],
+      "A chave que deixa o Claude Desktop (ou outra ferramenta de IA) consultar o sistema em nome de uma pessoa. Emite quem tem a permissão de emitir token — por padrão, só o administrador — para si ou para alguém do escritório, escolhido numa lista; o token vale só naquele escritório e roda como a pessoa (ela vê pelo Claude o que vê no sistema). O dono e quem emitiu veem e revogam; se quem emitiu deixa de poder conceder — perdeu a permissão, foi rebaixado ou desligado —, o token para na hora.",
+    veja: ["ia", "admin", "permissao-sensivel"],
   },
   {
     id: "isolamento",
@@ -468,7 +487,7 @@ export const TERMOS: Array<Termo> = [
     categoria: "automacoes",
     publico: "interno",
     definicao:
-      "O escritório conecta a própria chave (Anthropic ou OpenAI) em Configurações → Integrações; a equipe usa para analisar documentos, triar andamentos, sugerir a próxima tarefa e conversar sobre o caso. Só quem tem a permissão de usar IA; parceiro não usa. A chave é do escritório e só vale nele.",
+      "O escritório conecta a própria chave (Anthropic ou OpenAI) em Configurações → Integrações; a equipe usa para analisar documentos, triar andamentos, sugerir a próxima tarefa e conversar sobre o caso. Só quem tem a permissão de usar IA; parceiro não usa. Tirar essa permissão de alguém fecha a IA de verdade: quem recusa é o servidor, não o sumiço do botão. A chave é do escritório e só vale nele.",
     veja: ["token-mcp", "analise-tecnica"],
   },
   {
@@ -603,7 +622,7 @@ export const TERMOS: Array<Termo> = [
     sinonimos: ["sessão de suporte", "suporte da plataforma"],
     categoria: "plataforma",
     definicao:
-      "O único caminho para alguém da plataforma ver o conteúdo de um escritório. A pessoa pede pelo QG, com motivo e prazo (até 72 horas); o administrador do escritório vê o aviso no topo e aprova ou recusa em Configurações → Suporte. Aprovado, o acesso é somente leitura, com uma faixa âmbar na tela, e cada tela aberta fica na auditoria do escritório. Encerra sozinho no prazo, ou antes — pelo administrador (Configurações → Suporte) ou pelo QG.",
+      "O único caminho para alguém da plataforma ver o conteúdo de um escritório. A pessoa pede pelo QG, com motivo e prazo (até 72 horas); o pedido recebe um número automático (SUP-ano-sequência) que serve para achá-lo depois na auditoria e na conversa com o escritório. O administrador vê o aviso no topo e aprova ou recusa em Configurações → Suporte. Aprovado, o acesso é somente leitura, com uma faixa âmbar na tela, e cada tela aberta fica na auditoria do escritório. Encerra sozinho no prazo, ou antes — pelo administrador (Configurações → Suporte) ou pelo QG.",
     veja: ["admin", "auditoria", "qg"],
   },
   {
@@ -709,7 +728,7 @@ export const TERMOS: Array<Termo> = [
     categoria: "plataforma",
     publico: "qg",
     definicao:
-      "O segundo fator de autenticação (código do aplicativo autenticador), obrigatório para entrar no QG em produção — quem chega sem ele cadastra o autenticador na hora. Qualquer pessoa pode ativar o seu em Configurações → Segurança; a partir daí o código é pedido depois da senha.",
+      "O segundo fator de autenticação (código do aplicativo autenticador), obrigatório para entrar no QG — quem chega sem ele cadastra o autenticador na hora, na própria tela. A exigência é uma chave no banco, ligada hoje em produção e no staging. Qualquer pessoa pode ativar o seu em Configurações → Segurança; a partir daí o código é pedido depois da senha.",
     veja: ["qg"],
   },
 
@@ -766,13 +785,23 @@ export const TERMOS: Array<Termo> = [
     veja: ["isolamento", "permissao"],
   },
   {
+    id: "gate-permissao",
+    termo: "Gate de permissão",
+    sinonimos: ["espelho de exigências", "botão que some"],
+    categoria: "tecnico",
+    publico: "interno",
+    definicao:
+      "O jeito de a tela saber o que o servidor vai aceitar. A exigência de cada escrita é declarada uma única vez, num espelho das regras do banco, e a tela pergunta a ele — nunca escreve a permissão à mão. Um conferidor automático compara o espelho com o banco e acusa sobra ou falta, para não voltar a existir botão que oferece o que o banco recusa.",
+    veja: ["rls", "permissao", "edge-function"],
+  },
+  {
     id: "edge-function",
     termo: "Edge function",
     sinonimos: ["função de servidor", "backend"],
     categoria: "tecnico",
     publico: "interno",
     definicao:
-      "Código que roda no servidor para o que o navegador não pode fazer sozinho: falar com a IA, com o Gmail, com o DJEN, enviar e-mail. Toda função começa conferindo quem chama e em qual escritório, e trabalha presa a esse escritório.",
-    veja: ["ia", "email-inss"],
+      "Código que roda no servidor para o que o navegador não pode fazer sozinho: falar com a IA, com o Gmail, com o DJEN, enviar e-mail. Toda função começa conferindo quem chama, em qual escritório e — quando a ação pede uma permissão — se quem chama tem essa permissão; daí para a frente trabalha presa a esse escritório.",
+    veja: ["ia", "gate-permissao", "email-inss"],
   },
 ];
