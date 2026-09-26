@@ -319,7 +319,8 @@ Para eles muda pouco, e é bom que saibam o pouco:
 
 1. **Publicação em dobro** (item 7).
 2. **Erro de permissão depois de clicar** num botão que a tela ofereceu (item 14).
-3. **Hora errada** em card de agenda ou perícia (item 10).
+3. **Data ou hora erradas** em prazo, agenda ou perícia (item 10).
 4. Caso que **reabriu sozinho** sem ninguém ter feito nada (item 8).
 5. Qualquer tela que abra **vazia** onde antes havia dado — isso não é papel, é
-   coisa para olhar na hora.
+   coisa para olhar na hora. Vale em dobro para a **Auditoria**: lista vazia ali
+   tem que significar "não aconteceu", nunca "você não podia ver".
