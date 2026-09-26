@@ -99,6 +99,10 @@ export const RPC: Record<string, Exigencia> = {
   escritorio_definir_marca: { permissao: "escritorio:configurar" },
   gmail_inss_status: { permissao: "integracoes:gerenciar" },
   // funções privilegiadas que passaram a conferir permissão (migration_rbac_17)
+  // ajuste de permissões por pessoa (migration_rbac_20): só quem gerencia a equipe
+  permissoes_do_membro: { permissao: "equipe:gerenciar" },
+  definir_permissao_do_membro: { permissao: "equipe:gerenciar" },
+  resetar_permissoes_do_membro: { permissao: "equipe:gerenciar" },
   aplicar_template: { permissao: "tarefas:gerenciar" },
   vincular_publicacao_dje: { permissao: "casos:editar" },
   set_senha_meu_inss: { permissao: "senha_inss:ler" },
