@@ -4,8 +4,10 @@
 // dela pelo ia-config; o MCP roda COMO essa pessoa (a sessão é dela — o último
 // login dela muda, e ia_acoes registra dono + emissor). Quem não concede não
 // emite (servidor). Quem vê/revoga: dono e emissor — outro admin do mesmo
-// escritório não vê, e o escritório 1 muito menos. Emissor rebaixado derruba
-// o token na hora. Só no banco local com o seed; limpa o que criou.
+// escritório não vê, e o escritório 1 muito menos. Emissor que deixa de poder
+// conceder derruba o token na hora — e quem PODE conceder não precisa ser
+// administrador (permissão ajustada por pessoa, migration_rbac_20/23).
+// Só no banco local com o seed; limpa o que criou.
 
 import { test, expect } from "@playwright/test";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
@@ -79,6 +81,10 @@ test.describe.serial("MCP: token para terceiro", () => {
     // advogado volta a ser advogado, se algum teste o promoveu
     const { data: a } = await admin.from("papeis").select("id").is("escritorio_id", null).eq("chave", "advogado").single();
     await admin.from("membros").update({ papel_id: a!.id }).eq("escritorio_id", ESC2).eq("usuario_id", ids.advogado);
+    // e sem ajuste individual sobrando (o teste do emissor não-admin concede um)
+    await admin.from("membro_permissoes").delete()
+      .eq("escritorio_id", ESC2)
+      .in("membro_id", (await admin.from("membros").select("id").eq("escritorio_id", ESC2).eq("usuario_id", ids.advogado)).data?.map((m) => m.id) ?? []);
   });
 
   test("admin emite para parceiro e assistente; o MCP roda como cada um", async () => {
@@ -167,6 +173,38 @@ test.describe.serial("MCP: token para terceiro", () => {
     expect((await adm.sb.rpc("definir_papel", { p_usuario_id: ids.advogado, p_papel: "advogado" })).error).toBeNull();
     const dep = await mcp(tokenAdv, "tools/call", { name: "buscar_casos", arguments: { limite: 1 } });
     expect(dep.status).toBe(403);
-    expect(JSON.stringify(dep.corpo)).toMatch(/nao e mais administrador/);
+    expect(JSON.stringify(dep.corpo)).toMatch(/nao pode mais conceder/);
+  });
+
+  // O que o conserto de 26/09 fechou: `ia-config` emite para quem tem
+  // `ia:mcp_conceder` (permissão, ajustável por pessoa) e o `ia-mcp` cobrava o
+  // PAPEL admin do emissor. As duas réguas juntas davam um token que nascia
+  // morto. Agora as duas perguntam a mesma coisa.
+  test("emissor não-admin com a permissão ajustada: o token vale — e cai quando o ajuste sai", async () => {
+    const adm = await sessao(`canario+admin@${DOM}`, ESC2);
+    // o advogado NÃO é admin; ganha só `ia:mcp_conceder`
+    expect((await adm.sb.rpc("definir_permissao_do_membro", {
+      p_usuario_id: ids.advogado, p_permissao: "ia:mcp_conceder", p_estado: "conceder",
+    })).error).toBeNull();
+
+    const adv = await sessao(`canario+advogado@${DOM}`, ESC2);
+    const { data: papelAdv } = await admin.from("membros")
+      .select("papel:papeis!inner(chave)").eq("escritorio_id", ESC2).eq("usuario_id", ids.advogado).single();
+    expect((papelAdv as { papel?: { chave?: string } })?.papel?.chave, "continua advogado").toBe("advogado");
+
+    const r = await iaConfig(adv.jwt, ESC2, { action: "token_criar", nome: `${NOME} adv concede`, usuario_id: ids.assistente, escopo: "leitura" });
+    expect(r.status, r.texto).toBe(200);
+    const token = r.json.token as string;
+    const uso = await mcp(token, "tools/call", { name: "buscar_casos", arguments: { limite: 1 } });
+    expect(uso.status, JSON.stringify(uso.corpo)).toBe(200);
+    expect(uso.erroTool, uso.texto).toBe(false);
+
+    // tirar o ajuste derruba o token na hora, como o rebaixamento
+    expect((await adm.sb.rpc("definir_permissao_do_membro", {
+      p_usuario_id: ids.advogado, p_permissao: "ia:mcp_conceder", p_estado: "papel",
+    })).error).toBeNull();
+    const dep = await mcp(token, "tools/call", { name: "buscar_casos", arguments: { limite: 1 } });
+    expect(dep.status).toBe(403);
+    expect(JSON.stringify(dep.corpo)).toMatch(/nao pode mais conceder/);
   });
 });
