@@ -14,6 +14,7 @@ import {
   UserMinus,
   UserPlus,
   Users,
+  SlidersHorizontal,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -55,6 +56,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PermissoesSheet } from "@/components/equipe/permissoes-sheet";
 
 export const Route = createFileRoute("/_authenticated/equipe")({
   component: EquipePage,
@@ -87,6 +89,8 @@ function EquipePage() {
   const isInterno = isAdmin && pode("equipe:gerenciar");
 
   const [lista, setLista] = useState<Array<InternoRow>>([]);
+  // Ajuste de permissões por pessoa (só admin; a RPC confere e audita).
+  const [permissoesDe, setPermissoesDe] = useState<InternoRow | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
@@ -473,6 +477,19 @@ function EquipePage() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                onSelect={() => setPermissoesDe(u)}
+                                disabled={souEu}
+                              >
+                                <SlidersHorizontal className="h-4 w-4" />
+                                Permissões
+                                {souEu && (
+                                  <span className="text-xs text-muted-foreground ml-1">
+                                    (não de si)
+                                  </span>
+                                )}
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
                               {u.eh_admin ? (
                                 <DropdownMenuItem
                                   disabled={souEu}
@@ -644,6 +661,23 @@ function EquipePage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* Ajuste de permissões por pessoa: a lista vem do banco e cada
+            mudança passa pela RPC, que confere as travas e audita. */}
+        <PermissoesSheet
+          pessoa={
+            permissoesDe
+              ? {
+                  id: permissoesDe.id,
+                  nome: permissoesDe.nome,
+                  email: permissoesDe.email,
+                  papel_nome: permissoesDe.papel_nome,
+                }
+              : null
+          }
+          onFechar={() => setPermissoesDe(null)}
+          onMudou={carregar}
+        />
       </ClientOnly>
     </div>
   );
