@@ -24,7 +24,7 @@
 const fs = require("fs");
 const path = require("path");
 const { ler, deslizar, clicar, tentar, narrar: narrarBase, abrirEstudio } = require("../helpers.cjs");
-const { BASE, DOM, admin, sessao, estadoNavegador, esc, esperarRota, fechar } = require("../staging.cjs");
+const { BASE, DOM, admin, sessao, estadoNavegador, esc, esperarRota, fechar, elevarComTotp } = require("../staging.cjs");
 
 // ---------- legendas (SRT) ----------
 const legendas = [];
@@ -83,6 +83,7 @@ async function painel(page, titulo, corpoHtml, ms = 5600) {
 
   // estado a desfazer no fim
   const criados = { documentos: [], tarefas: [], suporte: [] };
+  const desfazerMfa = [];
   await admin.from("membro_permissoes").delete().eq("escritorio_id", ESC);
 
   const estudio = await abrirEstudio(process.env.SAIDA || "release-para-a-equipe");
@@ -407,14 +408,21 @@ async function painel(page, titulo, corpoHtml, ms = 5600) {
       await cartao(p, "8 · Se alguém da plataforma pedir acesso",
         "Existe um caminho formal, com número, prazo e registro. Pedido que chega por WhatsApp não existe.");
       await tentar("o pedido de suporte", async () => {
-        // a coluna é `staff_id` (quem pede é gente do QG, não do escritório)
-        const { data: staff } = await admin.from("plataforma_staff").select("usuario_id").limit(1).maybeSingle();
-        const { data: pedido, error } = await admin.from("acessos_suporte").insert({
-          escritorio_id: ESC, staff_id: staff?.usuario_id ?? carla.id,
-          motivo: "Conferir por que o e-mail de aviso ao parceiro não saiu no caso 4821.",
-          horas: 24, escopo: "leitura", status: "pendente",
-        }).select("id, ticket").single();
-        if (error) throw new Error(error.message);
+        // O pedido nasce pelo caminho de verdade: gente do QG, pela RPC, com o
+        // segundo fator. Insert direto não serve — o número do ticket vem de
+        // `private.novo_ticket_suporte()`, que o service_role não executa (é
+        // exatamente a trava que faz o número ser confiável).
+        const qg = await sessao(`qg+suporte@${DOM}`);
+        const baixarAal2 = await elevarComTotp(qg.sb);
+        desfazerMfa.push(baixarAal2);
+        const r = await qg.sb.rpc("qg_suporte_solicitar", {
+          p_escritorio_id: ESC,
+          p_motivo: "Conferir por que o e-mail de aviso ao parceiro não saiu no caso 4821.",
+          p_horas: 24,
+          p_break_glass: false,
+        });
+        if (r.error) throw new Error(r.error.message);
+        const pedido = Array.isArray(r.data) ? r.data[0] : r.data;
         criados.suporte.push(pedido.id);
 
         await p.goto(`${BASE}/configuracoes?tab=suporte`);
@@ -478,6 +486,7 @@ async function painel(page, titulo, corpoHtml, ms = 5600) {
     await passo("tarefas excluídas (rastro)", () => admin.from("tarefas_excluidas").delete().like("titulo", "[Filme]%"));
     for (const id of criados.documentos) await passo("documento", () => admin.from("documentos").delete().eq("id", id));
     for (const id of criados.suporte) await passo("pedido de suporte", () => admin.from("acessos_suporte").delete().eq("id", id));
+    for (const f of desfazerMfa) await passo("autenticador descartável do QG", f);
 
     const clipes = await estudio.encerrar();
     fs.writeFileSync(path.join(estudio.saida, "legendas.json"), JSON.stringify({ legendas }, null, 2));
