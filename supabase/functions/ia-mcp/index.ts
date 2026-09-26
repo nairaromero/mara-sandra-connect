@@ -155,31 +155,51 @@ serve(async (req) => {
   // as migrations; aí vale a checagem antiga.)
   // #385: o token pode ter sido emitido por um admin para OUTRA pessoa. Regra:
   // dono com vinculo ativo no escritorio do token (qualquer papel — a RLS dele
-  // decide o que ve) E emissor ainda admin ativo la (emissor rebaixado ou
-  // desligado derruba o token na hora). Token antigo sem emissor = emitido
-  // para si mesmo, entao o dono tem que seguir admin, como antes.
+  // decide o que ve) E emissor que AINDA PODE CONCEDER acesso ao MCP (emissor
+  // que perdeu a permissao ou foi desligado derruba o token na hora). Token
+  // antigo sem emissor = emitido para si mesmo, entao a regra recai sobre o dono.
+  //
+  // "Pode conceder" e a permissao `ia:mcp_conceder` efetiva — a mesma coisa que
+  // `ia-config` exige para emitir (nao o papel 'admin'). Eram duas reguas ate
+  // 26/09: com as permissoes por pessoa (migration_rbac_20) `ia:mcp_conceder`
+  // virou ajustavel, entao concede-la a quem nao e admin gerava token que
+  // nascia morto. Quem responde e `membro_pode` (migration_rbac_23), que le
+  // `private.permissoes_efetivas` — mesma fonte de `tem_permissao`.
   const escritorioDoToken = (tok as { escritorio_id?: string | null }).escritorio_id ?? null;
   const emissorId = ((tok as { emitido_por?: string | null }).emitido_por ?? tok.usuario_id) as string;
   let tipo: "interno" | "parceiro" = perfil.tipo === "interno" ? "interno" : "parceiro";
   if (escritorioDoToken) {
     const { data: vincs, error: vincErr } = await admin
       .from("membros")
-      .select("usuario_id, status, papel:papeis!inner(chave, tipo_acesso), escritorio:escritorios!inner(status)")
+      .select("id, usuario_id, status, papel:papeis!inner(chave, tipo_acesso), escritorio:escritorios!inner(status)")
       .eq("escritorio_id", escritorioDoToken)
       .in("usuario_id", [...new Set([tok.usuario_id as string, emissorId])]);
     if (vincErr) {
       console.error("ia-mcp: vinculos do token", vincErr);
       return httpJson({ error: "falha ao validar o token, tente de novo" }, 503);
     }
-    type V = { usuario_id: string; status?: string; papel?: { chave?: string; tipo_acesso?: string }; escritorio?: { status?: string } };
+    type V = { id: string; usuario_id: string; status?: string; papel?: { chave?: string; tipo_acesso?: string }; escritorio?: { status?: string } };
     const lista = (vincs ?? []) as Array<V>;
     const dono = lista.find((v) => v.usuario_id === tok.usuario_id);
     const emissor = lista.find((v) => v.usuario_id === emissorId);
     if (!dono || dono.status !== "ativo" || dono.escritorio?.status !== "ativo") {
       return httpJson({ error: "usuario desativado" }, 403);
     }
-    if (!emissor || emissor.status !== "ativo" || emissor.papel?.chave !== "admin") {
-      return httpJson({ error: "quem emitiu este token nao e mais administrador" }, 403);
+    if (!emissor || emissor.status !== "ativo") {
+      return httpJson({ error: "quem emitiu este token nao esta mais no escritorio" }, 403);
+    }
+    const { data: podeConceder, error: permErr } = await admin.rpc("membro_pode", {
+      p_membro_id: emissor.id,
+      p_permissao: "ia:mcp_conceder",
+    });
+    // Erro de banco nao e recusa: 503 para o cliente tentar de novo (o 403 aqui
+    // derrubaria uma conexao valida do Claude Desktop).
+    if (permErr) {
+      console.error("ia-mcp: permissao do emissor", permErr);
+      return httpJson({ error: "falha ao validar o token, tente de novo" }, 503);
+    }
+    if (podeConceder !== true) {
+      return httpJson({ error: "quem emitiu este token nao pode mais conceder acesso ao MCP" }, 403);
     }
     tipo = dono.papel?.tipo_acesso === "parceiro" ? "parceiro" : "interno";
   } else if (perfil.eh_admin !== true) {
