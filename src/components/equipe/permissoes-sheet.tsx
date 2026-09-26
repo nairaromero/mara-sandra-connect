@@ -36,6 +36,20 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { supabase } from "@/lib/supabase";
+import { ESCRITA } from "@/lib/rbac/exigencias";
+
+/**
+ * Permissões em que o escopo muda o resultado: são as que alguma policy cobra
+ * com o ramo "próprio" (hoje tarefas e agenda). A lista sai do espelho
+ * (src/lib/rbac/exigencias.ts), que o verificador confere contra o banco — não
+ * de uma lista escrita aqui, que sairia do lugar em silêncio.
+ */
+const COM_ESCOPO = new Set(
+  Object.values(ESCRITA)
+    .flatMap((linha) => [linha.todas, linha.inserir, linha.atualizar, linha.excluir])
+    .filter((e) => e?.proprio)
+    .map((e) => e!.permissao),
+);
 
 interface LinhaPermissao {
   permissao: string;
@@ -100,6 +114,26 @@ export function PermissoesSheet({ pessoa, onFechar, onMudou }: Props) {
       estado === "papel"
         ? `${l.permissao}: de volta ao papel`
         : `${l.permissao}: ${marcar ? "concedida" : "removida"} para ${pessoa.nome ?? "a pessoa"}`,
+    );
+    await carregar();
+    onMudou();
+  }
+
+  // Trocar o alcance é o mesmo ajuste, com escopo: conceder a permissão com o
+  // escopo escolhido. Voltar ao alcance do papel é "voltar ao papel".
+  async function mudarEscopo(l: LinhaPermissao, escopo: string) {
+    if (!pessoa || escopo === (l.escopo ?? "todos")) return;
+    setSalvando(l.permissao);
+    const { error } = await supabase.rpc("definir_permissao_do_membro", {
+      p_usuario_id: pessoa.id,
+      p_permissao: l.permissao,
+      p_estado: "conceder",
+      p_escopo: escopo,
+    });
+    setSalvando(null);
+    if (error) return toast.error(error.message);
+    toast.success(
+      `${l.permissao}: ${escopo === "todos" ? "todos do escritório" : "só os atribuídos"}`,
     );
     await carregar();
     onMudou();
@@ -174,6 +208,19 @@ export function PermissoesSheet({ pessoa, onFechar, onMudou }: Props) {
                                 <ShieldAlert className="h-3 w-3 mr-0.5" />
                                 sensível
                               </Badge>
+                            )}
+                            {l.tem && COM_ESCOPO.has(l.permissao) && (
+                              <select
+                                className="h-6 rounded border bg-background px-1 text-[11px]"
+                                value={l.escopo ?? "todos"}
+                                aria-label={`Alcance de ${l.permissao}`}
+                                data-escopo={l.permissao}
+                                disabled={salvando === l.permissao}
+                                onChange={(ev) => void mudarEscopo(l, ev.target.value)}
+                              >
+                                <option value="todos">todos do escritório</option>
+                                <option value="atribuidos">só os atribuídos a ela</option>
+                              </select>
                             )}
                             {l.ajustada && (
                               <>

@@ -4,8 +4,29 @@
 pessoa, vê o papel dela e uma lista de caixas com tudo que ela pode e não pode, e então marca ou
 desmarca permissões individualmente.
 
-**Estado:** plano. Nada implementado. Este documento é para você aprovar, cortar ou corrigir
-antes de eu escrever qualquer código.
+**Estado:** implementado em 25-26/09/2026 (PR #399), com as quatro decisões da Naira:
+a tela mora em `/equipe`, só quem gerencia a equipe ajusta, ninguém concede o que não tem, e
+**tudo é auditável**. As migrations são a 20 (modelo, RPCs e tela), a 21 e a 22 — estas duas
+vieram da análise de raio, abaixo.
+
+## 0. Análise de raio (26/09): o que a mudança tocou e o que faltava
+
+Três buracos apareceram ao medir o alcance. Os três estão fechados.
+
+| Achado | Por que importava | Como ficou |
+|---|---|---|
+| **As edge functions não viam o ajuste.** `meu_contexto()` montava a lista de permissões direto de `papel_permissoes` | O pior sentido é o de segurança: tirar `ia:usar` de alguém NÃO impedia essa pessoa de chamar `ia-assistant` e as outras — provado no banco local. No sentido inverso, conceder `parceiros:excluir` não fazia a function aceitar | `migration_rbac_21`: o contexto passa a ler `private.permissoes_efetivas`, a mesma fonte de `tem_permissao`. Reprovado o teste e o 403 aparece |
+| **Trocar de papel deixava ajuste órfão** | O ajuste é uma diferença em relação a UM papel; sobrevivendo à troca, vira surpresa que ninguém explica | `migration_rbac_22`: `definir_papel` desfaz os ajustes da pessoa, e isso entra na auditoria da troca |
+| **`/equipe` e `/auditoria` exigiam ser admin** | Conceder `equipe:gerenciar` a um advogado abria o banco e mantinha a tela fechada: o servidor deixa e a tela nega, que é a classe de defeito da auditoria de 24/09 ao contrário | As duas telas passam a exigir a PERMISSÃO (`equipe:gerenciar`, `auditoria:ler`), sem somar `isAdmin` |
+
+Também entraram os dois itens do plano que tinham ficado de fora: a tela relê as permissões
+quando a aba volta ao foco (o ajuste vale sem sair e entrar) e o alcance (`todos` x
+`só os atribuídos`) tem seletor nas permissões que o banco cobra com escopo — a lista sai do
+espelho, não de uma matriz escrita à mão.
+
+Conferido e sem sobra: o espelho bate com o banco, a tabela nova entra no espelho semanal como
+as demais de escritório, e nenhuma outra função do banco lê `papel_permissoes` para decidir
+acesso.
 
 ---
 

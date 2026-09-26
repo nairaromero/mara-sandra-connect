@@ -82,11 +82,14 @@ interface PapelInterno {
 }
 
 function EquipePage() {
-  const { usuario, isAdmin, escritorio, pode } = useAuth();
+  const { usuario, escritorio, pode } = useAuth();
   // Só admin (Naira/Mara) entra aqui. Os demais internos nem veem o item
   // na sidebar; se caírem pela URL, levam aviso + redirect.
-  // a página inteira é de quem gerencia a equipe (RPCs exigem equipe:gerenciar)
-  const isInterno = isAdmin && pode("equipe:gerenciar");
+  // A página é de quem GERENCIA A EQUIPE — a mesma permissão que as RPCs
+  // exigem. Não se soma `isAdmin`: desde os ajustes por pessoa
+  // (migration_rbac_20) um não-admin pode receber `equipe:gerenciar`, e a tela
+  // tem de abrir para ele, senão o servidor deixa e a tela nega.
+  const isInterno = pode("equipe:gerenciar");
 
   const [lista, setLista] = useState<Array<InternoRow>>([]);
   // Ajuste de permissões por pessoa (só admin; a RPC confere e audita).
