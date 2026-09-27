@@ -70,6 +70,11 @@ node scripts/msc-sql.mjs --local --file planning/sql-migrations/migration_x.sql
 2. Crio branch `feat/x` saindo de `staging` e rodo `bun run local:copiar`.
 3. Commit, push, abro PR `feat/x → staging` com `Closes #N` (o card) no corpo.
 4. Naira valida (em staging.marasandraconnect.com, com a conta do papel certo, ou local) e merge.
+   Antes de chamar a Naira, a parte que a máquina responde: `bun run e2e:staging` (suíte contra
+   o staging) e `node e2e/demo/roteiros/conferencia-lote-staging.cjs` (um item por card da coluna
+   "Validar no staging", com still e veredito; escreve só no Canário e devolve tudo no fim).
+   A conferência responde "funciona como está escrito" — se o comportamento é o certo continua
+   sendo julgamento dela.
 5. Quando um lote estiver validado: Naira merge `staging → main` → deploy prod.
    O PR de release abre **com o label `release`**
    (`gh pr create --base main --head staging --label release`) — assim ele fica fora do board.
@@ -237,7 +242,11 @@ no lote de agosto: **sempre olhar se nada quebrou no meio do caminho.**
    - dedup/anti-spam largo demais engolindo o 2º evento legítimo;
    - migration re-rodável desfazendo estado intencional (ex.: `oculto_na_ui`);
    - matching amplo demais (`like '%_aviso'` concluiu tarefa errada);
-   - chamada externa (IA/HTTP) sem timeout.
+   - chamada externa (IA/HTTP) sem timeout;
+   - limpeza de spec só-local escrevendo no banco errado: `test.skip(!ENV.local)` pula
+     os testes, o `afterAll` roda mesmo assim, e a suíte aponta para o STAGING em
+     `e2e:staging` — use `limpezaLocal` (`e2e/rbac.ts`); `bun test
+     e2e/unit/limpeza-por-ambiente.test.ts` é a régua.
 4. Depois de subir, conferir o que roda **de verdade**: logs da edge function,
    `cron.job_run_details`, respostas do pg_net, dado esperado no banco.
    Deploy verde ≠ funcionando.
