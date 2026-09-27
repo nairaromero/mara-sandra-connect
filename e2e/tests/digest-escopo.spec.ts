@@ -16,7 +16,7 @@
 import { test, expect } from "@playwright/test";
 import { ENV } from "../env";
 import { adminClient } from "../supabase-admin";
-import { chamadorComo, contaDoCanario, contaPadrao, escritorioCanario, escritorioPadrao } from "../rbac";
+import { chamadorComo, contaDoCanario, contaPadrao, escritorioCanario, escritorioPadrao, limpezaLocal } from "../rbac";
 
 const admin = adminClient();
 const AQUI = "[E2E digest CANARIO]";
@@ -80,7 +80,7 @@ test.describe.serial("resumo do dia: escopo do escritório", () => {
     await plantar(ESC1, LA);
   });
 
-  test.afterAll(limpar);
+  test.afterAll(limpezaLocal(limpar));
 
   test("o resumo do Canário mostra o do Canário e nada do outro escritório", async () => {
     const chamar = await chamadorComo(contaDoCanario("admin"), ESC);
