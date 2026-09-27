@@ -47,8 +47,12 @@ const policies = sql(`
 //   tem_permissao('x:y','todos') OR (tem_permissao('x:y','atribuidos') AND col = auth.uid())
 // Ler só o primeiro `tem_permissao(...)` (como este script fazia) faz a segunda
 // parecer "exige escopo todos" — foi assim que o espelho nasceu errado em 24/09.
+// O segundo argumento é OPCIONAL: `tem_permissao('x:y')` (a forma da
+// migration_rbac_18 e da 27) renderiza sem ele, e a regex antiga exigia a
+// vírgula — então essas policies eram PULADAS em silêncio, e "não conferido"
+// ficava com a cara de "conferido". Pego em 27/09.
 function lerRegra(regra) {
-  const perms = [...regra.matchAll(/tem_permissao\('([a-z_:]+)'::text, *(?:'([a-z]+)'::text|NULL)/g)]
+  const perms = [...regra.matchAll(/tem_permissao\('([a-z_:]+)'::text(?:, *(?:'([a-z]+)'::text|NULL))?/g)]
     .map((m) => ({ permissao: m[1], escopo: m[2] ?? null }));
   if (perms.length === 0) return null;
   const permissao = perms[0].permissao;
@@ -119,9 +123,17 @@ function frontMapa(nome) {
 
 // ---------- comparação ----------
 const problemas = [];
+let puladas = 0;
 for (const p of policies) {
   const banco = lerRegra(p.regra);
-  if (!banco) continue; // policy perm_* sem tem_permissao: nada a espelhar
+  if (!banco) {
+    // Nunca em silêncio: policy `perm_*` que este script não consegue LER é
+    // policy não conferida, e foi assim que a forma de um argumento passou
+    // batida. Some do número e aparece na saída.
+    puladas++;
+    problemas.push(`NÃO CONSEGUI LER: policy perm_* de ${p.tabela}.${p.cmd} — regra: ${p.regra.slice(0, 80)}`);
+    continue;
+  }
   const f = frontEscrita(p.tabela, p.cmd);
   if (!f) { problemas.push(`FALTA no front: ${p.tabela}.${p.cmd} exige ${banco.permissao}`); continue; }
   if (f.permissao !== banco.permissao) {
@@ -195,6 +207,58 @@ for (const f of DEVEM_AUDITAR) {
   if (!mapaAudita[f]) problemas.push(`NÃO AUDITA: ${f} muda acesso/apaga dado e não chama private.auditar`);
 }
 
+// ---------- o ponto cego: escrita fora do modelo de permissão ----------
+// O espelho só compara tabelas que JÁ têm policy `perm_*` de escrita. Tabela
+// cuja escrita ficou na policy antiga (`is_interno()`) é invisível para ele — foi
+// assim que `analises_tecnicas` deixou o financeiro gravar análise técnica até
+// 27/09, quando a spec `rbac-matriz-por-papel` pegou.
+//
+// Aqui a pergunta é outra: existe tabela com escrita permitida a `authenticated`
+// SEM nenhuma policy restritiva que cobre permissão? Se existir e não estiver na
+// lista abaixo, é candidata a furo.
+const ESCRITA_SEM_PERMISSAO_OK = {
+  comentarios: "colaboração comum; o delete já é do autor ou admin (rbac_16)",
+  conversa_leitura: "marcador de leitura por pessoa",
+  notificacao_dispensada: "marcador por pessoa",
+  notificacoes: "criadas pelo sistema; delete só da própria (rbac_16)",
+  mensagens: "conversa do caso; entrada pelo sistema",
+  usuarios: "privilégios guardados por gatilho (migration_usuarios_guard_privilegios)",
+  webhook_config: "admin por papel, módulo 'Em breve' (rbac_18)",
+  webhook_destinos: "idem; escrita revogada de authenticated",
+  repasses: "não existe permissão de escrita no modelo (só repasses:ler) — decisão de produto pendente",
+  contratos_parceria: "nenhum código escreve nela hoje — decisão pendente",
+};
+const semTrava = sql(`
+  with alvo as (
+    select c.oid, c.relname::text as tabela
+      from pg_class c join pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'public' and c.relkind = 'r'
+       and exists (select 1 from pg_policy p where p.polrelid = c.oid and p.polpermissive
+                     and p.polcmd::text in ('a','w','d','*'))
+  ),
+  restritiva as (
+    select p.polrelid,
+           bool_or(coalesce(pg_get_expr(p.polwithcheck, p.polrelid),
+                            pg_get_expr(p.polqual, p.polrelid)) like '%tem_permissao%') as com_permissao
+      from pg_policy p
+     where not p.polpermissive and p.polcmd::text in ('a','w','d','*')
+     group by 1
+  )
+  select a.tabela from alvo a
+    left join restritiva r on r.polrelid = a.oid
+   where coalesce(r.com_permissao, false) = false
+   order by 1`);
+for (const { tabela } of semTrava) {
+  if (!(tabela in ESCRITA_SEM_PERMISSAO_OK)) {
+    problemas.push(`ESCRITA SEM PERMISSÃO: ${tabela} aceita escrita de authenticated sem policy restritiva de permissão`);
+  }
+}
+for (const t of Object.keys(ESCRITA_SEM_PERMISSAO_OK)) {
+  if (!semTrava.some((x) => x.tabela === t) && sql(`select 1 as x from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='${t}'`).length) {
+    problemas.push(`SOBRA na lista: ${t} já tem trava de permissão na escrita — tire da lista ESCRITA_SEM_PERMISSAO_OK`);
+  }
+}
+
 // edge functions que mudam acesso ou identidade e têm de auditar elas mesmas
 // (o banco não as vê: a trilha é um insert em `auditoria` no código delas).
 const FN_DEVEM_AUDITAR = {
@@ -233,10 +297,11 @@ for (const [origem, trilha] of TRILHAS) {
 }
 
 console.log(`espelho x banco — alvo: ${alvo}`);
-console.log(`  policies de escrita conferidas: ${policies.length}`);
+console.log(`  policies de escrita conferidas: ${policies.length - puladas}${puladas ? ` (${puladas} ILEGÍVEIS)` : ""}`);
 console.log(`  RPCs com permissão: ${Object.keys(rpcBanco).length}`);
 console.log(`  functions com permissão: ${Object.keys(fnFront).length}`);
 console.log(`  funções que devem auditar: ${conferidasAudita} no banco + ${conferidasFnAudita} edge`);
+console.log(`  tabelas com escrita fora do modelo de permissão: ${semTrava.length} (${Object.keys(ESCRITA_SEM_PERMISSAO_OK).length} previstas)`);
 if (problemas.length === 0) {
   console.log("\nOK: o espelho do front bate com o servidor, e quem muda acesso audita.");
   process.exit(0);

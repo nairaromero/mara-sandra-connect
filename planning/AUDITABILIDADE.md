@@ -149,6 +149,68 @@ em série.)
 
 ---
 
+## 3b. O que a varredura de cobertura de testes achou depois (27/09)
+
+Fechar os gaps não bastava: faltava teste que os mantivesse fechados. Cruzando a
+superfície do RBAC (26 permissões, 22 tabelas com policy `perm_*`, 16 RPCs) com
+o que as specs exercitavam, apareceram três coisas — e duas delas eram furo, não
+falta de teste.
+
+### Furo 1 · `analises_tecnicas` aceitava escrita de qualquer interno
+
+A tabela tinha policy de permissão **só para SELECT** (`perm_analises_ler_select`,
+sobre `analises:ler`); a escrita continuava em `analises_modify` com
+`is_interno()`. O **financeiro gravava análise técnica** — e o comunicado à
+equipe diz, com estas palavras, que ele "não cria nem edita nada do trabalho
+jurídico". Classe inversa pura, sobrevivente da varredura de 24/09.
+
+`migration_rbac_27` passa a exigir `casos:editar`, como em `andamentos` e
+`solicitacoes_documento`.
+
+### Furo 2 · `usuario_gmail_oauth`: a tela exigia mais que o banco
+
+O card do Gmail do INSS só aparece para quem tem `integracoes:gerenciar`
+(`integracao-gmail-card.tsx:112`), e o banco deixava **qualquer interno** apagar
+a conexão da caixa. Mesma migration, agora exigindo a permissão da tela.
+
+### O ponto cego que deixou os dois passarem
+
+O conferidor comparava só as tabelas que **já tinham** policy `perm_*` de
+escrita — tabela cuja escrita ficou na policy antiga era invisível para ele.
+Ganhou a pergunta inversa: *existe tabela com escrita liberada a `authenticated`
+sem policy restritiva de permissão?* As dez que existem hoje estão numa lista
+com o motivo de cada uma; a décima primeira que aparecer vira divergência.
+
+E, pior que o ponto cego, um **falso verde**: a regex que lê a regra da policy
+exigia o segundo argumento de `tem_permissao`, então toda policy escrita na
+forma de um argumento — as da `migration_rbac_18` e as da `27` — era **pulada em
+silêncio**. "Não conferido" tinha a cara de "conferido". Agora a regex aceita as
+duas formas e policy ilegível vira divergência, com o texto da regra na saída.
+
+### Duas inconsistências latentes, anotadas e não consertadas
+
+Nenhuma é furo — as duas falham fechadas —, mas explicam leitura de matriz:
+
+- **`publicacoes:ler` do parceiro**: a matriz concede, e a permissiva da tabela
+  é `is_interno()`. O parceiro não lê `publicacoes_dje`; o que chega a ele vem
+  por outro caminho. Ou a linha da matriz é vestigial, ou falta o caminho.
+- **`repasses` e `contratos_parceria`**: escrita sem permissão no modelo. Para
+  `repasses` só existe `repasses:ler` — criar `repasses:gerenciar` é decisão de
+  produto. `contratos_parceria` não é escrita por nenhum código hoje.
+
+### A cobertura que passou a existir
+
+| spec | o que garante |
+|---|---|
+| `rbac-auditoria-trilhas` | as seis trilhas da `rbac_25`/`26`, e que a trilha do desligamento sobrevive à reativação que apaga o `desativado_por` da linha; cobre `desligar_parceiro`, `reativar_parceiro` e `reativar_interno`, que nenhuma spec exercitava |
+| `rbac-ia-servidor` | as **seis** functions de IA recusam quem não tem `ia:usar` (antes só `ia-analise` era testada), e tirar a permissão de uma pessoa fecha as seis na hora |
+| `rbac-matriz-por-papel` | escrita e leitura das quatro tabelas que nenhum teste tocava e das sete permissões nunca afirmadas, com a régua lida de `papel_permissoes` em tempo de teste |
+
+As três foram provadas por sabotagem: tirar o `auditar` do `definir_papel`, ou a
+exigência de `ia:usar` da `ia-assistant`, deixa a spec vermelha.
+
+---
+
 ## 4. O que não é gap, e por quê
 
 - **Leitura de caso, cliente, documento**: por decisão de escopo. Auditar toda
