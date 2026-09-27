@@ -53,8 +53,10 @@ import { ehTokenJudicial, processoDoToken, tokenDoProcesso } from "@/lib/process
 import { calcularDueAtRelativo } from "@/lib/agenda/helpers";
 import {
   comoLocalBR,
+  dataHoraBR,
   deLocalBR,
   formatarBR,
+  horaBR,
   hojeChaveBR,
   inputDateTimeBRParaIso,
   isoParaInputDateTimeBR,
@@ -575,14 +577,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
         if (!pularAvisos) {
           const avisos: string[] = [];
           if (new Date(startIso).getTime() < Date.now()) {
-            const quando = new Date(startIso).toLocaleString("pt-BR", {
-              day: "2-digit",
-              month: "2-digit",
-              year: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-              timeZone: "America/Sao_Paulo",
-            });
+            const quando = dataHoraBR(startIso);
             avisos.push(
               `A data do agendamento (${quando}) JÁ PASSOU — o evento não aparece entre os próximos.`,
             );
@@ -590,11 +585,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
           if (casoId) {
             const jaExiste = await buscarEventoMesmoDia(casoId, tipo, startIso);
             if (jaExiste) {
-              const hora = new Date(jaExiste.start_at).toLocaleTimeString("pt-BR", {
-                hour: "2-digit",
-                minute: "2-digit",
-                timeZone: "America/Sao_Paulo",
-              });
+              const hora = horaBR(jaExiste.start_at);
               avisos.push(
                 `Este cliente já tem ${TIPO_LABEL[tipo].toLowerCase()} neste dia (às ${hora}).`,
               );
