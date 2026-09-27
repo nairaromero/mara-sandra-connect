@@ -216,8 +216,8 @@ export const TERMOS: Array<Termo> = [
     categoria: "papeis",
     publico: "interno",
     definicao:
-      "O registro de quem fez o quê: leituras da senha do MEU INSS, ajustes de permissão (quem mexeu, em quem, o que era e o que ficou), ações da plataforma sobre o escritório (suspensão, troca de titular, suporte) e cada tela que uma sessão de suporte abriu. Vê quem tem a permissão de ler auditoria — por padrão só o administrador, mas ela pode ser concedida a uma pessoa. O que a plataforma faz com o escritório fica visível para o escritório, sempre.",
-    veja: ["senha-meu-inss", "ajuste-de-permissao", "acesso-suporte", "admin"],
+      "O registro de quem fez o quê. Em cima da tela, os acessos à senha do MEU INSS (leitura, escrita e remoção). Embaixo, na Trilha do escritório: quem mudou o acesso de quem — ajuste de permissão, troca de papel, desligamento e reativação, convite —, o que foi apagado sem volta (cliente, parceiro), a troca de e-mail de login de um parceiro, as integrações salvas, e tudo que a plataforma ou uma sessão de suporte fez aqui, com cada tela que o suporte abriu. Sempre com o antes e o depois, quando há os dois. Vê quem tem a permissão de ler auditoria — por padrão só o administrador, mas ela pode ser concedida a uma pessoa. Lista vazia aqui significa “não aconteceu”, nunca “você não podia ver”.",
+    veja: ["senha-meu-inss", "ajuste-de-permissao", "documento-apagado", "acesso-suporte", "admin"],
   },
   {
     id: "token-mcp",
@@ -318,6 +318,16 @@ export const TERMOS: Array<Termo> = [
     definicao:
       "Um arquivo do caso, com tipo (CNIS, PPP, CTPS, laudo médico, procuração, contrato…). Sobe pelo sistema ou pela pasta do Google Drive espelhada. Pode ser marcado como visível ao parceiro. Só o parceiro do caso e a equipe alcançam o arquivo, e só dentro do escritório.",
     veja: ["solicitacao-documento", "google-drive", "visivel-parceiro"],
+  },
+  {
+    id: "documento-apagado",
+    termo: "Documento ou andamento apagado",
+    sinonimos: ["apagou sem querer", "sumiu do caso"],
+    categoria: "casos",
+    publico: "interno",
+    definicao:
+      "Apagar documento ou andamento deixa rastro: o sistema guarda a linha inteira, com quem apagou e quando, do mesmo jeito que já guardava a tarefa excluída. Serve para responder “estava aqui ontem” e para ver se alguém apagou andamento para limpar a linha do tempo de um caso. O arquivo em si não volta — o que fica é o registro do que era e de quem apagou.",
+    veja: ["documento", "andamento", "auditoria", "tarefa"],
   },
   {
     id: "solicitacao-documento",

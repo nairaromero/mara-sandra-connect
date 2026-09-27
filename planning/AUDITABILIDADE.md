@@ -3,9 +3,11 @@
 Escrito em 27/09/2026, depois de achar que trocar o papel de alguém não deixava
 rastro nenhum. A pergunta da Naira: **ainda existem gaps?**
 
-**Resposta curta: sim, três que valem fechar, e eles não são de acesso — são de
-destruição de dado e de troca de e-mail de login.** O que era de acesso ficou
-fechado pela `migration_rbac_25`.
+**Resposta em 27/09, depois de fechar tudo: não sobrou gap conhecido.** A
+varredura achou cinco, todos fechados no mesmo dia — os de acesso pela
+`migration_rbac_25`, os de destruição de dado pela `migration_rbac_26`, e os de
+identidade nas três edge functions. O `scripts/rbac-conferir-exigencias.mjs`
+passou a conferir isso sozinho, para não reabrir calado.
 
 ---
 
@@ -59,14 +61,20 @@ reativar alguém apagava o único rastro de que houve desligamento.
 | Gravar/alterar a senha | `acessos_senha_inss` (`escrita`), inclusive quando vem do pedido ao parceiro (`cumprir_troca_senha_meu_inss` delega para `set_senha_meu_inss`) |
 | Remover a senha (na exclusão do cliente) | `acessos_senha_inss` (`escrita_remocao`) |
 
-### 2.3 Destruição de dado — **um fechado, dois em aberto**
+### 2.3 Destruição de dado — **fechado**
 
-| Ação | Onde | Situação |
-|---|---|---|
-| Excluir **tarefa** | `tarefas_excluidas`, com motivo obrigatório | ok |
-| Excluir **cliente** (leva casos, documentos, andamentos, processos, repasses e conversas) | `auditoria` · `cliente.excluido` (nome + nº de casos) — **`rbac_25`** | ok |
-| Excluir **documento** | — | **GAP 1** |
-| Excluir **andamento** | — | **GAP 2** |
+| Ação | Onde |
+|---|---|
+| Excluir **tarefa** | `tarefas_excluidas`, com motivo obrigatório |
+| Excluir **cliente** (leva casos, documentos, andamentos, processos, repasses e conversas) | `auditoria` · `cliente.excluido` (nome + nº de casos) — `rbac_25` |
+| Excluir **documento** | `documentos_excluidos` (linha inteira, quem apagou, quando) — **`rbac_26`** |
+| Excluir **andamento** | `andamentos_excluidos` (idem) — **`rbac_26`** |
+
+As duas trilhas novas são **gatilho `before delete`**, não RPC: a exclusão passa
+direto pela RLS (`documentos:excluir`, `casos:editar`), sem função no meio, e o
+gatilho pega todo caminho — tela, API e a cascata do `excluir_cliente`. A trilha
+nunca impede o delete: se a gravação falhar, o aviso vai para o log e o trabalho
+segue.
 
 ### 2.4 Integrações, tokens e sessão
 
@@ -75,63 +83,69 @@ reativar alguém apagava o único rastro de que houve desligamento.
 | Salvar/testar credencial de integração | `auditoria` (`integracao.salvar`, `integracao.testar`) — pela edge `integracoes-escritorio` | ok |
 | Emitir/revogar token do MCP | `ia_tokens` (`usuario_id`, `emitido_por`, `criado_em`, `revogado_em`) | aceitável: a própria linha conta a história inteira |
 | Ligar/desligar 2FA | `auth.audit_log_entries` (trilha do Supabase) | aceitável: é fora da nossa trilha, mas existe |
-| Convidar pessoa (interno ou parceiro) | `membros.convidado_por` | **GAP 3**, parcial |
-| **Trocar o e-mail de login de um parceiro** (`update-parceiro`) | — | **GAP 4** |
-| Excluir parceiro (edge `excluir-parceiro`) | — | **GAP 5** |
+| Convidar pessoa (interno ou parceiro) | `auditoria` · `equipe.convidado` / `parceiro.convidado` — **27/09** (antes: só `membros.convidado_por`) | ok |
+| **Trocar o e-mail de login de um parceiro** (`update-parceiro`) | `auditoria` · `parceiro.email_alterado` (de → para) — **27/09** | ok |
+| Excluir parceiro (edge `excluir-parceiro`) | `auditoria` · `parceiro.excluido` (nome, casos desvinculados, outros vínculos) — **27/09** | ok |
 
 ---
 
-## 3. Os gaps que sobram, em ordem de quanto doem
+## 3. Os cinco gaps, e como cada um foi fechado
 
-### GAP 4 · Trocar o e-mail de login de um parceiro — o mais grave
+Ordem de quanto doíam. Todos fechados em 27/09, no mesmo dia em que a varredura
+os encontrou.
+
+### 1 · Trocar o e-mail de login de um parceiro — era o mais grave
 
 `update-parceiro` troca o e-mail em `auth.users` com `email_confirm: true` e
 manda o magic link para o **endereço novo**. Foi exatamente o abuso demonstrado
-no staging em 20/09 que fez a função virar admin-only. E **essa ação não deixa
-rastro nenhum**: nem na trilha, nem numa coluna.
+no staging em 20/09 que fez a função virar admin-only. E não deixava rastro
+nenhum: nem na trilha, nem numa coluna. A ação cuja única defesa era "só a
+administração faz" era a que ninguém conseguia auditar depois.
 
-A ação cuja única defesa é "só a administração faz" é a que ninguém consegue
-auditar depois. Se um dia houver dúvida sobre "quem apontou o acesso da Beatriz
-para outro e-mail?", não há resposta.
+**Fechado**: a function registra `parceiro.email_alterado` com o de → para,
+**antes** de trocar — depois, o e-mail antigo não existe mais em lugar nenhum.
+Provado no staging:
 
-**Recomendação: fechar agora**, na própria function (ela já tem `escritorioId` e
-`quem`): registrar `parceiro.email_alterado` com o de → para. Vai junto com a
-issue [#403](https://github.com/nairaromero/mara-sandra-connect/issues/403), que
-já mexe nessa function para trocar o papel por permissão.
+```
+parceiro.email_alterado  {"de":"e2e+trilha-…@…","para":"e2e+trilha-…-novo@…","enviar_link":false}
+```
 
-### GAP 1 e 2 · Excluir documento e andamento
+### 2 e 3 · Excluir documento e andamento
 
-Apagar um CNIS do caso, ou apagar um andamento, não deixa nada — some do banco e
-do storage. Tarefa tem `tarefas_excluidas` com motivo; documento e andamento
-não têm equivalente.
+Apagar um CNIS do caso, ou apagar um andamento, não deixava nada — sumia do
+banco e, no caso do documento, do storage. Tarefa tinha `tarefas_excluidas` com
+motivo; esses dois não tinham equivalente. Dói em dois cenários reais: documento
+apagado por engano ("estava aqui ontem") e andamento apagado para "limpar" a
+linha do tempo de um caso.
 
-Dói em dois cenários reais: documento apagado por engano ("estava aqui ontem") e
-andamento que alguém apagou para "limpar" a linha do tempo de um caso.
+**Fechado** pela `migration_rbac_26`: `documentos_excluidos` e
+`andamentos_excluidos`, com a linha inteira em `dados jsonb`, quem apagou e
+quando. Gatilho `before delete`, pelos motivos do §2.3. Leitura da equipe
+interna do escritório (igual a `tarefas_excluidas`), escrita só do gatilho —
+conferido: escrever de fora volta `42501`, e de outro escritório a consulta
+devolve 0 linhas.
 
-**Recomendação: fechar, no mesmo formato do `tarefas_excluidas`** — gatilho
-`before delete` que copia a linha para `documentos_excluidos` /
-`andamentos_excluidos` com quem apagou e quando. Gatilho em vez de RPC porque a
-exclusão hoje passa direto pela RLS (`documentos:excluir`), sem função no meio.
+### 4 · Excluir parceiro
 
-### GAP 5 · Excluir parceiro
+`excluir-parceiro` exige `parceiros:excluir` (sensível, só admin por padrão) e
+apagava a pessoa sem rastro.
 
-A edge `excluir-parceiro` exige `parceiros:excluir` (sensível, só admin por
-padrão) e apaga a pessoa. Sem rastro. Mesma família do GAP 4 e do
-`cliente.excluido` que a `rbac_25` fechou.
+**Fechado**: `parceiro.excluido` com nome, casos desvinculados e outros vínculos,
+gravado antes do cascade. Provado no staging:
 
-**Recomendação: fechar junto com o GAP 4** — as duas são edge functions, o mesmo
-padrão de `insert into auditoria`.
+```
+parceiro.excluido  {"nome":"[Prova5] Parceiro descartável","casos_desvinculados":0,"outros_vinculos":1}
+```
 
-### GAP 3 · Convite
+### 5 · Convite
 
-`membros.convidado_por` diz quem convidou, e sobrevive enquanto a linha
-existir — mas é estado, não história: se o vínculo for apagado, o convite
-desaparece com ele. Menos grave que os outros, porque o convite tem um efeito
-visível (uma pessoa nova na tela de Equipe) e o `desligado` agora fica na
-trilha.
+`membros.convidado_por` dizia quem convidou, mas é **estado, não história**:
+apagou o vínculo, o convite desaparecia com ele.
 
-**Recomendação: fechar quando mexer na `convidar-usuario` por outro motivo.**
-Não vale um PR só para isso.
+**Fechado**: `equipe.convidado` / `parceiro.convidado`, com nome, e-mail e
+papel. (Na prova do staging o convite bateu no limite de e-mail do Supabase na
+quarta tentativa seguida — vale saber que esse limite existe ao testar convite
+em série.)
 
 ---
 
@@ -166,7 +180,34 @@ Não vale um PR só para isso.
    `qg_auditoria` só lê `plataforma` e `suporte`. Nome de cliente na trilha é
    dado do escritório, e não vaza para a plataforma.
 
-Uma automação possível, se isso voltar a escapar: estender o
-`scripts/rbac-conferir-exigencias.mjs` com uma lista de funções que **devem**
-auditar, conferida contra `pg_get_functiondef` — o mesmo truque do espelho de
-exigências, que já pega sobra e falta de permissão.
+### A automação, que já está no lugar
+
+O `scripts/rbac-conferir-exigencias.mjs` ganhou uma quarta conferência (27/09),
+no mesmo truque do espelho de exigências:
+
+- **`DEVEM_AUDITAR`** — 24 funções de `public` que, se existirem no banco-alvo,
+  precisam chamar `private.auditar`. Função da lista sem a chamada = divergência.
+- **`FN_DEVEM_AUDITAR`** — as 4 edge functions que auditam elas mesmas (o banco
+  não as vê), conferidas por `grep` no código.
+- **Gatilhos das trilhas** — `documentos` e `andamentos` têm de ter o
+  `zz_trilha_exclusao` ligado quando a tabela da trilha existe.
+
+Saída de hoje, no local e no staging:
+
+```
+  funções que devem auditar: 24 no banco + 4 edge
+OK: o espelho do front bate com o servidor, e quem muda acesso audita.
+```
+
+E ele **pega de verdade**: tirando o `private.auditar` do `desligar_parceiro` no
+banco local, a saída virou
+
+```
+  - NÃO AUDITA: desligar_parceiro muda acesso/apaga dado e não chama private.auditar
+```
+
+Entrada nova na lista = conserto de gap novo. É o que impede este documento de
+virar retrato de um dia só.
+
+A spec `rbac-exigencias` roda esse script na suíte, então a conferência vai junto
+com todo `bun run e2e:local`.

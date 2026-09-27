@@ -98,7 +98,7 @@ node scripts/msc-sql.mjs --local --file planning/sql-migrations/migration_x.sql
 
 - `usuarios.tipo` = modo de acesso (`interno` x `parceiro`). `usuarios.eh_parceiro` = papel comercial.
 - `usuarios.eh_admin` (desde 2026-08-19) = admin do escritório. **Só Naira e Mara.** No front: `const { isAdmin } = useAuth()`. No SQL: `public.is_admin()`.
-- Só admin vê: Equipe interna (`/equipe`), Auditoria, e em Configurações as abas **Integrações** (Integração de IA / Conectar Claude / Integração Google) e **Webhooks**. Convidar interno (edge `convidar-usuario`) exige admin. RLS de webhooks/auditoria usa `is_admin()`.
+- Só admin vê: Equipe interna (`/equipe`), Auditoria, e em Configurações as abas **Integrações** (Integração de IA / Conectar Claude / Integração Google) e **Webhooks**. Convidar interno (edge `convidar-usuario`) exige admin. RLS de webhooks usa `is_admin()`; a de **auditoria não** — desde a `migration_rbac_24` as duas leituras da tela (`auditoria_plataforma` e `acessos_senha_inss`) cobram `tem_permissao('auditoria:ler')`, que é do admin por padrão e pode ser concedida a uma pessoa.
 - Configurações (desde 2026-09-14) segue o layout de `/parceiros`: centralizada, abas com a ativa na URL (`?tab=seguranca|beneficios|integracoes|webhooks`; sem `tab` = Perfil). Aba fora do papel da pessoa cai em Perfil sem reescrever a URL. Webhooks saiu da sidebar; `/webhooks` só redireciona pra `?tab=webhooks`.
 - **Convite (desde 2026-09-18, #362):** quem é convidado cria senha antes de usar o sistema. Quem decide é `usuarios.senha_definida_em` (nulo = ainda não criou), marcado pelo gatilho `trg_senha_definida` em `auth.users` — nunca pelo front. Não voltar a inferir por `auth.users.encrypted_password`: o Supabase preenche esse campo sozinho quando a pessoa abre o link do convite.
 - Gestão da equipe pela UI (`/equipe`, RPCs em migration_equipe_admin_desligar): `definir_admin`, `desligar_interno` (não apaga: `ativo=false` + ban no auth + tarefas abertas/agenda futura migram pra outra pessoa; histórico fica no nome), `reativar_interno`.
@@ -145,6 +145,16 @@ o sistema em produção. Quando chegar, vale o seguinte:
   molde (`private.tabelas_de_dominio()` lista quem fica de fora e por quê).
 - **RPC `SECURITY DEFINER`** que recebe id de linha começa com
   `private.exigir_no_escritorio('tabela'::regclass, p_id)` — o `postgres` tem BYPASSRLS.
+- **Quem muda ACESSO audita** (desde 2026-09-27, `migration_rbac_25`/`26`; desenho em
+  planning/AUDITABILIDADE.md): papel, permissão, status do vínculo, titularidade e staff
+  chamam `private.auditar` com o antes e o depois; apagar cliente, documento ou andamento
+  deixa rastro (`auditoria`, `documentos_excluidos`, `andamentos_excluidos`); e função que
+  LIMPA um rastro da linha — as reativações limpam `desativado_por` — escreve na trilha
+  antes. Edge function que muda acesso ou identidade audita ela mesma (`update-parceiro`,
+  `excluir-parceiro`, `convidar-usuario`, `integracoes-escritorio`). `tipo_ator = 'membro'`
+  mantém a linha dentro do escritório: o `qg_auditoria` só lê `plataforma` e `suporte`.
+  Quem confere: `node scripts/rbac-conferir-exigencias.mjs`, que acusa função da lista sem
+  `private.auditar` e tabela sem o gatilho da trilha.
 - **Edge function**: `exigirUsuario(req, { permissao: "x:y" })` resolve papel e escritório
   via `meu_contexto()`; `exigirRecurso(quem, tabela, id)` antes de tocar em linha; client de
   service role sempre `escopado(sb, escritorioId)`. Integrações de sistema (INSS, DJEN,

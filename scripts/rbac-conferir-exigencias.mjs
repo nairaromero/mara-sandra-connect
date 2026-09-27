@@ -8,6 +8,12 @@
 //   2. RPCs do schema `public` que chamam `private.tem_permissao`;
 //   3. edge functions com `permissao:` no `exigirUsuario` (lidas do código).
 //
+// E confere uma quarta coisa, do mesmo espírito: quem MUDA ACESSO tem de
+// AUDITAR (planning/AUDITABILIDADE.md). A lista `DEVEM_AUDITAR` abaixo é a
+// régua; se alguém reescrever uma dessas funções e perder o `private.auditar`
+// no caminho, isto acusa — foi assim que a troca de papel ficou sem rastro por
+// uma semana inteira.
+//
 // Sai 0 quando bate, 1 quando diverge (e diz exatamente o que sobra ou falta).
 //
 //   node scripts/rbac-conferir-exigencias.mjs --local
@@ -156,12 +162,83 @@ for (const d of fs.readdirSync(dirFn)) {
   else if (!m && fnFront[d]) problemas.push(`SOBRA no front: function ${d} não exige permissão`);
 }
 
+// ---------- quarta lista: quem muda acesso tem de auditar ----------
+// Cada entrada é uma função de `public` que, se existir no banco-alvo, precisa
+// chamar `private.auditar`. Entrada nova aqui = conserto de gap no
+// planning/AUDITABILIDADE.md. `definir_admin` fica de fora de propósito:
+// delega para `definir_papel`, então auditar uma cobre a outra.
+const DEVEM_AUDITAR = [
+  // acesso de gente (migration_rbac_20 e 25)
+  "definir_papel", "definir_permissao_do_membro", "resetar_permissoes_do_membro",
+  "desligar_interno", "reativar_interno", "desligar_parceiro", "reativar_parceiro",
+  // destruição de dado do cliente (migration_rbac_25)
+  "excluir_cliente",
+  // escritório, plataforma e suporte (migration_rbac_05 e 07)
+  "escritorio_definir_marca", "qg_criar_escritorio", "qg_atualizar_escritorio",
+  "qg_suspender_escritorio", "qg_reativar_escritorio", "qg_encerrar_escritorio",
+  "qg_pedir_eliminacao", "qg_aprovar_eliminacao", "qg_trocar_titular",
+  "qg_definir_staff", "qg_desativar_membro", "qg_vincular_primeiro_admin",
+  "qg_suporte_solicitar", "qg_suporte_encerrar", "suporte_responder", "suporte_encerrar",
+];
+const auditam = sql(`
+  select p.proname as nome,
+         (position('private.auditar' in pg_get_functiondef(p.oid)) > 0) as audita
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.prokind = 'f'
+     and p.proname = any(array[${DEVEM_AUDITAR.map((f) => `'${f}'`).join(",")}])
+   order by 1`);
+const mapaAudita = Object.fromEntries(auditam.map((r) => [r.nome, r.audita === true || r.audita === "true"]));
+let conferidasAudita = 0;
+for (const f of DEVEM_AUDITAR) {
+  if (!(f in mapaAudita)) continue; // não existe neste banco (migration ainda não aplicada)
+  conferidasAudita++;
+  if (!mapaAudita[f]) problemas.push(`NÃO AUDITA: ${f} muda acesso/apaga dado e não chama private.auditar`);
+}
+
+// edge functions que mudam acesso ou identidade e têm de auditar elas mesmas
+// (o banco não as vê: a trilha é um insert em `auditoria` no código delas).
+const FN_DEVEM_AUDITAR = {
+  "integracoes-escritorio": "integracao.salvar / integracao.testar",
+  "update-parceiro": "parceiro.email_alterado",
+  "excluir-parceiro": "parceiro.excluido",
+  "convidar-usuario": "equipe.convidado / parceiro.convidado",
+};
+let conferidasFnAudita = 0;
+for (const [fn, acoes] of Object.entries(FN_DEVEM_AUDITAR)) {
+  const idx = path.join(dirFn, fn, "index.ts");
+  if (!fs.existsSync(idx)) continue;
+  conferidasFnAudita++;
+  const src = fs.readFileSync(idx, "utf8");
+  if (!/from\("auditoria"\)\s*\n?\s*\.insert|from\("auditoria"\)\.insert/.test(src)) {
+    problemas.push(`NÃO AUDITA: function ${fn} devia registrar ${acoes}`);
+  }
+}
+
+// trilhas de exclusão que têm de existir com o gatilho ligado (migration_rbac_26)
+const TRILHAS = [["documentos", "documentos_excluidos"], ["andamentos", "andamentos_excluidos"]];
+const gatilhos = sql(`
+  select c.relname as tabela, t.tgname as gatilho
+    from pg_trigger t join pg_class c on c.oid = t.tgrelid
+   where not t.tgisinternal and t.tgname = 'zz_trilha_exclusao'
+     and c.relname = any(array[${TRILHAS.map(([t]) => `'${t}'`).join(",")}])`);
+const comGatilho = new Set(gatilhos.map((g) => g.tabela));
+const tabelas = sql(`
+  select table_name as t from information_schema.tables
+   where table_schema = 'public'
+     and table_name = any(array[${TRILHAS.map(([, x]) => `'${x}'`).join(",")}])`);
+const temTabela = new Set(tabelas.map((r) => r.t));
+for (const [origem, trilha] of TRILHAS) {
+  if (!temTabela.has(trilha)) continue; // migration_rbac_26 ainda não aplicada aqui
+  if (!comGatilho.has(origem)) problemas.push(`SEM GATILHO: ${origem} apaga sem registrar em ${trilha}`);
+}
+
 console.log(`espelho x banco — alvo: ${alvo}`);
 console.log(`  policies de escrita conferidas: ${policies.length}`);
 console.log(`  RPCs com permissão: ${Object.keys(rpcBanco).length}`);
 console.log(`  functions com permissão: ${Object.keys(fnFront).length}`);
+console.log(`  funções que devem auditar: ${conferidasAudita} no banco + ${conferidasFnAudita} edge`);
 if (problemas.length === 0) {
-  console.log("\nOK: o espelho do front bate com o servidor.");
+  console.log("\nOK: o espelho do front bate com o servidor, e quem muda acesso audita.");
   process.exit(0);
 }
 console.log(`\n${problemas.length} divergência(s):`);
