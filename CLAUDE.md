@@ -145,6 +145,17 @@ o sistema em produção. Quando chegar, vale o seguinte:
   molde (`private.tabelas_de_dominio()` lista quem fica de fora e por quê).
 - **RPC `SECURITY DEFINER`** que recebe id de linha começa com
   `private.exigir_no_escritorio('tabela'::regclass, p_id)` — o `postgres` tem BYPASSRLS.
+- **Função túnel: uma fonte de verdade, não N pontos** (pedido da Naira,
+  2026-09-27). Antes de escrever a segunda cópia de uma lógica, ela vira função
+  com um lugar só — e o que não pode variar deixa de ser parâmetro. Os túneis
+  que já existem: `private.tem_permissao` → `private.permissoes_efetivas`
+  (decisão de permissão), `private.auditar` (trilha no SQL),
+  `supabase/functions/_shared/auditoria.ts` (trilha nas edge: escritório, ator e
+  `tipo_ator` vêm do `quem`, e `acao` é tipo fechado), `src/lib/rbac/exigencias.ts`
+  + `podeEscrever`/`podeChamar` (o que a tela oferece), `e2e/rbac.ts` (sessão,
+  header, conta por papel e leitura da trilha nas specs) e `buscarPaginado`.
+  O `scripts/rbac-conferir-exigencias.mjs` cobra o túnel da auditoria: insert
+  direto na tabela vira divergência.
 - **Quem muda ACESSO audita** (desde 2026-09-27, `migration_rbac_25`/`26`; desenho em
   planning/AUDITABILIDADE.md): papel, permissão, status do vínculo, titularidade e staff
   chamam `private.auditar` com o antes e o depois; apagar cliente, documento ou andamento

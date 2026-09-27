@@ -15,13 +15,12 @@
 //
 // Só no banco local/staging com o seed do Canário (`bun run local:rbac`).
 import { test, expect } from "@playwright/test";
-import { createClient } from "@supabase/supabase-js";
-import { ENV } from "../env";
 import { adminClient } from "../supabase-admin";
+import {
+  chamarFuncao, clienteComo, contaDoCanario, escritorioCanario, idDoCanario, sessaoComo,
+} from "../rbac";
 
 const admin = adminClient();
-const DOM = "marasandraconnect.com";
-const FN = `${ENV.supabaseUrl}/functions/v1`;
 
 /** As seis, com um corpo mínimo que chega até a checagem de permissão. */
 const FUNCOES_DE_IA = [
@@ -37,24 +36,13 @@ let ESC: string;
 let casoId: string;
 let tarefaId: string;
 
-async function jwtDe(email: string): Promise<string> {
-  const sb = createClient(ENV.supabaseUrl, ENV.anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
-  const { data, error } = await sb.auth.signInWithPassword({ email, password: ENV.internoPassword });
-  if (error || !data.session) throw new Error(`login ${email}: ${error?.message}`);
-  return data.session.access_token;
-}
+const jwtDe = async (papel: Parameters<typeof contaDoCanario>[0]) =>
+  (await sessaoComo(contaDoCanario(papel), ESC)).jwt;
 
-async function chamar(nome: string, jwt: string, corpo: Record<string, unknown>) {
-  const r = await fetch(`${FN}/${nome}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${jwt}`, apikey: ENV.anonKey,
-      "content-type": "application/json", "x-escritorio-id": ESC,
-    },
-    body: JSON.stringify(corpo),
-  });
-  return { status: r.status, texto: (await r.text()).slice(0, 160) };
-}
+const chamar = async (nome: string, jwt: string, corpo: Record<string, unknown>) => {
+  const r = await chamarFuncao(nome, jwt, ESC, corpo);
+  return { status: r.status, texto: r.texto.slice(0, 160) };
+};
 
 /** Corpo por function: o suficiente para passar do parse e chegar na permissão. */
 function corpoDe(nome: string): Record<string, unknown> {
@@ -71,9 +59,7 @@ function corpoDe(nome: string): Record<string, unknown> {
 
 test.describe("IA: a permissão é cobrada no servidor", () => {
   test.beforeAll(async () => {
-    const { data: esc } = await admin.from("escritorios").select("id").eq("slug", "canario").maybeSingle();
-    if (!esc) throw new Error("escritório Canário ausente — rode `bun run local:rbac`");
-    ESC = esc.id as string;
+    ESC = await escritorioCanario();
     const { data: caso } = await admin.from("casos").select("id").eq("escritorio_id", ESC).limit(1).single();
     casoId = caso!.id as string;
     const { data: tarefa } = await admin.from("tarefas").select("id").eq("escritorio_id", ESC).limit(1).maybeSingle();
@@ -92,7 +78,7 @@ test.describe("IA: a permissão é cobrada no servidor", () => {
   });
 
   test("financeiro não passa em nenhuma das seis (não tem ia:usar)", async () => {
-    const jwt = await jwtDe(`canario+financeiro@${DOM}`);
+    const jwt = await jwtDe("financeiro");
     for (const fn of FUNCOES_DE_IA) {
       const r = await chamar(fn, jwt, corpoDe(fn));
       expect(r.status, `${fn} devia recusar o financeiro — respondeu ${r.status}: ${r.texto}`).toBe(403);
@@ -100,7 +86,7 @@ test.describe("IA: a permissão é cobrada no servidor", () => {
   });
 
   test("parceiro não passa em nenhuma das seis (não é interno e não tem ia:usar)", async () => {
-    const jwt = await jwtDe(`canario+parceiro@${DOM}`);
+    const jwt = await jwtDe("parceiro");
     for (const fn of FUNCOES_DE_IA) {
       const r = await chamar(fn, jwt, corpoDe(fn));
       expect(r.status, `${fn} devia recusar o parceiro — respondeu ${r.status}: ${r.texto}`).toBe(403);
@@ -108,7 +94,7 @@ test.describe("IA: a permissão é cobrada no servidor", () => {
   });
 
   test("advogado passa da autorização nas seis", async () => {
-    const jwt = await jwtDe(`canario+advogado@${DOM}`);
+    const jwt = await jwtDe("advogado");
     for (const fn of FUNCOES_DE_IA) {
       const r = await chamar(fn, jwt, corpoDe(fn));
       expect(r.status, `${fn} recusou quem tem ia:usar — ${r.texto}`).not.toBe(403);
@@ -116,30 +102,23 @@ test.describe("IA: a permissão é cobrada no servidor", () => {
   });
 
   test("tirar ia:usar do advogado fecha as seis na hora; devolver reabre", async () => {
-    const { data: diego } = await admin.from("usuarios").select("id").eq("email", `canario+advogado@${DOM}`).single();
-    const adm = createClient(ENV.supabaseUrl, ENV.anonKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-      global: { headers: { "x-escritorio-id": ESC } },
-    });
-    const { error: eLogin } = await adm.auth.signInWithPassword({
-      email: `canario+admin@${DOM}`, password: ENV.internoPassword,
-    });
-    expect(eLogin).toBeNull();
+    const diegoId = await idDoCanario("advogado");
+    const adm = await clienteComo(contaDoCanario("admin"), ESC);
 
     try {
       expect((await adm.rpc("definir_permissao_do_membro", {
-        p_usuario_id: diego!.id, p_permissao: "ia:usar", p_estado: "remover",
+        p_usuario_id: diegoId, p_permissao: "ia:usar", p_estado: "remover",
       })).error).toBeNull();
 
       // o mesmo JWT de antes: a permissão é lida no servidor a cada chamada
-      const jwt = await jwtDe(`canario+advogado@${DOM}`);
+      const jwt = await jwtDe("advogado");
       for (const fn of FUNCOES_DE_IA) {
         const r = await chamar(fn, jwt, corpoDe(fn));
         expect(r.status, `${fn} devia recusar depois do ajuste — ${r.texto}`).toBe(403);
       }
 
       expect((await adm.rpc("definir_permissao_do_membro", {
-        p_usuario_id: diego!.id, p_permissao: "ia:usar", p_estado: "papel",
+        p_usuario_id: diegoId, p_permissao: "ia:usar", p_estado: "papel",
       })).error).toBeNull();
       const depois = await chamar("ia-analise", jwt, corpoDe("ia-analise"));
       expect(depois.status, "voltou ao papel, a porta reabre").not.toBe(403);

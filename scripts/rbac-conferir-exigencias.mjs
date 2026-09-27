@@ -273,8 +273,22 @@ for (const [fn, acoes] of Object.entries(FN_DEVEM_AUDITAR)) {
   if (!fs.existsSync(idx)) continue;
   conferidasFnAudita++;
   const src = fs.readFileSync(idx, "utf8");
-  if (!/from\("auditoria"\)\s*\n?\s*\.insert|from\("auditoria"\)\.insert/.test(src)) {
-    problemas.push(`NÃO AUDITA: function ${fn} devia registrar ${acoes}`);
+  // Pelo TÚNEL: `_shared/auditoria.ts`. Insert à mão não conta (regra abaixo).
+  if (!/from ["']\.\.\/_shared\/auditoria\.ts["']/.test(src) || !/\bauditar\(/.test(src)) {
+    problemas.push(`NÃO AUDITA: function ${fn} devia registrar ${acoes} pelo túnel _shared/auditoria.ts`);
+  }
+}
+
+// Fonte única: só o túnel escreve na `auditoria`. Quatro functions montavam o
+// insert à mão até 27/09, cada uma repetindo `tipo_ator` e o tratamento de erro
+// — e uma engolia a falha. Quem voltar a escrever direto aparece aqui.
+const TUNEL_AUDITORIA = "_shared/auditoria.ts";
+for (const d of fs.readdirSync(dirFn)) {
+  const idx = path.join(dirFn, d, "index.ts");
+  if (!fs.existsSync(idx)) continue;
+  const src = fs.readFileSync(idx, "utf8");
+  if (/from\(["']auditoria["']\)\s*\n?\s*\.insert/.test(src)) {
+    problemas.push(`FORA DO TÚNEL: function ${d} escreve na auditoria direto — use auditar() de ${TUNEL_AUDITORIA}`);
   }
 }
 
@@ -302,6 +316,7 @@ console.log(`  RPCs com permissão: ${Object.keys(rpcBanco).length}`);
 console.log(`  functions com permissão: ${Object.keys(fnFront).length}`);
 console.log(`  funções que devem auditar: ${conferidasAudita} no banco + ${conferidasFnAudita} edge`);
 console.log(`  tabelas com escrita fora do modelo de permissão: ${semTrava.length} (${Object.keys(ESCRITA_SEM_PERMISSAO_OK).length} previstas)`);
+console.log(`  trilha das edge: só pelo túnel ${TUNEL_AUDITORIA}`);
 if (problemas.length === 0) {
   console.log("\nOK: o espelho do front bate com o servidor, e quem muda acesso audita.");
   process.exit(0);

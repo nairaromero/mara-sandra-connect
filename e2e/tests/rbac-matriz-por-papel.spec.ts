@@ -17,12 +17,13 @@
 //
 // Só no banco local/staging com o seed do Canário (`bun run local:rbac`).
 import { test, expect } from "@playwright/test";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { ENV } from "../env";
+import { type SupabaseClient } from "@supabase/supabase-js";
 import { adminClient } from "../supabase-admin";
+import {
+  clienteComo, contaDoCanario, escreveu, escritorioCanario, idDe, type PapelCanario,
+} from "../rbac";
 
 const admin = adminClient();
-const DOM = "marasandraconnect.com";
 const MARCA = "[E2E matriz]";
 
 let ESC: string;
@@ -30,47 +31,17 @@ let casoId: string;
 let matriz: Record<string, string[]> = {};
 const sessoes: Record<string, SupabaseClient> = {};
 
-async function como(papel: string): Promise<SupabaseClient> {
-  if (sessoes[papel]) return sessoes[papel];
-  const sb = createClient(ENV.supabaseUrl, ENV.anonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: { "x-escritorio-id": ESC } },
-  });
-  const { error } = await sb.auth.signInWithPassword({
-    email: `canario+${papel}@${DOM}`, password: ENV.internoPassword,
-  });
-  if (error) throw new Error(`login ${papel}: ${error.message}`);
-  sessoes[papel] = sb;
-  return sb;
+/** Uma sessão por papel, reaproveitada: o login é caro e o teste é serial. */
+async function como(papel: PapelCanario): Promise<SupabaseClient> {
+  sessoes[papel] ??= await clienteComo(contaDoCanario(papel), ESC);
+  return sessoes[papel];
 }
 
 /** O que a matriz do banco diz: este papel tem esta permissão? */
 const tem = (papel: string, permissao: string) => (matriz[permissao] ?? []).includes(papel);
 
-/**
- * Tenta uma escrita e devolve SÓ duas respostas possíveis: passou, ou a RLS
- * recusou (42501). Qualquer outro erro estoura o teste.
- *
- * Sem isto o teste passa por motivo errado: no primeiro take desta spec eu usei
- * uma coluna que não existe em `analises_tecnicas`, os dois papéis levaram
- * `PGRST204` e a asserção leu isso como "recusado" — verde para o financeiro,
- * que é justamente o que o teste devia pegar.
- */
-async function escreveu(
-  sb: SupabaseClient, tabela: string, linha: Record<string, unknown>, rotulo: string,
-): Promise<boolean> {
-  // `.select()` sem coluna: `ia_integracoes` não tem `id`, e o teste não deve
-  // presumir o nome da chave de cada tabela.
-  const r = await sb.from(tabela).insert(linha).select();
-  if (r.error && r.error.code !== "42501") {
-    throw new Error(`${rotulo}: erro que não é permissão (${r.error.code}) — ${r.error.message}`);
-  }
-  return (r.data ?? []).length > 0;
-}
-
 async function limpar() {
-  const { data: esc } = await admin.from("escritorios").select("id").eq("slug", "canario").maybeSingle();
-  if (!esc) return;
+  if (!ESC) return; // beforeAll não chegou a rodar
   await admin.from("analises_tecnicas").delete().like("resumo_parceiro", `${MARCA}%`);
   await admin.from("analises_tecnicas").delete().like("beneficio_recomendado", `${MARCA}%`);
   await admin.from("alertas_duplicidade").delete().like("cpf_tentado", "999%");
@@ -83,9 +54,7 @@ async function limpar() {
 
 test.describe.serial("matriz de permissões por papel", () => {
   test.beforeAll(async () => {
-    const { data: esc } = await admin.from("escritorios").select("id").eq("slug", "canario").maybeSingle();
-    if (!esc) throw new Error("escritório Canário ausente — rode `bun run local:rbac`");
-    ESC = esc.id as string;
+    ESC = await escritorioCanario();
     const { data: caso } = await admin.from("casos").select("id").eq("escritorio_id", ESC).limit(1).single();
     casoId = caso!.id as string;
 
@@ -110,7 +79,7 @@ test.describe.serial("matriz de permissões por papel", () => {
     // papel, a segunda tentativa colide em 23505 antes da RLS responder — e aí
     // o teste não estaria medindo permissão nenhuma.
     let versao = 900;
-    for (const papel of ["advogado", "financeiro"]) {
+    for (const papel of ["advogado", "financeiro"] as PapelCanario[]) {
       const sb = await como(papel);
       const esperado = tem(papel, "casos:editar");
       versao += 1;
@@ -136,7 +105,7 @@ test.describe.serial("matriz de permissões por papel", () => {
       escritorio_id: ESC, tipo: "cliente", nome: `${MARCA} lead`, whatsapp: "11999990000",
     }).select("id").single();
 
-    for (const papel of ["advogado", "assistente"]) {
+    for (const papel of ["advogado", "assistente"] as PapelCanario[]) {
       const sb = await como(papel);
       const esperado = tem(papel, "comercial:gerenciar");
       expect(
@@ -149,21 +118,21 @@ test.describe.serial("matriz de permissões por papel", () => {
   });
 
   test("ia_integracoes: escrever a chave de IA exige ia:usar", async () => {
-    for (const papel of ["assistente", "financeiro"]) {
+    for (const papel of ["assistente", "financeiro"] as PapelCanario[]) {
       const sb = await como(papel);
       const esperado = tem(papel, "ia:usar");
-      const { data: u } = await admin.from("usuarios").select("id").eq("email", `canario+${papel}@${DOM}`).single();
+      const uid = await idDe(contaDoCanario(papel));
       const passou = await escreveu(sb, "ia_integracoes", {
-        usuario_id: u!.id, escritorio_id: ESC, provider: "anthropic", modelo: "claude-x",
+        usuario_id: uid, escritorio_id: ESC, provider: "anthropic", modelo: "claude-x",
         api_key_cipher: "xx", api_key_iv: "xx",
       }, `${papel} gravando integração de IA`);
       expect(passou, `${papel} gravando integração de IA (matriz: ${esperado})`).toBe(esperado);
-      if (passou) await admin.from("ia_integracoes").delete().eq("usuario_id", u!.id).eq("modelo", "claude-x");
+      if (passou) await admin.from("ia_integracoes").delete().eq("usuario_id", uid).eq("modelo", "claude-x");
     }
   });
 
   test("etiquetas: só quem gerencia etiquetas cria", async () => {
-    for (const papel of ["advogado", "assistente"]) {
+    for (const papel of ["advogado", "assistente"] as PapelCanario[]) {
       const sb = await como(papel);
       const esperado = tem(papel, "etiquetas:gerenciar");
       expect(
@@ -203,7 +172,7 @@ test.describe.serial("matriz de permissões por papel", () => {
     }).select("id").single();
     expect(an && and && pub, "as três linhas de leitura nasceram").toBeTruthy();
 
-    for (const papel of ["advogado", "assistente", "financeiro", "parceiro"]) {
+    for (const papel of ["advogado", "assistente", "financeiro", "parceiro"] as PapelCanario[]) {
       const sb = await como(papel);
 
       const vAn = await sb.from("analises_tecnicas").select("id").eq("id", an!.id);
@@ -237,7 +206,7 @@ test.describe.serial("matriz de permissões por papel", () => {
   });
 
   test("as duas sensíveis do escritório: marca e integrações são só de quem administra", async () => {
-    for (const papel of ["advogado", "assistente", "financeiro"]) {
+    for (const papel of ["advogado", "assistente", "financeiro"] as PapelCanario[]) {
       const sb = await como(papel);
 
       const marca = await sb.rpc("escritorio_definir_marca", { p_nome_exibicao: `${MARCA} ${papel}` });
