@@ -32,6 +32,8 @@ Legenda: 🟢 descreve o estado atual · 🟡 parcialmente desatualizado · 📋
 | [AMBIENTES.md](AMBIENTES.md) | 🟢 | Produção × staging, migrations em duas etapas, espelho anonimizado (role só-leitura, travas, workflow semanal), LGPD do anonimato |
 | [../CLAUDE.md](../CLAUDE.md) | 🟢 | Fluxo de trabalho: branches, merge `staging → main`, contas de staging, papéis, comandos |
 | [../e2e/README.md](../e2e/README.md) | 🟢 | Testes E2E: como rodar, vídeo, contas, regras de dados |
+| [RELEASE_PRODUCAO.md](RELEASE_PRODUCAO.md) | 📋 | **Plano do release de setembro** (27/09): 30 migrations na ordem provada, 33 functions, a janela inevitável (banco antes do front), conferências, volta atrás e o dia seguinte |
+| [COMUNICADO_PRODUCAO.md](COMUNICADO_PRODUCAO.md) | 📋 | **Para a equipe, antes do release**: quem vira o quê, os casos reais em que o fluxo mudou, os textos que vão aparecer na tela e o que fazer com cada um |
 | [MULTI_TENANT_RBAC.md](MULTI_TENANT_RBAC.md) | 📋 | **Proposta** (14/09, revista 19/09): plano de multi-tenant e RBAC — exposições que existem hoje, decisão pool × silo (vira o D23), arquitetura-alvo, 8 fases com portão de saída e rollback, testes, riscos e LGPD/OAB |
 
 ### Operação e integrações
