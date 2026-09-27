@@ -153,7 +153,10 @@ o sistema em produção. Quando chegar, vale o seguinte:
   `supabase/functions/_shared/auditoria.ts` (trilha nas edge: escritório, ator e
   `tipo_ator` vêm do `quem`, e `acao` é tipo fechado), `src/lib/rbac/exigencias.ts`
   + `podeEscrever`/`podeChamar` (o que a tela oferece), `e2e/rbac.ts` (sessão,
-  header, conta por papel e leitura da trilha nas specs) e `buscarPaginado`.
+  header, conta por papel e leitura da trilha nas specs), `src/lib/fuso.ts` (o
+  fuso do escritório — o eslint barra `America/Sao_Paulo` fora dele),
+  `src/lib/leitura.ts` (`lerLista`/`lerUm`/`lerContagem`: erro estoura, vazio é
+  vazio) e `buscarPaginado`.
   O `scripts/rbac-conferir-exigencias.mjs` cobra o túnel da auditoria: insert
   direto na tabela vira divergência.
 - **Quem muda ACESSO audita** (desde 2026-09-27, `migration_rbac_25`/`26`; desenho em
@@ -226,7 +229,9 @@ no lote de agosto: **sempre olhar se nada quebrou no meio do caminho.**
 3. Reler o próprio diff com lente de revisor, caçando os padrões que já morderam:
    - função de banco reescrita a partir de migration velha — partir SEMPRE do
      `pg_get_functiondef` da produção e comparar hash staging×prod antes/depois;
-   - falha de query engolida virando "não existe" (error ignorado ≠ resultado vazio);
+   - falha de query engolida virando "não existe" (error ignorado ≠ resultado
+     vazio) — use `lerLista`/`lerUm`/`lerContagem` de `src/lib/leitura.ts`;
+     `bun test e2e/unit/leituras-checadas.test.ts` lista quem ainda ignora e por quê;
    - data fora do calendário de Brasília (usar `src/lib/fuso.ts`, nunca `new Date()` cru);
    - guard de contexto ainda carregando (comparar contra null passa calada);
    - dedup/anti-spam largo demais engolindo o 2º evento legítimo;
