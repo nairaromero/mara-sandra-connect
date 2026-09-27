@@ -43,11 +43,13 @@ precisa: o registro já as tem.
 
 - [ ] **Naira validou o lote no staging**, com a conta do papel certo (guia v18, seções A–H e J–R).
 - [ ] **O staging passou por um espelho semanal** depois do lote (prova que o espelho não destrói o RBAC — foi por isso que o passo 6/6 do `espelho-staging.sh` reaplica as migrations e o seed).
-- [ ] **Suíte completa verde no local**: `bun run e2e:local`. Última rodada
-      completa antes do merge do #394: 143 passed, 1 skipped, 1 failed — e a
-      falha era justamente a migration do #394, que ainda não estava no banco.
-      Aplicada, a spec passa (`frente-unica`, 9 passed). Rodar a completa de novo
-      como gate, num local recém-copiado do staging.
+- [x] **Suíte completa verde no local** — feito em 27/09, num local recriado do
+      zero a partir do staging (`bun run local:copiar && bun run local:rbac`):
+      **147 passed, 1 skipped, 0 failed** (4,5 min).
+      Dois consertos foram necessários para chegar lá, porque o caminho do setup
+      local tinha apodrecido desde que o RBAC chegou ao staging: o `pg_dump` da
+      cópia não levava o schema `private` e o `rbac-local.sh` reaplicava
+      migrations que a cópia já traz (PR #406).
 - [ ] **`bunx tsc --noEmit`** limpo.
 - [ ] **`node scripts/rbac-conferir-exigencias.mjs`** sem sobra nem falta (espelho da tela × banco).
 - [ ] **Comunicado enviado à equipe** (`COMUNICADO_PRODUCAO.md`), com a janela combinada.
