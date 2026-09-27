@@ -42,12 +42,20 @@ precisa: o registro já as tem.
 ## 1. Antes de abrir o PR de release
 
 - [ ] **Naira validou o lote no staging**, com a conta do papel certo (guia v18, seções A–H e J–R).
+      A parte automática está feita (27/09): `PLAYWRIGHT_BASE_URL=https://staging.marasandraconnect.com
+      bunx playwright test` → **95 passed, 53 skipped, 0 failed** (9 min; os
+      skipped são as 12 specs só-do-local, que dependem dos provedores
+      simulados). O staging ficou limpo depois: 0 clientes `[E2E]`, 0
+      escritórios descartáveis, 0 ajustes de permissão, 0 pedidos de suporte
+      pendentes. Falta a validação de gente olhando a tela.
 - [ ] **O staging passou por um espelho semanal** depois do lote (prova que o espelho não destrói o RBAC — foi por isso que o passo 6/6 do `espelho-staging.sh` reaplica as migrations e o seed).
-- [ ] **Suíte completa verde no local**: `bun run e2e:local`. Última rodada
-      completa antes do merge do #394: 143 passed, 1 skipped, 1 failed — e a
-      falha era justamente a migration do #394, que ainda não estava no banco.
-      Aplicada, a spec passa (`frente-unica`, 9 passed). Rodar a completa de novo
-      como gate, num local recém-copiado do staging.
+- [x] **Suíte completa verde no local** — feito em 27/09, num local recriado do
+      zero a partir do staging (`bun run local:copiar && bun run local:rbac`):
+      **147 passed, 1 skipped, 0 failed** (4,5 min).
+      Dois consertos foram necessários para chegar lá, porque o caminho do setup
+      local tinha apodrecido desde que o RBAC chegou ao staging: o `pg_dump` da
+      cópia não levava o schema `private` e o `rbac-local.sh` reaplicava
+      migrations que a cópia já traz (PR #406).
 - [ ] **`bunx tsc --noEmit`** limpo.
 - [ ] **`node scripts/rbac-conferir-exigencias.mjs`** sem sobra nem falta (espelho da tela × banco).
 - [ ] **Comunicado enviado à equipe** (`COMUNICADO_PRODUCAO.md`), com a janela combinada.
@@ -303,9 +311,23 @@ Falhas parciais têm saída mais simples:
       (#395, #385 e as do lote de setembro).
 - [ ] **Espelho semanal**: na segunda seguinte, conferir que ele rodou e que o
       staging continua com RBAC (passo 6/6).
-- [ ] **Decidir os papéis de verdade**: hoje todo mundo virou advogado. Se
-      Mariane ou Sebastião devem ser Assistente, é agora — lendo antes o item 4
-      do comunicado, porque Assistente só mexe no que é dele.
+- [ ] **Mariane e Sebastião viram Assistente** (decidido pela Naira em 27/09).
+      O backfill da `rbac_01` põe os dois como **advogado**; a mudança é depois,
+      em **Equipe → menu da pessoa → Tornar Assistente**, ou pela RPC:
+
+      ```bash
+      # uma vez, com as migrations já aplicadas em produção
+      node scripts/msc-sql.mjs "select public.definir_papel(u.id, 'assistente')
+        from public.usuarios u
+       where u.email in ('marianefer@gmail.com','sebastiao.correa2308@gmail.com')"
+      ```
+
+      Feito no staging em 27/09 pela RPC, para a Naira ver o efeito antes (o
+      espelho semanal desfaz, porque o backfill volta a pôr advogado).
+      Vale reler o item 4 do comunicado antes de confirmar: **Assistente só
+      mexe nas tarefas e nos compromissos atribuídos a ele** — se isso não
+      servir para o dia a dia dos dois, o caminho é manter Advogado e ajustar só
+      o que precisa, por pessoa.
 - [ ] **Ligar 2FA** nas contas de Naira e Mara.
 - [ ] **Credenciais por escritório**: quando a Mara quiser, cadastrar Legalmail e
       TI pela tela (Configurações → Integrações) e aí os segredos legados
