@@ -311,9 +311,23 @@ Falhas parciais têm saída mais simples:
       (#395, #385 e as do lote de setembro).
 - [ ] **Espelho semanal**: na segunda seguinte, conferir que ele rodou e que o
       staging continua com RBAC (passo 6/6).
-- [ ] **Decidir os papéis de verdade**: hoje todo mundo virou advogado. Se
-      Mariane ou Sebastião devem ser Assistente, é agora — lendo antes o item 4
-      do comunicado, porque Assistente só mexe no que é dele.
+- [ ] **Mariane e Sebastião viram Assistente** (decidido pela Naira em 27/09).
+      O backfill da `rbac_01` põe os dois como **advogado**; a mudança é depois,
+      em **Equipe → menu da pessoa → Tornar Assistente**, ou pela RPC:
+
+      ```bash
+      # uma vez, com as migrations já aplicadas em produção
+      node scripts/msc-sql.mjs "select public.definir_papel(u.id, 'assistente')
+        from public.usuarios u
+       where u.email in ('marianefer@gmail.com','sebastiao.correa2308@gmail.com')"
+      ```
+
+      Feito no staging em 27/09 pela RPC, para a Naira ver o efeito antes (o
+      espelho semanal desfaz, porque o backfill volta a pôr advogado).
+      Vale reler o item 4 do comunicado antes de confirmar: **Assistente só
+      mexe nas tarefas e nos compromissos atribuídos a ele** — se isso não
+      servir para o dia a dia dos dois, o caminho é manter Advogado e ajustar só
+      o que precisa, por pessoa.
 - [ ] **Ligar 2FA** nas contas de Naira e Mara.
 - [ ] **Credenciais por escritório**: quando a Mara quiser, cadastrar Legalmail e
       TI pela tela (Configurações → Integrações) e aí os segredos legados
