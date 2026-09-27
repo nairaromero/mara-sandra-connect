@@ -285,7 +285,7 @@ Falhas parciais têm saída mais simples:
 
 | Problema | Saída |
 |---|---|
-| Uma migration falhou no meio | O script para no erro (`|| break`). Corrigir e continuar da que falhou — são idempotentes |
+| Uma migration falhou no meio | O laço para no erro. Corrigir e continuar da que falhou — são idempotentes |
 | Front no ar e telas vazias | Conferir se o build da `main` terminou; um F5 resolve para quem estava com a aba aberta |
 | Function respondendo 500 | Ver o log; quase sempre é segredo faltando (§3.3) |
 | QG não abre | DNS do `qg.` ainda propagando, ou `plataforma_staff` vazio (§3.6) |
