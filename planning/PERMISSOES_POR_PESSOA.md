@@ -16,7 +16,7 @@ Três buracos apareceram ao medir o alcance. Os três estão fechados.
 | Achado | Por que importava | Como ficou |
 |---|---|---|
 | **As edge functions não viam o ajuste.** `meu_contexto()` montava a lista de permissões direto de `papel_permissoes` | O pior sentido é o de segurança: tirar `ia:usar` de alguém NÃO impedia essa pessoa de chamar `ia-assistant` e as outras — provado no banco local. No sentido inverso, conceder `parceiros:excluir` não fazia a function aceitar | `migration_rbac_21`: o contexto passa a ler `private.permissoes_efetivas`, a mesma fonte de `tem_permissao`. Reprovado o teste e o 403 aparece |
-| **Trocar de papel deixava ajuste órfão** | O ajuste é uma diferença em relação a UM papel; sobrevivendo à troca, vira surpresa que ninguém explica | `migration_rbac_22`: `definir_papel` desfaz os ajustes da pessoa, e isso entra na auditoria da troca |
+| **Trocar de papel deixava ajuste órfão** | O ajuste é uma diferença em relação a UM papel; sobrevivendo à troca, vira surpresa que ninguém explica | `migration_rbac_22`: `definir_papel` desfaz os ajustes da pessoa. A frase "e isso entra na auditoria da troca" só passou a ser verdade em 27/09, com a `migration_rbac_25` — até lá a troca de papel não deixava rastro nenhum (ver planning/AUDITABILIDADE.md) |
 | **`/equipe` e `/auditoria` exigiam ser admin** | Conceder `equipe:gerenciar` a um advogado abria o banco e mantinha a tela fechada: o servidor deixa e a tela nega, que é a classe de defeito da auditoria de 24/09 ao contrário | As duas telas passam a exigir a PERMISSÃO (`equipe:gerenciar`, `auditoria:ler`), sem somar `isAdmin` |
 
 Também entraram os dois itens do plano que tinham ficado de fora: a tela relê as permissões

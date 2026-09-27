@@ -71,6 +71,9 @@ repasses e conversas — inclusive os arquivos guardados. Não tem volta. Quando
 cliente é real e só o cadastro está duplicado, o certo é excluir a **duplicata
 vazia**, não a que tem o caso.
 
+A exclusão **fica registrada** na Auditoria, com o nome do cliente e quantos
+casos foram junto. Não devolve nada, mas responde "quem apagou".
+
 **Caso real — parceiro que saiu do escritório.** Igual: excluir é da
 administração. Mas repare que na maioria dos casos o certo não é excluir, é
 **desligar** (Parceiros → menu → Desligar): desligar preserva o histórico, os
@@ -109,6 +112,10 @@ a primeira e não a segunda.
 aparece no documento, não tente pelo Drive: peça para quem tem a permissão
 apagar, e suba de novo no caso certo. O arquivo no Drive e o registro no sistema
 andam juntos — apagar só de um lado deixa sujeira.
+
+E se um documento (ou um andamento) sumir e ninguém souber explicar: **o sistema
+guarda o que foi apagado**, com quem apagou e quando. O arquivo em si não volta,
+mas dá para responder "estava aqui ontem".
 
 ---
 
@@ -234,7 +241,10 @@ torná-la administradora". Detalhes que importam:
   auditoria, integrações, excluir cliente, excluir parceiro, emitir token do MCP)
   e a tela pede confirmação escrevendo o que a pessoa passa a poder;
 - **tudo fica na auditoria**, com quem mexeu, em quem, o que era e o que ficou —
-  na **Trilha do escritório**, no fim da página de Auditoria.
+  na **Trilha do escritório**, no fim da página de Auditoria. Junto com o ajuste
+  de permissão, ela registra troca de papel, desligamento, reativação, convite,
+  exclusão de cliente e de parceiro, e a troca de e-mail de login de um
+  parceiro.
 
 ---
 

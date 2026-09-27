@@ -220,5 +220,21 @@ serve(async (req) => {
     }
   }
 
+  // Trilha do convite (gap 5 do planning/AUDITABILIDADE.md): `membros.convidado_por`
+  // guarda quem convidou, mas e ESTADO — apagou o vinculo, o convite desaparece
+  // com ele. A linha na trilha fica.
+  if (newId && escritorioId) {
+    const { error: audErr } = await admin.from("auditoria").insert({
+      escritorio_id: escritorioId,
+      ator_id: quem.uid,
+      tipo_ator: "membro",
+      acao: tipo === "interno" ? "equipe.convidado" : "parceiro.convidado",
+      recurso: "usuarios",
+      recurso_id: newId,
+      detalhes: { nome, email, papel },
+    });
+    if (audErr) console.error("convidar-usuario: trilha do convite", audErr);
+  }
+
   return jsonResponse({ ok: true, id: newId, nome, email, tipo, papel });
 });

@@ -6,6 +6,16 @@
 > A anterior foi em 2026-08-15; os números que mudaram estão marcados abaixo.
 > Onde este documento divergir do banco, vale o banco — e corrija aqui.
 > Para o que falta fazer, ver [TODO.md](TODO.md).
+>
+> ⚠️ **Este documento é de ANTES do RBAC multi-tenant.** O lote de setembro
+> (na `staging`, ainda não em produção) muda quem-pode-o-quê em todas as rotas:
+> papéis e permissões em [MULTI_TENANT_RBAC.md](MULTI_TENANT_RBAC.md), o que a
+> tela exige em `src/lib/rbac/exigencias.ts`, o que fica registrado em
+> [AUDITABILIDADE.md](AUDITABILIDADE.md), e o que muda para a equipe em
+> [COMUNICADO_PRODUCAO.md](COMUNICADO_PRODUCAO.md). A coluna "quem vê" da §7
+> (rotas) vale para a produção de hoje, não para depois do release — em
+> particular, `/auditoria` deixa de ser "admin" e passa a ser quem tem
+> `auditoria:ler`.
 
 ---
 

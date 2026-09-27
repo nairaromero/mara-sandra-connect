@@ -79,6 +79,13 @@ export const ESCRITA: Record<string, { todas?: Exigencia } & Partial<Record<Oper
   solicitacoes_documento: { todas: { permissao: "casos:editar" } },
   alertas_duplicidade: { todas: { permissao: "casos:editar" } },
 
+  // as duas que a varredura de 27/09 encontrou ainda na policy antiga
+  // `is_interno()` (migration_rbac_27): a análise técnica, que o FINANCEIRO
+  // conseguia gravar, e a conexão do Gmail do INSS, cujo card já exigia
+  // `integracoes:gerenciar` na tela enquanto o banco aceitava qualquer interno.
+  analises_tecnicas: { todas: { permissao: "casos:editar" } },
+  usuario_gmail_oauth: { todas: { permissao: "integracoes:gerenciar" } },
+
   etiquetas: { todas: { permissao: "etiquetas:gerenciar" } },
   tarefa_templates: { todas: { permissao: "templates:gerenciar" } },
   tipos_beneficio: { todas: { permissao: "templates:gerenciar" } },

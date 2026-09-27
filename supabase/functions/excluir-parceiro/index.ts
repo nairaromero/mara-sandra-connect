@@ -122,6 +122,30 @@ serve(async (req) => {
   // ---------------------------------------------------------------------------
   const erros: string[] = [];
 
+  // Trilha ANTES do cascade: depois dele o nome do parceiro nao existe mais, e
+  // quantos casos ele indicava deixa de ser calculavel — gap 4 do
+  // planning/AUDITABILIDADE.md.
+  if (escritorioId) {
+    const { count: casosIndicados } = await supabase
+      .from("casos").select("id", { count: "exact", head: true }).eq("parceiro_id", usuarioId);
+    const { error: audErr } = await createClient(SUPABASE_URL, SERVICE_ROLE)
+      .from("auditoria").insert({
+        escritorio_id: escritorioId,
+        ator_id: quem.uid,
+        tipo_ator: "membro",
+        acao: "parceiro.excluido",
+        recurso: "usuarios",
+        recurso_id: usuarioId,
+        detalhes: {
+          nome: (alvo as { nome?: string }).nome ?? null,
+          casos_desvinculados: casosIndicados ?? 0,
+          outros_vinculos: outrosVinculos,
+        },
+      });
+    // A trilha nao impede a exclusao; o log grita se ela falhar.
+    if (audErr) console.error("excluir-parceiro: trilha", audErr);
+  }
+
   // 3.1) Desvincula casos (parceiro_id = NULL)
   const casosResp = await supabase
     .from("casos")

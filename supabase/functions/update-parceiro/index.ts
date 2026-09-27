@@ -214,6 +214,24 @@ serve(async (req) => {
       );
     }
 
+    // Trilha ANTES de trocar: esta e a acao cuja unica defesa era "so a
+    // administracao faz" (incidente de 20/09) e que nao deixava rastro nenhum
+    // — gap 1 do planning/AUDITABILIDADE.md. Registrada antes porque, depois,
+    // o e-mail antigo nao existe mais em lugar nenhum.
+    if (quem.perfil.escritorio_id) {
+      const { error: audErr } = await supabaseAdmin.from("auditoria").insert({
+        escritorio_id: quem.perfil.escritorio_id,
+        ator_id: quem.uid,
+        tipo_ator: "membro",
+        acao: "parceiro.email_alterado",
+        recurso: "usuarios",
+        recurso_id: usuarioId,
+        detalhes: { de: a.email, para: novoEmail, nome: novoNome, enviar_link: enviarLink },
+      });
+      // A trilha nao impede a troca, mas o log tem que gritar se ela falhar.
+      if (audErr) console.error("update-parceiro: trilha do e-mail", audErr);
+    }
+
     const updResp = await supabaseAdmin.auth.admin.updateUserById(usuarioId, {
       email: novoEmail,
       email_confirm: true, // pula confirmacao do email antigo
