@@ -52,12 +52,22 @@ precisa: o registro já as tem.
 ## 1. Antes de abrir o PR de release
 
 - [ ] **Naira validou o lote no staging**, com a conta do papel certo (guia v18, seções A–H e J–R).
-      A parte automática está feita (27/09): `PLAYWRIGHT_BASE_URL=https://staging.marasandraconnect.com
-      bunx playwright test` → **95 passed, 53 skipped, 0 failed** (9 min; os
-      skipped são as 12 specs só-do-local, que dependem dos provedores
-      simulados). O staging ficou limpo depois: 0 clientes `[E2E]`, 0
-      escritórios descartáveis, 0 ajustes de permissão, 0 pedidos de suporte
-      pendentes. Falta a validação de gente olhando a tela.
+      A parte automática está feita e foi **refeita em 27/09 depois do merge do #408**:
+      `bun run e2e:staging` → **111 passed, 55 skipped, 0 failed** (10,6 min; os skipped
+      são as specs só-do-local, que dependem dos provedores simulados).
+      Além da suíte, a **conferência card por card** contra o staging
+      (`node e2e/demo/roteiros/conferencia-lote-staging.cjs`, #411) passou os 15 cards da
+      coluna: **12 OK · 0 falhou · 4 notas** (as notas são cards de documento, de script
+      local e de artefato — não têm superfície no staging). O relatório, os stills e o
+      vídeo saem em `e2e/demo/saida/conferencia-lote-staging/`.
+      O staging ficou limpo depois: 0 clientes `[E2E]`, 0 escritórios descartáveis,
+      0 ajustes de permissão, 0 processos plantados, 0 tokens de teste.
+      Falta a validação de gente olhando a tela — o que a máquina não responde é se o
+      comportamento é o que a Naira quer.
+- [ ] **Atenção ao validar o QG no staging:** `app_config.qg_exigir_aal2` estava `false`
+      lá até 27/09 porque o `afterAll` de uma spec só-local escrevia no banco que a suíte
+      apontava (#409). Voltou para `true`, que é o valor que a `migration_rbac_11` pretende.
+      Se o QG deixar de pedir o código, conferir essa chave antes de suspeitar da feature.
 - [ ] **O staging passou por um espelho semanal** depois do lote (prova que o espelho não destrói o RBAC — foi por isso que o passo 6/6 do `espelho-staging.sh` reaplica as migrations e o seed).
 - [x] **Suíte completa verde no local** — feito em 27/09, num local recriado do
       zero a partir do staging (`bun run local:copiar && bun run local:rbac`):
