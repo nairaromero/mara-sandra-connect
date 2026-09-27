@@ -188,3 +188,32 @@ export async function escreveu(
   }
   return (r.data ?? []).length > 0;
 }
+
+/**
+ * Envolve a limpeza de uma spec que só vale no banco local.
+ *
+ * Por que existe: `test.skip(!ENV.local, …)` no `beforeAll` pula os TESTES, mas
+ * o Playwright ainda executa o `afterAll`. Uma limpeza que escreve sem repetir
+ * a condição escreve no banco que a suíte estiver apontando — e a suíte aponta
+ * para o STAGING em `bun run e2e:staging`.
+ *
+ * Aconteceu de verdade: o `afterAll` da spec de MFA fazia
+ * `app_config.upsert({ qg_exigir_aal2: "false" })` sem guarda. Rodar a suíte
+ * contra o staging desligava lá a trava de segundo fator do QG — que a
+ * `migration_rbac_11` liga de propósito — e ninguém via, porque o teste tinha
+ * sido pulado. Quem fosse validar o QG no staging veria o sistema NÃO pedir o
+ * código e concluiria que a feature está quebrada.
+ *
+ * As outras specs só-locais escapavam por acidente: a limpeza começa com
+ * `if (ESC2)`, e `ESC2` fica indefinido quando o `beforeAll` pula. Acidente não
+ * é regra — aqui a condição fica escrita uma vez, no lugar de depender de uma
+ * variável ter ficado vazia.
+ *
+ *   test.afterAll(limpezaLocal(async () => { … }));
+ */
+export function limpezaLocal(f: () => Promise<void>): () => Promise<void> {
+  return async () => {
+    if (!ENV.local) return;
+    await f();
+  };
+}

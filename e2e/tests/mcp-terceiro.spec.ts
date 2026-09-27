@@ -13,6 +13,7 @@ import { test, expect } from "@playwright/test";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { ENV } from "../env";
 import { adminClient } from "../supabase-admin";
+import { limpezaLocal } from "../rbac";
 
 const admin = adminClient();
 const DOM = "marasandraconnect.com";
@@ -75,7 +76,7 @@ test.describe.serial("MCP: token para terceiro", () => {
     ids = Object.fromEntries((us ?? []).map((u) => [u.email.split("+")[1].split("@")[0], u.id]));
     await limpar();
   });
-  test.afterAll(async () => {
+  test.afterAll(limpezaLocal(async () => {
     if (!ESC2) return;
     await limpar();
     // advogado volta a ser advogado, se algum teste o promoveu
@@ -85,7 +86,7 @@ test.describe.serial("MCP: token para terceiro", () => {
     await admin.from("membro_permissoes").delete()
       .eq("escritorio_id", ESC2)
       .in("membro_id", (await admin.from("membros").select("id").eq("escritorio_id", ESC2).eq("usuario_id", ids.advogado)).data?.map((m) => m.id) ?? []);
-  });
+  }));
 
   test("admin emite para parceiro e assistente; o MCP roda como cada um", async () => {
     const adm = await sessao(`canario+admin@${DOM}`, ESC2);

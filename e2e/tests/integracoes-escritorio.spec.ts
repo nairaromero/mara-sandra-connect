@@ -15,6 +15,7 @@ import path from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { ENV } from "../env";
 import { adminClient } from "../supabase-admin";
+import { limpezaLocal } from "../rbac";
 
 const admin = adminClient();
 const DOM = "marasandraconnect.com";
@@ -66,9 +67,9 @@ test.describe.serial("integrações por escritório", () => {
     ESC2 = canario!.id;
     await limpar();
   });
-  test.afterAll(async () => {
+  test.afterAll(limpezaLocal(async () => {
     if (ESC2) await limpar();
-  });
+  }));
 
   test("WhatsApp: admin salva (segredo cifrado, nunca volta); outros não veem", async () => {
     const cAdmin = await como(`canario+admin@${DOM}`, ESC2);
