@@ -42,6 +42,12 @@ precisa: o registro já as tem.
 ## 1. Antes de abrir o PR de release
 
 - [ ] **Naira validou o lote no staging**, com a conta do papel certo (guia v18, seções A–H e J–R).
+      A parte automática está feita (27/09): `PLAYWRIGHT_BASE_URL=https://staging.marasandraconnect.com
+      bunx playwright test` → **95 passed, 53 skipped, 0 failed** (9 min; os
+      skipped são as 12 specs só-do-local, que dependem dos provedores
+      simulados). O staging ficou limpo depois: 0 clientes `[E2E]`, 0
+      escritórios descartáveis, 0 ajustes de permissão, 0 pedidos de suporte
+      pendentes. Falta a validação de gente olhando a tela.
 - [ ] **O staging passou por um espelho semanal** depois do lote (prova que o espelho não destrói o RBAC — foi por isso que o passo 6/6 do `espelho-staging.sh` reaplica as migrations e o seed).
 - [x] **Suíte completa verde no local** — feito em 27/09, num local recriado do
       zero a partir do staging (`bun run local:copiar && bun run local:rbac`):
