@@ -14,7 +14,7 @@ recebe **antes** do release.
 
 | Camada | O quê |
 |---|---|
-| Banco | **30 migrations** faltando em produção (a produção tem 23 registradas; o staging, 46) |
+| Banco | **31 migrations** faltando em produção (a produção tem 23 registradas; o staging, 47) |
 | Edge functions | **33** para deployar, **2** para apagar (`check-ti-cliente`, `sync-ti-todos`) |
 | Front | RBAC em todas as telas, QG em host próprio, Configurações em abas, glossário, paginador, marca por escritório, MFA |
 | Infra | `qg.marasandraconnect.com` (criado pelo deploy, via `wrangler.jsonc`), 2 cron novos, n8n sai da rotina do DJEN |
@@ -27,6 +27,10 @@ de permissões por pessoa, #402 MCP). O resto são correções que já estavam n
 fila: escalada de privilégio na RLS (#373), functions abertas (#375), assinatura
 de cron (#376), fuso de Brasília (#377), kanban por processo (#391), reabertura
 de caso (#394).
+
+A **`rbac_25`** também nasceu depois (toda mudança de acesso passa a deixar
+linha na auditoria — ver `planning/AUDITABILIDADE.md`), e entra na lista logo
+depois da `rbac_24`.
 
 A **`rbac_24`** nasceu depois deste plano ([#405](https://github.com/nairaromero/mara-sandra-connect/pull/405), achada filmando o comunicado): a auditoria passou a seguir a permissão `auditoria:ler` em vez do papel admin. Entra na lista do §3.4, logo depois da `rbac_23`.
 
@@ -88,7 +92,7 @@ usadas de momento a momento.
 | Fase | Duração | O que a equipe sente |
 |---|---|---|
 | Deploy das 33 functions | ~20 min | nada, exceto se alguém usar IA, convite ou sync naquele minuto (erro) |
-| 30 migrations | ~5 min | **telas vazias** a partir da `rbac_03` |
+| 31 migrations | ~5 min | **telas vazias** a partir da `rbac_03` |
 | Merge + build do front | ~4 min | telas vazias até o build acabar |
 | Conferência | ~10 min | normal |
 
@@ -153,7 +157,7 @@ bunx supabase secrets list --project-ref llugytkdsfsrciavhrfw
 | `LEGALMAIL_TOKEN`, `TI_TOKEN`, `EVOLUTION_*` | como hoje: é o legado do escritório padrão, e é o que faz Legalmail/TI/WhatsApp seguirem funcionando no dia 1 |
 | `COMUNICA_BASE_URL`, `GOOGLE_*_URL`, `GMAIL_API_BASE`, `*_BASE_URL` dos mocks | **não devem existir** — são só do local |
 
-### 3.4 As 30 migrations, nesta ordem (a mesma que o staging provou)
+### 3.4 As 31 migrations, nesta ordem (a mesma que o staging provou)
 
 ```bash
 for m in migration_kanban_por_processo migration_solicitacao_responsavel_edicao \
@@ -171,6 +175,7 @@ for m in migration_kanban_por_processo migration_solicitacao_responsavel_edicao 
          migration_rbac_19_ticket_de_suporte migration_rbac_20_permissoes_por_pessoa \
          migration_rbac_21_contexto_efetivo migration_rbac_22_papel_limpa_ajustes \
          migration_rbac_23_membro_pode migration_rbac_24_auditoria_por_permissao \
+         migration_rbac_25_auditar_mudanca_de_acesso \
          migration_reabre_caso_so_com_autor; do
   echo "== $m"
   node scripts/msc-sql.mjs --file "planning/sql-migrations/$m.sql" || break
@@ -231,7 +236,7 @@ O n8n continua instalado, sem rotina nossa — não criar rotina nova nele.
 ## 4. Conferir de verdade (deploy verde ≠ funcionando)
 
 ```bash
-# 1. as 30 entraram no registro (23 antes + 30 = 53)
+# 1. as 31 entraram no registro (23 antes + 31 = 54)
 node scripts/msc-sql.mjs "select count(*) from ops.migrations_aplicadas"
 
 # 2. o modelo de acesso nasceu certo
