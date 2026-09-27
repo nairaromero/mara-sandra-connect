@@ -292,6 +292,33 @@ for (const d of fs.readdirSync(dirFn)) {
   }
 }
 
+// ---------- quem lê largo tem de estar PRESO a um escritório ----------
+// Service role ignora RLS. Function que consulta tabela de domínio SEM partir
+// de uma linha já validada por `exigirRecurso` lê o banco inteiro — e foi assim
+// que `listar-clientes-ti` e `listar-processos-legalmail` vazaram entre
+// escritórios. Estas têm de passar pelo túnel `escopado` (_shared/auth.ts), que
+// filtra por construção em vez de depender de alguém lembrar de embrulhar cada
+// query. O `digest-diario` é o caso que mais dói: ele manda e-mail.
+const FN_DEVEM_ESCOPAR = {
+  "digest-diario": "resumo do dia: lê andamentos, publicações e tarefas do escritório e manda e-mail",
+  "inss-email-processor": "cria caso, cliente, andamento e tarefa a partir da caixa do escritório",
+  "sync-djen-publicacoes": "cron do DJEN: publicações e andamentos de todos os processos monitorados",
+  "listar-clientes-ti": "lista clientes (vazou em 24/09 antes do escopo)",
+  "listar-processos-legalmail": "lista processos (idem)",
+  "whatsapp-inbound": "casa a mensagem com caso e documento pelo telefone",
+  "excluir-parceiro": "cascata de desvínculo em casos, documentos e andamentos",
+};
+let conferidasEscopo = 0;
+for (const [fn, porque] of Object.entries(FN_DEVEM_ESCOPAR)) {
+  const idx = path.join(dirFn, fn, "index.ts");
+  if (!fs.existsSync(idx)) continue;
+  conferidasEscopo++;
+  const src = fs.readFileSync(idx, "utf8");
+  if (!/\bescopado\(/.test(src)) {
+    problemas.push(`SEM ESCOPO: function ${fn} devia usar escopado() — ${porque}`);
+  }
+}
+
 // trilhas de exclusão que têm de existir com o gatilho ligado (migration_rbac_26)
 const TRILHAS = [["documentos", "documentos_excluidos"], ["andamentos", "andamentos_excluidos"]];
 const gatilhos = sql(`
@@ -317,6 +344,7 @@ console.log(`  functions com permissão: ${Object.keys(fnFront).length}`);
 console.log(`  funções que devem auditar: ${conferidasAudita} no banco + ${conferidasFnAudita} edge`);
 console.log(`  tabelas com escrita fora do modelo de permissão: ${semTrava.length} (${Object.keys(ESCRITA_SEM_PERMISSAO_OK).length} previstas)`);
 console.log(`  trilha das edge: só pelo túnel ${TUNEL_AUDITORIA}`);
+console.log(`  functions presas a um escritório pelo escopado: ${conferidasEscopo}`);
 if (problemas.length === 0) {
   console.log("\nOK: o espelho do front bate com o servidor, e quem muda acesso audita.");
   process.exit(0);
