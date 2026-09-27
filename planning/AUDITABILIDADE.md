@@ -227,6 +227,33 @@ exigência de `ia:usar` da `ia-assistant`, deixa a spec vermelha.
 
 ---
 
+## 4b. Os túneis, e a evidência de cada um (27/09)
+
+Pedido da Naira: função túnel, uma fonte de verdade, em vez de N pontos
+repetindo a mesma atividade — e **evidência real** de que o túnel resolve, não
+só "compila".
+
+| túnel | o que havia antes | a evidência |
+|---|---|---|
+| `supabase/functions/_shared/auditoria.ts` | quatro functions montando o `insert` à mão, com `tipo_ator` repetido e três tratamentos de erro (um silencioso) | sabotado com um insert direto, o conferidor aponta `FORA DO TÚNEL`; e a trilha gravada foi conferida no staging (`parceiro.email_alterado` com de → para, `tipo_ator = membro`) |
+| `e2e/rbac.ts` | 23 specs logando à mão, 21 pontos montando o header, **três logins sem checar o erro** | login que falha agora estoura; antes devolvia client anônimo e a spec ficava verde dizendo que a RLS escondeu o que ninguém pediu |
+| `src/lib/fuso.ts` (o fuso do escritório) | seis pontos em três componentes escrevendo `timeZone: "America/Sao_Paulo"` à mão — acertando, mas cada um podendo esquecer | sabotei uma formatação **sem** o fuso (o bug de 21/09) e o teste de Madri ficou vermelho: o card mostrava o dia seguinte. E o eslint acusa quem escrever o fuso à mão, com a mensagem apontando o túnel |
+| `src/lib/leitura.ts` (erro ≠ vazio) | 19 leituras destruturando só `data` (145 já checavam). Duas decidiam: a trava anti-duplicação do aplicador de templates **não disparava** se a consulta falhasse, e o mapa de executores nascia vazio, roteando toda tarefa para o fallback | teste unitário que reproduz o padrão antigo (falha e vazio dando a MESMA resposta) e prova o túnel separando os dois; guarda que varre `src/` e lista quem ainda ignora, com motivo — provado com uma leitura nova sabotada, que apareceu com arquivo e linha. O guarda achou um `count` que minha medição tinha perdido, em `equipe.tsx`: falha virava "0 tarefas abertas", a tela deixava de pedir sucessor e só o banco recusava depois |
+| `escopado` no `digest-diario` | um `doEscritorio(q)` **local**, aplicado à mão em cada uma das três consultas — e a function manda e-mail | plantei a mesma novidade nos dois escritórios e sabotei uma consulta para o client cru: o HTML do e-mail passou a conter `[E2E digest OUTRO] movimentação`. A spec `digest-escopo` acusa, e o conferidor acusa a perda do `escopado()` |
+
+O que o conferidor passou a cobrar, além do espelho de permissões: quem deve
+auditar, quem deve auditar **pelo túnel**, quem não pode escrever na trilha
+direto, e as sete functions que leem largo e têm de estar presas a um escritório
+pelo `escopado`. E o eslint passou a barrar o fuso escrito à mão — só
+`src/lib/fuso.ts` conhece `America/Sao_Paulo`.
+
+Uma medição que **não** virou trabalho: fui atrás do `fetchT` (timeout em toda
+chamada externa, regra do CLAUDE.md) esperando encontrar `fetch` cru. São **27
+chamadas e zero cruas** — esse túnel já está adotado. Fica registrado para
+ninguém gastar o tempo de novo.
+
+---
+
 ## 5. A régua, para não abrir de novo
 
 1. **RPC `SECURITY DEFINER` que muda acesso audita.** Papel, permissão, status

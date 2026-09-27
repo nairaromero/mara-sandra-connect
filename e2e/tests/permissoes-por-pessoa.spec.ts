@@ -11,6 +11,7 @@ import { test, expect, type Browser } from "@playwright/test";
 import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
 import { ENV, PROJECT_REF } from "../env";
 import { adminClient } from "../supabase-admin";
+import { clienteComo, idDe as idDeEmail, sessaoComo } from "../rbac";
 import { cursorVisivel } from "../cursor";
 
 const admin = adminClient();
@@ -21,28 +22,10 @@ let idFinanceiro: string;
 let idAdvogado: string;
 let idParceira: string;
 
-async function sessao(email: string): Promise<Session> {
-  const sb = createClient(ENV.supabaseUrl, ENV.anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
-  const { data, error } = await sb.auth.signInWithPassword({ email, password: ENV.internoPassword });
-  if (error || !data.session) throw new Error(`login ${email}: ${error?.message}`);
-  return data.session;
-}
-
-async function como(email: string, escritorioId: string): Promise<SupabaseClient> {
-  const sb = createClient(ENV.supabaseUrl, ENV.anonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: { "x-escritorio-id": escritorioId } },
-  });
-  const { error } = await sb.auth.signInWithPassword({ email, password: ENV.internoPassword });
-  if (error) throw new Error(`login ${email}: ${error.message}`);
-  return sb;
-}
-
-async function idDe(email: string): Promise<string> {
-  const { data } = await admin.from("usuarios").select("id").eq("email", `${email}@${DOM}`).single();
-  if (!data) throw new Error(`conta ${email} ausente — rode o seed do RBAC`);
-  return data.id as string;
-}
+// Login, header e id de conta vêm do túnel `e2e/rbac.ts`.
+const sessao = async (email: string): Promise<Session> => (await sessaoComo(email)).session;
+const como = clienteComo;
+const idDe = (conta: string) => idDeEmail(`${conta}@${DOM}`);
 
 /** Desfaz qualquer ajuste, para o teste não depender do que sobrou antes. */
 async function limpar() {

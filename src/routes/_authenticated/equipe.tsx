@@ -19,6 +19,7 @@ import {
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { lerContagem } from "@/lib/leitura";
 import { dataBR } from "@/lib/fuso";
 import { ClientOnly } from "@/components/client-only";
 import { Button } from "@/components/ui/button";
@@ -252,12 +253,25 @@ function EquipePage() {
     setDesligarAlvo(u);
     setDesligarAbertas(null);
     setDesligarNovoResp("");
-    const { count } = await supabase
-      .from("tarefas")
-      .select("id", { count: "exact", head: true })
-      .eq("responsavel_id", u.id)
-      .eq("status", "a_fazer");
-    setDesligarAbertas(count ?? 0);
+    // `lerContagem` e não `count ?? 0`: falha na contagem virava "0 abertas", a
+    // tela deixava de pedir quem assume, e só o banco recusava depois
+    // (`Há N tarefa(s) aberta(s)`) — a tela mentia e o erro aparecia fora de
+    // hora. Agora a falha aparece aqui, com nome (src/lib/leitura.ts).
+    try {
+      setDesligarAbertas(
+        await lerContagem(
+          supabase
+            .from("tarefas")
+            .select("id", { count: "exact", head: true })
+            .eq("responsavel_id", u.id)
+            .eq("status", "a_fazer"),
+          "tarefas abertas da pessoa",
+        ),
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "não consegui contar as tarefas abertas");
+      setDesligarAlvo(null);
+    }
   }
 
   async function desligarConfirmado() {

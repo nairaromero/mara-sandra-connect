@@ -112,7 +112,7 @@ import { EnviarAvisoParceiro } from "@/components/tarefas/enviar-aviso-parceiro"
 import { EtapaProvidenciarDocumento } from "@/components/tarefas/etapa-providenciar-documento";
 import { EtapaCumprimentoExigencia } from "@/components/tarefas/etapa-cumprimento-exigencia";
 import { EtapaProtocoloRealizado } from "@/components/tarefas/etapa-protocolo-realizado";
-import { chaveDiaBR, hojeChaveBR } from "@/lib/fuso";
+import { chaveDiaBR, dataHoraBR, horaBR, hojeChaveBR } from "@/lib/fuso";
 import { useDestaque } from "@/lib/destaque/destaque-context";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
@@ -845,14 +845,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
           if (!pularAvisos) {
             const avisos: string[] = [];
             if (agendaStart.getTime() < Date.now()) {
-              const quando = agendaStart.toLocaleString("pt-BR", {
-                day: "2-digit",
-                month: "2-digit",
-                year: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-                timeZone: "America/Sao_Paulo",
-              });
+              const quando = dataHoraBR(agendaStart);
               avisos.push(
                 `A data do agendamento (${quando}) JÁ PASSOU — o evento vai direto pra aba Arquivados.`,
               );
@@ -864,11 +857,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                 startIso,
               );
               if (jaExiste) {
-                const hora = new Date(jaExiste.start_at).toLocaleTimeString("pt-BR", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  timeZone: "America/Sao_Paulo",
-                });
+                const hora = horaBR(jaExiste.start_at);
                 const rotuloEv =
                   (agendaItem.tipo as string) === "audiencia" ? "audiência" : "perícia";
                 avisos.push(

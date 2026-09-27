@@ -23,6 +23,7 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { escopado, exigirUsuario } from "../_shared/auth.ts";
+import { auditar } from "../_shared/auditoria.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -125,25 +126,19 @@ serve(async (req) => {
   // Trilha ANTES do cascade: depois dele o nome do parceiro nao existe mais, e
   // quantos casos ele indicava deixa de ser calculavel — gap 4 do
   // planning/AUDITABILIDADE.md.
-  if (escritorioId) {
+  {
     const { count: casosIndicados } = await supabase
       .from("casos").select("id", { count: "exact", head: true }).eq("parceiro_id", usuarioId);
-    const { error: audErr } = await createClient(SUPABASE_URL, SERVICE_ROLE)
-      .from("auditoria").insert({
-        escritorio_id: escritorioId,
-        ator_id: quem.uid,
-        tipo_ator: "membro",
-        acao: "parceiro.excluido",
-        recurso: "usuarios",
-        recurso_id: usuarioId,
-        detalhes: {
-          nome: (alvo as { nome?: string }).nome ?? null,
-          casos_desvinculados: casosIndicados ?? 0,
-          outros_vinculos: outrosVinculos,
-        },
-      });
-    // A trilha nao impede a exclusao; o log grita se ela falhar.
-    if (audErr) console.error("excluir-parceiro: trilha", audErr);
+    await auditar(quem, {
+      acao: "parceiro.excluido",
+      recurso: "usuarios",
+      recurso_id: usuarioId,
+      detalhes: {
+        nome: (alvo as { nome?: string }).nome ?? null,
+        casos_desvinculados: casosIndicados ?? 0,
+        outros_vinculos: outrosVinculos,
+      },
+    });
   }
 
   // 3.1) Desvincula casos (parceiro_id = NULL)
