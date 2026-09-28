@@ -144,5 +144,18 @@ begin
 end;
 $$;
 
--- o drop levou os grants junto
+-- (Este revoke foi ACRESCENTADO em 28/09, depois de a migration já ter rodado
+-- nos três ambientes: quem consertou o estado já aplicado foi a
+-- migration_execute_so_de_quem_precisa. Fica aqui para que rodar este arquivo
+-- de novo não reabra o buraco.)
+-- O drop levou os grants junto — e o CREATE FUNCTION do Postgres concede
+-- EXECUTE a PUBLIC por padrão. Sem o revoke abaixo, recriar a função desfaz o
+-- endurecimento da `migration_revoke_execute_anon` e deixa esta RPC como a
+-- única da família alcançável por `anon`. (Não vaza dado: o corpo começa
+-- cobrando `equipe:gerenciar` e uma sessão anônima leva 42501. Mas ser a
+-- exceção da família é o começo do próximo furo.)
+-- `public` (padrão do Postgres) e `anon` (privilégio padrão do projeto no
+-- Supabase): a regra da migration_revoke_execute_anon é que `anon` só alcança
+-- os 4 helpers que aparecem dentro de policy — esta RPC não é um deles.
+revoke execute on function public.permissoes_do_membro(uuid) from public, anon;
 grant execute on function public.permissoes_do_membro(uuid) to authenticated, service_role;

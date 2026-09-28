@@ -337,6 +337,42 @@ for (const [origem, trilha] of TRILHAS) {
   if (!comGatilho.has(origem)) problemas.push(`SEM GATILHO: ${origem} apaga sem registrar em ${trilha}`);
 }
 
+// ---------------------------------------------------------------------------
+// Quem alcança as funções do schema public.
+//
+// A regra é da `migration_revoke_execute_anon`: `anon` só nos 4 helpers que
+// aparecem DENTRO de policy, default, constraint ou índice — sem EXECUTE neles
+// a consulta do próprio dono da linha falharia. Todo o resto é de
+// `authenticated` (as RPCs que o front chama) e `service_role`.
+//
+// O que corrói isso é o padrão do Postgres: função nova nasce com EXECUTE para
+// PUBLIC, e `create or replace` preserva os grants — mas `drop` + `create`, que
+// é o que se faz quando o TIPO DE RETORNO muda, os perde e volta ao padrão.
+// Aconteceu em 28/09 com `permissoes_do_membro`: a migration que acrescentou a
+// coluna `detalhe` recriou a função e ela virou a única RPC da família
+// alcançável por PUBLIC. Não vazou dado (o corpo cobra `equipe:gerenciar` e a
+// sessão anônima leva 42501), mas ser a exceção da família é o começo do
+// próximo furo.
+//
+// Função de GATILHO fica de fora: o Postgres confere o privilégio no
+// CREATE TRIGGER, não a cada disparo — foi a decisão da própria migration.
+const HELPERS_DE_POLICY = ["caso_do_parceiro", "is_admin", "is_interno", "parceiro_ativo"];
+const abertas = sql(`
+  select r.routine_name as nome, r.grantee as quem
+    from information_schema.routine_privileges r
+    join pg_proc p on p.proname = r.routine_name
+    join pg_namespace n on n.oid = p.pronamespace and n.nspname = 'public'
+   where r.routine_schema = 'public' and r.privilege_type = 'EXECUTE'
+     and r.grantee in ('PUBLIC', 'anon')
+     and p.prorettype <> 'trigger'::regtype
+   group by r.routine_name, r.grantee`);
+let conferidasAbertura = 0;
+for (const { nome, quem } of abertas) {
+  conferidasAbertura++;
+  if (quem === "anon" && HELPERS_DE_POLICY.includes(nome)) continue; // previsto
+  problemas.push(`ABERTA DEMAIS: ${nome} tem EXECUTE para ${quem} (regra: anon só nos helpers de policy)`);
+}
+
 console.log(`espelho x banco — alvo: ${alvo}`);
 console.log(`  policies de escrita conferidas: ${policies.length - puladas}${puladas ? ` (${puladas} ILEGÍVEIS)` : ""}`);
 console.log(`  RPCs com permissão: ${Object.keys(rpcBanco).length}`);
@@ -345,6 +381,7 @@ console.log(`  funções que devem auditar: ${conferidasAudita} no banco + ${con
 console.log(`  tabelas com escrita fora do modelo de permissão: ${semTrava.length} (${Object.keys(ESCRITA_SEM_PERMISSAO_OK).length} previstas)`);
 console.log(`  trilha das edge: só pelo túnel ${TUNEL_AUDITORIA}`);
 console.log(`  functions presas a um escritório pelo escopado: ${conferidasEscopo}`);
+console.log(`  funções alcançáveis por anon/PUBLIC: ${conferidasAbertura} (${HELPERS_DE_POLICY.length} previstas)`);
 if (problemas.length === 0) {
   console.log("\nOK: o espelho do front bate com o servidor, e quem muda acesso audita.");
   process.exit(0);
