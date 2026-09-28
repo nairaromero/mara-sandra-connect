@@ -316,6 +316,10 @@ test("caso finalizado: tarefa de robô não reabre; pedido de gente reabre", asy
     .single();
   expect(aindaFinalizado!.fase, "robô não reabre caso encerrado").toBe("finalizado");
 
+  // "Gente" hoje é `created_by` preenchido: o gatilho passou a distinguir por
+  // ele (service_role deixa nulo), e não mais por `origem`. O teste insere
+  // como admin, então o autor vai explícito — senão a linha conta como robô e
+  // o caso não reabre, que foi o que quebrou este spec no lote do RBAC.
   const manual = await admin.from("tarefas").insert({
     caso_id: casoId,
     tipo: "interna",
@@ -323,6 +327,7 @@ test("caso finalizado: tarefa de robô não reabre; pedido de gente reabre", asy
     prioridade: 2,
     titulo: "[E2E] pedido de gente",
     origem: "manual",
+    created_by: internoQuePediu,
   });
   expect(manual.error).toBeFalsy();
   await expect

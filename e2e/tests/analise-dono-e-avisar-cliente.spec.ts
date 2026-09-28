@@ -1,8 +1,9 @@
 // E2E: tarefa sem dono e caso sem parceiro (Naira, 2026-09-03).
 //
-//  1. Caso indicado por parceiro: o trigger cria "Cliente novo - Analisar"
-//     já com dono (a Mara) — antes nascia órfã quando o próprio parceiro
-//     cadastrava.
+//  1. Caso indicado por parceiro: o trigger cria a tarefa já COM DONO — antes
+//     nascia órfã quando o próprio parceiro cadastrava. Desde o card #434 a
+//     primeira tarefa é a conferência de documentos (a análise nasce depois,
+//     quando ela é concluída); o que este teste guarda é que ela tem dono.
 //  2. Perícia/audiência em caso SEM parceiro: nasce "Avisar o cliente"
 //     (antes não nascia tarefa nenhuma — ninguém lembrava de avisar).
 //  3. Pelo formulário, quem o interno escolhe na tela manda por cima do dono
@@ -28,7 +29,7 @@ test.afterAll(async () => {
   await cleanupE2E(admin);
 });
 
-test("caso do parceiro: análise nasce com dono padrão", async () => {
+test("caso do parceiro: a primeira tarefa nasce com dono", async () => {
   const { data: parceira } = await admin
     .from("usuarios")
     .select("id")
@@ -43,11 +44,20 @@ test("caso do parceiro: análise nasce com dono padrão", async () => {
     .from("tarefas")
     .select("id, responsavel_id, metadata")
     .eq("caso_id", casoId);
-  const analise = (tarefas ?? []).find(
-    (t) => (t.metadata as { etapa?: string })?.etapa === "analise_inicial_parceiro",
+  const primeira = (tarefas ?? []).find(
+    (t) => (t.metadata as { etapa?: string })?.etapa === "organizacao_documentos",
   );
-  expect(analise).toBeTruthy();
-  expect(analise!.responsavel_id).toBe(await maraId());
+  expect(primeira, "caso de parceiro abre a conferência de documentos (#434)").toBeTruthy();
+  // Sem configuração de escritório, a etapa cai na escada — que termina no
+  // mesmo padrão de sempre. Com configuração, vai para quem organiza.
+  expect(primeira!.responsavel_id).toBeTruthy();
+
+  const { data: dono, error: erroDono } = await admin.rpc("responsavel_etapa", {
+    p_caso_id: casoId,
+    p_chave: "organiza_documentos",
+  });
+  expect(erroDono).toBeFalsy();
+  expect(primeira!.responsavel_id).toBe(dono);
 });
 
 test("perícia em caso sem parceiro vira tarefa de avisar o cliente", async () => {
