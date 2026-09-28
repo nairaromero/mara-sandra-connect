@@ -173,6 +173,31 @@ test.describe.serial("permissões: salvar explícito e explicação", () => {
     }
   });
 
+  test("o botão de voltar ao papel diz por que está apagado", async ({ browser, baseURL }) => {
+    // Sem ajuste, o botão fica desabilitado — e um `title` no próprio botão
+    // desabilitado não aparece (o navegador não dispara mouse nele). A
+    // explicação mora no invólucro.
+    await limpar();
+    const { ctx, painel } = await abrirPainel(browser, baseURL!);
+    try {
+      const botao = painel.locator("[data-voltar-ao-papel]");
+      await expect(botao, "sem ajuste, não há o que desfazer").toBeDisabled();
+      const involucro = painel.locator("[data-voltar-ao-papel-dica]");
+      await expect(involucro).toHaveAttribute("title", /já está no padrão do papel/);
+
+      // com um ajuste, o botão abre e o texto muda para o que ele vai fazer
+      const linha = painel.locator('[data-permissao="etiquetas:gerenciar"]');
+      await linha.getByRole("checkbox").click();
+      await painel.locator("[data-salvar-permissoes]").click();
+      await expect(linha.locator("[data-ajustada]")).toBeVisible();
+      await expect(botao).toBeEnabled();
+      await expect(involucro).toHaveAttribute("title", /Desfaz 1 ajuste/);
+    } finally {
+      await ctx.close();
+      await limpar();
+    }
+  });
+
   test("toda permissão tem explicação — nenhuma fica com o texto de fallback", async () => {
     const { data, error } = await admin.from("permissoes").select("chave, detalhe");
     if (error) throw new Error(`permissões: ${error.message}`);
