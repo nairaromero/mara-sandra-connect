@@ -295,14 +295,25 @@ async function mcp(token, method, params = {}) {
       await deslizar(page, linha);
       await clicar(page, linha.getByRole("checkbox").first());
 
-      await provar(3, "conceder permissão sensível pede confirmação", async () => {
+      await provar(3, "marcar não grava — a mudança fica pendente até salvar", async () => {
+        await visivel(linha.locator("[data-nao-salvo]"), "a linha não ficou marcada como não salva");
+        const { data } = await admin.from("membro_permissoes").select("permissao")
+          .eq("escritorio_id", ESC2).eq("permissao", "auditoria:ler");
+        if ((data ?? []).length) falha("o clique gravou no banco antes de salvar");
+        return "tela mostra 'não salvo' e o banco segue sem o ajuste";
+      });
+      await narrar(page, "Marcar não grava: a mudança fica pendente até você salvar.", 3600);
+      await still(page, "03-nao-salvo");
+
+      await clicar(page, page.locator("[data-salvar-permissoes]"));
+      await provar(3, "conceder permissão sensível pede confirmação na hora de salvar", async () => {
         await visivel(page.getByText(/Conceder uma permissão sensível/i),
           "não apareceu a confirmação da permissão sensível");
-        return "o sistema pergunta antes de conceder auditoria:ler";
+        return "o sistema pergunta antes de gravar auditoria:ler";
       });
-      await narrar(page, "Auditoria é permissão sensível: o sistema pergunta antes.", 3600);
+      await narrar(page, "Auditoria é permissão sensível: o sistema pergunta antes de gravar.", 3600);
       await still(page, "03-permissao-sensivel");
-      await clicar(page, page.getByRole("button", { name: /^Conceder$/ }).first());
+      await clicar(page, page.getByRole("button", { name: /Conceder e salvar/ }).first());
       // esperar a TELA confirmar antes de perguntar ao banco: na primeira
       // gravação a consulta chegou antes da gravação e leu "não tem" — corrida
       // minha, não do produto (a trilha do ato 4 provou que o ajuste ocorreu)

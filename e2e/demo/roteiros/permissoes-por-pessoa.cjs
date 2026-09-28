@@ -267,11 +267,17 @@ async function painel(page, titulo, corpoHtml, ms = 5000) {
       await deslizar(p, linha);
       await narrar(p, "Ver a auditoria é marcada como sensível.");
       await clicar(p, linha.locator('button[role="checkbox"], input[type="checkbox"]').first());
+      // Desde 28/09 marcar não grava: a linha fica "não salvo" até o Salvar.
+      await linha.locator("[data-nao-salvo]").waitFor({ timeout: 15000 });
+      await narrar(p, "Marcar não grava nada ainda: a linha fica como não salva.");
+      await ler(p, 2500);
+      await still(p, "ato7-00-nao-salvo");
+      await clicar(p, p.locator("[data-salvar-permissoes]"));
       await p.getByRole("alertdialog").waitFor({ timeout: 15000 });
-      await narrar(p, "A confirmação diz o que a pessoa passa a poder, e lembra que fica registrado com o nome de quem concedeu.");
+      await narrar(p, "Na hora de salvar, a confirmação diz o que a pessoa passa a poder, e lembra que fica registrado com o nome de quem concedeu.");
       await ler(p, 4000);
       await still(p, "ato7-01-confirmacao");
-      await clicar(p, p.getByRole("button", { name: "Conceder" }));
+      await clicar(p, p.getByRole("button", { name: /Conceder e salvar/ }));
       await linha.locator("[data-ajustada]").waitFor({ timeout: 15000 });
       await deslizar(p, linha);
       await ler(p, 1500);
