@@ -138,8 +138,11 @@ function EquipePage() {
           ativo: m.status === "ativo",
           desligado_em: m.status === "desativado" ? (m.desativado_em ?? new Date(0).toISOString()) : null,
           eh_admin: m.papel?.chave === "admin",
-          papel: m.papel?.chave ?? "advogado",
-          papel_nome: m.papel?.nome ?? "Advogado",
+          // `membros.papel_id` é NOT NULL: sem papel aqui significa join que
+          // não veio, não pessoa sem papel. Chutar "advogado" mostrava um
+          // papel que a pessoa pode não ter — melhor dizer que não se sabe.
+          papel: m.papel?.chave ?? "",
+          papel_nome: m.papel?.nome ?? "sem papel",
         }))
         .sort((a, b) => (a.nome ?? "").localeCompare(b.nome ?? "", "pt-BR"));
       setLista(linhas);
@@ -463,7 +466,14 @@ function EquipePage() {
                               admin
                             </Badge>
                           )}
-                          {!u.eh_admin && u.papel !== "advogado" && (
+                          {/* Todo papel aparece, inclusive advogado. Até 28/09 a
+                              etiqueta escondia "advogado" — herança de quando
+                              interno ERA advogado por padrão e a etiqueta
+                              marcava a exceção. Com o RBAC, advogado é um papel
+                              entre quatro, e esconder a etiqueta fazia
+                              "é advogado" parecer "está sem papel". Admin já
+                              tem a etiqueta dourada acima; não repete. */}
+                          {!u.eh_admin && (
                             <Badge variant="outline" className="text-xs">
                               {u.papel_nome.toLowerCase()}
                             </Badge>
