@@ -340,16 +340,32 @@ export function PermissoesSheet({ pessoa, onFechar, onMudou }: Props) {
               procurar onde gravar. O `-mx-6 px-6` cancela o padding do
               SheetContent para a faixa cobrir a largura toda. */}
           <SheetFooter className="gap-2 sm:flex-row sm:justify-between sticky bottom-0 z-10 -mx-6 -mb-6 border-t bg-background px-6 py-3">
-            <Button
-              variant="outline"
-              onClick={() => void voltarTudoAoPapel()}
-              disabled={resetando || ajustes === 0 || pendentes.length > 0 || salvando}
-              title={pendentes.length > 0 ? "Salve ou descarte as mudanças antes" : undefined}
-              data-voltar-ao-papel
+            {/* O título vai no SPAN, não no botão: navegador não dispara evento
+                de mouse em elemento desabilitado, então `title` no próprio
+                botão cinza nunca aparece. Sem isso, quem abria a gaveta de
+                alguém sem ajuste via um botão apagado e nenhuma explicação —
+                a mesma queixa que a etiqueta de papel gerou (#421). */}
+            <span
+              className="inline-flex"
+              data-voltar-ao-papel-dica
+              title={
+                pendentes.length > 0
+                  ? "Salve ou descarte as mudanças antes de desfazer tudo"
+                  : ajustes === 0
+                    ? "Não há o que desfazer: esta pessoa já está no padrão do papel"
+                    : `Desfaz ${ajustes} ajuste${ajustes > 1 ? "s" : ""} e devolve a pessoa ao padrão do papel`
+              }
             >
-              {resetando ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
-              Voltar tudo ao papel
-            </Button>
+              <Button
+                variant="outline"
+                onClick={() => void voltarTudoAoPapel()}
+                disabled={resetando || ajustes === 0 || pendentes.length > 0 || salvando}
+                data-voltar-ao-papel
+              >
+                {resetando ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                Voltar tudo ao papel
+              </Button>
+            </span>
             <div className="flex gap-2">
               {pendentes.length > 0 && (
                 <Button variant="ghost" onClick={() => setRascunho({})} disabled={salvando} data-descartar>
