@@ -10,13 +10,20 @@
 //   Ato 6  O efeito real: a assistente abre a Auditoria
 //   Ato 7  Fechamento
 //
-// Gravado contra o ambiente LOCAL: a feature ainda não está na `staging`
-// (PR #417). Pré: `bun run local:copiar && bun run local:rbac`, e o app servido
-// com o banco local — a :8080 costuma estar ocupada por um vite apontando pro
-// STAGING, então suba noutra porta e diga qual:
+// Roda nos dois ambientes.
+//
+// LOCAL (antes de a feature chegar na staging) — pré: `bun run local:copiar &&
+// bun run local:rbac`, e o app servido com o banco local. A :8080 costuma estar
+// ocupada por um vite apontando pro STAGING, então suba noutra porta:
 //
 //   bash scripts/ambiente-local.sh app --port 8096
 //   DEMO_BASE_URL=http://localhost:8096 node e2e/demo/roteiros/permissoes-salvar-e-detalhe.cjs
+//
+// STAGING (depois do merge e da migration) — é a confirmação de que o que foi
+// provado no local vale no ambiente de verdade:
+//
+//   DEMO_AMBIENTE=staging DEMO_BASE_URL=https://staging.marasandraconnect.com \
+//     node e2e/demo/roteiros/permissoes-salvar-e-detalhe.cjs
 //
 // Depois, o MP4 único com legenda:
 //   node e2e/demo/montar-filme.cjs permissoes-salvar-e-detalhe permissoes --legendado
@@ -25,7 +32,13 @@
 const fs = require("fs");
 const path = require("path");
 const { ler, deslizar, clicar, tentar, narrar: narrarBase, abrirEstudio } = require("../helpers.cjs");
-const { BASE, DOM, admin, sessao, estadoNavegador, esc, fechar } = require("../local.cjs");
+// O mesmo roteiro serve os dois ambientes: `local.cjs` e `staging.cjs` expõem a
+// mesma API (BASE, admin, sessao, estadoNavegador, …). Gravar no staging depois
+// que a feature chega lá é a confirmação de que o que foi provado no local
+// vale no ambiente de verdade.
+//   DEMO_AMBIENTE=staging DEMO_BASE_URL=https://staging.marasandraconnect.com node …
+const AMBIENTE = process.env.DEMO_AMBIENTE === "staging" ? "../staging.cjs" : "../local.cjs";
+const { BASE, DOM, admin, sessao, estadoNavegador, esc, fechar } = require(AMBIENTE);
 
 // ---------- legendas (SRT): instante de cada fala, relativo ao clipe ----------
 const legendas = [];
