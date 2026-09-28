@@ -32,7 +32,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { DocTypeCombobox } from "@/components/doc-type-combobox";
+import { Selecao } from "@/components/ui/selecao";
 import {
   PreencherComDocumentos,
   type ArquivoLido,
@@ -1228,8 +1228,8 @@ function NovoCasoPage() {
                         </div>
                         <div>
                           <Label className="text-xs">Tipo</Label>
-                          <DocTypeCombobox
-                            options={TIPOS_DOCUMENTO_OPTIONS}
+                          <Selecao
+                            opcoes={TIPOS_DOCUMENTO_OPTIONS}
                             value={d.tipo}
                             onChange={(v) => updateDocTipo(d.id, v)}
                             placeholder="Selecione ou busque o tipo..."

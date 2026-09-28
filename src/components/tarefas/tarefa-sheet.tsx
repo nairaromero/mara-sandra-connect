@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { Loader2, Trash2, ExternalLink, AlarmClock } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { DocTypeCombobox } from "@/components/doc-type-combobox";
+import { Selecao } from "@/components/ui/selecao";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -1318,8 +1318,8 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
             ) : (
               <>
                 {/* Combobox com busca: 395+ casos, rolar a lista nao dava. */}
-                <DocTypeCombobox
-                  options={[
+                <Selecao
+                  opcoes={[
                     { value: "sem", label: "Sem cliente" },
                     ...casos.map((c) => ({
                       value: c.id,
@@ -1332,8 +1332,8 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                     setProcessoToken("");
                   }}
                   placeholder="Sem cliente"
-                  searchPlaceholder="Buscar cliente..."
-                  emptyText="Nenhum cliente encontrado."
+                  buscaPlaceholder="Buscar cliente..."
+                  vazio="Nenhum cliente encontrado."
                 />
                 {editando && trocandoCaso && (
                   <div className="flex items-center gap-2">

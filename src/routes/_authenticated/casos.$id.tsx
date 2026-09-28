@@ -91,7 +91,7 @@ import {
 } from "@/lib/google-drive";
 import { BlocoPericiaCaso } from "@/components/bloco-pericia-caso";
 import { ClientOnly } from "@/components/client-only";
-import { DocTypeCombobox } from "@/components/doc-type-combobox";
+import { Selecao } from "@/components/ui/selecao";
 import { DrivePickerDialog, type DriveImportedFile } from "@/components/drive-picker-dialog";
 import { EditarSolicitacaoDialog } from "@/components/documentos/editar-solicitacao-dialog";
 import { SEM_PROCESSO, processoDoToken, tokenDaFrente } from "@/lib/processos/token";
@@ -6403,8 +6403,8 @@ function UploadDoc(props: {
                   </div>
                   <div>
                     <Label className="text-xs">Tipo</Label>
-                    <DocTypeCombobox
-                      options={tiposOptions}
+                    <Selecao
+                      opcoes={tiposOptions}
                       value={it.tipo}
                       onChange={(v) => atualizarTipo(it.id, v)}
                       placeholder="Selecione ou busque o tipo..."
@@ -6643,8 +6643,8 @@ function SolicitarDocBotao(props: {
           <div>
             <Label className="text-xs">Tipo de documento</Label>
             <div className={"rounded-md " + (flashNovoCampo ? DESTAQUE_CLASSE : "")}>
-              <DocTypeCombobox
-                options={tiposOptions}
+              <Selecao
+                opcoes={tiposOptions}
                 value={tipo}
                 onChange={setTipo}
                 placeholder="Selecione ou busque o tipo..."

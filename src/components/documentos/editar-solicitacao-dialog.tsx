@@ -24,7 +24,7 @@ import { Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { fimDoDiaBR, inputDateBRParaIso, isoParaInputDateBR } from "@/lib/fuso";
 import { TIPOS_DOCUMENTO_OPTIONS } from "@/lib/documentos/tipos";
-import { DocTypeCombobox } from "@/components/doc-type-combobox";
+import { Selecao } from "@/components/ui/selecao";
 import { listarInternosAtivos } from "@/lib/tarefas/queries";
 import {
   SEM_PROCESSO,
@@ -226,8 +226,8 @@ export function EditarSolicitacaoDialog(props: {
         <div className="space-y-3">
           <div>
             <Label className="text-xs">Tipo de documento</Label>
-            <DocTypeCombobox
-              options={TIPOS_DOCUMENTO_OPTIONS}
+            <Selecao
+              opcoes={TIPOS_DOCUMENTO_OPTIONS}
               value={tipo}
               onChange={setTipo}
               placeholder="Selecione ou busque o tipo..."

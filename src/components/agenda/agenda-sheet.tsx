@@ -26,6 +26,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Selecao } from "@/components/ui/selecao";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -819,25 +820,24 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
             {/* Rótulo "Cliente" — mesma regra do TarefaSheet: grava caso_id,
                 mas as opções são nomes de cliente (1:1 hoje). */}
             <Label>Cliente</Label>
-            <Select
+            {/* Eram 466 opções para rolar, sem busca — a mesma escolha que o
+                sheet de tarefa já deixava buscar. O <Selecao> liga a busca
+                sozinho a partir de LIMITE_BUSCA opções. */}
+            <Selecao
               value={casoId ?? "sem"}
-              onValueChange={(v) => {
+              onChange={(v) => {
                 setCasoId(v === "sem" ? null : v);
                 setProcessoToken("");
               }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Sem cliente" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="sem">Sem cliente</SelectItem>
-                {casos.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.cliente_nome ?? "(sem nome)"}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              opcoes={[
+                { value: "sem", label: "Sem cliente" },
+                ...casos.map((c) => ({ value: c.id, label: c.cliente_nome ?? "(sem nome)" })),
+              ]}
+              placeholder="Sem cliente"
+              buscaPlaceholder="Buscar cliente..."
+              vazio="Nenhum cliente encontrado."
+              data-selecao="cliente"
+            />
           </div>
 
           {casoId && processosDoCaso.length > 0 && (
