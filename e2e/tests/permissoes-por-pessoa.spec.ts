@@ -175,7 +175,11 @@ test.describe.serial("permissões por pessoa", () => {
     await expect(linha.locator("[data-ajustada]"), "o ajuste aparece marcado").toBeVisible();
     await expect(painel.getByText(/com 1 ajuste/)).toBeVisible();
 
+    // Desde 28/09 a gaveta não grava sozinha: "voltar ao papel" PREPARA a
+    // mudança e o botão Salvar é que escreve (spec permissoes-salvar-e-detalhe).
     await linha.getByRole("button", { name: "voltar ao papel" }).click();
+    await expect(linha.locator("[data-nao-salvo]"), "preparado, ainda não salvo").toBeVisible();
+    await painel.locator("[data-salvar-permissoes]").click();
     await expect(linha.locator("[data-ajustada]")).toHaveCount(0);
     await expect(painel.getByText(/sem ajustes/)).toBeVisible();
 
