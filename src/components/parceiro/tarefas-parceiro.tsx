@@ -89,6 +89,9 @@ interface SolicPendente {
   // Quem da equipe abriu o pedido. Nulo quando veio do robô do e-mail INSS
   // (origem template:*) — descreverSolicitante() cobre os dois casos.
   solicitante: SolicitanteLite | null;
+  // Processo a que o pedido se refere — é ele que decide a coluna (card #357).
+  processo_admin_id: string | null;
+  processo_judicial_id: string | null;
   casos: {
     id: string;
     fase: string;
@@ -116,16 +119,18 @@ interface EventoParceiro {
   end_at: string;
   local: string | null;
   natureza: "admin" | "judicial" | null;
+  processo_admin_id: string | null;
+  processo_judicial_id: string | null;
 }
 
 type CardKanban =
   | { kind: "solicitacao"; key: string; casoId: string; quando: string | null; s: SolicPendente }
   | { kind: "evento"; key: string; casoId: string; quando: string; e: EventoParceiro };
 
-// As 3 colunas do feedback + "Outros" pra fase finalizado/desconhecida. A
-// coluna Outros só aparece quando tem card: senão pendência de caso
-// finalizado sumia do board (mas seguia contada no menu) — o mesmo trap que
-// já mordeu em 2026-08-27.
+// As 3 colunas do feedback + "Casos encerrados" pra fase finalizado/
+// desconhecida. Essa quarta coluna só aparece quando tem card: senão pendência
+// de caso finalizado sumia do board (mas seguia contada no menu) — o mesmo
+// trap que já mordeu em 2026-08-27.
 const FASE_ANALISE = "analise";
 const FASE_ADMIN = "admin";
 const FASE_JUDICIAL = "judicial";
@@ -136,13 +141,35 @@ const FASES_FIXAS: Array<{ fase: string; titulo: string }> = [
   { fase: FASE_ADMIN, titulo: "Administrativo" },
   { fase: FASE_JUDICIAL, titulo: "Judiciais" },
 ];
-const FASE_OUTROS_TITULO = "Outros";
+// "Outros" dizia pouco (Naira, 2026-09-18): quem cai aqui é pendência de caso
+// encerrado — e ela não pode sumir do quadro, senão o contador do menu diverge.
+const FASE_OUTROS_TITULO = "Casos encerrados";
+const FASE_OUTROS_AJUDA = "Pedidos que continuam abertos em casos já encerrados.";
 
 // Fase do caso -> chave de coluna. Qualquer coisa fora das 3 conhecidas
-// (finalizado, nulo, valor novo) cai em "Outros" em vez de desaparecer.
+// (finalizado, nulo, valor novo) cai em "Casos encerrados" em vez de sumir.
 function colunaDaFase(fase: string | null | undefined): string {
   if (fase === FASE_ANALISE || fase === FASE_ADMIN || fase === FASE_JUDICIAL) return fase;
   return FASE_OUTROS;
+}
+
+/**
+ * Coluna do card (card #357, decisão da Naira em 2026-09-18): quem manda é o
+ * PROCESSO do item — a exigência do requerimento vai pra Administrativo, a
+ * perícia do processo judicial vai pra Judiciais. O cliente que corre nas duas
+ * frentes aparece nas duas colunas, o que a fase do caso (uma só) não permitia.
+ *
+ * Sem processo ligado, cai na fase do caso: "Em análise" enquanto não há
+ * processo, e "Casos encerrados" se o caso estiver finalizado — nada some do
+ * quadro.
+ */
+function colunaDoItem(item: {
+  processo_admin_id: string | null;
+  processo_judicial_id: string | null;
+}, faseDoCaso: string | null | undefined): string {
+  if (item.processo_judicial_id) return FASE_JUDICIAL;
+  if (item.processo_admin_id) return FASE_ADMIN;
+  return colunaDaFase(faseDoCaso);
 }
 
 // ---------------------------------------------------------------------------
@@ -251,7 +278,7 @@ export function TarefasParceiro() {
           let q = supabase
             .from("solicitacoes_documento")
             .select(
-              "id, caso_id, tipo, tipos, descricao, origem, prazo_at, data_solicitacao, documento_id, solicitante:usuarios!solicitacoes_documento_solicitado_por_fkey(id, nome), casos!inner(id, fase, parceiro_id, clientes(id, nome))",
+              "id, caso_id, tipo, tipos, descricao, origem, prazo_at, data_solicitacao, documento_id, processo_admin_id, processo_judicial_id, solicitante:usuarios!solicitacoes_documento_solicitado_por_fkey(id, nome), casos!inner(id, fase, parceiro_id, clientes(id, nome))",
             )
             .eq("status", "pendente")
             .neq("origem", "interna");
@@ -302,15 +329,16 @@ export function TarefasParceiro() {
     carregar();
   }, [carregar]);
 
-  // Monta as colunas: card de solicitação + card de evento, na coluna da FASE
-  // do caso, ordenados pelo prazo/data mais próximo (sem prazo vai pro fim).
-  // Nada é descartado: fase desconhecida/finalizado cai em "Outros".
+  // Monta as colunas: card de solicitação + card de evento, na coluna do
+  // PROCESSO do item (card #357), ordenados pelo prazo/data mais próximo (sem
+  // prazo vai pro fim). Nada é descartado: item sem processo cai na fase do
+  // caso, e fase desconhecida/finalizado cai em "Casos encerrados".
   const colunas = useMemo(() => {
     const porFase = new Map<string, CardKanban[]>(
       [...FASES_FIXAS.map((f) => f.fase), FASE_OUTROS].map((f) => [f, []]),
     );
     for (const s of solicitacoes) {
-      porFase.get(colunaDaFase(s.casos?.fase))!.push({
+      porFase.get(colunaDoItem(s, s.casos?.fase))!.push({
         kind: "solicitacao",
         key: `s:${s.id}`,
         casoId: s.caso_id,
@@ -320,7 +348,7 @@ export function TarefasParceiro() {
     }
     for (const e of eventos) {
       if (!e.caso_id) continue;
-      porFase.get(colunaDaFase(e.fase))!.push({
+      porFase.get(colunaDoItem(e, e.fase))!.push({
         kind: "evento",
         key: `e:${e.fonte}:${e.id}`,
         casoId: e.caso_id,
@@ -561,13 +589,25 @@ export function TarefasParceiro() {
             {colunasVisiveis.map((f) => {
               const cards = colunas.get(f.fase) ?? [];
               return (
-                <div key={f.fase} className="rounded-lg bg-muted/40 p-2 min-w-0">
-                  <p className="text-sm font-medium text-muted-foreground px-2 py-1.5">
+                <div
+                  key={f.fase}
+                  className={
+                    f.fase === FASE_OUTROS
+                      ? "rounded-lg border border-dashed border-warning/60 bg-warning/10 p-2 min-w-0"
+                      : "rounded-lg bg-muted/40 p-2 min-w-0"
+                  }
+                >
+                  <p className="text-sm font-medium text-muted-foreground px-2 pt-1.5">
                     {f.titulo}
                     <span className="ml-1.5 text-xs text-muted-foreground/70">
                       {cards.length}
                     </span>
                   </p>
+                  {f.fase === FASE_OUTROS && (
+                    <p className="px-2 pb-1.5 text-xs text-muted-foreground/80">
+                      {FASE_OUTROS_AJUDA}
+                    </p>
+                  )}
                   {/* Mostra ~5 cards e rola o resto dentro da própria coluna:
                       com muitas exigências a coluna não empurra a página toda
                       pra baixo. */}

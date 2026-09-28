@@ -34,10 +34,9 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
-import { exigirUsuario, fetchT } from "../_shared/auth.ts";
+import { escopado, exigirUsuario, fetchT } from "../_shared/auth.ts";
+import { baseLegalmail, baseTI, integracaoDoEscritorio, semIntegracao } from "../_shared/integracoes.ts";
 
-const LM_BASE = "https://app.legalmail.com.br";
-const LM_TOKEN = Deno.env.get("LEGALMAIL_TOKEN");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
@@ -50,7 +49,7 @@ const MAX_PAGINAS = 60;
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-escritorio-id",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -95,14 +94,21 @@ serve(async (req) => {
   if (req.method !== "POST") return jsonResponse({ error: "metodo nao permitido" }, 405);
 
   // Checagem no topo: antes ela vinha depois das variáveis de ambiente e do corpo, então a função respondia (400/500, e até 200) sem saber quem chamou. `exigirUsuario` também confere `ativo`, que faltava aqui.
-  const quem = await exigirUsuario(req, { tipo: "interno" });
+  const quem = await exigirUsuario(req, { tipo: "interno", permissao: "processos:ler" });
   if (quem instanceof Response) return quem;
-  if (!LM_TOKEN) return jsonResponse({ error: "LEGALMAIL_TOKEN nao configurado" }, 500);
+  const integ = await integracaoDoEscritorio(quem.admin, quem.perfil.escritorio_id, "legalmail");
+  if (!integ) return semIntegracao("legalmail", corsHeaders);
+  const LM_BASE = baseLegalmail();
+  const LM_TOKEN = integ.segredo;
   if (!SUPABASE_URL || !SERVICE_ROLE) {
     return jsonResponse({ error: "supabase env vars ausentes" }, 500);
   }
 
-  const admin = quem.admin;
+  // Service role SEMPRE escopado (CLAUDE.md): as duas leituras abaixo decidem o
+  // que some da lista por "já existe aqui", e sem escopo o processo ou o cliente
+  // de OUTRO escritório escondia um item daqui (irmã do achado de 24/09 em
+  // listar-clientes-ti).
+  const admin = escopado(quem.admin, quem.perfil.escritorio_id);
 
   let limiteNovos = 800;
   let soResumo = false;

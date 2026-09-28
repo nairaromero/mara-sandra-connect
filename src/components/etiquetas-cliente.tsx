@@ -26,9 +26,17 @@ interface Etiqueta {
 interface Props {
   clienteId: string;
   isInterno: boolean;
+  /**
+   * Quem pode MEXER nas etiquetas do cliente. Vincular e desvincular escrevem
+   * em `clientes_etiquetas`, cuja policy exige `casos:editar` — sem isso o
+   * botão só levava a pessoa a um erro (visto no filme do staging: o
+   * financeiro, que só lê, ganhava "+ Etiqueta"). Ler continua para todo
+   * interno.
+   */
+  podeEditar?: boolean;
 }
 
-export function EtiquetasCliente({ clienteId, isInterno }: Props) {
+export function EtiquetasCliente({ clienteId, isInterno, podeEditar = false }: Props) {
   const [vinculadas, setVinculadas] = useState<Array<Etiqueta>>([]);
   const [todas, setTodas] = useState<Array<Etiqueta>>([]);
   const [carregando, setCarregando] = useState(true);
@@ -141,7 +149,7 @@ export function EtiquetasCliente({ clienteId, isInterno }: Props) {
           }}
         >
           {e.nome}
-          {isInterno && (
+          {podeEditar && (
             <button
               type="button"
               onClick={() => remover(e)}
@@ -158,7 +166,7 @@ export function EtiquetasCliente({ clienteId, isInterno }: Props) {
           )}
         </Badge>
       ))}
-      {isInterno && (
+      {podeEditar && (
         <Popover open={popOpen} onOpenChange={setPopOpen}>
           <PopoverTrigger asChild>
             <Button size="sm" variant="outline" className="h-6 px-2 text-xs">

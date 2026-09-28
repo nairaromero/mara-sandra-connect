@@ -18,14 +18,13 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { exigirUsuario, fetchT } from "../_shared/auth.ts";
+import { baseLegalmail, baseTI, integracaoDoEscritorio, semIntegracao } from "../_shared/integracoes.ts";
 
-const BASE = "https://app.legalmail.com.br";
-const TOKEN = Deno.env.get("LEGALMAIL_TOKEN");
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-escritorio-id",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -80,9 +79,13 @@ serve(async (req) => {
   }
 
   // Consome cota do Legalmail: só quem é do escritório.
-  const quem = await exigirUsuario(req, { tipo: "interno" });
+  const quem = await exigirUsuario(req, { tipo: "interno", permissao: "processos:ler" });
   if (quem instanceof Response) return quem;
-  if (!TOKEN) return jsonResponse({ error: "LEGALMAIL_TOKEN nao configurado" }, 500);
+  // credencial DO ESCRITÓRIO ativo (nunca a de outro): sem ela, 412 e a tela esconde o botão
+  const integ = await integracaoDoEscritorio(quem.admin, quem.perfil.escritorio_id, "legalmail");
+  if (!integ) return semIntegracao("legalmail", corsHeaders);
+  const BASE = baseLegalmail();
+  const TOKEN = integ.segredo;
 
   let nome: string;
   try {

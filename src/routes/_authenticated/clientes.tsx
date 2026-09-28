@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   CalendarPlus,
   Check,
-  ChevronLeft,
   ChevronRight,
   ChevronsUpDown,
   FileDown,
@@ -17,6 +16,7 @@ import { toast } from "sonner";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { Paginador } from "@/components/paginador";
 import { ClientOnly } from "@/components/client-only";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -191,7 +191,7 @@ function StatusBadge({ status }: { status: string | null }) {
 // ===========================================================================
 
 function ClientesPage() {
-  const { usuario } = useAuth();
+  const { usuario, pode } = useAuth();
   const isInterno = usuario?.tipo === "interno";
   const navigate = useNavigate();
   const [casos, setCasos] = useState<Array<CasoRow>>([]);
@@ -501,15 +501,19 @@ function ClientesPage() {
               )}
               Exportar Excel
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setImportarDialogAberto(true)}
-              title="Importa clientes de um Excel"
-            >
-              <Upload className="h-4 w-4 mr-1" />
-              Importar Excel
-            </Button>
+            {/* Importar cria cliente e caso: só para quem tem casos:editar (o
+                financeiro só lê). O banco barraria de qualquer jeito. */}
+            {pode("casos:editar") && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setImportarDialogAberto(true)}
+                title="Importa clientes de um Excel"
+              >
+                <Upload className="h-4 w-4 mr-1" />
+                Importar Excel
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -946,7 +950,7 @@ function ClientesPage() {
                             </TableCell>
                             <TableCell>
                               <div className="flex items-center gap-1 justify-end">
-                                {isInterno && casoMaisRecente && (
+                                {pode("agenda:gerenciar") && casoMaisRecente && (
                                   <Button
                                     size="sm"
                                     variant="ghost"
@@ -979,56 +983,15 @@ function ClientesPage() {
                 </div>
 
                 {/* Paginacao (compartilhada mobile/desktop) */}
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span className="shrink-0">Por página:</span>
-                    <Select
-                      value={String(porPagina)}
-                      onValueChange={(v) => setPorPagina(Number(v))}
-                    >
-                      <SelectTrigger className="h-7 w-[72px] text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {[10, 50, 100].map((n) => (
-                          <SelectItem key={n} value={String(n)}>
-                            {n}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <span className="tabular-nums">
-                      {(paginaAtual - 1) * porPagina + 1}–
-                      {Math.min(paginaAtual * porPagina, clientesFiltrados.length)} de{" "}
-                      {clientesFiltrados.length}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 px-2 text-xs"
-                      disabled={paginaAtual <= 1}
-                      onClick={() => setPagina(paginaAtual - 1)}
-                    >
-                      <ChevronLeft className="h-3.5 w-3.5 mr-0.5" />
-                      Anterior
-                    </Button>
-                    <span className="px-2 text-xs tabular-nums text-muted-foreground">
-                      {paginaAtual} / {totalPaginas}
-                    </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 px-2 text-xs"
-                      disabled={paginaAtual >= totalPaginas}
-                      onClick={() => setPagina(paginaAtual + 1)}
-                    >
-                      Próxima
-                      <ChevronRight className="h-3.5 w-3.5 ml-0.5" />
-                    </Button>
-                  </div>
-                </div>
+                <Paginador
+                  pagina={paginaAtual}
+                  porPagina={porPagina}
+                  total={clientesFiltrados.length}
+                  onPagina={setPagina}
+                  onPorPagina={setPorPagina}
+                  nome="clientes"
+                  className="mt-3 border-t border-border px-0"
+                />
               </>
             )}
           </CardContent>

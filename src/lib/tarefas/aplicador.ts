@@ -6,6 +6,7 @@
 // os campos extras na tela).
 
 import { supabase } from "@/lib/supabase";
+import { lerLista } from "@/lib/leitura";
 import { instanteBR, partesBR } from "@/lib/fuso";
 import { substituirPlaceholders } from "@/lib/tarefas/helpers";
 
@@ -61,16 +62,22 @@ export async function aplicarTemplateProgramatico(input: {
   // Se o caso já tem tarefa aberta desta corrente — de qualquer origem —,
   // não abre de novo. O processor grava metadata.template; nós,
   // metadata.template_aplicado.
-  const { data: correnteJa } = await supabase
-    .from("tarefas")
-    .select("id")
-    .eq("caso_id", input.casoId)
-    .eq("status", "a_fazer")
-    .or(
-      `metadata->>template_aplicado.eq.${input.nomeTemplate},metadata->>template.eq.${input.nomeTemplate}`,
-    )
-    .limit(1);
-  if (correnteJa && correnteJa.length > 0) {
+  // `lerLista` e não `const { data }`: se esta consulta falhasse, `data` vinha
+  // nulo, a trava não disparava e o template era aplicado DUAS vezes — a
+  // proteção desaparecia em silêncio (túnel em src/lib/leitura.ts).
+  const correnteJa = await lerLista<{ id: string }>(
+    supabase
+      .from("tarefas")
+      .select("id")
+      .eq("caso_id", input.casoId)
+      .eq("status", "a_fazer")
+      .or(
+        `metadata->>template_aplicado.eq.${input.nomeTemplate},metadata->>template.eq.${input.nomeTemplate}`,
+      )
+      .limit(1),
+    `tarefas abertas da corrente "${input.nomeTemplate}"`,
+  );
+  if (correnteJa.length > 0) {
     throw new Error(
       `A corrente do template "${input.nomeTemplate}" já está aberta neste caso — não vou duplicar.`,
     );
@@ -84,12 +91,17 @@ export async function aplicarTemplateProgramatico(input: {
   // ativos — herda o responsável passado pelo widget.
   const emailParaId = new Map<string, string>();
   if (itens.some((i) => i.executor_email)) {
-    const { data: internos } = await supabase
-      .from("usuarios")
-      .select("id, email")
-      .eq("tipo", "interno")
-      .eq("ativo", true);
-    for (const u of internos ?? []) {
+    // idem: falha aqui deixava o mapa vazio e TODA tarefa ia para o
+    // responsável de fallback, em vez de quem devia executar — sem aviso.
+    const internos = await lerLista<{ id: string; email: string | null }>(
+      supabase
+        .from("usuarios_escritorio")
+        .select("id, email")
+        .eq("tipo", "interno")
+        .eq("ativo", true),
+      "internos ativos para rotear a tarefa",
+    );
+    for (const u of internos) {
       if (u.email) emailParaId.set(u.email.toLowerCase(), u.id);
     }
   }

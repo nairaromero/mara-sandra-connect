@@ -22,7 +22,9 @@
   },
   "routes": [
     { "pattern": "marasandraconnect.com", "custom_domain": true },
-    { "pattern": "www.marasandraconnect.com", "custom_domain": true }
+    { "pattern": "www.marasandraconnect.com", "custom_domain": true },
+    // QG da plataforma (RBAC): host próprio, mesmo worker (src/lib/qg/host.ts decide pelo hostname).
+    { "pattern": "qg.marasandraconnect.com", "custom_domain": true }
   ],
   // STAGING = worker SEPARADO (mara-sandra-connect-staging), com projeto
   // proprio no Workers Builds apontando pra branch "staging". O build desse
@@ -37,7 +39,10 @@
       "workers_dev": false,
       "preview_urls": false,
       "observability": { "logs": { "enabled": true, "invocation_logs": true } },
-      "routes": [{ "pattern": "staging.marasandraconnect.com", "custom_domain": true }]
+      "routes": [
+        { "pattern": "staging.marasandraconnect.com", "custom_domain": true },
+        { "pattern": "qg.staging.marasandraconnect.com", "custom_domain": true }
+      ]
     }
   }
 }

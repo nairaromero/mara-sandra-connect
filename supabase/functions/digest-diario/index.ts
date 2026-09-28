@@ -23,14 +23,17 @@
 //   para    — override de destinatário (string ou array; teste)
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
-import { exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
+import { escopado, escritorioDoSistema, exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
+import { marcaDoEscritorio, remetente } from "../_shared/marca.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
+
+// RESEND_BASE_URL so existe no ambiente LOCAL (mock de e2e/demo/mocks); fora dele e o Resend.
+const RESEND_BASE = (Deno.env.get("RESEND_BASE_URL") ?? "https://api.resend.com").replace(/\/+$/, "");
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const APP_URL = Deno.env.get("APP_URL") || "https://marasandraconnect.com";
-const FROM_EMAIL = "Mara Sandra Advocacia <noreply@marasandraconnect.com>";
 
 const GOLD = "#c9a14a";
 const MAX_ITENS_SECAO = 25;
@@ -38,7 +41,7 @@ const MAX_ITENS_SECAO = 25;
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-region",
+    "authorization, x-client-info, apikey, content-type, x-region, x-escritorio-id",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -143,7 +146,19 @@ serve(async (req) => {
     return jsonResponse({ error: "body invalido", detail: String(err) }, 400);
   }
 
-  const supabase = createClient(SUPABASE_URL, SERVICE_ROLE);
+  const cru = createClient(SUPABASE_URL, SERVICE_ROLE);
+  // O resumo é de UM escritório: o de quem pediu, ou — no cron — o do sistema.
+  // Service role lê tudo; sem este filtro o e-mail juntaria todos os escritórios.
+  const escritorioId = quem.tipo === "pessoa"
+    ? quem.perfil.escritorio_id
+    : await escritorioDoSistema(supabase);
+  // Client ESCOPADO no túnel `escopado` (_shared/auth.ts): toda leitura já sai
+  // com `escritorio_id` filtrado, sem depender de alguém lembrar de embrulhar a
+  // query. Antes daqui havia um `doEscritorio` local, aplicado à mão em cada
+  // consulta — e o digest MANDA E-MAIL: uma consulta nova sem o embrulho
+  // colocaria dado de outro escritório na caixa de alguém.
+  const supabase = escopado(cru, escritorioId);
+  const marca = await marcaDoEscritorio(supabase, escritorioId);
   const cutoff = new Date(Date.now() - horas * 3600000).toISOString();
   const hoje = hojeBrasilia();
 
@@ -270,7 +285,7 @@ serve(async (req) => {
     `color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block">` +
     `Abrir o sistema</a></p>` +
     `<hr style="border:none;border-top:1px solid #eee;margin:32px 0 16px">` +
-    `<p style="color:#999;font-size:12px">Mara Sandra Advocacia &middot; marasandraconnect.com</p>` +
+    `<p style="color:#999;font-size:12px">${marca.nome} &middot; Legal Connect &middot; marasandraconnect.com</p>` +
     `</div>`;
 
   if (dryRun) {
@@ -290,27 +305,42 @@ serve(async (req) => {
   } else {
     // `ativo` e `desligado_em` no filtro: sem eles o resumo do dia continuava
     // chegando para quem saiu do escritório (issue #291).
-    const { data: internos, error: intErr } = await supabase
-      .from("usuarios")
-      .select("email")
-      .eq("tipo", "interno")
-      .eq("ativo", true)
-      .is("desligado_em", null)
-      .not("email", "is", null);
-    if (intErr) return jsonResponse({ error: "usuarios: " + intErr.message }, 500);
-    destinos = (internos || []).map((u) => String(u.email)).filter(Boolean);
+    // Com RBAC: a equipe interna ATIVA deste escritório (pelo vínculo). Sem as
+    // migrations: a regra antiga, pelas colunas de `usuarios`.
+    if (escritorioId) {
+      const { data: equipe, error: eqErr } = await supabase
+        .from("membros")
+        .select("usuario:usuarios!membros_usuario_id_fkey(email), papel:papeis!inner(tipo_acesso)")
+        .eq("escritorio_id", escritorioId)
+        .eq("status", "ativo")
+        .eq("papel.tipo_acesso", "interno");
+      if (eqErr) return jsonResponse({ error: "membros: " + eqErr.message }, 500);
+      destinos = (equipe || [])
+        .map((m) => String((m.usuario as { email?: string } | null)?.email ?? ""))
+        .filter(Boolean);
+    } else {
+      const { data: internos, error: intErr } = await supabase
+        .from("usuarios")
+        .select("email")
+        .eq("tipo", "interno")
+        .eq("ativo", true)
+        .is("desligado_em", null)
+        .not("email", "is", null);
+      if (intErr) return jsonResponse({ error: "usuarios: " + intErr.message }, 500);
+      destinos = (internos || []).map((u) => String(u.email)).filter(Boolean);
+    }
   }
   if (destinos.length === 0) {
     return jsonResponse({ enviado: false, motivo: "sem destinatarios", totais });
   }
 
-  const resp = await fetchT("https://api.resend.com/emails", {
+  const resp = await fetchT(`${RESEND_BASE}/emails`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${RESEND_API_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ from: FROM_EMAIL, to: destinos, subject, html }),
+    body: JSON.stringify({ from: remetente(marca), to: destinos, subject, html }),
   });
   if (!resp.ok) {
     const detail = await resp.text();

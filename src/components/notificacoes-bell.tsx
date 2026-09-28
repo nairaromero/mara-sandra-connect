@@ -128,12 +128,20 @@ export function NotificacoesBell() {
     carregar();
   }
 
+  // "Limpar todas" dispensa do MEU sino, uma linha por notificação — não apaga.
+  // Notificação com `destinatario_id` nulo é da EQUIPE: o delete daqui sumia
+  // com ela para todo mundo, o mesmo erro que o "dispensar" já tinha corrigido
+  // (planning/RBAC_CLASSE_INVERSA.md). O banco agora também recusa.
   async function limparTodas() {
     const ids = itens.map((n) => n.id);
     setItens([]);
     setNaoLidas(0);
-    if (ids.length > 0) {
-      await supabase.from("notificacoes").delete().in("id", ids);
+    if (ids.length > 0 && usuario?.id) {
+      const { error } = await supabase.from("notificacao_dispensada").upsert(
+        ids.map((id) => ({ usuario_id: usuario.id, notificacao_id: id })),
+        { onConflict: "usuario_id,notificacao_id" },
+      );
+      if (error) console.warn("limparTodas:", error.message);
     }
     carregar();
   }

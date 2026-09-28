@@ -154,12 +154,27 @@ export type IaToken = {
   ultimo_uso: string | null;
   revogado_em: string | null;
   criado_em: string;
+  /** de quem e o token (o MCP roda como essa pessoa) */
+  usuario_id: string;
+  /** quem emitiu (#385); igual ao dono quando emitido para si */
+  emitido_por: string | null;
+  dono?: { nome: string | null; email: string | null } | null;
 };
 
 export type IaTokenCriarInput = {
   nome: string;
   escopo?: "leitura" | "completo";
   dias?: number;
+  /** para quem emitir (#385); omitido = para mim */
+  usuario_id?: string;
+};
+
+export type IaTokenPessoa = {
+  usuario_id: string;
+  nome: string | null;
+  email: string | null;
+  papel_nome: string | null;
+  tipo_acesso: string | null;
 };
 
 export const iaTokens = {
@@ -170,4 +185,6 @@ export const iaTokens = {
       ...p,
     }),
   revogar: (id: string) => callFn<{ ok: boolean }>("ia-config", { action: "token_revogar", id }),
+  /** pessoas ativas do escritório, para escolher a quem emitir (só quem concede) */
+  pessoas: () => callFn<{ pessoas: IaTokenPessoa[] }>("ia-config", { action: "token_membros" }),
 };

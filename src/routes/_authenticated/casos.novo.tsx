@@ -158,7 +158,7 @@ interface PostgresError {
 }
 
 function NovoCasoPage() {
-  const { usuario } = useAuth();
+  const { usuario, pode } = useAuth();
   const tiposBeneficio = useTiposBeneficio();
   const navigate = useNavigate();
   const [parceiros, setParceiros] = useState<Array<ParceiroOption>>([]);
@@ -202,6 +202,10 @@ function NovoCasoPage() {
   }
 
   const isInterno = usuario?.tipo === "interno";
+  // criar caso e casos:editar (financeiro nao tem): o banco recusaria no salvar
+  useEffect(() => {
+    if (usuario && !pode("casos:editar")) navigate({ to: "/casos" });
+  }, [usuario, pode, navigate]);
 
   // Nao da pra gravar sem dizer de onde veio o cliente: ou marca "cliente
   // interno", ou escolhe o parceiro indicador. Antes os dois vazios salvavam
@@ -313,7 +317,7 @@ function NovoCasoPage() {
     if (!isInterno) return;
     (async () => {
       const { data, error } = await supabase
-        .from("usuarios")
+        .from("usuarios_escritorio")
         .select("id, nome, email")
         .eq("eh_parceiro", true)
         .order("nome", { ascending: true });

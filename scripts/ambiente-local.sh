@@ -48,7 +48,7 @@ POOLER_STG="aws-0-sa-east-1.pooler.supabase.com"
 # Pilha local deste projeto (portas em supabase/config.toml).
 LOCAL_DB_URL="postgresql://postgres:postgres@127.0.0.1:55322/postgres"
 PORTA_APP=8080
-PORTA_E2E=8095
+PORTA_E2E="${PORTA_E2E:-8095}"   # outra sessão na 8095? PORTA_E2E=8097 bun run e2e:local
 # Os triggers chamam edge functions de DENTRO do container do banco: o
 # endereço é o do gateway na rede do Docker, não o 127.0.0.1 da máquina.
 EDGE_BASE_URL_LOCAL="http://kong:8000/functions/v1"
@@ -188,11 +188,15 @@ SQL
     -f "$dir/coleta.sql" >/dev/null
 
   credencial_staging
-  pg_dump "$STG_CONN" --role=postgres --schema-only -n public -n ops --no-owner -f "$dir/esquema.sql"
+  # `private` entra junto: desde o lote do RBAC o `public` DEPENDE dele — o
+  # default de `acessos_suporte.ticket` chama `private.novo_ticket_suporte()` e
+  # as policies `perm_*` chamam `private.tem_permissao`. Sem ele a restauração
+  # morre em "schema private does not exist" (27/09).
+  pg_dump "$STG_CONN" --role=postgres --schema-only -n public -n ops -n private --no-owner -f "$dir/esquema.sql"
   credencial_staging
   # Dump só de dados avisa das FKs circulares (comentarios, usuarios…); o
   # restore desliga os triggers, então o aviso é ruído — erro de verdade passa.
-  pg_dump "$STG_CONN" --role=postgres --data-only -n public -n ops -f "$dir/dados.sql" \
+  pg_dump "$STG_CONN" --role=postgres --data-only -n public -n ops -n private -f "$dir/dados.sql" \
     2> >(grep -v -e 'circular foreign-key' -e '^pg_dump: detail:' -e '^pg_dump: hint:' >&2)
   unset PGPASSWORD
   echo "    esquema $(du -h "$dir/esquema.sql" | cut -f1), dados $(du -h "$dir/dados.sql" | cut -f1)"

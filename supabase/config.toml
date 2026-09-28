@@ -143,6 +143,10 @@ verify_jwt = false
 [functions.whatsapp-inbound]
 verify_jwt = false
 
+# chamada pelo pg_cron com assinatura de sistema (cron:whatsapp-outbox); quem fecha e o exigirSistema
+[functions.whatsapp-outbox-enviar]
+verify_jwt = false
+
 # cliente MCP manda PAT msc_…, não JWT de sessão
 [functions.ia-mcp]
 verify_jwt = false
@@ -206,5 +210,24 @@ verify_jwt = true
 [functions.sync-djen-caso]
 verify_jwt = true
 
+# pg_cron chama sem JWT (como inss-email-processor e digest-diario); quem fecha e o
+# exigirUsuarioOuSistema dentro da function (sessao de interno ou assinatura cron:djen-sync).
 [functions.sync-djen-publicacoes]
+verify_jwt = false
+
+# QG da plataforma (superadmin): cria escritório + convida o primeiro admin.
+# Quem pode chamar é conferido no banco (private.exigir_staff, nas RPCs qg_*).
+[functions.qg-escritorios]
 verify_jwt = true
+
+[functions.integracoes-escritorio]
+verify_jwt = true
+
+# MFA (TOTP) ligado no Auth local: o QG exige AAL2 quando app_config.qg_exigir_aal2 = 'true'
+# e qualquer pessoa pode ativar a verificação em duas etapas em Configurações → Segurança.
+[auth.mfa]
+max_enrolled_factors = 10
+
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true

@@ -21,7 +21,11 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
-import { exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
+import { exigirRecurso, exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
+import { marcaDoEscritorio, remetente, type MarcaEscritorio } from "../_shared/marca.ts";
+
+// RESEND_BASE_URL so existe no ambiente LOCAL (mock de e2e/demo/mocks); fora dele e o Resend.
+const RESEND_BASE = (Deno.env.get("RESEND_BASE_URL") ?? "https://api.resend.com").replace(/\/+$/, "");
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -34,7 +38,7 @@ const FROM_EMAIL = "Mara Vian Advocacia <noreply@marasandraconnect.com>";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-escritorio-id",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -80,6 +84,7 @@ function renderEmail(opts: {
   parceiroNome: string;
   clienteNome: string;
   titulo: string;
+  marca: MarcaEscritorio;
   descricao: string | null;
   dataEvento: string;
   origemLabel: string;
@@ -109,8 +114,8 @@ function renderEmail(opts: {
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden;border:1px solid #e5e7eb;">
           <tr>
             <td style="padding:24px 24px 0 24px;">
-              <h1 style="margin:0 0 4px 0;font-size:18px;font-weight:600;color:#111827;">Mara Vian Advocacia</h1>
-              <p style="margin:0;font-size:13px;color:#6b7280;">Plataforma Mara Sandra Connect</p>
+              <h1 style="margin:0 0 4px 0;font-size:18px;font-weight:600;color:#111827;">${escapeHtml(opts.marca.nome)}</h1>
+              <p style="margin:0;font-size:13px;color:#6b7280;">Legal Connect</p>
             </td>
           </tr>
           <tr><td style="padding:0 24px;"><hr style="border:0;border-top:1px solid #e5e7eb;margin:16px 0;"/></td></tr>
@@ -184,7 +189,7 @@ function renderEmail(opts: {
     linkCaso,
     "",
     "--",
-    "Mara Vian Advocacia",
+    opts.marca.nome,
   ].filter((line) => line !== "").join("\n");
 
   return { html, text };
@@ -220,13 +225,17 @@ serve(async (req) => {
   if (!andamentoId) {
     return jsonResponse({ error: "andamento_id obrigatorio" }, 400);
   }
+  // Chamada de pessoa: só notifica sobre o que ela mesma enxerga. (Chamada de
+  // sistema — gatilho, cron — passa: exigirRecurso ignora.)
+  const semAcesso = await exigirRecurso(quem, "andamentos", andamentoId);
+  if (semAcesso) return semAcesso;
 
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE);
 
   const { data, error } = await supabase
     .from("andamentos")
     .select(
-      "id, titulo, descricao, data_evento, origem, visivel_parceiro, casos:caso_id(id, parceiro_id, clientes:cliente_id(nome), usuarios_parceiro:parceiro_id(id, nome, email, emails_copia))",
+      "id, escritorio_id, titulo, descricao, data_evento, origem, visivel_parceiro, casos:caso_id(id, parceiro_id, clientes:cliente_id(nome), usuarios_parceiro:parceiro_id(id, nome, email, emails_copia))",
     )
     .eq("id", andamentoId)
     .maybeSingle();
@@ -290,24 +299,26 @@ serve(async (req) => {
   const origemLabel = ORIGEM_LABEL[a.origem] || a.origem;
   const linkCaso = `${APP_BASE_URL}/casos/${a.casos.id}`;
 
+  const marca = await marcaDoEscritorio(supabase, a.escritorio_id as string | null);
   const { html, text } = renderEmail({
     parceiroNome,
     clienteNome,
     titulo: a.titulo,
+    marca,
     descricao: a.descricao,
     dataEvento: a.data_evento,
     origemLabel,
     linkCaso,
   });
 
-  const resp = await fetchT("https://api.resend.com/emails", {
+  const resp = await fetchT(`${RESEND_BASE}/emails`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${RESEND_API_KEY}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      from: FROM_EMAIL,
+      from: remetente(marca),
       to: [parceiroEmail, ...copias],
       subject: `Novo andamento - ${a.titulo} - ${clienteNome}`,
       html,

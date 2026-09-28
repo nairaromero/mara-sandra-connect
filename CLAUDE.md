@@ -26,7 +26,11 @@ feature branch  ──merge──▶  staging  ──merge (após validação)�
 - Edge functions: deploy no staging (`--project-ref alhqbpbekmxpoibrrnbi`) antes de produção.
 - **Quem pode chamar edge function** (desde 2026-09-20): toda function começa com
   `exigirUsuario` (sessão de pessoa, já conferindo `ativo`) ou `exigirSistema`
-  (cron/gatilho/n8n, por assinatura HMAC) do `supabase/functions/_shared/auth.ts`.
+  (cron/gatilho, por assinatura HMAC) do `supabase/functions/_shared/auth.ts`. Desde 2026-09-23
+  nenhuma rotina do sistema passa pelo n8n (o DJEN roda no pg_cron, `migration_cron_djen`; webhooks
+  está "Em breve" na tela e volta por function; a saída do WhatsApp já sai pela function
+  `whatsapp-outbox-enviar` no pg_cron, com a chave do escritório da linha — `migration_rbac_14` —, fila
+  pausada até retomar). O n8n fica instalado na máquina do Evolution para uso futuro — não criar rotina nova nele.
   `verify_jwt` fica declarado por function no `supabase/config.toml` — nunca na linha
   de comando. Lembrando que `verify_jwt=true` **não** fecha nada sozinho: a chave
   publicável do site é um JWT válido; quem fecha é a checagem dentro da função.
@@ -66,6 +70,11 @@ node scripts/msc-sql.mjs --local --file planning/sql-migrations/migration_x.sql
 2. Crio branch `feat/x` saindo de `staging` e rodo `bun run local:copiar`.
 3. Commit, push, abro PR `feat/x → staging` com `Closes #N` (o card) no corpo.
 4. Naira valida (em staging.marasandraconnect.com, com a conta do papel certo, ou local) e merge.
+   Antes de chamar a Naira, a parte que a máquina responde: `bun run e2e:staging` (suíte contra
+   o staging) e `node e2e/demo/roteiros/conferencia-lote-staging.cjs` (um item por card da coluna
+   "Validar no staging", com still e veredito; escreve só no Canário e devolve tudo no fim).
+   A conferência responde "funciona como está escrito" — se o comportamento é o certo continua
+   sendo julgamento dela.
 5. Quando um lote estiver validado: Naira merge `staging → main` → deploy prod.
    O PR de release abre **com o label `release`**
    (`gh pr create --base main --head staging --label release`) — assim ele fica fora do board.
@@ -94,16 +103,121 @@ node scripts/msc-sql.mjs --local --file planning/sql-migrations/migration_x.sql
 
 - `usuarios.tipo` = modo de acesso (`interno` x `parceiro`). `usuarios.eh_parceiro` = papel comercial.
 - `usuarios.eh_admin` (desde 2026-08-19) = admin do escritório. **Só Naira e Mara.** No front: `const { isAdmin } = useAuth()`. No SQL: `public.is_admin()`.
-- Só admin vê: Equipe interna (`/equipe`), Auditoria, e em Configurações as abas **Integrações** (Integração de IA / Conectar Claude / Integração Google) e **Webhooks**. Convidar interno (edge `convidar-usuario`) exige admin. RLS de webhooks/auditoria usa `is_admin()`.
+- Só admin vê: Equipe interna (`/equipe`), Auditoria, e em Configurações as abas **Integrações** (Integração de IA / Conectar Claude / Integração Google) e **Webhooks**. Convidar interno (edge `convidar-usuario`) exige admin. RLS de webhooks usa `is_admin()`; a de **auditoria não** — desde a `migration_rbac_24` as duas leituras da tela (`auditoria_plataforma` e `acessos_senha_inss`) cobram `tem_permissao('auditoria:ler')`, que é do admin por padrão e pode ser concedida a uma pessoa.
 - Configurações (desde 2026-09-14) segue o layout de `/parceiros`: centralizada, abas com a ativa na URL (`?tab=seguranca|beneficios|integracoes|webhooks`; sem `tab` = Perfil). Aba fora do papel da pessoa cai em Perfil sem reescrever a URL. Webhooks saiu da sidebar; `/webhooks` só redireciona pra `?tab=webhooks`.
 - **Convite (desde 2026-09-18, #362):** quem é convidado cria senha antes de usar o sistema. Quem decide é `usuarios.senha_definida_em` (nulo = ainda não criou), marcado pelo gatilho `trg_senha_definida` em `auth.users` — nunca pelo front. Não voltar a inferir por `auth.users.encrypted_password`: o Supabase preenche esse campo sozinho quando a pessoa abre o link do convite.
 - Gestão da equipe pela UI (`/equipe`, RPCs em migration_equipe_admin_desligar): `definir_admin`, `desligar_interno` (não apaga: `ativo=false` + ban no auth + tarefas abertas/agenda futura migram pra outra pessoa; histórico fica no nome), `reativar_interno`.
 - Autoria em tarefas (migration_tarefas_autoria): `created_by`, `status_alterado_por/_em` via trigger; exclusões vão pra `tarefas_excluidas`.
 
+## RBAC multi-tenant (branch `feat/rbac-multi-tenant`, só local por enquanto)
+
+Desenho em planning/MULTI_TENANT_RBAC.md (§0 = estado real), decisões D23–D25, teste em
+planning/RBAC_TESTE_LOCAL.md. Enquanto não chega ao staging, o resto deste arquivo descreve
+o sistema em produção. Quando chegar, vale o seguinte:
+
+- **Escritório ativo** = header `x-escritorio-id` que o front manda em toda chamada
+  (`src/lib/supabase.ts`), conferido no banco por `private.escritorio_ativo()` contra
+  `membros`. Header inválido → NULL (nada visível), nunca fallback. Nada é lido do JWT.
+- **Fonte da verdade de papel/status é `membros`** (admin/advogado/assistente/financeiro/
+  parceiro × 26 permissões). `usuarios.tipo/eh_admin/ativo` continuam sincronizados por
+  gatilho pro código antigo, mas nenhuma decisão de acesso deve ler deles. No front:
+  `const { pode, escritorio, vinculos } = useAuth()`; `pode("casos:editar")`. No SQL:
+  `tem_permissao('casos:editar')`, `is_admin()`, `is_interno()` (todos sobre o vínculo ativo).
+- **Telas** (desde 2026-09-24): ação de escrita passa pelo **gate único**, nunca por uma
+  permissão escrita à mão. `src/lib/rbac/exigencias.ts` espelha o que o SERVIDOR exige (tabela
+  por operação e escopo, RPC, edge function, bucket); na tela use
+  `podeEscrever("tarefas")` para o que cria, `podeEscreverLinha("tarefas", tarefa)` para o que
+  age sobre uma linha (escopo `atribuidos` só aceita a linha de quem está logado), `podeChamar`
+  para RPC/function, ou `<AcaoProtegida escrever="documentos" operacao="excluir">`.
+  `scripts/rbac-conferir-exigencias.mjs` (e a spec `rbac-exigencias`) compara o espelho com o
+  banco e acusa sobra ou falta — é a resposta automática para "ainda falta alguma?".
+  Contexto: a varredura de 23/09 mexeu só em rotas e nos gates que já existiam, e deixou ~40
+  botões oferecendo o que o banco recusa (planning/RBAC_AUDITORIA_TELAS.md). Página de gestão
+  (Comercial, Etiquetas, Parceiros, Processos, Novo caso, Publicações) confere a permissão além
+  do tipo e devolve para /casos ou mostra "Área restrita a quem gerencia…". Prova:
+  `e2e/tests/rbac-telas.spec.ts`.
+- **Legalmail e TI por escritório** (RBAC 13): credencial em `escritorio_integracoes` (cifrada), lida só pelas
+  functions via `_shared/integracoes.ts` (`integracaoDoEscritorio`); sem ela → 412 `integracao_nao_configurada`.
+  Na tela, `useIntegracoesEscritorio().tem("legalmail")` (RPC `minhas_integracoes`) decide se o botão aparece.
+  Nunca voltar a ler `LEGALMAIL_TOKEN`/`TI_TOKEN` direto: só o escritório padrão cai nesse legado, via o helper.
+- **Provedores simulados no local** (`e2e/demo/mocks/provedores.cjs`, porta 8787): Evolution, Comunica/DJEN,
+  Google OAuth + Gmail, Legalmail, TI, Resend e "Claude simulado". As functions leem a base por env só quando definida
+  (`COMUNICA_BASE_URL`, `GOOGLE_OAUTH_AUTH_URL`, `GOOGLE_TOKEN_URL`, `GMAIL_API_BASE`, `LEGALMAIL_BASE_URL`, `TI_BASE_URL`, `RESEND_BASE_URL`);
+  sem a variável, endereço real. Essas variáveis ficam SÓ no `supabase/functions/.env` local — nunca em
+  segredo de staging/produção. Filme do lote: `node e2e/demo/roteiros/lote-rbac-local.cjs` (seção R do guia).
+- **Tabela nova de domínio** precisa de `escritorio_id not null` + FK + policy restritiva
+  `isolamento_escritorio` + gatilho `aa_herdar_escritorio` — a `migration_rbac_02` é o
+  molde (`private.tabelas_de_dominio()` lista quem fica de fora e por quê).
+- **RPC `SECURITY DEFINER`** que recebe id de linha começa com
+  `private.exigir_no_escritorio('tabela'::regclass, p_id)` — o `postgres` tem BYPASSRLS.
+- **Função túnel: uma fonte de verdade, não N pontos** (pedido da Naira,
+  2026-09-27). Antes de escrever a segunda cópia de uma lógica, ela vira função
+  com um lugar só — e o que não pode variar deixa de ser parâmetro. Os túneis
+  que já existem: `private.tem_permissao` → `private.permissoes_efetivas`
+  (decisão de permissão), `private.auditar` (trilha no SQL),
+  `supabase/functions/_shared/auditoria.ts` (trilha nas edge: escritório, ator e
+  `tipo_ator` vêm do `quem`, e `acao` é tipo fechado), `src/lib/rbac/exigencias.ts`
+  + `podeEscrever`/`podeChamar` (o que a tela oferece), `e2e/rbac.ts` (sessão,
+  header, conta por papel e leitura da trilha nas specs), `src/lib/fuso.ts` (o
+  fuso do escritório — o eslint barra `America/Sao_Paulo` fora dele),
+  `src/lib/leitura.ts` (`lerLista`/`lerUm`/`lerContagem`: erro estoura, vazio é
+  vazio) e `buscarPaginado`.
+  O `scripts/rbac-conferir-exigencias.mjs` cobra o túnel da auditoria: insert
+  direto na tabela vira divergência.
+- **Quem muda ACESSO audita** (desde 2026-09-27, `migration_rbac_25`/`26`; desenho em
+  planning/AUDITABILIDADE.md): papel, permissão, status do vínculo, titularidade e staff
+  chamam `private.auditar` com o antes e o depois; apagar cliente, documento ou andamento
+  deixa rastro (`auditoria`, `documentos_excluidos`, `andamentos_excluidos`); e função que
+  LIMPA um rastro da linha — as reativações limpam `desativado_por` — escreve na trilha
+  antes. Edge function que muda acesso ou identidade audita ela mesma (`update-parceiro`,
+  `excluir-parceiro`, `convidar-usuario`, `integracoes-escritorio`). `tipo_ator = 'membro'`
+  mantém a linha dentro do escritório: o `qg_auditoria` só lê `plataforma` e `suporte`.
+  Quem confere: `node scripts/rbac-conferir-exigencias.mjs`, que acusa função da lista sem
+  `private.auditar` e tabela sem o gatilho da trilha.
+- **Edge function**: `exigirUsuario(req, { permissao: "x:y" })` resolve papel e escritório
+  via `meu_contexto()`; `exigirRecurso(quem, tabela, id)` antes de tocar em linha; client de
+  service role sempre `escopado(sb, escritorioId)`. Integrações de sistema (INSS, DJEN,
+  WhatsApp) são do escritório `padrao_sistema` na v1.
+- **QG (superadmin)** vive em `qg.<domínio>` (`qg.localhost:8080` local), rotas `/qg/*`,
+  staff em `plataforma_staff`, funções `qg_*` — só metadados e contagens. Conteúdo de
+  cliente só por `acessos_suporte` aprovado pelo admin do escritório (somente leitura,
+  com prazo, auditado). Eliminar dados exige segunda pessoa.
+- Setup local: `bun run local:copiar && bun run local:rbac` (seed idempotente com o
+  escritório Canário e as contas de teste). Nova edge function local → `supabase stop/start`.
+- **Listas**: nunca `.limit(n)` fixo pra "trazer tudo" — o PostgREST corta em 1.000 (`max_rows`)
+  **sem erro**. Lista inteira → `buscarPaginado` (`src/lib/supabase-paginado.ts`); lista longa na
+  tela → `<Paginador>` (`src/components/paginador.tsx`: "1–25 de N", « ‹ números › », itens por
+  página) com `useListaPaginada` (página buscada no banco: `.range()` + `count: "exact"`, ou RPC com
+  `p_limite/p_offset` e `total = count(*) over ()`) ou `usePaginaLocal` (fatia de lista já carregada).
+  Ordem estável (desempate por `id`); filtro/busca muda → página 1; tamanho lembrado por lista
+  (`usePorPagina`). Nada de "mostrar mais" acumulando. `qg_escritorios` e `conversas_threads` são os moldes.
+- **MCP (#385)**: `ia-config` emite token para a pessoa escolhida (`ia:mcp_conceder`), grava
+  `usuario_id` (dono) e `emitido_por`; `ia-mcp` roda como o dono e exige emissor admin ativo no
+  escritório do token; dono e emissor veem/revogam. Nunca voltar a exigir que o dono seja admin.
+- **MFA (TOTP)**: `src/lib/mfa.ts` + `<VerificacaoDuasEtapas>`; o login pede o código de quem tem
+  fator, o QG exige AAL2 quando `app_config.qg_exigir_aal2='true'` (banco, não só tela). Local:
+  `[auth.mfa.totp]` ligado no `supabase/config.toml`; a spec calcula o TOTP. Cloud: habilitar TOTP
+  em Authentication → Multi-factor.
+- **Marca**: a do PRODUTO (Legal Connect, `<MarcaLegalConnect>`) fica onde não há escritório
+  (login, favicon, QG, rodapé); a do ESCRITÓRIO ativo (`escritorio_config.marca`, `<MarcaEscritorio>`,
+  `useAuth().escritorio.marca`) no topo, nos e-mails (`_shared/marca.ts`) e nas mensagens. Nunca
+  escrever "Mara Sandra Vian"/`/logo.png` fixo em tela ou function.
+- **Glossário** (`/glossario`, `/qg/glossario`): termos em `src/lib/glossario/termos.ts`
+  (id estável, categoria, `publico` todos/interno/qg). Permissões dos papéis vêm do banco em
+  tempo real — não escrever matriz de permissão em texto. Papel, permissão ou conceito novo →
+  termo novo lá (e `veja` dos vizinhos).
+
 ## IA (importante)
 
-- IA fica disponível só pra usuários `tipo='interno'`. Parceiros não veem launcher de IA, integrações, nem assistant panel.
-- Verificação atual: `usuario?.tipo === "interno"` no `_authenticated.tsx`.
+- IA é de quem tem **`ia:usar`** (admin, advogado, assistente) e é interno. Parceiro não usa IA.
+- Onde vale: no front, `usuario?.tipo === "interno" && pode("ia:usar")` (`_authenticated.tsx`);
+  no SERVIDOR, desde 24/09, as functions de IA exigem a permissão — `ia-assistant`,
+  `ia-triagem-andamentos`, `sugerir-proxima-tarefa`, `mensagem-parceiro-exigencia`,
+  `extrair-agendamento-pericia` e `ia-analise`. Antes a tela era o único freio e a API respondia
+  a qualquer pessoa autenticada (planning/RBAC_CLASSE_INVERSA.md).
+- `ia-config` confere **por ação**: o cofre de chaves (status/testar/salvar/ativar/compartilhar)
+  pede `ia:usar`; as ações de token do MCP são da DONA do token, que pode ser parceira (#385) —
+  não feche essa porta de novo.
 
 ## Checagem de regressão (após TODA modificação)
 
@@ -120,13 +234,19 @@ no lote de agosto: **sempre olhar se nada quebrou no meio do caminho.**
 3. Reler o próprio diff com lente de revisor, caçando os padrões que já morderam:
    - função de banco reescrita a partir de migration velha — partir SEMPRE do
      `pg_get_functiondef` da produção e comparar hash staging×prod antes/depois;
-   - falha de query engolida virando "não existe" (error ignorado ≠ resultado vazio);
+   - falha de query engolida virando "não existe" (error ignorado ≠ resultado
+     vazio) — use `lerLista`/`lerUm`/`lerContagem` de `src/lib/leitura.ts`;
+     `bun test e2e/unit/leituras-checadas.test.ts` lista quem ainda ignora e por quê;
    - data fora do calendário de Brasília (usar `src/lib/fuso.ts`, nunca `new Date()` cru);
    - guard de contexto ainda carregando (comparar contra null passa calada);
    - dedup/anti-spam largo demais engolindo o 2º evento legítimo;
    - migration re-rodável desfazendo estado intencional (ex.: `oculto_na_ui`);
    - matching amplo demais (`like '%_aviso'` concluiu tarefa errada);
-   - chamada externa (IA/HTTP) sem timeout.
+   - chamada externa (IA/HTTP) sem timeout;
+   - limpeza de spec só-local escrevendo no banco errado: `test.skip(!ENV.local)` pula
+     os testes, o `afterAll` roda mesmo assim, e a suíte aponta para o STAGING em
+     `e2e:staging` — use `limpezaLocal` (`e2e/rbac.ts`); `bun test
+     e2e/unit/limpeza-por-ambiente.test.ts` é a régua.
 4. Depois de subir, conferir o que roda **de verdade**: logs da edge function,
    `cron.job_run_details`, respostas do pg_net, dado esperado no banco.
    Deploy verde ≠ funcionando.

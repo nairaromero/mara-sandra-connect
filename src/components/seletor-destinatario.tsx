@@ -53,7 +53,7 @@ export function SeletorDestinatario({
       // O parceiro consegue ler isto: a policy `usuarios_select_internos`
       // libera tipo='interno' pra qualquer autenticado.
       const resp = await supabase
-        .from("usuarios")
+        .from("usuarios_escritorio")
         .select("id, nome")
         .eq("tipo", "interno")
         .eq("ativo", true)

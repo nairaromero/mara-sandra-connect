@@ -63,6 +63,11 @@ filme — é o registro de apresentação, complementar ao vídeo técnico da su
 
 - Filmar SEMPRE no staging (`staging.marasandraconnect.com` + banco staging via
   `adminStaging()`) — nunca produção.
+  Exceção: filme do ambiente LOCAL com provedores simulados —
+  `e2e/demo/roteiros/lote-rbac-local.cjs` + `e2e/demo/mocks/provedores.cjs`
+  (seção R de planning/RBAC_TESTE_LOCAL.md). Lá cada context é FECHADO ao fim das
+  cenas dele (`fechar(page)`), senão o clipe grava tela parada até o fim do take;
+  e `legendas.json` + o gerador de `.srt` dão a legenda alinhada ao MP4.
 - A IA do staging precisa de chave cadastrada (Configurações → Integração de
   IA, compartilhada) — quem cadastra é a Naira; sem chave o texto sai no
   fallback do template (o filme funciona, mas perde a cena-troféu).

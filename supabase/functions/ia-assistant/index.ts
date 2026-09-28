@@ -21,6 +21,7 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
+import { exigirUsuario } from "../_shared/auth.ts";
 import { decryptSecret, signPayload, verifyPayload } from "../_shared/crypto.ts";
 import { carregarIntegracao } from "../_shared/ia-integracao.ts";
 import { chatWith, type NormMsg } from "../_shared/ia-providers.ts";
@@ -85,21 +86,17 @@ serve(async (req) => {
     return jsonResponse({ error: "env ausente" }, 500);
   }
 
+  // ---- Autorizacao: pessoa ATIVA no escritório ativo; papel vem do vínculo ----
+  // Decisão da Naira (24/09/2026): o chat de IA exige `ia:usar`, que hoje é de
+  // admin, advogado e assistente. O código abaixo ainda sabe montar o prompt do
+  // parceiro (é da Fase 0), mas o parceiro não tem a permissão — e a regra do
+  // produto (CLAUDE.md) sempre disse que IA é só para quem é interno. Sem isto,
+  // a tela escondia o launcher e a API continuava aberta.
+  const quem = await exigirUsuario(req, { tipo: "interno", permissao: "ia:usar" });
+  if (quem instanceof Response) return quem;
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
-
-  // ---- Autorizacao ----
-  const jwt = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
-  if (!jwt) return jsonResponse({ error: "nao autenticado" }, 401);
-  const { data: userData, error: userErr } = await admin.auth.getUser(jwt);
-  if (userErr || !userData?.user) return jsonResponse({ error: "sessao invalida" }, 401);
-  const uid = userData.user.id;
-
-  const { data: perfil } = await admin
-    .from("usuarios")
-    .select("tipo")
-    .eq("id", uid)
-    .maybeSingle();
-  const tipo: "interno" | "parceiro" = perfil?.tipo === "interno" ? "interno" : "parceiro";
+  const uid = quem.uid;
+  const tipo: "interno" | "parceiro" = quem.perfil.tipo;
 
   // ---- Integracao BYOK ----
   // Chave própria; sem ela, cai na compartilhada do escritório (se houver).
@@ -121,10 +118,8 @@ serve(async (req) => {
   }
 
   // ---- Client RLS-escopado (identidade do usuario) — UNICO usado nas tools ----
-  const rls = createClient(SUPABASE_URL, ANON_KEY, {
-    global: { headers: { Authorization: "Bearer " + jwt } },
-    auth: { persistSession: false },
-  });
+  // (já leva o header do escritório ativo — ver exigirUsuario)
+  const rls = quem.rls;
   const ctx = { uid, tipo };
 
   // ===== Acao: confirmar uma escrita proposta (propor -> confirmar, gap #2) =====

@@ -1,18 +1,19 @@
 // Card "Integração Gmail" em Configurações.
-// Conecta a caixa de entrada do INSS (Naira) via OAuth Google. O fluxo é:
+// Conecta a caixa de entrada do INSS DO ESCRITÓRIO via OAuth Google. O fluxo é:
 //   1. Botão "Conectar Gmail" -> chama edge function gmail-oauth-start,
-//      recebe auth_url e redireciona o navegador.
+//      recebe auth_url e redireciona o navegador (o escritório ativo vai no state).
 //   2. Google consent -> redirect para gmail-oauth-callback (server-side),
-//      que troca code por tokens, cifra refresh_token e salva no banco.
+//      que troca code por tokens, cifra refresh_token e salva no banco, ligado
+//      ao escritório.
 //   3. Callback redireciona de volta para /configuracoes?gmail=ok|error.
 //
-// O card lê o vínculo direto da tabela usuario_gmail_oauth (RLS permite
-// self-select). Nunca recebe o token em claro — só email_conectado e datas.
+// A caixa é DO ESCRITÓRIO (RBAC 09): o card mostra a caixa ativa no escritório
+// (RPC gmail_inss_status — só quem gerencia integrações), quem conectou e se é
+// a própria pessoa. Nunca recebe o token em claro — só e-mail e datas.
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Loader2, Mail, Plug, Unplug, CheckCircle2 } from "lucide-react";
-
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
@@ -23,13 +24,15 @@ interface VinculoGmail {
   email_conectado: string;
   connected_at: string;
   last_used_at: string | null;
-  scope: string;
+  conectado_por: string | null;
+  e_minha: boolean;
 }
 
 export function IntegracaoGmailCard() {
-  const { usuario } = useAuth();
+  const { usuario, pode } = useAuth();
   const [carregando, setCarregando] = useState(true);
   const [vinculo, setVinculo] = useState<VinculoGmail | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
   const [conectando, setConectando] = useState(false);
   const [desconectando, setDesconectando] = useState(false);
 
@@ -39,12 +42,15 @@ export function IntegracaoGmailCard() {
       return;
     }
     setCarregando(true);
-    const { data } = await supabase
-      .from("usuario_gmail_oauth")
-      .select("email_conectado, connected_at, last_used_at, scope")
-      .eq("usuario_id", usuario.id)
-      .maybeSingle();
-    setVinculo(data as VinculoGmail | null);
+    const { data, error } = await supabase.rpc("gmail_inss_status");
+    if (error) {
+      // erro NAO vira "nao conectado": o admin precisa saber que a leitura falhou
+      setErro(error.message);
+      setVinculo(null);
+    } else {
+      setErro(null);
+      setVinculo(((data ?? []) as Array<VinculoGmail>)[0] ?? null);
+    }
     setCarregando(false);
   }, [usuario?.id]);
 
@@ -67,11 +73,7 @@ export function IntegracaoGmailCard() {
     p.delete("gmail");
     p.delete("motivo");
     const novo = p.toString();
-    window.history.replaceState(
-      {},
-      "",
-      `${window.location.pathname}${novo ? "?" + novo : ""}`,
-    );
+    window.history.replaceState({}, "", `${window.location.pathname}${novo ? "?" + novo : ""}`);
     // Recarrega vínculo (pode ter mudado).
     carregar();
   }, [carregar]);
@@ -79,9 +81,7 @@ export function IntegracaoGmailCard() {
   async function conectar() {
     setConectando(true);
     try {
-      const { data, error } = await supabase.functions.invoke("gmail-oauth-start", {
-        body: {},
-      });
+      const { data, error } = await supabase.functions.invoke("gmail-oauth-start", { body: {} });
       if (error || !data?.auth_url) {
         toast.error("Não consegui gerar a URL de consent.");
         setConectando(false);
@@ -94,39 +94,38 @@ export function IntegracaoGmailCard() {
     }
   }
 
+  // So a propria pessoa apaga a conexao dela (RLS self-delete). A caixa de
+  // outra pessoa do escritorio se substitui reconectando.
   async function desconectar() {
     if (!usuario?.id) return;
     setDesconectando(true);
-    const { error } = await supabase
-      .from("usuario_gmail_oauth")
-      .delete()
-      .eq("usuario_id", usuario.id);
+    const { error } = await supabase.from("usuario_gmail_oauth").delete().eq("usuario_id", usuario.id);
     setDesconectando(false);
     if (error) {
       toast.error("Falha ao desconectar.");
       return;
     }
     toast.success("Gmail desconectado.");
-    setVinculo(null);
+    void carregar();
   }
 
-  if (usuario && usuario.tipo !== "interno") return null;
+  if (usuario && (usuario.tipo !== "interno" || !pode("integracoes:gerenciar"))) return null;
 
   return (
-    <Card>
+    <Card data-card-gmail>
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
           <Mail className="h-4 w-4" />
           Integração Gmail (INSS)
         </CardTitle>
         <CardDescription>
-          Conecta a caixa de entrada que recebe os e-mails do INSS. A função{" "}
-          <code>inss-email-processor</code> usa esse vínculo para criar
-          andamentos e tarefas automaticamente. Permissão pedida:{" "}
-          <strong>leitura</strong> (gmail.readonly).
+          A caixa de entrada que recebe os e-mails do INSS <strong>deste escritório</strong>. A rotina{" "}
+          <code>inss-email-processor</code> lê essa caixa e cria andamentos e tarefas nos casos daqui — cada
+          escritório tem a sua. Permissão pedida ao Google: <strong>leitura</strong> (gmail.readonly).
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
+        {erro && <p className="text-sm text-red-700">Não consegui ler o estado da caixa: {erro}</p>}
         {carregando ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" /> Carregando…
@@ -137,56 +136,45 @@ export function IntegracaoGmailCard() {
               <CheckCircle2 className="h-4 w-4 mt-0.5 text-green-600" />
               <div>
                 <div>
-                  Conectado como{" "}
-                  <strong className="font-medium">{vinculo.email_conectado}</strong>
+                  Conectado como <strong className="font-medium">{vinculo.email_conectado}</strong>
+                  {vinculo.conectado_por && (
+                    <span className="text-muted-foreground">
+                      {" "}
+                      · por {vinculo.e_minha ? "você" : vinculo.conectado_por}
+                    </span>
+                  )}
                 </div>
                 <div className="text-xs text-muted-foreground">
                   Desde {formatarBR(vinculo.connected_at, { dateStyle: "short", timeStyle: "medium" })}
                   {vinculo.last_used_at && (
                     <>
-                      {" · "}último uso{" "}
-                      {formatarBR(vinculo.last_used_at, { dateStyle: "short", timeStyle: "medium" })}
+                      {" · "}último uso {formatarBR(vinculo.last_used_at, { dateStyle: "short", timeStyle: "medium" })}
                     </>
                   )}
                 </div>
               </div>
             </div>
             <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={desconectar}
-                disabled={desconectando}
-              >
-                {desconectando ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Unplug className="h-4 w-4" />
-                )}
-                Desconectar
-              </Button>
+              {vinculo.e_minha && (
+                <Button variant="outline" size="sm" onClick={desconectar} disabled={desconectando}>
+                  {desconectando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unplug className="h-4 w-4" />}
+                  Desconectar
+                </Button>
+              )}
               <Button variant="outline" size="sm" onClick={conectar} disabled={conectando}>
-                {conectando ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Plug className="h-4 w-4" />
-                )}
-                Reconectar
+                {conectando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plug className="h-4 w-4" />}
+                {vinculo.e_minha ? "Reconectar" : "Conectar outra caixa"}
               </Button>
             </div>
           </div>
         ) : (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Nenhum Gmail conectado ainda. Clique para autorizar o acesso à
-              caixa que recebe os e-mails do INSS.
+              Nenhuma caixa conectada neste escritório. Clique para autorizar o acesso à caixa que recebe os
+              e-mails do INSS.
             </p>
             <Button onClick={conectar} disabled={conectando}>
-              {conectando ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Plug className="h-4 w-4" />
-              )}
+              {conectando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plug className="h-4 w-4" />}
               Conectar Gmail
             </Button>
           </div>

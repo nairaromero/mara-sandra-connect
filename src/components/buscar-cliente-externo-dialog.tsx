@@ -22,6 +22,7 @@ import { useMemo, useState } from "react";
 import { Loader2, Search, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
+import { useIntegracoesEscritorio } from "@/hooks/use-integracoes";
 import { formatarTelefone } from "@/lib/telefone";
 import { mensagemDeErroEdge } from "@/lib/edge-function-error";
 import { Button } from "@/components/ui/button";
@@ -49,6 +50,8 @@ export interface ClienteTi {
 }
 
 export function BuscarNoTiDialog({ onEscolher }: { onEscolher: (c: ClienteTi) => void }) {
+  // sem credencial do TI neste escritório o botão nem aparece (a function responderia 412)
+  const integracoes = useIntegracoesEscritorio();
   const [open, setOpen] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [carregou, setCarregou] = useState(false);
@@ -96,6 +99,7 @@ export function BuscarNoTiDialog({ onEscolher }: { onEscolher: (c: ClienteTi) =>
     );
   }, [lista, busca]);
 
+  if (integracoes.tem("ti") !== true) return null;
   return (
     <Dialog open={open} onOpenChange={abrir}>
       <Button type="button" variant="outline" size="sm" onClick={() => abrir(true)}>
@@ -193,6 +197,8 @@ export function BuscarNoLegalmailDialog({
 }: {
   onEscolher: (g: GrupoLegalmail) => void;
 }) {
+  // idem: sem credencial do Legalmail neste escritório, sem botão
+  const integracoes = useIntegracoesEscritorio();
   const [open, setOpen] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [carregou, setCarregou] = useState(false);
@@ -231,6 +237,7 @@ export function BuscarNoLegalmailDialog({
     return grupos.filter((g) => g.nome.toLowerCase().includes(q));
   }, [grupos, busca]);
 
+  if (integracoes.tem("legalmail") !== true) return null;
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>

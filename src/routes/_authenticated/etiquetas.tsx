@@ -49,8 +49,8 @@ const CORES_SUGERIDAS = [
 ];
 
 function EtiquetasPage() {
-  const { usuario } = useAuth();
-  const isInterno = usuario?.tipo === "interno";
+  const { usuario, pode } = useAuth();
+  const isInterno = usuario?.tipo === "interno" && pode("etiquetas:gerenciar");
 
   const [lista, setLista] = useState<Array<Etiqueta>>([]);
   const [carregando, setCarregando] = useState(true);
@@ -155,7 +155,7 @@ function EtiquetasPage() {
       <div className="flex h-64 flex-col items-center justify-center gap-2 text-center">
         <ShieldAlert className="h-8 w-8 text-muted-foreground" />
         <p className="text-sm text-muted-foreground">
-          Área restrita a usuários internos.
+          Área restrita a quem gerencia etiquetas.
         </p>
       </div>
     );
