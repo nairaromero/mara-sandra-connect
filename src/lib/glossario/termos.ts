@@ -58,6 +58,7 @@ export const TERMOS: Array<Termo> = [
     termo: "Vínculo",
     sinonimos: ["membro", "membro do escritório"],
     categoria: "papeis",
+    publico: "interno",
     definicao:
       "Liga uma pessoa a um escritório com um papel e um status (convidado, ativo ou desativado). É o vínculo que decide o que a pessoa pode fazer, não a conta: a mesma conta pode ter vínculos em escritórios diferentes, com papéis diferentes. Desativar o vínculo corta o acesso na hora, mesmo com a pessoa logada.",
     veja: ["papel", "desligar", "convite"],
@@ -67,6 +68,7 @@ export const TERMOS: Array<Termo> = [
     termo: "Papel",
     sinonimos: ["perfil", "função"],
     categoria: "papeis",
+    publico: "interno",
     definicao:
       "O conjunto de permissões que o vínculo dá. São cinco: Administrador, Advogado, Assistente, Financeiro e Parceiro. Só o administrador troca o papel de alguém (Equipe → menu da pessoa → “Tornar …”), e a troca vale na próxima ação da pessoa — ela não precisa sair e entrar. O papel é o padrão: uma pessoa pode ter permissões a mais ou a menos que ele, uma a uma (ver ajuste de permissão). Trocar o papel desfaz os ajustes anteriores.",
     veja: ["permissao", "ajuste-de-permissao", "admin", "advogado", "assistente", "financeiro", "parceiro"],
@@ -75,6 +77,7 @@ export const TERMOS: Array<Termo> = [
     id: "permissao",
     termo: "Permissão",
     categoria: "papeis",
+    publico: "interno",
     definicao:
       "Cada ação que o sistema controla tem um nome no formato recurso:ação — por exemplo casos:editar ou equipe:gerenciar. O papel reúne permissões, e o administrador pode somar ou tirar uma delas de uma pessoa específica. O menu e os botões só aparecem para quem tem a permissão, e o banco recusa quem tentar sem ela, mesmo chamando a API direto: sumir da tela e ser recusado são a mesma regra vista de dois lados.",
     veja: ["escopo", "papel", "ajuste-de-permissao", "permissao-sensivel", "rls"],
@@ -83,6 +86,7 @@ export const TERMOS: Array<Termo> = [
     id: "escopo",
     termo: "Escopo",
     categoria: "papeis",
+    publico: "interno",
     definicao:
       "Até onde uma permissão alcança. “Todos” é tudo do escritório; “atribuídos” é só o que está no nome da pessoa (as tarefas e compromissos do assistente); “indicados” é só os casos que a pessoa indicou (o parceiro); “próprios” é só o que é dela (os repasses do parceiro). Em tarefas e agenda o administrador pode mudar o alcance de uma pessoa entre “todos” e “só os atribuídos”, sem trocar o papel dela.",
     veja: ["permissao"],
@@ -111,6 +115,7 @@ export const TERMOS: Array<Termo> = [
     termo: "Administrador",
     sinonimos: ["admin", "administradora"],
     categoria: "papeis",
+    publico: "interno",
     papel: "admin",
     definicao:
       "Tornar alguém administrador é entregar o escritório a essa pessoa: ela convida e desliga gente, troca papéis (inclusive o seu), vê a auditoria, mexe nas integrações (IA, Google, webhooks), emite token do MCP, exclui clientes e parceiros e é quem aprova ou recusa o acesso de suporte da plataforma. Quando a ideia é dar só uma dessas coisas a alguém, não é preciso torná-la administradora: dá para conceder aquela permissão sozinha (ver ajuste de permissão). Todo escritório precisa de pelo menos uma pessoa que gerencie a equipe — o sistema não deixa tirar a última.",
@@ -121,6 +126,7 @@ export const TERMOS: Array<Termo> = [
     termo: "Advogado",
     sinonimos: ["advogada", "interno"],
     categoria: "papeis",
+    publico: "interno",
     papel: "advogado",
     definicao:
       "O papel de quem toca os casos. Cria e edita clientes e casos, tarefas, agenda, documentos, andamentos e análises; lê publicações, processos e a senha do MEU INSS; usa a IA; gerencia parceiros, etiquetas e templates. Não vê Equipe, Auditoria nem integrações, e não exclui cliente nem parceiro — isso é do administrador, porque não tem volta (só se ele conceder a exclusão a uma pessoa em particular). É o “interno” de antes dos papéis.",
@@ -130,6 +136,7 @@ export const TERMOS: Array<Termo> = [
     id: "assistente",
     termo: "Assistente",
     categoria: "papeis",
+    publico: "interno",
     papel: "assistente",
     definicao:
       "Apoio ao advogado. Vê todos os casos, clientes e documentos, cadastra e edita, envia documentos e usa a IA — mas só mexe nas tarefas e compromissos atribuídos a ele, e só lê a senha do MEU INSS nos casos atribuídos a ele. Não gerencia parceiros, etiquetas nem templates, e não vê comercial nem repasses.",
@@ -140,10 +147,21 @@ export const TERMOS: Array<Termo> = [
     termo: "Financeiro",
     sinonimos: ["financeira", "contas"],
     categoria: "papeis",
+    publico: "interno",
     papel: "financeiro",
     definicao:
       "Vê os casos, as tarefas, a agenda e os repasses para conferir o que há a pagar e a receber — mas não cria nem edita nada do trabalho jurídico: sem “Novo caso”, sem criar tarefa ou compromisso, sem enviar documento, sem andamentos internos, sem senha do INSS. O menu fica sem Comercial, Processos, Publicações, Parceiros e Etiquetas.",
     veja: ["repasse", "percentual-parceiro"],
+  },
+  {
+    id: "indicados",
+    termo: "Casos indicados",
+    sinonimos: ["indicação", "meus casos", "alcance do parceiro"],
+    categoria: "parceria",
+    papel: "parceiro",
+    definicao:
+      "O alcance do parceiro: ele enxerga e movimenta apenas os casos que indicou. Não é ajuste de tela nem configuração por pessoa — é a regra do papel, conferida pelo banco a cada consulta. Caso que ele não indicou não aparece na lista, não abre pelo endereço direto e não volta em nenhuma busca. Dentro dos casos indicados, o parceiro vê os andamentos marcados como visíveis, envia documentos, cumpre solicitações, lê publicações e processos e vê a senha do MEU INSS do cliente.",
+    veja: ["parceiro", "caso", "visivel-parceiro", "solicitacao-documento"],
   },
   {
     id: "parceiro",
@@ -153,7 +171,7 @@ export const TERMOS: Array<Termo> = [
     papel: "parceiro",
     definicao:
       "Advogado de fora que indica clientes e acompanha só os casos que indicou. Nesses casos vê os andamentos marcados como visíveis ao parceiro, envia documentos, cumpre solicitações, lê publicações e processos e vê os próprios repasses. Não vê os outros casos do escritório nem a equipe. Entra pelo convite feito em Parceiros, cria a senha e aceita os termos no primeiro acesso.",
-    veja: ["parceria", "visivel-parceiro", "repasse", "aceite-termos"],
+    veja: ["indicados", "parceria", "visivel-parceiro", "repasse", "aceite-termos"],
   },
   {
     id: "interno",
@@ -169,6 +187,7 @@ export const TERMOS: Array<Termo> = [
     termo: "Convite",
     sinonimos: ["convidar", "primeiro acesso"],
     categoria: "papeis",
+    publico: "interno",
     definicao:
       "Como alguém entra no escritório. O administrador convida em Equipe (para a equipe) ou em Parceiros (para parceiros), escolhendo o papel. A pessoa recebe um e-mail, cria a própria senha e só então usa o sistema. Quem já tem conta em outro escritório não recebe senha nova: ganha um segundo vínculo e passa a ver o seletor de escritório.",
     veja: ["vinculo", "seletor-escritorio", "equipe"],
@@ -187,6 +206,7 @@ export const TERMOS: Array<Termo> = [
     termo: "Desligar e reativar",
     sinonimos: ["desativar", "remover acesso", "reativar"],
     categoria: "papeis",
+    publico: "interno",
     definicao:
       "Desligar encerra o vínculo sem apagar a pessoa: o acesso cai na hora, o histórico continua no nome dela, e as tarefas abertas e os compromissos futuros passam para quem o administrador escolher. Reativar devolve o acesso com o mesmo papel. Quem está em mais de um escritório perde só o vínculo daquele.",
     veja: ["vinculo", "equipe"],
@@ -233,6 +253,7 @@ export const TERMOS: Array<Termo> = [
     id: "isolamento",
     termo: "Isolamento entre escritórios",
     categoria: "papeis",
+    publico: "interno",
     definicao:
       "A garantia de que um escritório nunca vê dado do outro. Não é um filtro da tela: é regra do banco, conferida em toda leitura e gravação, para qualquer papel, inclusive por trás das integrações e da IA. Por isso dois escritórios podem ter um cliente com o mesmo CPF sem conflito.",
     veja: ["escritorio", "rls"],
@@ -306,6 +327,7 @@ export const TERMOS: Array<Termo> = [
     termo: "Análise técnica",
     sinonimos: ["análise previdenciária", "viabilidade"],
     categoria: "casos",
+    publico: "interno",
     definicao:
       "O estudo do caso pela equipe — tempo de contribuição, carência, viabilidade, estratégia — feito à mão ou com ajuda da IA. É sempre interna; o parceiro fica sabendo do desfecho por um andamento visível.",
     veja: ["ia", "visivel-parceiro"],
@@ -406,6 +428,7 @@ export const TERMOS: Array<Termo> = [
     termo: "Etiqueta",
     sinonimos: ["tag", "marcador"],
     categoria: "casos",
+    publico: "interno",
     definicao:
       "Um marcador colorido de cliente para organizar listas e filtros (por exemplo STATUS:ATIVO). Cada escritório tem as suas; administrador e advogado criam e editam.",
     veja: ["cliente"],
@@ -533,6 +556,7 @@ export const TERMOS: Array<Termo> = [
     termo: "Google Drive",
     sinonimos: ["pasta do caso", "Drive"],
     categoria: "automacoes",
+    publico: "interno",
     definicao:
       "A pasta espelho de documentos por caso: o que entra na pasta aparece no caso, e o que sobe no sistema vai para a pasta. O escritório conecta a própria conta Google.",
     veja: ["documento"],
@@ -613,6 +637,7 @@ export const TERMOS: Array<Termo> = [
     id: "plataforma",
     termo: "Plataforma",
     categoria: "plataforma",
+    publico: "interno",
     definicao:
       "O sistema como um todo, que atende vários escritórios ao mesmo tempo. Quem opera a plataforma é a equipe do QG — e ela não faz parte de nenhum escritório: não vê clientes, casos nem documentos.",
     veja: ["qg", "escritorio"],
@@ -622,6 +647,7 @@ export const TERMOS: Array<Termo> = [
     termo: "QG da plataforma",
     sinonimos: ["QG", "headquarter", "superadmin", "painel da plataforma"],
     categoria: "plataforma",
+    publico: "interno",
     definicao:
       "O painel, em endereço próprio, de onde a equipe da plataforma cria, edita, suspende e encerra escritórios e acompanha a saúde, o uso e a auditoria de todos — sem ver o conteúdo de nenhum. Só entra quem está na equipe do QG; ser administrador de um escritório não dá acesso.",
     veja: ["plataforma", "acesso-suporte", "escritorio-suspenso"],
@@ -631,6 +657,7 @@ export const TERMOS: Array<Termo> = [
     termo: "Acesso de suporte",
     sinonimos: ["sessão de suporte", "suporte da plataforma"],
     categoria: "plataforma",
+    publico: "interno",
     definicao:
       "O único caminho para alguém da plataforma ver o conteúdo de um escritório. A pessoa pede pelo QG, com motivo e prazo (até 72 horas); o pedido recebe um número automático (SUP-ano-sequência) que serve para achá-lo depois na auditoria e na conversa com o escritório. O administrador vê o aviso no topo e aprova ou recusa em Configurações → Suporte. Aprovado, o acesso é somente leitura, com uma faixa âmbar na tela, e cada tela aberta fica na auditoria do escritório. Encerra sozinho no prazo, ou antes — pelo administrador (Configurações → Suporte) ou pelo QG.",
     veja: ["admin", "auditoria", "qg"],
@@ -650,6 +677,7 @@ export const TERMOS: Array<Termo> = [
     termo: "Escritório suspenso",
     sinonimos: ["suspender", "suspensão"],
     categoria: "plataforma",
+    publico: "interno",
     definicao:
       "Ninguém do escritório entra (todos veem o aviso de suspensão); os dados ficam intactos. O QG suspende com motivo e reativa quando resolver. O escritório padrão do sistema não pode ser suspenso.",
     veja: ["escritorio-encerrado", "qg"],
@@ -659,6 +687,7 @@ export const TERMOS: Array<Termo> = [
     termo: "Escritório encerrado",
     sinonimos: ["encerrar", "encerramento"],
     categoria: "plataforma",
+    publico: "interno",
     definicao:
       "Saiu do ar em definitivo. Os dados ficam guardados até a eliminação, que precisa de pedido, carência e a aprovação de uma segunda pessoa do QG.",
     veja: ["eliminacao", "escritorio-suspenso"],
