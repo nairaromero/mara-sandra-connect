@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { Selecao } from "@/components/ui/selecao";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -50,13 +51,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { PermissoesSheet } from "@/components/equipe/permissoes-sheet";
 
 export const Route = createFileRoute("/_authenticated/equipe")({
@@ -391,18 +385,14 @@ function EquipePage() {
               </div>
               <div>
                 <Label className="text-xs">Papel</Label>
-                <Select value={papelConvite} onValueChange={setPapelConvite}>
-                  <SelectTrigger aria-label="Papel do convidado">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {papeis.map((p) => (
-                      <SelectItem key={p.chave} value={p.chave}>
-                        {p.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Selecao
+  value={papelConvite}
+  aria-label="Papel do convidado"
+  onChange={setPapelConvite}
+  opcoes={[
+    ...papeis.map((p) => ({ value: p.chave, label: p.nome })),
+  ]}
+/>
               </div>
               <Button onClick={convidar} disabled={enviando}>
                 {enviando
@@ -647,18 +637,15 @@ function EquipePage() {
                         Ela tem <strong>{desligarAbertas}</strong> tarefa(s) aberta(s) (a
                         fazer). Escolha quem assume:
                       </p>
-                      <Select value={desligarNovoResp} onValueChange={setDesligarNovoResp}>
-                        <SelectTrigger aria-label="Quem assume as tarefas">
-                          <SelectValue placeholder="Quem assume as tarefas" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {candidatos.map((c) => (
-                            <SelectItem key={c.id} value={c.id}>
-                              {c.nome || c.email}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <Selecao
+  value={desligarNovoResp}
+  aria-label="Quem assume as tarefas"
+  onChange={setDesligarNovoResp}
+  opcoes={[
+    ...candidatos.map((c) => ({ value: c.id, label: c.nome || c.email || c.id })),
+  ]}
+  placeholder="Quem assume as tarefas"
+/>
                       <p className="text-xs">
                         Tarefas já concluídas/canceladas e eventos de agenda passados ficam
                         no nome dela. Eventos futuros também vão pra pessoa escolhida.

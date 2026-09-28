@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { Selecao } from "@/components/ui/selecao";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Loader2,
@@ -28,13 +29,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -624,20 +618,16 @@ function ConversasPage() {
             {!isParceiro && (
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground shrink-0">Para:</span>
-                <Select value={filtroPessoa} onValueChange={setFiltroPessoa}>
-                  <SelectTrigger className="h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__eu__">Minhas conversas</SelectItem>
-                    <SelectItem value="__todos__">Todas da equipe</SelectItem>
-                    {internosLista.map((u) => (
-                      <SelectItem key={u.id} value={u.id}>
-                        {u.nome ?? "(sem nome)"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Selecao
+  value={filtroPessoa}
+  onChange={setFiltroPessoa}
+  opcoes={[
+    { value: "__eu__", label: "Minhas conversas" },
+    { value: "__todos__", label: "Todas da equipe" },
+    ...internosLista.map((u) => ({ value: u.id, label: u.nome ?? "(sem nome)" })),
+  ]}
+  className="h-8 text-sm"
+/>
               </div>
             )}
 

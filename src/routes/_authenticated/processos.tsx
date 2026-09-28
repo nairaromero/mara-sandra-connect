@@ -5,6 +5,7 @@
 // corta em 1.000 sem avisar).
 
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { Selecao } from "@/components/ui/selecao";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowRight, Briefcase, Copy, History, Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
@@ -21,13 +22,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -459,58 +453,47 @@ function ProcessosPage() {
               className="pl-9"
             />
           </div>
-          <Select
-            value={filtroTipo}
-            onValueChange={(v) => {
+          <Selecao
+  value={filtroTipo}
+  onChange={(v) => {
               setFiltroTipo(v as ProcTipo | "todos");
               setFiltroEtapa("todas");
             }}
-          >
-            <SelectTrigger className="w-40">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Todos os tipos</SelectItem>
-              <SelectItem value="admin">Administrativo</SelectItem>
-              <SelectItem value="judicial">Judicial</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={filtroEtapa} onValueChange={setFiltroEtapa}>
-            <SelectTrigger className="w-48">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todas">Todas as etapas</SelectItem>
-              {etapas.map((e) => (
-                <SelectItem key={e} value={e}>
-                  {e}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={filtroBeneficio} onValueChange={setFiltroBeneficio}>
-            <SelectTrigger className="w-52">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Todos os benefícios</SelectItem>
-              {beneficios.map((b) => (
-                <SelectItem key={b} value={b}>
-                  {b}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={ordenacao} onValueChange={(v) => setOrdenacao(v as Ordenacao)}>
-            <SelectTrigger className="w-52">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="andamento">Último andamento</SelectItem>
-              <SelectItem value="inicio">Início mais recente</SelectItem>
-              <SelectItem value="cliente">Cliente (A–Z)</SelectItem>
-            </SelectContent>
-          </Select>
+  opcoes={[
+    { value: "todos", label: "Todos os tipos" },
+    { value: "admin", label: "Administrativo" },
+    { value: "judicial", label: "Judicial" },
+  ]}
+  className="w-40"
+/>
+          <Selecao
+  value={filtroEtapa}
+  onChange={setFiltroEtapa}
+  opcoes={[
+    { value: "todas", label: "Todas as etapas" },
+    ...etapas.map((e) => ({ value: e, label: e })),
+  ]}
+  className="w-48"
+/>
+          <Selecao
+  value={filtroBeneficio}
+  onChange={setFiltroBeneficio}
+  opcoes={[
+    { value: "todos", label: "Todos os benefícios" },
+    ...beneficios.map((b) => ({ value: b, label: b })),
+  ]}
+  className="w-52"
+/>
+          <Selecao
+  value={ordenacao}
+  onChange={(v) => setOrdenacao(v as Ordenacao)}
+  opcoes={[
+    { value: "andamento", label: "Último andamento" },
+    { value: "inicio", label: "Início mais recente" },
+    { value: "cliente", label: "Cliente (A–Z)" },
+  ]}
+  className="w-52"
+/>
         </div>
 
         {carregando ? (

@@ -47,13 +47,6 @@ import {
   isGoogleDriveConfigured,
   type DrivePickedFile,
 } from "@/lib/google-drive";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 export const Route = createFileRoute("/_authenticated/casos/novo")({
   component: NovoCasoPage,
@@ -1004,20 +997,16 @@ function NovoCasoPage() {
                   render={({ field }) => (
                     <FormItem className={isInterno ? "" : "sm:col-span-2"}>
                       <FormLabel>Tipo de benefício *</FormLabel>
-                      <Select value={field.value} onValueChange={field.onChange}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Selecione" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {tiposBeneficio.map((t) => (
-                            <SelectItem key={t} value={t}>
-                              {t}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <FormControl>
+                        <Selecao
+    value={field.value}
+    onChange={field.onChange}
+    opcoes={[
+      ...tiposBeneficio.map((t) => ({ value: t, label: t })),
+    ]}
+    placeholder="Selecione"
+  />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -1079,26 +1068,15 @@ function NovoCasoPage() {
                             }}
                           />
                         </div>
-                        <Select value={field.value} onValueChange={field.onChange}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Selecione o parceiro" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {parceiros.length === 0 ? (
-                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                                Nenhum parceiro cadastrado
-                              </div>
-                            ) : (
-                              parceiros.map((p) => (
-                                <SelectItem key={p.id} value={p.id}>
-                                  {p.nome || p.email || p.id}
-                                </SelectItem>
-                              ))
-                            )}
-                          </SelectContent>
-                        </Select>
+                        <FormControl>
+                          <Selecao
+    value={field.value}
+    onChange={field.onChange}
+    opcoes={parceiros.map((p) => ({ value: p.id, label: p.nome || p.email || p.id }))}
+    placeholder="Selecione o parceiro"
+    vazio="Nenhum parceiro cadastrado"
+  />
+                        </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -1112,20 +1090,16 @@ function NovoCasoPage() {
                     render={({ field }) => (
                       <FormItem className={clienteInternoWatch ? "sm:col-span-2" : ""}>
                         <FormLabel>Quem recebe a tarefa de novo cliente</FormLabel>
-                        <Select value={field.value} onValueChange={field.onChange}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Selecione o responsável" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {internos.map((u) => (
-                              <SelectItem key={u.id} value={u.id}>
-                                {u.nome || u.email || u.id}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <FormControl>
+                          <Selecao
+    value={field.value}
+    onChange={field.onChange}
+    opcoes={[
+      ...internos.map((u) => ({ value: u.id, label: u.nome || u.email || u.id })),
+    ]}
+    placeholder="Selecione o responsável"
+  />
+                        </FormControl>
                         <p className="text-xs text-muted-foreground">
                           A tarefa "Cliente novo - Analisar" já sai atribuída a essa pessoa.
                         </p>

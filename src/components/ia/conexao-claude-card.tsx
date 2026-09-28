@@ -3,6 +3,7 @@
 // Claude do proprio usuario. O token em claro aparece UMA UNICA VEZ, na criacao.
 
 import { useEffect, useState } from "react";
+import { Selecao } from "@/components/ui/selecao";
 import { toast } from "sonner";
 import { Loader2, Plus, Copy, Trash2, Plug, KeyRound, AlertTriangle } from "lucide-react";
 
@@ -11,13 +12,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { iaTokens, IA_MCP_URL, type IaToken, type IaTokenPessoa } from "@/lib/ia/client";
 import { dataBR } from "@/lib/fuso";
 import { useAuth } from "@/hooks/use-auth";
@@ -150,19 +144,16 @@ export function ConexaoClaudeCard() {
         {concede && (
           <div>
             <Label className="text-xs">Para quem</Label>
-            <Select value={paraQuem} onValueChange={setParaQuem}>
-              <SelectTrigger className="w-full sm:w-[320px]" aria-label="Para quem emitir o token">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="eu">Para mim</SelectItem>
-                {pessoas.map((p) => (
-                  <SelectItem key={p.usuario_id} value={p.usuario_id}>
-                    {(p.nome ?? p.email) + (p.papel_nome ? ` · ${p.papel_nome}` : "")}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Selecao
+  value={paraQuem}
+  aria-label="Para quem emitir o token"
+  onChange={setParaQuem}
+  opcoes={[
+    { value: "eu", label: "Para mim" },
+    ...pessoas.map((p) => ({ value: p.usuario_id, label: (p.nome ?? p.email) + (p.papel_nome ? ` · ${p.papel_nome}` : "") })),
+  ]}
+  className="w-full sm:w-[320px]"
+/>
             <p className="mt-1 text-xs text-muted-foreground">
               O token roda como a pessoa escolhida: ela vê pelo Claude o mesmo que vê no sistema. Só quem emitiu
               (ou a própria pessoa) vê e revoga.
@@ -180,29 +171,29 @@ export function ConexaoClaudeCard() {
           </div>
           <div>
             <Label className="text-xs">Acesso</Label>
-            <Select value={escopo} onValueChange={(v) => setEscopo(v as "leitura" | "completo")}>
-              <SelectTrigger className="w-[150px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="leitura">Somente leitura</SelectItem>
-                <SelectItem value="completo">Leitura e escrita</SelectItem>
-              </SelectContent>
-            </Select>
+            <Selecao
+  value={escopo}
+  onChange={(v) => setEscopo(v as "leitura" | "completo")}
+  opcoes={[
+    { value: "leitura", label: "Somente leitura" },
+    { value: "completo", label: "Leitura e escrita" },
+  ]}
+  className="w-[150px]"
+/>
           </div>
           <div>
             <Label className="text-xs">Validade</Label>
-            <Select value={dias} onValueChange={setDias}>
-              <SelectTrigger className="w-[130px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="30">30 dias</SelectItem>
-                <SelectItem value="90">90 dias</SelectItem>
-                <SelectItem value="365">1 ano</SelectItem>
-                <SelectItem value="0">Sem expiração</SelectItem>
-              </SelectContent>
-            </Select>
+            <Selecao
+  value={dias}
+  onChange={setDias}
+  opcoes={[
+    { value: "30", label: "30 dias" },
+    { value: "90", label: "90 dias" },
+    { value: "365", label: "1 ano" },
+    { value: "0", label: "Sem expiração" },
+  ]}
+  className="w-[130px]"
+/>
           </div>
           <Button onClick={criar} disabled={criando}>
             {criando ? (
