@@ -25,7 +25,9 @@
 --     whatsapp_*, webhook_claim_batch/mark_result).
 --   * funções de gatilho não precisam de EXECUTE em runtime: o Postgres
 --     confere o privilégio no CREATE TRIGGER, não a cada disparo. Por isso
---     saem da lista sem risco.
+--     saem da lista sem risco. MAS o que o gatilho INVOKER chama por dentro
+--     precisa (item 3b) — `private.funcoes_fechadas_no_caminho()` acusa, e a
+--     trava no fim deste arquivo não deixa sair sem.
 --
 -- `alter default privileges` no fim faz a próxima função nascer fechada, que
 -- é o que impede a dívida de voltar.
@@ -53,6 +55,14 @@ grant execute on function public.is_interno()               to anon, authenticat
 grant execute on function public.is_admin()                 to anon, authenticated;
 grant execute on function public.parceiro_ativo()           to anon, authenticated;
 grant execute on function public.caso_do_parceiro(p_caso_id uuid) to anon, authenticated;
+
+-- 3b. o que gatilho SECURITY INVOKER chama por dentro. O gatilho em si não
+--     precisa de EXECUTE (cabeçalho), mas as funções que ele chama, sim: ele
+--     roda como quem gravou na tabela. Esquecer isto quebrou o template
+--     "Concedido" pela tela de 21/09 a 29/09 em produção (migration_execute_funcoes_de_gatilho).
+--     Quem acusa o que faltar aqui: a trava no fim deste arquivo.
+grant execute on function public.implementacao_cadencia(boolean) to authenticated;
+grant execute on function public.somar_dias_uteis(date, integer) to authenticated;
 
 -- 4. RPCs que o front chama com a sessão da pessoa
 grant execute on function public.agenda_do_parceiro(p_desde timestamp with time zone, p_parceiro_id uuid) to authenticated;
@@ -84,6 +94,24 @@ grant execute on function public.whatsapp_gerar_codigo_ativacao(p_parceiro_id uu
 -- 5. o padrão para as próximas funções
 alter default privileges in schema public revoke execute on functions from public;
 alter default privileges in schema public grant execute on functions to service_role;
+
+-- 6. trava: o "fecha tudo" não pode fechar o que a tela executa sem saber
+--    (gatilho INVOKER e policy). O túnel nasce na migration_execute_funcoes_de_gatilho;
+--    antes dela, a trava só avisa que não conferiu.
+do $$
+declare
+  v text;
+begin
+  if to_regprocedure('private.funcoes_fechadas_no_caminho()') is null then
+    raise notice 'private.funcoes_fechadas_no_caminho() ausente — caminho do navegador NÃO conferido';
+    return;
+  end if;
+  execute $q$select string_agg(origem || ' → ' || funcao, E'\n  ')
+               from private.funcoes_fechadas_no_caminho()$q$ into v;
+  if v is not null then
+    raise exception E'EXECUTE faltando no caminho do navegador:\n  %', v;
+  end if;
+end $$;
 
 -- Conferência: quantas funções cada papel ainda alcança
 select

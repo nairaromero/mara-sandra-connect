@@ -360,6 +360,7 @@ for (const [origem, trilha] of TRILHAS) {
 //
 // Função de GATILHO fica de fora: o Postgres confere o privilégio no
 // CREATE TRIGGER, não a cada disparo — foi a decisão da própria migration.
+// O que ela chama por dentro, não: ver a seção seguinte.
 const HELPERS_DE_POLICY = ["caso_do_parceiro", "is_admin", "is_interno", "parceiro_ativo"];
 const abertas = sql(`
   select r.routine_name as nome, r.grantee as quem
@@ -377,6 +378,33 @@ for (const { nome, quem } of abertas) {
   problemas.push(`ABERTA DEMAIS: ${nome} tem EXECUTE para ${quem} (regra: anon só nos helpers de policy)`);
 }
 
+// ---------------------------------------------------------------------------
+// O outro lado da mesma regra: o que o navegador executa SEM chamar pelo nome.
+//
+// Função de gatilho não precisa de EXECUTE — mas o que um gatilho SECURITY
+// INVOKER chama por dentro precisa, porque ele roda como quem gravou na tabela.
+// Idem para o que uma policy chama. O "fecha tudo" de 21/09 esqueceu isso e o
+// template "Concedido" pela tela quebrou com `permission denied for function
+// implementacao_cadencia` até 29/09, deixando uma cópia parcial por tentativa.
+//
+// A resposta vem do túnel `private.funcoes_fechadas_no_caminho()` — a mesma
+// função que trava as migrations de EXECUTE. Exceção só com motivo, aqui.
+const FECHADA_NO_CAMINHO_OK = {};
+const tunelCaminho = sql(
+  `select to_regprocedure('private.funcoes_fechadas_no_caminho()') is not null as existe`,
+)[0];
+const temTunelCaminho = tunelCaminho?.existe === true || tunelCaminho?.existe === "true";
+const fechadasNoCaminho = temTunelCaminho
+  ? sql(`select origem, funcao from private.funcoes_fechadas_no_caminho()`)
+  : [];
+if (!temTunelCaminho) {
+  problemas.push("NÃO CONFERIDO: private.funcoes_fechadas_no_caminho() não existe — rode a migration_execute_funcoes_de_gatilho");
+}
+for (const { origem, funcao } of fechadasNoCaminho) {
+  if (FECHADA_NO_CAMINHO_OK[funcao]) continue;
+  problemas.push(`FECHADA NO CAMINHO: ${origem} chama ${funcao}, sem EXECUTE para authenticated — a escrita da tela estoura "permission denied"`);
+}
+
 console.log(`espelho x banco — alvo: ${alvo}`);
 console.log(`  policies de escrita conferidas: ${policies.length - puladas}${puladas ? ` (${puladas} ILEGÍVEIS)` : ""}`);
 console.log(`  RPCs com permissão: ${Object.keys(rpcBanco).length}`);
@@ -386,6 +414,7 @@ console.log(`  tabelas com escrita fora do modelo de permissão: ${semTrava.leng
 console.log(`  trilha das edge: só pelo túnel ${TUNEL_AUDITORIA}`);
 console.log(`  functions presas a um escritório pelo escopado: ${conferidasEscopo}`);
 console.log(`  funções alcançáveis por anon/PUBLIC: ${conferidasAbertura} (${HELPERS_DE_POLICY.length} previstas)`);
+console.log(`  fechadas no caminho de gatilho/policy: ${temTunelCaminho ? fechadasNoCaminho.length : "NÃO CONFERIDO"}`);
 if (problemas.length === 0) {
   console.log("\nOK: o espelho do front bate com o servidor, e quem muda acesso audita.");
   process.exit(0);
