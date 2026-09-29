@@ -24,6 +24,7 @@ import { excluirTarefaComMotivo } from "@/lib/tarefas/queries";
 import { useDestaque } from "@/lib/destaque/destaque-context";
 import { formatarBR } from "@/lib/fuso";
 import { proximoDiaUtil } from "@/lib/agenda/helpers";
+import { lerLista } from "@/lib/leitura";
 
 const DIAS_ATE_PRIMEIRA_CONFERENCIA = 10;
 
@@ -91,16 +92,31 @@ export function ComparecimentoPericia({
 
       // 2) Consequência.
       if (tarefa.caso_id) {
-        const { data: acomp } = await supabase
+        // Só o acompanhamento DESTE processo: a perícia de outro requerimento
+        // ou do judicial tem o dela (#397 — um processo não mexe no outro).
+        let q = supabase
           .from("tarefas")
           .select("id, status")
           .eq("caso_id", tarefa.caso_id)
           .eq("metadata->>acompanhamento_pericia", "true")
           .eq("status", "a_fazer");
+        q = tarefa.processo_admin_id
+          ? q.eq("processo_admin_id", tarefa.processo_admin_id)
+          : q.is("processo_admin_id", null);
+        q = tarefa.processo_judicial_id
+          ? q.eq("processo_judicial_id", tarefa.processo_judicial_id)
+          : q.is("processo_judicial_id", null);
+        // Erro não pode virar "não existe": criaria acompanhamento duplicado.
+        // Pelo túnel, e não com `if (err) throw` à mão — dois estilos para a
+        // mesma decisão é como a divergência recomeça (src/lib/leitura.ts).
+        const acomp = await lerLista<{ id: string; status: string }>(
+          q,
+          "acompanhamento de perícia aberto neste processo",
+        );
 
         if (compareceu) {
           // Garante que o acompanhamento do resultado existe.
-          if (!acomp || acomp.length === 0) {
+          if (acomp.length === 0) {
             const due = proximoDiaUtil(
               new Date(Date.now() + DIAS_ATE_PRIMEIRA_CONFERENCIA * 86400_000),
             );

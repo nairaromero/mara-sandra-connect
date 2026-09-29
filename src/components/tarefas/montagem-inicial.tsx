@@ -1,4 +1,7 @@
-// Corrente da montagem: Bia monta -> Mara revisa -> Bia protocola.
+// Corrente da montagem: Bia monta -> Mara revisa -> protocolo (Bia no
+// judicial, Mariane no administrativo). Aberta pela análise do indeferimento,
+// a corrente judicial anda no relógio do caso (#397): as datas das etapas vêm
+// do indeferimento (+20/+25/+30), não do clique.
 // Duas variantes com as MESMAS 3 etapas:
 //   - inicial JUDICIAL  (metadata.montagem_inicial): o protocolo pede o nº do
 //     processo e cadastra em processos_judiciais (liga DataJud/DJE);
@@ -9,7 +12,7 @@
 // Aparece dentro do TarefaSheet/TarefaCard. O botão muda conforme a etapa:
 //
 //   montagem  (Bia,  10d) -> "Enviar para revisão"    cria a revisão da Mara
-//   revisao   (Mara, 10d) -> "Enviar para protocolo"  devolve pra Bia
+//   revisao   (Mara,  5d) -> "Enviar para protocolo"  devolve pra Bia
 //   protocolo (Bia,   5d) -> "Protocolo realizado"    encerra + avisa o parceiro
 //
 // Cada etapa nasce do clique da anterior, e não todas de uma vez: o prazo de
@@ -31,10 +34,13 @@ import { supabase } from "@/lib/supabase";
 import type { TarefaComJoins } from "@/lib/tarefas/types";
 import { useDestaque } from "@/lib/destaque/destaque-context";
 import { beneficioTemPericia } from "@/lib/tarefas/helpers";
-import { instanteBR, partesBR } from "@/lib/fuso";
+import { dataBR, instanteBR, partesBR } from "@/lib/fuso";
+import { lerUm } from "@/lib/leitura";
 
 const EMAIL_BIA = "advocacia.beatrizsan@outlook.com";
 const EMAIL_MARA = "marasandra.adv@gmail.com";
+// Protocolo ADMINISTRATIVO é da Mariane desde 25/09 (#397); o judicial segue com a Bia.
+const EMAIL_MARIANE = "marianefer@gmail.com";
 
 type Etapa = "montagem" | "revisao" | "protocolo";
 
@@ -53,13 +59,15 @@ const PROXIMA: Record<
 > = {
   montagem: {
     etapa: "revisao",
-    dias: 10,
+    // 5 dias (Mara, 25/09). Com o relógio do caso, a data vem do indeferimento
+    // + 25 e este número só vale para montagem aberta sem relógio.
+    dias: 5,
     email: EMAIL_MARA,
     titulo: "Revisão da inicial",
     descricao:
       'Revisar a petição inicial montada. Ao aprovar, use o botão "Enviar para ' +
       'protocolo" — a tarefa de protocolo volta para a Bia automaticamente.\n\n' +
-      "Prazo fatal: 10 dias corridos.",
+      "Prazo fatal: 5 dias corridos.",
     andamento: "Caso enviado à revisão da inicial",
   },
   revisao: {
@@ -85,14 +93,14 @@ const PROXIMA_ADM: typeof PROXIMA = {
     titulo: "Revisão do requerimento",
     descricao:
       'Revisar o requerimento montado. Ao aprovar, use o botão "Enviar para ' +
-      'protocolo" — a tarefa de protocolo volta para a Bia automaticamente.\n\n' +
+      'protocolo" — a tarefa de protocolo vai para a Mariane automaticamente.\n\n' +
       "Prazo fatal: 10 dias corridos.",
     andamento: "Caso enviado à revisão do requerimento",
   },
   revisao: {
     etapa: "protocolo",
     dias: 5,
-    email: EMAIL_BIA,
+    email: EMAIL_MARIANE,
     titulo: "Protocolo do requerimento",
     descricao:
       'Protocolar o requerimento no Meu INSS. Ao protocolar, use o botão ' +
@@ -169,12 +177,15 @@ export function MontagemInicial({
       if (errFecha) throw errFecha;
 
       if (proxima) {
-        const { data: resp } = await supabase
-          .from("usuarios")
-          .select("id")
-          .eq("email", proxima.email)
-          .maybeSingle();
-        const responsavelId = (resp as { id: string } | null)?.id ?? null;
+        // Pelo túnel: falha de consulta NÃO pode virar "não achei o usuário".
+        // Com `const { data }`, um erro deixava `resp` nulo, a tela avisava
+        // que a pessoa não existe e a tarefa nascia SEM responsável — o
+        // diagnóstico errado levando ao estrago certo.
+        const resp = await lerUm<{ id: string }>(
+          supabase.from("usuarios").select("id").eq("email", proxima.email).maybeSingle(),
+          `responsável ${proxima.email} da etapa seguinte`,
+        );
+        const responsavelId = resp?.id ?? null;
         if (!responsavelId) {
           toast.warning(`Não achei o usuário ${proxima.email}`, {
             description: "A tarefa seguinte foi criada sem responsável — atribua à mão.",
@@ -204,10 +215,12 @@ export function MontagemInicial({
               etapa_anterior: tarefa.id,
             },
           })
-          .select("id")
+          .select("id, due_at")
           .single();
         if (errNova) throw errNova;
         marcarDestaque(nova.id as string);
+        // Com relógio do caso, o banco troca a data pela da etapa (#397).
+        const venceNova = (nova as { due_at: string | null }).due_at;
 
         // Registra a passagem de bastão. INTERNO: é passo interno do
         // escritório, e cada andamento visível dispara e-mail ao parceiro —
@@ -222,7 +235,7 @@ export function MontagemInicial({
             descricao:
               ROTULO[etapa].titulo + " concluída. Segue para " +
               (proxima.etapa === "revisao" ? "revisão da Mara" : "protocolo") +
-              ", com prazo de " + proxima.dias + " dias.",
+              (venceNova ? ", com prazo até " + dataBR(venceNova) + "." : "."),
             data_evento: agora,
             visivel_parceiro: false,
             metadata: { montagem_inicial: true, etapa_concluida: etapa },
@@ -285,14 +298,13 @@ export function MontagemInicial({
         // Perícia só existe em benefício por incapacidade — o acompanhamento
         // não pode prometer perícia numa aposentadoria por idade (Naira,
         // 2026-09-01).
-        const { data: casoInfo } = await supabase
-          .from("casos")
-          .select("tipo_beneficio")
-          .eq("id", tarefa.caso_id)
-          .maybeSingle();
-        const temPericia = beneficioTemPericia(
-          (casoInfo as { tipo_beneficio?: string | null } | null)?.tipo_beneficio,
+        // Idem: erro aqui virava "benefício desconhecido" e o acompanhamento
+        // nascia SEM a perícia, calado.
+        const casoInfo = await lerUm<{ tipo_beneficio: string | null }>(
+          supabase.from("casos").select("tipo_beneficio").eq("id", tarefa.caso_id).maybeSingle(),
+          "tipo de benefício do caso",
         );
+        const temPericia = beneficioTemPericia(casoInfo?.tipo_beneficio);
         const { data: acomp, error: errAcomp } = await supabase
           .from("tarefas")
           .insert({

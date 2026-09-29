@@ -98,6 +98,8 @@ export function AnaliseCasoNovo({
         clienteNome,
         responsavelId,
         autorId: usuario?.id ?? null,
+        processoAdminId: tarefa.processo_admin_id,
+        processoJudicialId: tarefa.processo_judicial_id,
       });
       if (r.primeiraTarefaId) marcarDestaque(r.primeiraTarefaId);
       await concluirAnalise();
@@ -120,6 +122,8 @@ export function AnaliseCasoNovo({
         .from("tarefas")
         .insert({
           caso_id: tarefa.caso_id,
+          processo_admin_id: tarefa.processo_admin_id,
+          processo_judicial_id: tarefa.processo_judicial_id,
           // Sem responsável a tarefa some de "Minhas tarefas" e vira órfã:
           // herda quem estava na análise, ou quem clicou.
           responsavel_id: tarefa.responsavel_id ?? usuario?.id ?? null,
@@ -148,6 +152,8 @@ export function AnaliseCasoNovo({
         .from("andamentos")
         .insert({
           caso_id: tarefa.caso_id,
+          processo_admin_id: tarefa.processo_admin_id,
+          processo_judicial_id: tarefa.processo_judicial_id,
           origem: "interno",
           titulo: "Análise concluída — aguardando documentação complementar",
           descricao:
@@ -190,6 +196,8 @@ export function AnaliseCasoNovo({
         .from("andamentos")
         .insert({
           caso_id: tarefa.caso_id,
+          processo_admin_id: tarefa.processo_admin_id,
+          processo_judicial_id: tarefa.processo_judicial_id,
           origem: "interno",
           titulo: "Análise concluída — não vamos requerer agora",
           descricao: "Motivo: " + motivo.trim(),

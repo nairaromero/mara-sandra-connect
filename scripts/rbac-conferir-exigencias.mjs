@@ -223,6 +223,10 @@ const ESCRITA_SEM_PERMISSAO_OK = {
   notificacoes: "criadas pelo sistema; delete só da própria (rbac_16)",
   mensagens: "conversa do caso; entrada pelo sistema",
   usuarios: "privilégios guardados por gatilho (migration_usuarios_guard_privilegios)",
+  relogios_prazo:
+    "correção manual do relógio é do ADMIN por desenho (is_admin), e is_admin não se " +
+    "delega a uma pessoa como uma permissão — é mais restrito, não menos. A escrita " +
+    "normal (abrir, avançar etapa, prorrogar) passa pelos RPCs SECURITY DEFINER (#397).",
   webhook_config: "admin por papel, módulo 'Em breve' (rbac_18)",
   webhook_destinos: "idem; escrita revogada de authenticated",
   repasses: "não existe permissão de escrita no modelo (só repasses:ler) — decisão de produto pendente",
