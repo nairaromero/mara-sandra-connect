@@ -11,26 +11,33 @@
 // sozinha. O filme cobra os dois lados — lista longa TEM que ter busca, lista
 // curta NÃO pode ter (senão o campo vira ruído onde rolar é mais rápido).
 //
-// Roda no ambiente LOCAL (a mudança ainda não está na staging). Pré:
+// Roda nos DOIS ambientes, com o mesmo roteiro — a régua não muda de um pro
+// outro. Local (durante a implementação):
 //   bun run local:copiar && bun run local:rbac
 //   bash scripts/ambiente-local.sh app --port 8096
 //   DEMO_BASE_URL=http://localhost:8096 node e2e/demo/roteiros/selecao-todas-as-telas.cjs
+//
+// Staging (depois do merge, que é onde a Naira valida):
+//   DEMO_AMBIENTE=staging node e2e/demo/roteiros/selecao-todas-as-telas.cjs
 //
 // Depois, o MP4 único:
 //   node e2e/demo/montar-filme.cjs selecao-todas-as-telas dropdowns --legendado
 const fs = require("fs");
 const path = require("path");
 const { ler, deslizar, clicar, tentar, narrar: narrarBase, abrirEstudio } = require("../helpers.cjs");
+
+const ESTAGIO = process.env.DEMO_AMBIENTE === "staging";
+if (ESTAGIO && !process.env.DEMO_BASE_URL) process.env.DEMO_BASE_URL = "https://staging.marasandraconnect.com";
 // O QG mora noutro host, e o `estadoNavegador` grava a sessão nas DUAS origens
 // no momento do require — então o endereço do QG precisa estar certo ANTES.
-// Sem isto ele aponta para a :8080, que aqui é outro vite (apontando pro
-// staging), e o filme cai na tela de login.
+// Sem isto ele aponta para a :8080, que no local é outro vite (apontando pro
+// staging) e no staging é o produto, e o filme cai na tela de login.
 if (!process.env.DEMO_QG_URL && process.env.DEMO_BASE_URL) {
-  process.env.DEMO_QG_URL = process.env.DEMO_BASE_URL
-    .replace("//localhost", "//qg.localhost")
-    .replace("//127.0.0.1", "//qg.localhost");
+  const u = new URL(process.env.DEMO_BASE_URL);
+  u.hostname = u.hostname === "127.0.0.1" ? "qg.localhost" : `qg.${u.hostname}`;
+  process.env.DEMO_QG_URL = u.origin;
 }
-const { BASE, QG, DOM, admin, sessao, estadoNavegador, esc, fechar } = require("../local.cjs");
+const { BASE, QG, DOM, admin, sessao, estadoNavegador, esc, fechar } = require(ESTAGIO ? "../staging.cjs" : "../local.cjs");
 
 /** Mesmo limite do componente — se um mudar, o filme acusa. */
 const LIMITE_BUSCA = 8;
@@ -56,7 +63,7 @@ function registrar(tela, ok, detalhe) {
 
 (async () => {
   const { data: esc1 } = await admin.from("escritorios").select("id").eq("padrao_sistema", true).maybeSingle();
-  if (!esc1) throw new Error("escritório padrão ausente — rode `bun run local:copiar`");
+  if (!esc1) throw new Error(ESTAGIO ? "escritório padrão ausente no staging" : "escritório padrão ausente — rode `bun run local:copiar`");
   const ESC = esc1.id;
 
   const estudio = await abrirEstudio(process.env.SAIDA || "selecao-todas-as-telas");

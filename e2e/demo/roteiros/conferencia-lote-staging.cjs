@@ -482,6 +482,79 @@ const sql = (q) => {
     });
 
     // =====================================================================
+    // #432 · um só componente de seleção, com a busca ligando sozinha
+    //
+    // A régua do componente tem DOIS lados: lista longa TEM que oferecer busca,
+    // lista curta NÃO pode (senão o campo vira ruído onde rolar é mais rápido).
+    // Provar só um lado provaria pouco — "tem busca" se consegue ligando busca
+    // em tudo, que é justamente o oposto do pedido.
+    //
+    // O staging dá o experimento pronto: o MESMO campo (cliente, na gaveta de
+    // agendamento — a tela da reclamação) tem 453 clientes no escritório padrão
+    // e 4 no Canário. Mesmo componente, mesma tela, dois tamanhos de lista.
+    //
+    // Único item que entra no escritório PADRÃO (só leitura: abre a gaveta e
+    // some com Escape, nada é salvo). Usa `e2e+admin`, que é a conta da suíte
+    // E2E — não rodar esta conferência ao mesmo tempo que `bun run e2e:staging`,
+    // senão as duas sessões se derrubam pela rotação de refresh token.
+    // =====================================================================
+    await item("#432", "dropdown: a busca liga sozinha pelo tamanho da lista", async () => {
+      const LIMITE = 8;
+      const abrirCliente = async (page) => {
+        await page.goto(`${BASE}/agenda`);
+        await visivel(page.getByRole("heading", { name: /Agenda/i }), "a tela da agenda não abriu");
+        await page.getByRole("button", { name: /Novo evento/i }).first().click();
+        const campo = page.locator('button[role="combobox"]').filter({ hasText: /Sem cliente/i }).first();
+        await visivel(campo, "o campo de cliente não apareceu na gaveta de agendamento");
+        await campo.click();
+        await page.waitForTimeout(500);
+        return {
+          opcoes: await page.getByRole("option").count(),
+          busca: await page.locator("[data-selecao-busca]").count(),
+        };
+      };
+
+      // lado longo — escritório padrão (453 clientes)
+      const a = await parte(`e2e+admin@${DOM}`, ESC1);
+      const longo = await abrirCliente(a.page);
+      await narrar(a.page, "#432 · lista longa: a busca aparece sozinha", 1900);
+      await still(a.page, "432-lista-longa-com-busca");
+      if (longo.opcoes < LIMITE) falha(`esperava lista longa no escritório padrão e vieram ${longo.opcoes} opções`);
+      if (!longo.busca) falha(`${longo.opcoes} clientes e nenhum campo de busca — é a reclamação original, de volta`);
+      // A busca tem que ACHAR, não só esvaziar. Filtrar para zero passaria com
+      // uma lista quebrada — é o mesmo número. Então procura um cliente que
+      // existe de verdade no escritório e cobra que ele fique na tela.
+      const { data: alvo } = await admin.from("clientes").select("nome")
+        .eq("escritorio_id", ESC1).not("nome", "is", null).order("nome").limit(1).maybeSingle();
+      if (!alvo?.nome) falha("não achei nome de cliente no escritório padrão para procurar");
+      // O nome INTEIRO, não o primeiro pedaço: o espelho do staging anonimiza
+      // para "Cliente A70492", e aí procurar "Cliente" casa com os 453 — a
+      // busca pareceria quebrada estando certa. Foi o que aconteceu na 1ª volta.
+      const pedaco = alvo.nome;
+      const escapado = pedaco.replace(/[.*+?^${}()|[\]\\]/g, (c) => "\\" + c);
+      await a.page.locator("[data-selecao-busca]").first().fill(pedaco);
+      await a.page.waitForTimeout(600);
+      const depois = await a.page.getByRole("option").count();
+      if (depois === 0) falha(`procurei "${pedaco}", que é de um cliente real, e a lista ficou vazia`);
+      if (depois >= longo.opcoes) falha(`a busca não filtrou: ${longo.opcoes} antes, ${depois} depois`);
+      const achou = await a.page.getByRole("option", { name: new RegExp(escapado, "i") }).count();
+      if (!achou) falha(`sobraram ${depois} opções mas nenhuma casa com "${pedaco}"`);
+      await a.page.keyboard.press("Escape");
+
+      // lado curto — Canário (4 clientes)
+      const { page } = await parte(carla.email, ESC2);
+      const curto = await abrirCliente(page);
+      await narrar(page, "#432 · lista curta: sem campo de busca, rolar é mais rápido", 1900);
+      await still(page, "432-lista-curta-sem-busca");
+      if (curto.opcoes >= LIMITE) falha(`esperava lista curta no Canário e vieram ${curto.opcoes} opções`);
+      if (curto.busca) falha(`só ${curto.opcoes} opções e ainda assim ofereceu busca`);
+      await page.keyboard.press("Escape");
+
+      return `mesmo campo, dois escritórios: ${longo.opcoes} opções → com busca ("${pedaco}" deixa ${depois}, todas casando); ${curto.opcoes} opções → sem busca`;
+    });
+
+
+    // =====================================================================
     // #400 · o filme
     // =====================================================================
     nota("#400", "filme de apresentação das permissões por pessoa",
