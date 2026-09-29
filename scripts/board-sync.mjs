@@ -249,6 +249,7 @@ async function prsLigadosAIssue(issueNumero, campos) {
     { o: REPO_OWNER, r: REPO_NAME, n: issueNumero },
   );
   const porNumero = new Map(d.repository.issue.closedByPullRequestsReferences.nodes.map((p) => [p.number, p]));
+  const apenasCitam = new Map();
 
   let cursor = null;
   do {
@@ -276,10 +277,14 @@ async function prsLigadosAIssue(issueNumero, campos) {
       if (!pr?.number || porNumero.has(pr.number)) continue;
       if (pr.repository.nameWithOwner !== REPO || pr.baseRefName !== "staging") continue;
       if (issuesFechadasPeloCorpo(pr.body, REPO).includes(issueNumero)) porNumero.set(pr.number, pr);
+      // Citou a issue mas não a fecha. NÃO vira vínculo — só um PR que fala da
+      // issue moveria o card sozinho, e "menciona" não é "resolve". Mas é a
+      // pista de quem esqueceu o `Closes`, e quem diagnostica precisa dela.
+      else if (pr.merged) apenasCitam.set(pr.number, pr);
     }
     cursor = pagina.pageInfo.hasNextPage ? pagina.pageInfo.endCursor : null;
   } while (cursor);
-  return [...porNumero.values()];
+  return { ligados: [...porNumero.values()], apenasCitam: [...apenasCitam.values()] };
 }
 
 // O GitHub entrega os arquivos do PR em páginas de 100. O lote do RBAC (#396)
@@ -327,10 +332,10 @@ async function prsDoCard(card) {
       }`,
       { o: REPO_OWNER, r: REPO_NAME, n: card.numero },
     );
-    return [await completarArquivos(d.repository.pullRequest)];
+    return { prs: [await completarArquivos(d.repository.pullRequest)], apenasCitam: [] };
   }
-  const prs = await prsLigadosAIssue(card.numero, CAMPOS_PR);
-  return Promise.all(prs.map(completarArquivos));
+  const { ligados, apenasCitam } = await prsLigadosAIssue(card.numero, CAMPOS_PR);
+  return { prs: await Promise.all(ligados.map(completarArquivos)), apenasCitam };
 }
 
 function migrationsDoPr(pr) {
@@ -481,7 +486,8 @@ async function itemDoConteudo(board, contentId) {
 // Os outros PRs ligados à issue (fora o `exceto`): quais seguem abertos e se
 // algum já foi mergeado. PR fechado sem merge não conta pra nada.
 async function outrosPrsDaIssue(issueNumero, exceto) {
-  const outros = (await prsLigadosAIssue(issueNumero, "number state merged")).filter((p) => p.number !== exceto);
+  const { ligados } = await prsLigadosAIssue(issueNumero, "number state merged");
+  const outros = ligados.filter((p) => p.number !== exceto);
   return {
     abertos: outros.filter((p) => p.state === "OPEN").map((p) => p.number),
     algumMergeado: outros.some((p) => p.merged),
@@ -612,9 +618,9 @@ async function release({ dryRun, alvo, registroStaging }) {
   for (const card of cards) {
     card.motivos = [];
     card.migrations = [];
-    let prs;
+    let prs, apenasCitam;
     try {
-      prs = await prsDoCard(card);
+      ({ prs, apenasCitam } = await prsDoCard(card));
     } catch (e) {
       card.motivos.push("não consegui ler o card no GitHub");
       erros.push(`#${card.numero}: ${e.message}`);
@@ -629,7 +635,17 @@ async function release({ dryRun, alvo, registroStaging }) {
     }
     const mergeados = prs.filter((p) => p.merged);
     if (!mergeados.length) {
-      card.motivos.push(card.tipo === "Issue" ? "nenhum PR mergeado vinculado à issue" : "PR não mergeado");
+      // A recusa continua: "cita" não é "resolve", e mover por menção faria um
+      // PR que só comenta a issue empurrar o card. Mas dizer apenas "não há
+      // vínculo" é um beco sem saída — quem lê fica sem saber onde procurar.
+      // Se algum PR mergeado cita a issue, ele é o provável esquecimento do
+      // `Closes`, e o motivo passa a apontar para ele. Foi o caso do #357: o
+      // #391 cita no título e o corpo fecha só o #364.
+      const citantes = apenasCitam.map((p) => `#${p.number}`).join(", ");
+      const pista = apenasCitam.length
+        ? ` — ${citantes} cita${apenasCitam.length > 1 ? "m" : ""} a issue sem \`Closes\` no corpo`
+        : "";
+      card.motivos.push(card.tipo === "Issue" ? `nenhum PR mergeado vinculado à issue${pista}` : "PR não mergeado");
       continue;
     }
     // Issue resolvida por mais de um PR: um ainda aberto quer dizer que o
