@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Selecao } from "@/components/ui/selecao";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { LifeBuoy, Loader2, ShieldCheck, ShieldAlert, RefreshCw } from "lucide-react";
@@ -22,13 +23,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 const POR_PAGINA_PADRAO = 25;
 
@@ -328,32 +322,30 @@ function AuditoriaPage() {
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">Ação</label>
-                <Select value={filtroAcao} onValueChange={setFiltroAcao}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="todas">Todas as ações</SelectItem>
-                    <SelectItem value="leitura">Leitura</SelectItem>
-                    <SelectItem value="escrita">Escrita</SelectItem>
-                    <SelectItem value="escrita_remocao">Remoção</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Selecao
+  value={filtroAcao}
+  onChange={setFiltroAcao}
+  opcoes={[
+    { value: "todas", label: "Todas as ações" },
+    { value: "leitura", label: "Leitura" },
+    { value: "escrita", label: "Escrita" },
+    { value: "escrita_remocao", label: "Remoção" },
+  ]}
+/>
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">Período</label>
-                <Select value={filtroDias} onValueChange={setFiltroDias}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="7">Últimos 7 dias</SelectItem>
-                    <SelectItem value="30">Últimos 30 dias</SelectItem>
-                    <SelectItem value="90">Últimos 90 dias</SelectItem>
-                    <SelectItem value="365">Último ano</SelectItem>
-                    <SelectItem value="todos">Todo o histórico</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Selecao
+  value={filtroDias}
+  onChange={setFiltroDias}
+  opcoes={[
+    { value: "7", label: "Últimos 7 dias" },
+    { value: "30", label: "Últimos 30 dias" },
+    { value: "90", label: "Últimos 90 dias" },
+    { value: "365", label: "Último ano" },
+    { value: "todos", label: "Todo o histórico" },
+  ]}
+/>
               </div>
             </div>
           </CardContent>

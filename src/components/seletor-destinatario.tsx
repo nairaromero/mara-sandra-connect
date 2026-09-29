@@ -17,15 +17,9 @@
 // pra recado que é mesmo do escritório inteiro.
 
 import { useEffect, useState } from "react";
+import { Selecao } from "@/components/ui/selecao";
 import { supabase } from "@/lib/supabase";
 import { DESTINATARIO_TODOS } from "@/lib/conversas/destinatario";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 interface InternoLite {
   id: string;
@@ -68,26 +62,20 @@ export function SeletorDestinatario({
   return (
     <div className={"flex items-center gap-2 " + (className ?? "")}>
       <span className="text-xs text-muted-foreground shrink-0">Para:</span>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="h-8 w-auto min-w-[150px] text-sm">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={DESTINATARIO_TODOS}>Todos da equipe</SelectItem>
-          {internos.map((u) => (
-            <SelectItem key={u.id} value={u.id}>
-              {u.nome ?? "(sem nome)"}
-            </SelectItem>
-          ))}
-          {/* Parceiro do caso: separado da equipe e rotulado, pra ninguém
-              mandar pra fora achando que era recado interno. */}
-          {parceiro && (
-            <SelectItem value={parceiro.id}>
-              {(parceiro.nome ?? "(sem nome)") + " · parceiro"}
-            </SelectItem>
-          )}
-        </SelectContent>
-      </Select>
+      <Selecao
+  value={value}
+  onChange={onChange}
+  opcoes={[
+    { value: DESTINATARIO_TODOS, label: "Todos da equipe" },
+    ...internos.map((u) => ({ value: u.id, label: u.nome ?? "(sem nome)" })),
+    // Parceiro do caso: separado da equipe e rotulado, pra ninguém mandar
+    // pra fora achando que era recado interno. Só entra quando existe.
+    ...(parceiro
+      ? [{ value: parceiro.id, label: (parceiro.nome ?? "(sem nome)") + " · parceiro" }]
+      : []),
+  ]}
+  className="h-8 w-auto min-w-[150px] text-sm"
+/>
     </div>
   );
 }
