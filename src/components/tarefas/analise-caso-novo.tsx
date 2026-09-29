@@ -15,19 +15,13 @@
 // é um desfecho concreto.
 
 import { useEffect, useState } from "react";
+import { Selecao } from "@/components/ui/selecao";
 import { toast } from "sonner";
 import { CheckCircle2, FileClock, FileX2, Loader2, PlayCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { supabase } from "@/lib/supabase";
 import { listarInternosAtivos } from "@/lib/tarefas/queries";
 import { aplicarTemplateProgramatico } from "@/lib/tarefas/aplicador";
@@ -277,18 +271,15 @@ export function AnaliseCasoNovo({
       {modo === "requerimento" && (
         <div className="space-y-1.5">
           <Label className="text-xs">Responsável pela montagem (obrigatório)</Label>
-          <Select value={responsavelId} onValueChange={setResponsavelId}>
-            <SelectTrigger aria-label="Responsável pela montagem">
-              <SelectValue placeholder="Quem monta o requerimento" />
-            </SelectTrigger>
-            <SelectContent>
-              {internos.map((u) => (
-                <SelectItem key={u.id} value={u.id}>
-                  {u.nome || u.email || u.id}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Selecao
+  value={responsavelId}
+  aria-label="Responsável pela montagem"
+  onChange={setResponsavelId}
+  opcoes={[
+    ...internos.map((u) => ({ value: u.id, label: u.nome || u.email || u.id })),
+  ]}
+  placeholder="Quem monta o requerimento"
+/>
           <Button type="button" size="sm" disabled={agindo || !responsavelId} onClick={fazerRequerimento}>
             {agindo ? (
               <Loader2 className="mr-1 h-4 w-4 animate-spin" />

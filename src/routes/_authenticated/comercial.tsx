@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { Selecao } from "@/components/ui/selecao";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -44,13 +45,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Sheet,
   SheetContent,
@@ -511,19 +505,18 @@ function ComercialPage() {
 
                 {/* Lista (mobile) */}
                 <div className="space-y-3 md:hidden">
-                  <Select value={filtroEtapaMobile} onValueChange={setFiltroEtapaMobile}>
-                    <SelectTrigger className="h-9">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__todas__">Todas as etapas</SelectItem>
-                      {ETAPAS_ATIVAS.map((e) => (
-                        <SelectItem key={e} value={e}>
-                          {ETAPA_LABEL[e]} ({(porEtapa.get(e) ?? []).length})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Selecao
+                    value={filtroEtapaMobile}
+                    onChange={setFiltroEtapaMobile}
+                    className="h-9"
+                    opcoes={[
+                      { value: "__todas__", label: "Todas as etapas" },
+                      ...ETAPAS_ATIVAS.map((e) => ({
+                        value: e,
+                        label: `${ETAPA_LABEL[e]} (${(porEtapa.get(e) ?? []).length})`,
+                      })),
+                    ]}
+                  />
                   {ETAPAS_ATIVAS.filter(
                     (e) => filtroEtapaMobile === "__todas__" || e === filtroEtapaMobile,
                   ).flatMap((e) => porEtapa.get(e) ?? []).map((lead) => (
@@ -746,18 +739,14 @@ function ComercialPage() {
 
                 <div className="space-y-1.5">
                   <p className="text-sm font-medium">Etapa</p>
-                  <Select value={aberto.etapa} onValueChange={(e) => moverEtapa(aberto, e)}>
-                    <SelectTrigger className="h-9">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {[...ETAPAS_ATIVAS, ...ETAPAS_ENCERRADAS].map((e) => (
-                        <SelectItem key={e} value={e}>
-                          {ETAPA_LABEL[e]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Selecao
+  value={aberto.etapa}
+  onChange={(e) => moverEtapa(aberto, e)}
+  opcoes={[
+    ...[...ETAPAS_ATIVAS, ...ETAPAS_ENCERRADAS].map((e) => ({ value: e, label: ETAPA_LABEL[e] })),
+  ]}
+  className="h-9"
+/>
                 </div>
 
                 <div className="space-y-2">
@@ -992,34 +981,29 @@ function AgendarConsultaDialog({
           </div>
           <div className="space-y-1">
             <Label>Duração</Label>
-            <Select value={duracao} onValueChange={setDuracao}>
-              <SelectTrigger className="h-9">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="30">30 min</SelectItem>
-                <SelectItem value="60">1 hora</SelectItem>
-                <SelectItem value="90">1h30</SelectItem>
-              </SelectContent>
-            </Select>
+            <Selecao
+  value={duracao}
+  onChange={setDuracao}
+  opcoes={[
+    { value: "30", label: "30 min" },
+    { value: "60", label: "1 hora" },
+    { value: "90", label: "1h30" },
+  ]}
+  className="h-9"
+/>
           </div>
           <div className="space-y-1">
             <Label>Convidar da equipe (opcional)</Label>
-            <Select value={convidado} onValueChange={setConvidado}>
-              <SelectTrigger className="h-9">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__ninguem__">Só eu vejo</SelectItem>
-                {internos
-                  .filter((i) => i.id !== usuarioId)
-                  .map((i) => (
-                    <SelectItem key={i.id} value={i.id}>
-                      {i.nome || i.email || i.id}
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
+            <Selecao
+  value={convidado}
+  onChange={setConvidado}
+  opcoes={[
+    { value: "__ninguem__", label: "Só eu vejo" },
+    ...internos
+                  .filter((i) => i.id !== usuarioId).map((i) => ({ value: i.id, label: i.nome || i.email || i.id })),
+  ]}
+  className="h-9"
+/>
             <p className="text-xs text-muted-foreground">
               O evento fica visível na Agenda só pra você e quem você convidar.
             </p>
@@ -1117,18 +1101,15 @@ function EnviarAnaliseDialog({
         <div className="space-y-3">
           <div className="space-y-1">
             <Label>Quem vai analisar?</Label>
-            <Select value={responsavel} onValueChange={setResponsavel}>
-              <SelectTrigger className="h-9">
-                <SelectValue placeholder="Escolha da equipe…" />
-              </SelectTrigger>
-              <SelectContent>
-                {internos.map((i) => (
-                  <SelectItem key={i.id} value={i.id}>
-                    {i.nome || i.email || i.id}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Selecao
+  value={responsavel}
+  onChange={setResponsavel}
+  opcoes={[
+    ...internos.map((i) => ({ value: i.id, label: i.nome || i.email || i.id })),
+  ]}
+  placeholder="Escolha da equipe…"
+  className="h-9"
+/>
             <p className="text-xs text-muted-foreground">
               A pessoa recebe uma tarefa "Analisar lead do comercial" com prazo de 2 dias.
               Quando ela concluir a tarefa, o lead volta pro comercial automaticamente com o

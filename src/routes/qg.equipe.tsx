@@ -2,6 +2,7 @@
 // fora dos vínculos de escritório — ninguém entra aqui por ser admin de um.
 
 import { createFileRoute } from "@tanstack/react-router";
+import { Selecao } from "@/components/ui/selecao";
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, ShieldCheck, UserPlus } from "lucide-react";
 import { toast } from "sonner";
@@ -17,7 +18,6 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export const Route = createFileRoute("/qg/equipe")({
   component: QgEquipe,
@@ -112,18 +112,14 @@ function QgEquipe() {
               </div>
               <div>
                 <Label>Papel</Label>
-                <Select value={papel} onValueChange={(v) => setPapel(v as (typeof PAPEIS)[number])}>
-                  <SelectTrigger aria-label="Papel no QG">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PAPEIS.map((p) => (
-                      <SelectItem key={p} value={p}>
-                        {ROTULO_PAPEL_STAFF[p]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Selecao
+  value={papel}
+  aria-label="Papel no QG"
+  onChange={(v) => setPapel(v as (typeof PAPEIS)[number])}
+  opcoes={[
+    ...PAPEIS.map((p) => ({ value: p, label: ROTULO_PAPEL_STAFF[p] })),
+  ]}
+/>
               </div>
               <Button onClick={convidar} disabled={enviando || nome.trim().length < 3 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())}>
                 {enviando ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UserPlus className="mr-2 h-4 w-4" />}
@@ -162,18 +158,14 @@ function QgEquipe() {
                     </TableCell>
                     <TableCell>
                       {podeGerenciar ? (
-                        <Select value={s.papel} onValueChange={(v) => definir(s, { papel: v as QgStaff["papel"] })}>
-                          <SelectTrigger className="h-8 w-36" aria-label={`Papel de ${s.nome ?? s.email}`}>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {PAPEIS.map((p) => (
-                              <SelectItem key={p} value={p}>
-                                {ROTULO_PAPEL_STAFF[p]}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <Selecao
+  value={s.papel}
+  onChange={(v) => definir(s, { papel: v as QgStaff["papel"] })}
+  opcoes={[
+    ...PAPEIS.map((p) => ({ value: p, label: ROTULO_PAPEL_STAFF[p] })),
+  ]}
+  className="h-8 w-36"
+/>
                       ) : (
                         <Badge variant="outline">{ROTULO_PAPEL_STAFF[s.papel]}</Badge>
                       )}

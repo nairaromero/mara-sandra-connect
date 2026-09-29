@@ -4,6 +4,7 @@
 // a chave em claro, so um "hint" mascarado.
 
 import { useEffect, useState } from "react";
+import { Selecao } from "@/components/ui/selecao";
 import { toast } from "sonner";
 import { Loader2, Sparkles, Save, Plug, ShieldCheck } from "lucide-react";
 
@@ -12,13 +13,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { iaConfig, IA_PROVIDERS, type IaProviderInfo } from "@/lib/ia/client";
 
 export function IntegracaoIaCard() {
@@ -158,18 +152,14 @@ export function IntegracaoIaCard() {
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <Label className="text-xs">Provedor</Label>
-                <Select value={provider} onValueChange={setProvider}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Escolha o provedor" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(providers).map(([key, info]) => (
-                      <SelectItem key={key} value={key}>
-                        {info.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Selecao
+  value={provider}
+  onChange={setProvider}
+  opcoes={[
+    ...Object.entries(providers).map(([key, info]) => ({ value: key, label: info.label })),
+  ]}
+  placeholder="Escolha o provedor"
+/>
               </div>
               <div>
                 <Label className="text-xs">Modelo</Label>
