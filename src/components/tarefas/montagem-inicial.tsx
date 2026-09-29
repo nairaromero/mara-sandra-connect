@@ -35,6 +35,7 @@ import type { TarefaComJoins } from "@/lib/tarefas/types";
 import { useDestaque } from "@/lib/destaque/destaque-context";
 import { beneficioTemPericia } from "@/lib/tarefas/helpers";
 import { dataBR, instanteBR, partesBR } from "@/lib/fuso";
+import { lerUm } from "@/lib/leitura";
 
 const EMAIL_BIA = "advocacia.beatrizsan@outlook.com";
 const EMAIL_MARA = "marasandra.adv@gmail.com";
@@ -176,12 +177,15 @@ export function MontagemInicial({
       if (errFecha) throw errFecha;
 
       if (proxima) {
-        const { data: resp } = await supabase
-          .from("usuarios")
-          .select("id")
-          .eq("email", proxima.email)
-          .maybeSingle();
-        const responsavelId = (resp as { id: string } | null)?.id ?? null;
+        // Pelo túnel: falha de consulta NÃO pode virar "não achei o usuário".
+        // Com `const { data }`, um erro deixava `resp` nulo, a tela avisava
+        // que a pessoa não existe e a tarefa nascia SEM responsável — o
+        // diagnóstico errado levando ao estrago certo.
+        const resp = await lerUm<{ id: string }>(
+          supabase.from("usuarios").select("id").eq("email", proxima.email).maybeSingle(),
+          `responsável ${proxima.email} da etapa seguinte`,
+        );
+        const responsavelId = resp?.id ?? null;
         if (!responsavelId) {
           toast.warning(`Não achei o usuário ${proxima.email}`, {
             description: "A tarefa seguinte foi criada sem responsável — atribua à mão.",
@@ -294,14 +298,13 @@ export function MontagemInicial({
         // Perícia só existe em benefício por incapacidade — o acompanhamento
         // não pode prometer perícia numa aposentadoria por idade (Naira,
         // 2026-09-01).
-        const { data: casoInfo } = await supabase
-          .from("casos")
-          .select("tipo_beneficio")
-          .eq("id", tarefa.caso_id)
-          .maybeSingle();
-        const temPericia = beneficioTemPericia(
-          (casoInfo as { tipo_beneficio?: string | null } | null)?.tipo_beneficio,
+        // Idem: erro aqui virava "benefício desconhecido" e o acompanhamento
+        // nascia SEM a perícia, calado.
+        const casoInfo = await lerUm<{ tipo_beneficio: string | null }>(
+          supabase.from("casos").select("tipo_beneficio").eq("id", tarefa.caso_id).maybeSingle(),
+          "tipo de benefício do caso",
         );
+        const temPericia = beneficioTemPericia(casoInfo?.tipo_beneficio);
         const { data: acomp, error: errAcomp } = await supabase
           .from("tarefas")
           .insert({

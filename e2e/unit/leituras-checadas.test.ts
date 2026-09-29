@@ -26,8 +26,6 @@ const PERMITIDAS: Record<string, string> = {
   "src/lib/tarefas/queries.ts": "enriquecimento de exibição (nome do cliente, protocolo): falhar quebraria a lista",
   "src/lib/agenda/comprovante.ts": "checagem de anexo para o comprovante; sem ele o texto sai sem a linha",
   "src/components/tarefas/enviar-aviso-parceiro.tsx": "andamento de referência do aviso",
-  "src/components/tarefas/etapa-cumprimento-exigencia.tsx": "dados do caso para o texto da etapa",
-  "src/components/tarefas/montagem-inicial.tsx": "responsável e dados do caso para o texto da etapa",
   "src/components/tarefas/tarefa-sheet.tsx": "functions.invoke da IA: o erro é tratado pelo retorno, não pelo destructuring",
   "src/routes/_authenticated/boas-vindas.tsx": "primeiro acesso: lista vazia e falha levam ao mesmo lugar",
   "src/routes/_authenticated/casos.$id.tsx": "enriquecimento de exibição na tela do caso",

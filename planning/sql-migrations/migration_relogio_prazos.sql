@@ -659,9 +659,20 @@ revoke all on function public.relogio_etapas(text, date) from public, anon;
 -- 8. Radar da Mara: relógios abertos, com o sinal de cada um
 -- ---------------------------------------------------------------------------
 -- security invoker: a RLS de relógios/tarefas vale (só interno, só o escritório).
--- O retorno ganhou a coluna do processo: CREATE OR REPLACE não troca colunas.
+-- O retorno ganhou a coluna do processo, depois o limite/offset e os totais:
+-- CREATE OR REPLACE não troca colunas, por isso o drop das DUAS assinaturas.
+--
+-- O radar é lista de tela: vem paginada, com o total pelo `count(*) over ()`
+-- (molde `qg_escritorios`). Sem isto o PostgREST cortaria em 1.000 sem avisar,
+-- e a tela faria `.map()` no que viesse.
+--
+-- A ordem "quem pede atenção primeiro" MUDOU DE LUGAR: era o componente que
+-- remontava a lista (`[...alerta, ...ok]`). Com página, isso ordenaria só a
+-- página — a 2ª viria com alertas depois de "ok". Quem ordena agora é o SQL,
+-- com desempate por id para a ordem ser estável entre páginas.
 drop function if exists public.radar_prazos();
-create or replace function public.radar_prazos()
+drop function if exists public.radar_prazos(integer, integer);
+create or replace function public.radar_prazos(p_limite integer default 25, p_offset integer default 0)
 returns table (
   relogio_id        uuid,
   caso_id           uuid,
@@ -682,7 +693,9 @@ returns table (
   dias_previstos    integer,
   dias_disponiveis  integer,
   sinal             text,
-  pedidos_pendentes integer
+  pedidos_pendentes integer,
+  total             integer,
+  total_alerta      integer
 )
 language sql stable security invoker set search_path = '' as $$
   with abertos as (
@@ -697,35 +710,58 @@ language sql stable security invoker set search_path = '' as $$
       from public.tarefas t
      where t.status = 'a_fazer' and (t.metadata->>'relogio_id') is not null
      order by t.metadata->>'relogio_id', t.due_at
+  ),
+  linhas as (
+    select a.id                as relogio_id,
+           a.caso_id           as caso_id,
+           cl.nome             as cliente_nome,
+           coalesce('Req. ' || pa.numero_requerimento, 'Proc. ' || pj.numero_processo) as processo_rotulo,
+           a.tipo              as tipo,
+           a.origem_em         as origem_em,
+           a.origem_estimada   as origem_estimada,
+           a.planejado_em      as planejado_em,
+           a.limite_em         as limite_em,
+           a.liberado_ate      as liberado_ate,
+           (a.hoje - a.origem_em)::integer as dia_atual,
+           ta.id               as tarefa_id,
+           ta.titulo           as tarefa_titulo,
+           ta.etapa            as etapa,
+           u.nome              as responsavel_nome,
+           private.dia_brt(ta.due_at) as vence_em,
+           private.relogio_dias_previstos(a.etapas, a.origem_em, ta.etapa) as dias_previstos,
+           (private.dia_brt(ta.due_at) - private.dia_brt(ta.created_at))::integer as dias_disponiveis,
+           case
+             when ta.id is null then 'sem_tarefa'
+             when private.dia_brt(ta.due_at) < a.hoje then 'atrasada'
+             when a.hoje >= a.planejado_em - 3 then 'reta_final'
+             when (private.dia_brt(ta.due_at) - private.dia_brt(ta.created_at)) * 2 <
+                  private.relogio_dias_previstos(a.etapas, a.origem_em, ta.etapa)
+               then 'espremida'
+             else 'ok'
+           end as sinal,
+           (select count(*)::integer from public.pedidos_prorrogacao p
+             where p.relogio_id = a.id and p.status = 'pendente') as pedidos_pendentes
+      from abertos a
+      left join tarefa_atual ta on ta.relogio_id = a.id
+      left join public.casos c on c.id = a.caso_id
+      left join public.clientes cl on cl.id = c.cliente_id
+      left join public.usuarios u on u.id = ta.responsavel_id
+      left join public.processos_admin pa on pa.id = a.processo_admin_id
+      left join public.processos_judiciais pj on pj.id = a.processo_judicial_id
   )
-  select a.id, a.caso_id, cl.nome,
-         coalesce('Req. ' || pa.numero_requerimento, 'Proc. ' || pj.numero_processo),
-         a.tipo, a.origem_em, a.origem_estimada,
-         a.planejado_em, a.limite_em, a.liberado_ate,
-         (a.hoje - a.origem_em)::integer,
-         ta.id, ta.titulo, ta.etapa, u.nome,
-         private.dia_brt(ta.due_at),
-         private.relogio_dias_previstos(a.etapas, a.origem_em, ta.etapa),
-         (private.dia_brt(ta.due_at) - private.dia_brt(ta.created_at))::integer,
-         case
-           when ta.id is null then 'sem_tarefa'
-           when private.dia_brt(ta.due_at) < a.hoje then 'atrasada'
-           when a.hoje >= a.planejado_em - 3 then 'reta_final'
-           when (private.dia_brt(ta.due_at) - private.dia_brt(ta.created_at)) * 2 <
-                private.relogio_dias_previstos(a.etapas, a.origem_em, ta.etapa)
-             then 'espremida'
-           else 'ok'
-         end,
-         (select count(*)::integer from public.pedidos_prorrogacao p
-           where p.relogio_id = a.id and p.status = 'pendente')
-    from abertos a
-    left join tarefa_atual ta on ta.relogio_id = a.id
-    left join public.casos c on c.id = a.caso_id
-    left join public.clientes cl on cl.id = c.cliente_id
-    left join public.usuarios u on u.id = ta.responsavel_id
-    left join public.processos_admin pa on pa.id = a.processo_admin_id
-    left join public.processos_judiciais pj on pj.id = a.processo_judicial_id
-   order by a.planejado_em, a.origem_em
+  -- As janelas contam ANTES do limit: `total` é o conjunto inteiro, não a
+  -- página, e `total_alerta` é quantos pedem atenção no total — é o número do
+  -- botão, que continuaria certo mesmo estando na página 3.
+  select l.relogio_id, l.caso_id, l.cliente_nome, l.processo_rotulo, l.tipo,
+         l.origem_em, l.origem_estimada, l.planejado_em, l.limite_em, l.liberado_ate,
+         l.dia_atual, l.tarefa_id, l.tarefa_titulo, l.etapa, l.responsavel_nome,
+         l.vence_em, l.dias_previstos, l.dias_disponiveis, l.sinal, l.pedidos_pendentes,
+         (count(*) over ())::integer as total,
+         (count(*) filter (where l.sinal <> 'ok') over ())::integer as total_alerta
+    from linhas l
+   order by (l.sinal <> 'ok') desc, l.planejado_em, l.origem_em, l.relogio_id
+   limit greatest(coalesce(p_limite, 25), 1)
+  offset greatest(coalesce(p_offset, 0), 0)
 $$;
 
 -- Tarefas abertas de relógio: o radar e o fechamento procuram por aqui.
@@ -733,5 +769,5 @@ create index if not exists tarefas_relogio_abertas_idx
   on public.tarefas ((metadata->>'relogio_id'))
   where status = 'a_fazer' and (metadata->>'relogio_id') is not null;
 
-revoke all on function public.radar_prazos() from public, anon;
-grant execute on function public.radar_prazos() to authenticated;
+revoke all on function public.radar_prazos(integer, integer) from public, anon;
+grant execute on function public.radar_prazos(integer, integer) to authenticated;

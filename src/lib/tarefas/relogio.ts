@@ -5,6 +5,8 @@
 
 import { supabase } from "@/lib/supabase";
 import { chaveDiaBR, dataBR, hojeChaveBR, instanteBR } from "@/lib/fuso";
+import { lerUm } from "@/lib/leitura";
+import { buscarPaginado } from "@/lib/supabase-paginado";
 
 export type RelogioTipo = "judicial" | "recurso";
 export type RelogioEtapa = "analise" | "montagem" | "revisao" | "protocolo" | "recurso";
@@ -40,25 +42,25 @@ export function relogioDaTarefa(metadata: unknown): { id: string; etapa: Relogio
 }
 
 export async function buscarRelogio(id: string): Promise<RelogioPrazo | null> {
-  const { data, error } = await supabase
-    .from("relogios_prazo")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle();
-  if (error) throw error;
-  return (data as RelogioPrazo | null) ?? null;
+  return await lerUm<RelogioPrazo>(
+    supabase.from("relogios_prazo").select("*").eq("id", id).maybeSingle(),
+    "relógio do caso",
+  );
 }
 
 /** Relógios do caso, mais recente primeiro — um por processo (#397). */
 export async function buscarRelogiosDoCaso(casoId: string): Promise<RelogioPrazo[]> {
-  const { data, error } = await supabase
-    .from("relogios_prazo")
-    .select("*")
-    .eq("caso_id", casoId)
-    .order("created_at", { ascending: false })
-    .order("id");
-  if (error) throw error;
-  return (data ?? []) as RelogioPrazo[];
+  // `buscarPaginado` e não uma consulta solta: sem paginar, o PostgREST corta
+  // em 1.000 SEM erro, e a lista voltaria curta fingindo estar inteira.
+  return await buscarPaginado<RelogioPrazo>((inicio, fim) =>
+    supabase
+      .from("relogios_prazo")
+      .select("*")
+      .eq("caso_id", casoId)
+      .order("created_at", { ascending: false })
+      .order("id")
+      .range(inicio, fim),
+  );
 }
 
 /**
@@ -226,12 +228,22 @@ export interface LinhaRadar {
   dias_disponiveis: number | null;
   sinal: "ok" | "espremida" | "reta_final" | "atrasada" | "sem_tarefa";
   pedidos_pendentes: number;
+  /** `count(*) over ()`: o conjunto inteiro, não a página. */
+  total: number;
+  /** quantos pedem atenção no TOTAL — é o número do botão, certo em qualquer página. */
+  total_alerta: number;
 }
 
-export async function listarRadar(): Promise<LinhaRadar[]> {
-  const { data, error } = await supabase.rpc("radar_prazos");
-  if (error) throw error;
-  return (data ?? []) as LinhaRadar[];
+/**
+ * Uma PÁGINA do radar. Devolve a resposta crua do supabase porque quem consome
+ * é o `useListaPaginada`, que precisa de `{ data, error }` para distinguir
+ * "deu erro" de "não tem nada" — e a régua de leitura é ele quem cumpre.
+ *
+ * A ordem ("quem pede atenção primeiro") vem do SQL, não daqui: ordenar no
+ * cliente ordenaria só a página, e a 2ª viria com alerta depois de "ok".
+ */
+export function paginaDoRadar(offset: number, limite: number) {
+  return supabase.rpc("radar_prazos", { p_limite: limite, p_offset: offset });
 }
 
 export interface PedidoProrrogacao {
@@ -249,15 +261,18 @@ export interface PedidoProrrogacao {
 }
 
 export async function listarPedidosPendentes(): Promise<PedidoProrrogacao[]> {
-  const { data, error } = await supabase
-    .from("pedidos_prorrogacao")
-    .select(
-      "id, caso_id, tarefa_id, relogio_id, ate, motivo, due_anterior, created_at," +
-        " solicitante:solicitante_id(nome), tarefa:tarefa_id(titulo)," +
-        " relogio:relogio_id(limite_em, planejado_em)",
-    )
-    .eq("status", "pendente")
-    .order("created_at");
-  if (error) throw error;
-  return (data ?? []) as unknown as PedidoProrrogacao[];
+  const linhas = await buscarPaginado<unknown>((inicio, fim) =>
+    supabase
+      .from("pedidos_prorrogacao")
+      .select(
+        "id, caso_id, tarefa_id, relogio_id, ate, motivo, due_anterior, created_at," +
+          " solicitante:solicitante_id(nome), tarefa:tarefa_id(titulo)," +
+          " relogio:relogio_id(limite_em, planejado_em)",
+      )
+      .eq("status", "pendente")
+      .order("created_at")
+      .order("id")
+      .range(inicio, fim),
+  );
+  return linhas as Array<PedidoProrrogacao>;
 }

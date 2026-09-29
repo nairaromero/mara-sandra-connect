@@ -5,6 +5,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
+import { Paginador } from "@/components/paginador";
+import { useListaPaginada } from "@/hooks/use-lista-paginada";
 import { AlarmClock, Check, ExternalLink, Loader2, Lock, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -28,7 +30,7 @@ import {
   diasEntre,
   limiteDias,
   listarPedidosPendentes,
-  listarRadar,
+  paginaDoRadar,
   pedirProrrogacao,
   tetoSemPedido,
   type LinhaRadar,
@@ -154,30 +156,52 @@ const SINAL: Record<LinhaRadar["sinal"], { rotulo: string; classe: string }> = {
 };
 
 export function RadarPrazos() {
-  const [linhas, setLinhas] = useState<LinhaRadar[] | null>(null);
   const [pedidos, setPedidos] = useState<PedidoProrrogacao[]>([]);
   const [aberto, setAberto] = useState(false);
   const [decidindo, setDecidindo] = useState<string | null>(null);
   const [obs, setObs] = useState<Record<string, string>>({});
   const navigate = useNavigate();
 
-  const carregar = useCallback(async () => {
+  // A lista vem UMA PÁGINA por vez do banco. Os números do botão (quantos
+  // relógios, quantos em risco) NÃO saem da página: vêm de `total` e
+  // `total_alerta`, que o SQL calcula com `count(*) over ()` sobre o conjunto
+  // inteiro. Por isso continuam certos estando na página 3.
+  const radar = useListaPaginada<LinhaRadar>(paginaDoRadar, "radar", {
+    porPagina: 25,
+    persistencia: "radar-prazos",
+  });
+  const primeira = radar.itens[0];
+  const totalRelogios = radar.total ?? radar.itens.length;
+  const totalAlerta = primeira?.total_alerta ?? 0;
+
+  const carregarPedidos = useCallback(async () => {
     try {
-      const [r, p] = await Promise.all([listarRadar(), listarPedidosPendentes()]);
-      setLinhas(r);
-      setPedidos(p);
+      setPedidos(await listarPedidosPendentes());
     } catch (e) {
-      console.error("radar_prazos:", e);
+      console.error("pedidos_prorrogacao:", e);
     }
   }, []);
 
   useEffect(() => {
-    void carregar();
-  }, [carregar]);
+    void carregarPedidos();
+  }, [carregarPedidos]);
 
-  if (!linhas) return null;
-  const alerta = linhas.filter((l) => l.sinal !== "ok");
-  if (linhas.length === 0 && pedidos.length === 0) return null;
+  const carregar = useCallback(async () => {
+    radar.recarregar();
+    await carregarPedidos();
+  }, [radar, carregarPedidos]);
+
+  // erro de leitura NÃO vira "nada a mostrar": o radar some calado seria o
+  // mesmo que dizer "nenhum prazo em risco".
+  if (radar.erro) {
+    return (
+      <p className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+        Não consegui ler o radar de prazos: {radar.erro}
+      </p>
+    );
+  }
+  if (radar.carregando && radar.itens.length === 0) return null;
+  if (totalRelogios === 0 && pedidos.length === 0) return null;
 
   async function decidir(p: PedidoProrrogacao, aprovar: boolean) {
     setDecidindo(p.id);
@@ -194,7 +218,7 @@ export function RadarPrazos() {
     }
   }
 
-  const temAlarme = alerta.length > 0 || pedidos.length > 0;
+  const temAlarme = totalAlerta > 0 || pedidos.length > 0;
   return (
     <>
       <button
@@ -213,12 +237,12 @@ export function RadarPrazos() {
       >
         <AlarmClock className="h-4 w-4 shrink-0" />
         <span className="font-medium">
-          Prazos dos casos: {linhas.length} {linhas.length === 1 ? "relógio aberto" : "relógios abertos"}
+          Prazos dos casos: {totalRelogios} {totalRelogios === 1 ? "relógio aberto" : "relógios abertos"}
         </span>
         <span className="text-xs opacity-80">
           {pedidos.length > 0 &&
             `· ${pedidos.length} ${pedidos.length === 1 ? "pedido" : "pedidos"} de prorrogação `}
-          {alerta.length > 0 && `· ${alerta.length} em risco`}
+          {totalAlerta > 0 && `· ${totalAlerta} em risco`}
         </span>
       </button>
 
@@ -292,7 +316,7 @@ export function RadarPrazos() {
 
             <section className="space-y-1">
               <h3 className="text-sm font-medium">Relógios abertos</h3>
-              {[...alerta, ...linhas.filter((l) => l.sinal === "ok")].map((l) => (
+              {radar.itens.map((l) => (
                 <div
                   key={l.relogio_id}
                   className="flex items-center justify-between gap-2 rounded-md border px-3 py-2"
@@ -335,9 +359,19 @@ export function RadarPrazos() {
                   </div>
                 </div>
               ))}
-              {linhas.length === 0 && (
+              {totalRelogios === 0 && (
                 <p className="text-sm text-muted-foreground">Nenhum relógio aberto.</p>
               )}
+              <Paginador
+                pagina={radar.pagina}
+                porPagina={radar.porPagina}
+                total={radar.total}
+                temMais={radar.temMais}
+                carregando={radar.carregando}
+                onPagina={radar.irPara}
+                onPorPagina={radar.setPorPagina}
+                nome="relógios"
+              />
             </section>
           </div>
         </DialogContent>

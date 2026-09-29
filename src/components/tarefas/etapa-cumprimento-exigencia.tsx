@@ -25,6 +25,7 @@ import type { TarefaComJoins } from "@/lib/tarefas/types";
 import { useDestaque } from "@/lib/destaque/destaque-context";
 import { formatarBR } from "@/lib/fuso";
 import { beneficioTemPericia } from "@/lib/tarefas/helpers";
+import { lerUm } from "@/lib/leitura";
 
 interface Registro {
   feito_em: string;
@@ -141,14 +142,15 @@ export function EtapaCumprimentoExigencia({
           agora.getTime() + DIAS_PRIMEIRA_ETAPA_ACOMPANHAMENTO * 86400_000,
         ).toISOString();
         // Perícia só em benefício por incapacidade (Naira, 2026-09-01).
-        const { data: casoInfo } = await supabase
-          .from("casos")
-          .select("tipo_beneficio")
-          .eq("id", tarefa.caso_id)
-          .maybeSingle();
-        const temPericia = beneficioTemPericia(
-          (casoInfo as { tipo_beneficio?: string | null } | null)?.tipo_beneficio,
+        // Pelo túnel. A exceção antiga dizia "dados do caso para o TEXTO da
+        // etapa" — mas não é texto: `temPericia` decide se o acompanhamento
+        // nasce COM a etapa de perícia. Falha de consulta virava "benefício
+        // desconhecido" e a perícia sumia do acompanhamento, calada.
+        const casoInfo = await lerUm<{ tipo_beneficio: string | null }>(
+          supabase.from("casos").select("tipo_beneficio").eq("id", tarefa.caso_id).maybeSingle(),
+          "tipo de benefício do caso",
         );
+        const temPericia = beneficioTemPericia(casoInfo?.tipo_beneficio);
         const { data: novaT, error: errT } = await supabase
           .from("tarefas")
           .insert({
