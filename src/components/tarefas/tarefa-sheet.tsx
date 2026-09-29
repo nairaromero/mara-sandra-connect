@@ -160,7 +160,7 @@ const TIPOS: TarefaTipo[] = ["interna", "prazo", "pericia", "pos_protocolo", "co
 export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   const aberto = modo !== null;
   const { marcar: marcarDestaque } = useDestaque();
-  const { usuario, isAdmin } = useAuth();
+  const { usuario, isAdmin, podeChamar } = useAuth();
   const editando = modo?.kind === "editar";
   // Salvar, Excluir e os blocos de etapa gravam em `tarefas` (e em `andamentos`).
   // Ao EDITAR, quem manda é a linha: com escopo `atribuidos` só a tarefa de quem
@@ -841,6 +841,17 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
         return false;
       }
       if (v.tipo === "pedir_mara") {
+        // Pelo GATE, não por uma permissão escrita à mão: `pedir_prorrogacao`
+        // exige `tarefas:gerenciar` no servidor (src/lib/rbac/exigencias.ts).
+        // Sem isto, Financeiro e Parceiro — que não têm a permissão — abriam o
+        // formulário, escreviam o motivo e só descobriam no envio.
+        if (!podeChamar("pedir_prorrogacao")) {
+          toast.error("Passou do limite do relógio — e pedir prorrogação não é seu", {
+            description:
+              "Só até " + dataBR(v.teto) + " sem pedido. Peça a quem gerencia tarefas.",
+          });
+          return false;
+        }
         setPedindoProrrogacao(dueCalculado ? chaveDiaBR(dueCalculado) : null);
         return false;
       }

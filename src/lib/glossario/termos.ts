@@ -119,7 +119,7 @@ export const TERMOS: Array<Termo> = [
     papel: "admin",
     definicao:
       "Tornar alguém administrador é entregar o escritório a essa pessoa: ela convida e desliga gente, troca papéis (inclusive o seu), vê a auditoria, mexe nas integrações (IA, Google, webhooks), emite token do MCP, exclui clientes e parceiros e é quem aprova ou recusa o acesso de suporte da plataforma. Quando a ideia é dar só uma dessas coisas a alguém, não é preciso torná-la administradora: dá para conceder aquela permissão sozinha (ver ajuste de permissão). Todo escritório precisa de pelo menos uma pessoa que gerencie a equipe — o sistema não deixa tirar a última.",
-    veja: ["equipe", "ajuste-de-permissao", "auditoria", "acesso-suporte", "token-mcp"],
+    veja: ["equipe", "ajuste-de-permissao", "auditoria", "acesso-suporte", "token-mcp", "prorrogacao"],
   },
   {
     id: "advogado",
@@ -366,7 +366,45 @@ export const TERMOS: Array<Termo> = [
     categoria: "casos",
     definicao:
       "O pedido do INSS ou da Justiça para complementar o processo, com prazo. No sistema vira, a partir de um template, as solicitações de documento e uma tarefa de prazo, para ninguém perder a data.",
-    veja: ["solicitacao-documento", "tarefa", "template-tarefa"],
+    veja: ["solicitacao-documento", "tarefa", "template-tarefa", "janela-prazo"],
+  },
+  {
+    id: "relogio-prazo",
+    termo: "Relógio de prazos",
+    sinonimos: ["contagem do indeferimento", "relógio do caso"],
+    categoria: "casos",
+    definicao:
+      "A contagem que nasce quando um requerimento é indeferido e fixa as datas de cada etapa a partir dali: análise, montagem da inicial, revisão, protocolo e o limite. As datas não são chute nem combinação — saem da data do indeferimento, e por isso todo mundo vê a mesma. Cada processo tem o SEU relógio: dois requerimentos indeferidos no mesmo caso correm separados, e um não atrasa o outro.",
+    veja: ["janela-prazo", "prorrogacao", "reta-final", "tarefa"],
+    publico: "interno",
+  },
+  {
+    id: "reta-final",
+    termo: "Reta final",
+    categoria: "casos",
+    definicao:
+      "Os últimos três dias antes da data planejada de uma etapa. Aí o adiamento só vai até amanhã — não dá para empurrar a tarefa para depois do prazo sem passar por um pedido de prorrogação. É a trava que impede a data combinada de virar uma data que ninguém cumpre.",
+    veja: ["relogio-prazo", "prorrogacao"],
+    publico: "interno",
+  },
+  {
+    id: "prorrogacao",
+    termo: "Pedido de prorrogação",
+    sinonimos: ["pedir mais prazo", "pedir para a Mara"],
+    categoria: "casos",
+    definicao:
+      "Passado o limite do relógio, a data não se muda sozinha: quem cuida da tarefa PEDE, dizendo até quando e por quê, e quem administra o escritório aprova ou recusa. Pedir exige a permissão de gerenciar tarefas; decidir é de quem é administrador. Enquanto não há decisão, o prazo continua o de antes.",
+    veja: ["relogio-prazo", "reta-final", "admin"],
+    publico: "interno",
+  },
+  {
+    id: "janela-prazo",
+    termo: "Janela de prazo",
+    categoria: "casos",
+    definicao:
+      "O intervalo em que uma espera ainda é normal — por exemplo, aguardar documentos de uma exigência, ou a análise de um deferimento. Dentro da janela o sistema só acompanha; passou dela, ele pede uma decisão de quem cuida do caso, em vez de deixar a tarefa envelhecendo sem ninguém reparar.",
+    veja: ["relogio-prazo", "exigencia", "tarefa"],
+    publico: "interno",
   },
   {
     id: "tarefa",
@@ -375,7 +413,7 @@ export const TERMOS: Array<Termo> = [
     categoria: "casos",
     definicao:
       "A unidade de trabalho da equipe: título, responsável, prazo, prioridade e tipo (interna, prazo, perícia, pós-protocolo, contato com cliente). Nasce à mão, de um template, de uma sugestão da IA ou de uma automação (e-mail do INSS, DJEN, lembrete de perícia). Toda tarefa tem dono; excluir pede motivo e fica registrado.",
-    veja: ["template-tarefa", "agenda", "assistente"],
+    veja: ["template-tarefa", "agenda", "assistente", "relogio-prazo"],
   },
   {
     id: "template-tarefa",
