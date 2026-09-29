@@ -100,6 +100,7 @@ import { AcompanhamentoImplementacao } from "@/components/tarefas/acompanhamento
 import { MontagemInicial } from "@/components/tarefas/montagem-inicial";
 import { AnaliseCasoNovo } from "@/components/tarefas/analise-caso-novo";
 import { AnaliseIndeferimento } from "@/components/tarefas/analise-indeferimento";
+import { AguardandoExigencia, AnaliseDeferimento } from "@/components/tarefas/decisoes-janela";
 import { ComparecimentoPericia } from "@/components/tarefas/comparecimento-pericia";
 import { EnviarAvisoParceiro } from "@/components/tarefas/enviar-aviso-parceiro";
 import { EtapaProvidenciarDocumento } from "@/components/tarefas/etapa-providenciar-documento";
@@ -110,6 +111,23 @@ import { useDestaque } from "@/lib/destaque/destaque-context";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
 import { usePodeAcao } from "@/components/acao-protegida";
+import {
+  ETAPA_LABEL,
+  avaliarAdiamento,
+  buscarRelogio,
+  buscarRelogiosDoCaso,
+  relogioDoProcesso,
+  mensagemTrava,
+  recuaFimDeSemana,
+  relogioEtapasPrevistas,
+  somarDias,
+  relogioDaTarefa,
+  resumoRelogio,
+  type RelogioPrazo,
+  type VeredictoAdiamento,
+} from "@/lib/tarefas/relogio";
+import { PedirProrrogacaoDialog } from "@/components/tarefas/relogio-prazo";
+import { dataBR } from "@/lib/fuso";
 
 type Modo =
   | {
@@ -142,7 +160,7 @@ const TIPOS: TarefaTipo[] = ["interna", "prazo", "pericia", "pos_protocolo", "co
 export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   const aberto = modo !== null;
   const { marcar: marcarDestaque } = useDestaque();
-  const { usuario } = useAuth();
+  const { usuario, isAdmin } = useAuth();
   const editando = modo?.kind === "editar";
   // Salvar, Excluir e os blocos de etapa gravam em `tarefas` (e em `andamentos`).
   // Ao EDITAR, quem manda é a linha: com escopo `atribuidos` só a tarefa de quem
@@ -184,6 +202,9 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   // Prazo fatal informado ao aplicar template com item ancorado em
   // due_relative_to="prazo_fatal" (Exigência Judicial): "aaaa-mm-dd".
   const [prazoFatal, setPrazoFatal] = useState<string>("");
+  // Data do indeferimento (template com a Análise de Indeferimento): é dela que
+  // o relógio do caso conta os 10/20/25/30/40 dias (#397). "aaaa-mm-dd".
+  const [dataIndeferimento, setDataIndeferimento] = useState<string>("");
   // Calculadora do fatal: data da publicação + prazo em dias úteis
   // (5/10/15/outro). Preenche prazoFatal, que segue editável — feriado não
   // é descontado, quem aplica confere.
@@ -334,6 +355,14 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   const [salvando, setSalvando] = useState(false);
   // Diálogo de adiamento de prazo fatal: exige justificativa antes de salvar.
   const [confirmandoAdiamento, setConfirmandoAdiamento] = useState(false);
+  // Relógio do caso (#397): a tarefa de uma etapa travada carrega o relógio
+  // para a tela avisar ANTES de salvar — o banco é quem recusa de verdade.
+  const [relogio, setRelogio] = useState<RelogioPrazo | null>(null);
+  const [veredicto, setVeredicto] = useState<VeredictoAdiamento | null>(null);
+  const [pedindoProrrogacao, setPedindoProrrogacao] = useState<string | null>(null);
+  // Relógio aberto do caso, ao CRIAR (montagem aplicada à mão num caso que já
+  // tem relógio: a data vem da etapa, não do form).
+  const [relogiosDoCaso, setRelogiosDoCaso] = useState<RelogioPrazo[]>([]);
   // Avisos do agendamento (data passada / perícia duplicada) num AlertDialog;
   // a ref pula as checagens UMA vez quando a pessoa manda seguir.
   const [avisosAgenda, setAvisosAgenda] = useState<string[] | null>(null);
@@ -368,6 +397,48 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
         ?.itens.some((i) => i.due_relative_to === "prazo_fatal") ?? false
     : false;
 
+  const templateTemAnaliseIndeferimento = templateSelecionado
+    ? templates
+        .find((t) => t.nome === templateSelecionado)
+        ?.itens.some((i) => i.meta?.analise_indeferimento === true) ?? false
+    : false;
+
+  // Templates em que a data da tarefa principal é AUTOMÁTICA (#397): o campo
+  // Data some e o form mostra a data que o sistema vai usar.
+  const tplSel = templateSelecionado
+    ? templates.find((t) => t.nome === templateSelecionado) ?? null
+    : null;
+  const soAndamentosSel =
+    !!tplSel && tplSel.itens.length > 0 && tplSel.itens.every((i) => i.destino === "andamento");
+  const mainItemSel = tplSel
+    ? tplSel.itens.find((i) => i.destino === "agenda") ??
+      tplSel.itens.find((i) => !i.destino || i.destino === "tarefa") ??
+      null
+    : null;
+  const metaMainSel = (mainItemSel?.meta ?? {}) as Record<string, unknown>;
+  const fatalPadraoDias = (tplSel?.itens.find((i) => typeof i.meta?.fatal_padrao_dias === "number")
+    ?.meta?.fatal_padrao_dias ?? null) as number | null;
+  // O relógio vale por PROCESSO: o do processo escolhido no form (#397).
+  const procEscolhido = processoDoToken(processoToken);
+  const relogioDoCasoNovo = relogioDoProcesso(
+    relogiosDoCaso,
+    procEscolhido.processo_admin_id,
+    procEscolhido.processo_judicial_id,
+  );
+  const montagemComRelogio =
+    metaMainSel.montagem_inicial === true &&
+    metaMainSel.montagem_requerimento !== true &&
+    relogioDoCasoNovo?.status === "aberto" &&
+    !!relogioDoCasoNovo.etapas.montagem;
+  const dataAutomatica =
+    !editando &&
+    !!tplSel &&
+    (soAndamentosSel ||
+      metaMainSel.analise_indeferimento === true ||
+      metaMainSel.analise_deferimento === true ||
+      metaMainSel.aguardando_exigencia === true ||
+      montagemComRelogio);
+
   const agendaTipoDoTemplate = templateAgenda
     ? ((templateAgenda.itens.find((i) => i.destino === "agenda")?.tipo ?? "") as string)
     : "";
@@ -376,6 +447,48 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
     (agendaTipoDoTemplate === "pericia" || agendaTipoDoTemplate === "audiencia") &&
     !!casoId &&
     !!ctxCaso?.parceiro_id;
+
+  const relogioRef = tarefaAberta ? relogioDaTarefa(tarefaAberta.metadata) : null;
+  const relogioId = relogioRef?.id ?? null;
+  useEffect(() => {
+    setRelogio(null);
+    if (!relogioId) return;
+    let cancelado = false;
+    buscarRelogio(relogioId)
+      .then((r) => {
+        if (!cancelado) setRelogio(r);
+      })
+      // Sem o relógio a tela só deixa de AVISAR antes; quem trava é o banco,
+      // e a recusa dele vira toast no salvar.
+      .catch((e) => console.error("[tarefa-sheet] relógio do caso:", e));
+    return () => {
+      cancelado = true;
+    };
+  }, [relogioId]);
+
+  useEffect(() => {
+    setRelogiosDoCaso([]);
+    if (editando || !casoId) return;
+    let cancelado = false;
+    buscarRelogiosDoCaso(casoId)
+      .then((r) => {
+        if (!cancelado) setRelogiosDoCaso(r);
+      })
+      .catch((e) => console.error("[tarefa-sheet] relógio do caso:", e));
+    return () => {
+      cancelado = true;
+    };
+  }, [editando, casoId]);
+
+  // Trocou de template: o fatal é de cada template, nunca herdado do anterior
+  // (o padrão hoje + 30 da exigência INSS vazava para a judicial). A exigência
+  // INSS já vem com hoje + 30, editável se o INSS der menos.
+  useEffect(() => {
+    if (editando) return;
+    setPrazoFatal(fatalPadraoDias ? somarDias(hojeChaveBR(), fatalPadraoDias) : "");
+    setPrazoDias("");
+    setPrazoDiasCustom("");
+  }, [editando, templateSelecionado, fatalPadraoDias]);
 
   // Contexto do caso (parceiro, nomes) pro aviso — atualiza quando muda o caso.
   useEffect(() => {
@@ -561,6 +674,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
       setLocal("");
       setDocsExigencia("");
       setPrazoFatal("");
+      setDataIndeferimento("");
       // "Publicado em" já nasce com o HOJE de Brasília (a Naira agenda da
       // Espanha; a data do navegador virava amanhã de madrugada — review #4).
       setPubData(hojeChaveBR());
@@ -630,6 +744,42 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
    *
    * Só adiamento dispara: antecipar prazo fatal é sempre livre.
    */
+  /** O que o form mostra no lugar do campo Data quando a data é automática. */
+  function textoDataAutomatica(): string {
+    const amanha = somarDias(hojeChaveBR(), 1);
+    if (soAndamentosSel) return "Este template só registra andamento no caso — não cria tarefa.";
+    if (metaMainSel.analise_indeferimento === true) {
+      if (!dataIndeferimento) {
+        return "Informe a data do indeferimento abaixo: a análise vence 10 dias depois dela.";
+      }
+      const e = relogioEtapasPrevistas(dataIndeferimento);
+      return (
+        "Análise vence em " + dataBR(e.analise) + " · montagem " + dataBR(e.montagem) +
+        " · revisão " + dataBR(e.revisao) + " · protocolo " + dataBR(e.protocolo) +
+        " · limite " + dataBR(e.limite) + " (só com a Mara)."
+      );
+    }
+    if (metaMainSel.analise_deferimento === true) {
+      return (
+        "Vence amanhã (" + dataBR(amanha) + "). Pode ser adiada até " +
+        dataBR(recuaFimDeSemana(somarDias(hojeChaveBR(), 10))) +
+        "; depois, decida: está tudo certo ou entrar com revisão."
+      );
+    }
+    if (metaMainSel.aguardando_exigencia === true) {
+      const teto = prazoFatal ? recuaFimDeSemana(somarDias(prazoFatal, -3)) : null;
+      return (
+        "Vence amanhã (" + dataBR(amanha) + "). Pode ser adiada até " +
+        (teto ? dataBR(teto) : "3 dias antes do fatal") +
+        " — o prazo do parceiro. Depois, decida se pede dilação."
+      );
+    }
+    if (montagemComRelogio && relogioDoCasoNovo?.etapas.montagem) {
+      return "Vence em " + dataBR(relogioDoCasoNovo.etapas.montagem) + " (dia 20 do prazo deste processo).";
+    }
+    return "Data calculada pelo sistema.";
+  }
+
   function adiandoPrazoFatal(novoDueAt: string | null): boolean {
     if (!editando || !tarefa) return false;
     const fatal = (tarefa.metadata as { prazo_fatal?: boolean } | null)?.prazo_fatal === true;
@@ -665,6 +815,43 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
       return false;
     }
     const dueCalculado = isoFromInputDateTime(dueDate);
+    if (justificativa === undefined) setVeredicto(null);
+    // Janela (sem relógio): até o teto é livre; passar dele o banco recusa.
+    const tetoJanela = (tarefa?.metadata as { teto_em?: string } | null)?.teto_em;
+    if (
+      justificativa === undefined && tarefa && tetoJanela && !relogioRef && !isAdmin &&
+      dueCalculado && tarefa.due_at && dueCalculado > tarefa.due_at &&
+      chaveDiaBR(dueCalculado) > tetoJanela
+    ) {
+      toast.error("Prazo travado", {
+        description:
+          "Esta tarefa vai no máximo até " + dataBR(tetoJanela) +
+          ". A partir daí, decida pelos botões da tarefa.",
+      });
+      return false;
+    }
+    if (justificativa === undefined && relogio && relogioRef && tarefa) {
+      const v = avaliarAdiamento(relogio, relogioRef.etapa, tarefa.due_at, dueCalculado, isAdmin);
+      if (v.tipo === "so_ate_amanha") {
+        toast.error("Reta final do prazo: só dá para adiar até amanhã", {
+          description:
+            "Faltam 3 dias ou menos para " + dataBR(relogio.planejado_em) +
+            ". Escolha no máximo " + dataBR(v.amanha) + ".",
+        });
+        return false;
+      }
+      if (v.tipo === "pedir_mara") {
+        // Sem gate aqui de propósito. `pedir_prorrogacao` exige
+        // `tarefas:gerenciar`, e TODO caminho até `salvar()` já passa por
+        // `podeMexer` (usePodeAcao com escrever: "tarefas"), que cobra a MESMA
+        // permissão e ainda confere o escopo da linha — é mais estrito. Um
+        // `podeChamar` aqui nunca reprovaria ninguém: seria código morto com
+        // cara de rede de segurança, que é pior do que rede nenhuma.
+        setPedindoProrrogacao(dueCalculado ? chaveDiaBR(dueCalculado) : null);
+        return false;
+      }
+      setVeredicto(v);
+    }
     if (justificativa === undefined && adiandoPrazoFatal(dueCalculado)) {
       setConfirmandoAdiamento(true);
       return false;
@@ -772,9 +959,24 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
           ? null
           : agendaItem ?? primeiroTarefa ?? tplItens[0] ?? null;
 
+        // Indeferido não sai sem a data do indeferimento: é dela que o relógio
+        // do caso conta as etapas (#397).
+        if (templateTemAnaliseIndeferimento && !dataIndeferimento) {
+          toast.error("Informe a data do indeferimento.", {
+            description: "É dela que o sistema conta o prazo do caso (análise, montagem, revisão e protocolo).",
+          });
+          setSalvando(false);
+          return false;
+        }
+        if (templateTemAnaliseIndeferimento && dataIndeferimento > hojeChaveBR()) {
+          toast.error("A data do indeferimento não pode ser no futuro.");
+          setSalvando(false);
+          return false;
+        }
+
         // Template ancorado no prazo fatal (Exigência Judicial) não sai sem a
-        // data — o FATAL derivaria de nada.
-        if (templateTemPrazoFatalForm && !prazoFatal) {
+        // data — o FATAL derivaria de nada. Idem a exigência INSS.
+        if ((templateTemPrazoFatalForm || fatalPadraoDias) && !prazoFatal) {
           toast.error("Informe o prazo fatal da publicação.");
           setSalvando(false);
           return false;
@@ -938,6 +1140,8 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
           const metaCriacao: Record<string, unknown> = tpl
             ? {
                 template_aplicado: tpl.nome,
+                ...(dataIndeferimento ? { data_indeferimento: dataIndeferimento } : {}),
+                ...(prazoFatal ? { prazo_fatal_em: prazoFatal } : {}),
                 template_item_index: 0,
                 aplicado_manualmente: true,
                 ...firstMeta,
@@ -986,6 +1190,8 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                   visivel_parceiro: visivel,
                   metadata: {
                     template_aplicado: tpl.nome,
+                ...(dataIndeferimento ? { data_indeferimento: dataIndeferimento } : {}),
+                ...(prazoFatal ? { prazo_fatal_em: prazoFatal } : {}),
                     template_item_index: i,
                     aplicado_manualmente: true,
                     ...(item.meta ?? {}),
@@ -1096,6 +1302,8 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
             const extraDueAt =
               ancora === "prazo_fatal"
                 ? dueAtDoPrazoFatal(prazoFatal, item.offset_dias)
+                : typeof item.meta?.fatal_padrao_dias === "number" && prazoFatal
+                  ? dueAtDoPrazoFatal(prazoFatal, 0)
                 : ancora === "agenda" || ancora === "sexta_antes_agenda"
                   ? calcularDueAtRelativo(ancora, agendaStart, item.offset_dias)
                   : calcularDueAtRelativo("hoje", null, item.offset_dias);
@@ -1112,6 +1320,8 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
               due_at: extraDueAt,
               metadata: {
                 template_aplicado: tpl.nome,
+                ...(dataIndeferimento ? { data_indeferimento: dataIndeferimento } : {}),
+                ...(prazoFatal ? { prazo_fatal_em: prazoFatal } : {}),
                 template_item_index: i,
                 aplicado_manualmente: true,
                 ancora_prazo: ancora,
@@ -1160,6 +1370,11 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
       return true;
     } catch (e) {
       console.error("[tarefa-sheet] salvar falhou:", e);
+      const trava = mensagemTrava(e);
+      if (trava) {
+        toast.error("Prazo travado", { description: trava });
+        return false;
+      }
       const anyErr = e as { message?: string; details?: string; hint?: string };
       let msg =
         anyErr?.message || anyErr?.details || anyErr?.hint || "";
@@ -1239,6 +1454,16 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
           {editando && podeMexer && tarefa &&
             (tarefa.metadata as { analise_indeferimento?: boolean })?.analise_indeferimento === true && (
               <AnaliseIndeferimento tarefa={tarefa} onUpdated={onSaved} />
+            )}
+
+          {editando && podeMexer && tarefa &&
+            (tarefa.metadata as { aguardando_exigencia?: boolean })?.aguardando_exigencia === true && (
+              <AguardandoExigencia tarefa={tarefa} onUpdated={onSaved} />
+            )}
+
+          {editando && podeMexer && tarefa &&
+            (tarefa.metadata as { analise_deferimento?: boolean })?.analise_deferimento === true && (
+              <AnaliseDeferimento tarefa={tarefa} onUpdated={onSaved} />
             )}
 
           {editando && podeMexer && tarefa &&
@@ -1554,6 +1779,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
               </div>
             )}
 
+          {!(soAndamentosSel && !editando) && (<>
           <div className="space-y-1.5">
             <Label htmlFor="t-titulo">Título</Label>
             <Input
@@ -1611,6 +1837,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
 />
             </div>
           </div>
+          </>)}
 
           {editando && (
             <div className="space-y-1.5">
@@ -1638,6 +1865,14 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
             </div>
           )}
 
+          {dataAutomatica ? (
+            <div className="space-y-1.5" data-testid="data-automatica">
+              <Label>Data</Label>
+              <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
+                {textoDataAutomatica()}
+              </p>
+            </div>
+          ) : (
           <div className="space-y-1.5">
             <Label htmlFor="t-due">
               {templateAgenda ? "Data e hora da perícia" : "Data"}
@@ -1648,7 +1883,21 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
             />
+            {relogio && relogioRef && relogio.status === "aberto" && (
+              <p className="text-xs text-muted-foreground" data-testid="relogio-linha">
+                <span className="font-medium text-foreground">
+                  {ETAPA_LABEL[relogioRef.etapa]}
+                </span>
+                {relogio.etapas[relogioRef.etapa]
+                  ? " até " + dataBR(relogio.etapas[relogioRef.etapa] as string)
+                  : ""}
+                {" · "}
+                {resumoRelogio(relogio)}
+                {relogio.origem_estimada && " · data do indeferimento não informada"}
+              </p>
+            )}
           </div>
+          )}
 
           {templateAgenda && (
             <div className="space-y-1.5">
@@ -1718,6 +1967,43 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                     <strong>Documentos solicitados</strong> do caso.
                   </>
                 )}
+              </p>
+            </div>
+          )}
+
+          {templateTemAnaliseIndeferimento && !editando && (
+            <div className="space-y-1.5 rounded-lg border border-dashed border-red-300 bg-red-50/40 p-3">
+              <Label htmlFor="t-data-indeferimento" className="text-red-900">
+                Data do indeferimento
+              </Label>
+              <Input
+                id="t-data-indeferimento"
+                type="date"
+                max={hojeChaveBR()}
+                value={dataIndeferimento}
+                onChange={(e) => setDataIndeferimento(e.target.value)}
+              />
+              <p className="text-xs text-red-900/70">
+                O prazo do caso conta desta data: análise em 10 dias, montagem em 20,
+                revisão em 25, protocolo em 30 (limite 40, só com a Mara).
+              </p>
+            </div>
+          )}
+
+          {!!fatalPadraoDias && !templateTemPrazoFatalForm && !editando && (
+            <div className="space-y-1.5 rounded-lg border border-dashed border-red-300 bg-red-50/40 p-3">
+              <Label htmlFor="t-prazo-fatal-inss" className="text-red-900">
+                Prazo fatal da exigência
+              </Label>
+              <Input
+                id="t-prazo-fatal-inss"
+                type="date"
+                value={prazoFatal}
+                onChange={(e) => setPrazoFatal(e.target.value)}
+              />
+              <p className="text-xs text-red-900/70">
+                {fatalPadraoDias} dias corridos. Mude só quando o INSS der prazo menor. O
+                parceiro recebe 3 dias antes.
               </p>
             </div>
           )}
@@ -1799,6 +2085,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
             </div>
           )}
 
+          {!(soAndamentosSel && !editando) && (
           <div className="space-y-1.5">
             <Label>
               {!editando && extrasResp.length > 0
@@ -1819,6 +2106,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   ]}
 />
           </div>
+          )}
 
           {/* Template que cria mais tarefas: um responsável por tarefa extra,
               pré-preenchido com o executor padrão do template. */}
@@ -1897,6 +2185,14 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                   </strong>
                   . Prazo fatal não deveria ser adiado.
                 </p>
+                {veredicto?.tipo === "justificar" && veredicto.tiraDaProxima && (
+                  <p className="text-destructive">
+                    Isso tira {veredicto.tiraDaProxima.dias}{" "}
+                    {veredicto.tiraDaProxima.dias === 1 ? "dia" : "dias"} da etapa
+                    seguinte ({ETAPA_LABEL[veredicto.tiraDaProxima.etapa].toLowerCase()}): a
+                    data dela não muda.
+                  </p>
+                )}
                 <p>
                   Se for realmente necessário, escreva o motivo. Ele fica registrado
                   como andamento interno no caso — <strong>o parceiro não vê</strong>.
@@ -1941,6 +2237,21 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {tarefa && relogio && (
+        <PedirProrrogacaoDialog
+          aberto={pedindoProrrogacao !== null}
+          tarefaId={tarefa.id}
+          relogio={relogio}
+          dataSugerida={pedindoProrrogacao}
+          onFechar={(enviado) => {
+            setPedindoProrrogacao(null);
+            // O prazo continua o de antes até a Mara decidir.
+            setDueDate(inputDateTimeValueFromIso(tarefa.due_at ?? null));
+            if (enviado) onSaved();
+          }}
+        />
+      )}
 
       {/* Guardas do agendamento: data passada / perícia duplicada no dia. */}
       <AlertDialog
