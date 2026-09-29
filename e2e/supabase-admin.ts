@@ -167,11 +167,15 @@ export async function varrerRastroEmCasosEmprestados(admin: SupabaseClient): Pro
   //    tabelas abaixo são as que têm `created_by`, e foram as três que
   //    vazaram de verdade no staging.
   let apagados = 0;
+  const achados: Array<string> = [];
   const tarefasApagadas: Array<string> = [];
   for (const tabela of ["tarefas", "agenda_eventos", "relogios_prazo"]) {
+    // `titulo` junto: sem ele o aviso diz QUANTAS linhas e não QUAIS, e aí
+    // descobrir a spec culpada vira caçada. Nem toda tabela tem título — o
+    // select pede o que existir e o aviso usa o que vier.
     const { data: alvo, error: eA } = await admin
       .from(tabela)
-      .select("id")
+      .select(tabela === "relogios_prazo" ? "id, caso_id" : "id, caso_id, titulo")
       .in("caso_id", emprestados)
       .in("created_by", contaIds)
       .gte("created_at", INICIO_DA_SUITE);
@@ -181,6 +185,9 @@ export async function varrerRastroEmCasosEmprestados(admin: SupabaseClient): Pro
     }
     const ids = (alvo ?? []).map((l) => l.id as string);
     if (ids.length === 0) continue;
+    for (const l of alvo ?? []) {
+      achados.push(`${tabela}: ${(l as { titulo?: string }).titulo ?? l.id}`);
+    }
 
     // dependentes primeiro, presos ao id — não ao caso, senão volta o excesso
     if (tabela === "tarefas") {
@@ -201,8 +208,10 @@ export async function varrerRastroEmCasosEmprestados(admin: SupabaseClient): Pro
   if (apagados > 0) {
     // alto de propósito: é sintoma de spec escrevendo em caso que não semeou
     console.warn(
-      `[cleanup] ${apagados} linha(s) de teste em ${emprestados.length} caso(s) de cliente REAL. ` +
-        "Alguma spec criou dado num caso que não semeou — ver e2e/supabase-admin.ts.",
+      `[cleanup] ${apagados} linha(s) de teste em ${emprestados.length} caso(s) de cliente REAL: ` +
+        achados.slice(0, 8).join(" · ") +
+        (achados.length > 8 ? ` (+${achados.length - 8})` : "") +
+        ". Alguma spec criou dado num caso que não semeou — ver e2e/supabase-admin.ts.",
     );
   }
   return apagados;
