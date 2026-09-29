@@ -321,6 +321,35 @@ async function completarArquivos(pr) {
   return pr;
 }
 
+// Por que o card fica quando NENHUM PR vinculado foi mergeado. Três situações
+// moravam numa frase só ("nenhum PR mergeado vinculado à issue"): não existe
+// vínculo, existe e está aberto, existe e foi abandonado. A frase era
+// literalmente verdadeira nas três e não ajudava em nenhuma — quem lê precisa
+// saber o que FAZER.
+//
+// Fica em função própria (e exportada) porque é a redação que responde "por
+// que este card não andou": um lugar só, conferível sem passar pelo release
+// inteiro.
+function motivoSemMerge(tipo, prs, apenasCitam) {
+  if (tipo !== "Issue") return "PR não mergeado";
+  const numeros = (lista) => lista.map((p) => `#${p.number}`).join(", ");
+  const abertos = prs.filter((p) => p.state === "OPEN");
+  const fechados = prs.filter((p) => p.state === "CLOSED");
+  // O vínculo existe: o trabalho é esperar o merge, não caçar ligação — por
+  // isso a pista não entra aqui, viraria ruído.
+  if (abertos.length) return `PR vinculado ${numeros(abertos)} ainda aberto`;
+  if (fechados.length) return `PR vinculado ${numeros(fechados)} foi fechado sem merge`;
+  // Nenhum vínculo. "Cita" não é "resolve", e mover por menção faria um PR que
+  // só comenta a issue empurrar o card — por isso a menção não vira vínculo.
+  // Mas ela é a pista de quem esqueceu o `Closes`, e sem ela a recusa é um beco
+  // sem saída. Foi o caso do #357: o #391 cita no título e o corpo fecha só o
+  // #364.
+  const pista = apenasCitam.length
+    ? ` — ${numeros(apenasCitam)} cita${apenasCitam.length > 1 ? "m" : ""} a issue sem \`Closes\` no corpo`
+    : "";
+  return `nenhum PR vinculado à issue${pista}`;
+}
+
 // Os PRs que decidem um card: o próprio PR, ou os PRs vinculados à issue.
 // Sempre com a lista de arquivos INTEIRA — quem chama não precisa saber que
 // existe paginação.
@@ -635,17 +664,7 @@ async function release({ dryRun, alvo, registroStaging }) {
     }
     const mergeados = prs.filter((p) => p.merged);
     if (!mergeados.length) {
-      // A recusa continua: "cita" não é "resolve", e mover por menção faria um
-      // PR que só comenta a issue empurrar o card. Mas dizer apenas "não há
-      // vínculo" é um beco sem saída — quem lê fica sem saber onde procurar.
-      // Se algum PR mergeado cita a issue, ele é o provável esquecimento do
-      // `Closes`, e o motivo passa a apontar para ele. Foi o caso do #357: o
-      // #391 cita no título e o corpo fecha só o #364.
-      const citantes = apenasCitam.map((p) => `#${p.number}`).join(", ");
-      const pista = apenasCitam.length
-        ? ` — ${citantes} cita${apenasCitam.length > 1 ? "m" : ""} a issue sem \`Closes\` no corpo`
-        : "";
-      card.motivos.push(card.tipo === "Issue" ? `nenhum PR mergeado vinculado à issue${pista}` : "PR não mergeado");
+      card.motivos.push(motivoSemMerge(card.tipo, prs, apenasCitam));
       continue;
     }
     // Issue resolvida por mais de um PR: um ainda aberto quer dizer que o
@@ -784,4 +803,4 @@ if (chamadoDireto) {
   });
 }
 
-export { prsDoCard, completarArquivos, migrationsDoPr, CAMPOS_PR };
+export { prsDoCard, completarArquivos, migrationsDoPr, motivoSemMerge, CAMPOS_PR };

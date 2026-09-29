@@ -11,7 +11,7 @@
 //    a página seguinte. Os #385 e #395 ficaram presos com as 20 migrations já
 //    registradas em produção.
 //
-// 2. "nenhum PR mergeado vinculado à issue" — o #357 nunca teve `Closes #357`
+// 2. "nenhum PR vinculado à issue" — o #357 nunca teve `Closes #357`
 //    no corpo de PR nenhum nem o campo Development preenchido. O trabalho foi
 //    feito no #391, cujo corpo fecha o #364. Citar a issue no título ou no
 //    prefixo do commit (`fix(#357):`) é MENÇÃO, não ligação — nem o GitHub nem
@@ -25,6 +25,7 @@
 // (fora de src/ porque o tsc do app não conhece bun:test)
 import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
+import { motivoSemMerge } from "../../scripts/board-sync.mjs";
 import path from "node:path";
 
 const RAIZ = path.resolve(import.meta.dir, "../..");
@@ -86,12 +87,50 @@ describe("recusa 2 — sem vínculo o card fica, mas a mensagem diz onde procura
     expect(fn).toMatch(/else if \(pr\.merged\)/);
   });
 
-  test("o motivo da recusa carrega a pista quando há quem cite", () => {
-    const bloco = fonte.match(/if \(!mergeados\.length\) \{([\s\S]*?)\n {4}\}/)?.[1] ?? "";
-    expect(bloco, "bloco da recusa não encontrado").toBeTruthy();
-    expect(bloco).toContain("nenhum PR mergeado vinculado à issue");
-    expect(bloco).toContain("apenasCitam");
-    expect(bloco).toMatch(/a issue sem .{0,2}Closes.{0,2} no corpo/);
+  test("o motivo separa as três situações em vez de uma frase para todas", () => {
+    // "nenhum PR mergeado vinculado à issue" era literalmente verdade quando
+    // não havia vínculo, quando havia e estava aberto, e quando havia e foi
+    // abandonado. Verdade em três casos diferentes e útil em nenhum.
+    // Aqui a função de verdade é chamada — não uma leitura do texto dela.
+    const pr = (n, state) => ({ number: n, state, merged: false });
+    const cita = [{ number: 391 }, { number: 412 }];
+
+    expect(motivoSemMerge("Issue", [pr(438, "OPEN")], [])).toBe("PR vinculado #438 ainda aberto");
+    expect(motivoSemMerge("Issue", [pr(9, "CLOSED")], [])).toBe("PR vinculado #9 foi fechado sem merge");
+    expect(motivoSemMerge("Issue", [], [])).toBe("nenhum PR vinculado à issue");
+    expect(motivoSemMerge("PullRequest", [], [])).toBe("PR não mergeado");
+    // a frase velha, que confundia os três, não volta em nenhum caso
+    for (const m of [
+      motivoSemMerge("Issue", [pr(438, "OPEN")], cita),
+      motivoSemMerge("Issue", [pr(9, "CLOSED")], cita),
+      motivoSemMerge("Issue", [], cita),
+    ]) {
+      expect(m).not.toContain("nenhum PR mergeado vinculado à issue");
+    }
+  });
+
+  test("a pista acompanha SÓ o caso sem vínculo", () => {
+    // Num card cujo PR está aberto, listar quem cita é ruído: o vínculo existe
+    // e o trabalho é esperar o merge. A pista serve a quem não tem vínculo.
+    const cita = [{ number: 391 }, { number: 412 }];
+    expect(motivoSemMerge("Issue", [], cita))
+      .toBe("nenhum PR vinculado à issue — #391, #412 citam a issue sem `Closes` no corpo");
+    // singular, porque "cita/citam" errado é o tipo de detalhe que ninguém
+    // conserta depois
+    expect(motivoSemMerge("Issue", [], [{ number: 391 }]))
+      .toBe("nenhum PR vinculado à issue — #391 cita a issue sem `Closes` no corpo");
+    for (const comVinculo of [
+      motivoSemMerge("Issue", [{ number: 438, state: "OPEN" }], cita),
+      motivoSemMerge("Issue", [{ number: 9, state: "CLOSED" }], cita),
+    ]) {
+      expect(comVinculo, "a pista vazou para um card que já tem vínculo").not.toContain("#391");
+    }
+  });
+
+  test("o release usa a função, em vez de remontar a frase no meio do laço", () => {
+    // Se a redação voltar a morar dentro do release, a régua acima passa a
+    // medir uma função que ninguém chama.
+    expect(fonte).toMatch(/card\.motivos\.push\(motivoSemMerge\(card\.tipo, prs, apenasCitam\)\)/);
   });
 
   test("todo consumidor de prsLigadosAIssue usa a forma nova", () => {
