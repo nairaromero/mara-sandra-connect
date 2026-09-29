@@ -94,6 +94,37 @@ async function mcp(token, method, params = {}) {
   const corpo = await r.json().catch(() => null);
   return { status: r.status, corpo, erroTool: corpo?.result?.isError === true, texto: JSON.stringify(corpo ?? {}) };
 }
+// Datas de calendário de Brasília (mesmas regras de e2e/datas.ts, que é TS).
+// Um .cjs não importa o túnel TS (`src/lib/fuso.ts`); esta é a única cópia no roteiro.
+const TZ = "America/Sao_Paulo";
+const hojeBR = () => new Date().toLocaleDateString("en-CA", { timeZone: TZ });
+const diaBR = (n) => {
+  const [y, m, d] = hojeBR().split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+};
+/** Sábado/domingo recuam para a sexta (regra do banco). */
+const recua = (dia) => {
+  const [y, m, d] = dia.split("-").map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  return new Date(Date.UTC(y, m - 1, d - (dow === 6 ? 1 : dow === 0 ? 2 : 0))).toISOString().slice(0, 10);
+};
+/** n dias úteis depois (mesma conta de `public.somar_dias_uteis`). */
+const somarDiasUteis = (dia, n) => {
+  const d = new Date(`${dia}T12:00:00Z`);
+  for (let i = 0; i < n; ) { d.setUTCDate(d.getUTCDate() + 1); if (d.getUTCDay() % 6 !== 0) i++; }
+  return d.toISOString().slice(0, 10);
+};
+const diaDoInstanteBR = (iso) => new Date(iso).toLocaleDateString("en-CA", { timeZone: TZ });
+const dataBR = (dia) => dia.split("-").reverse().join("/");
+function cpfValido() {
+  const n = Array.from({ length: 9 }, () => Math.floor(Math.random() * 10));
+  for (const p of [10, 11]) {
+    const s = n.reduce((acc, v, i) => acc + v * (p - i), 0);
+    n.push((s * 10) % 11 % 10);
+  }
+  return n.join("");
+}
+
 const sql = (q) => {
   const saida = execSync(`node scripts/msc-sql.mjs --staging ${JSON.stringify(q)}`, { cwd: REPO, encoding: "utf8" });
   return JSON.parse(saida.split("\n").filter((l) => !l.startsWith("[msc-sql]")).join("\n") || "[]");
@@ -143,7 +174,25 @@ const sql = (q) => {
     return await sessao(email, escritorio);
   };
 
-  const desfazer = { processoJudicial: null, processoAdmin: null, solicitacao: null, tokens: [], ajustes: [], papelFabio: null, faseHelena: null };
+  const desfazer = { processoJudicial: null, processoAdmin: null, solicitacao: null, tokens: [], ajustes: [], papelFabio: null, faseHelena: null, casos: [] };
+
+  /** Caso descartável no Canário (cliente com a MARCA); apagado no finally. */
+  const casoNovo = async (rotulo) => {
+    const { data: cli, error: eCli } = await admin.from("clientes")
+      .insert({ escritorio_id: ESC2, nome: `${MARCA} ${rotulo} ${Date.now()}`, cpf: cpfValido() })
+      .select("id, nome").single();
+    if (eCli) falha(`semear cliente: ${eCli.message}`);
+    const { data: cs, error: eCs } = await admin.from("casos")
+      .insert({ escritorio_id: ESC2, cliente_id: cli.id, tipo_beneficio: "Salário-maternidade", fase: "analise" })
+      .select("id").single();
+    if (eCs) falha(`semear caso: ${eCs.message}`);
+    desfazer.casos.push({ caso: cs.id, cliente: cli.id });
+    return { casoId: cs.id, nomeCliente: cli.nome };
+  };
+  const abrirAtividades = async (page, casoId) => {
+    await page.goto(`${BASE}/casos/${casoId}`);
+    await page.getByText("Atividades", { exact: true }).first().click();
+  };
 
   try {
     // =====================================================================
@@ -555,6 +604,183 @@ const sql = (q) => {
 
 
     // =====================================================================
+    // #315 · andamento com a data do fato
+    //
+    // O sintoma: um deferimento de julho lançado hoje ia para o TOPO da lista.
+    // Aqui: um andamento de hoje já no caso, e o advogado lança pela tela um de
+    // 21/07. Prova dupla: a data gravada é a informada, e na tela o de hoje fica
+    // ACIMA do retroativo (a lista ordena pela data do fato, não pela gravação).
+    // A parte do robô do e-mail só roda com e-mail de verdade: aqui confere-se
+    // que a function publicada é posterior ao merge.
+    // =====================================================================
+    await item("#315", "andamento com a data do fato: retroativo entra na ordem", async () => {
+      const { casoId } = await casoNovo("315");
+      const tituloHoje = `${MARCA} andamento de hoje`;
+      const tituloAntigo = `${MARCA} deferimento de julho`;
+      const { error: eHoje } = await admin.from("andamentos").insert({
+        caso_id: casoId, escritorio_id: ESC2, origem: "interno", titulo: tituloHoje,
+        data_evento: new Date().toISOString(), visivel_parceiro: false,
+      });
+      if (eHoje) falha(`semear andamento de hoje: ${eHoje.message}`);
+
+      const { page } = await parte(diego.email, ESC2);
+      await abrirAtividades(page, casoId);
+      await page.getByRole("button", { name: "Novo", exact: true }).first().click();
+      await visivel(page.getByRole("heading", { name: /Novo andamento/ }), "o formulário de novo andamento não abriu");
+      await page.getByPlaceholder("Ex.: Documentos recebidos").fill(tituloAntigo);
+      await page.getByLabel("Data da publicação").fill("2026-07-21T09:00");
+      await narrar(page, "#315 · lançado hoje, com a data em que aconteceu: 21/07/2026", 1600);
+      await still(page, "315-form-data-da-publicacao");
+      await page.getByRole("button", { name: "Adicionar" }).click();
+      const confere = page.getByRole("button", { name: "Salvar assim mesmo" });
+      if (await confere.isVisible().catch(() => false)) await confere.click();
+      await visivel(page.getByText("Andamento adicionado"), "o andamento não foi adicionado");
+
+      const { data: gravado } = await admin.from("andamentos").select("data_evento")
+        .eq("caso_id", casoId).eq("titulo", tituloAntigo).single();
+      if (!gravado) falha("o andamento não está no banco");
+      const esperado = new Date("2026-07-21T12:00:00Z").getTime();
+      if (new Date(gravado.data_evento).getTime() !== esperado) {
+        falha(`data gravada ${gravado.data_evento}, esperada 2026-07-21 09:00 de Brasília`);
+      }
+      await visivel(page.getByText(tituloAntigo), "o retroativo não apareceu na lista do caso");
+      // O bloco "Andamentos Gerais" fica abaixo da dobra: sem rolar, o still
+      // não mostra os dois — e a prova da ordem tem que estar na imagem.
+      await page.getByText(tituloHoje).first().scrollIntoViewIfNeeded();
+      await page.mouse.wheel(0, 120);
+      const yHoje = (await page.getByText(tituloHoje).first().boundingBox())?.y;
+      const yAntigo = (await page.getByText(tituloAntigo).first().boundingBox())?.y;
+      await narrar(page, "#315 · o de hoje fica em cima; o de julho, na ordem do calendário", 1800);
+      await still(page, "315-ordem-cronologica");
+      if (yHoje == null || yAntigo == null) falha("não achei os dois andamentos na tela para comparar a ordem");
+      if (!(yHoje < yAntigo)) falha("o andamento de julho ficou ACIMA do de hoje — é o sintoma original");
+
+      const lista = JSON.parse(execSync("bunx supabase functions list --project-ref alhqbpbekmxpoibrrnbi -o json",
+        { cwd: REPO, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }));
+      const robo = (Array.isArray(lista) ? lista : lista.functions).find((f) => f.slug === "inss-email-processor");
+      const deploy = new Date(robo.updated_at);
+      const merge = new Date("2026-09-29T14:59:38Z"); // merge do PR #393
+      if (deploy < merge) falha(`inss-email-processor publicado em ${deploy.toISOString()}, antes do merge do #393`);
+      return `gravado 21/07/2026 09:00 e listado abaixo do de hoje; robô do e-mail publicado ${deploy.toISOString().slice(0, 16)}Z, depois do merge (a data do e-mail em si pede e-mail real)`;
+    });
+
+    // =====================================================================
+    // #397 · relógio de prazos: datas fixas e trava no banco
+    //
+    // Indeferido há 12 dias (a análise chega como o robô do e-mail grava). O
+    // relógio abre com as datas fixas a partir da origem; o advogado decide
+    // "Ajuizar" pela tela e a montagem nasce no D+20 — não em hoje + prazo. Aí a
+    // mesma sessão tenta empurrar o prazo pela API, sem tela: o gatilho recusa.
+    // =====================================================================
+    await item("#397", "relógio do caso: datas fixas, montagem no D+20 e trava no banco", async () => {
+      const D = -12;
+      const { casoId, nomeCliente } = await casoNovo("397");
+      const { data: proc, error: eProc } = await admin.from("processos_admin")
+        .insert({ caso_id: casoId, escritorio_id: ESC2, numero_requerimento: "3970000397", data_protocolo: diaBR(-60) })
+        .select("id").single();
+      if (eProc) falha(`semear processo: ${eProc.message}`);
+      const tituloAnalise = `Analise de Indeferimento - ${nomeCliente}`;
+      const { error: eAn } = await admin.from("tarefas").insert({
+        caso_id: casoId, escritorio_id: ESC2, processo_admin_id: proc.id, responsavel_id: diego.id,
+        tipo: "interna", prioridade: 1, titulo: tituloAnalise, due_at: new Date().toISOString(),
+        origem: "sync_inss_email",
+        metadata: { template: "indeferido", analise_indeferimento: true, prazo_fatal: true, data_indeferimento: diaBR(D) },
+      });
+      if (eAn) falha(`semear análise: ${eAn.message}`);
+
+      const { data: rel } = await admin.from("relogios_prazo")
+        .select("id, origem_em, planejado_em, limite_em, status").eq("caso_id", casoId).maybeSingle();
+      if (!rel) falha("a análise do indeferimento não abriu relógio");
+      const quer = { origem_em: diaBR(D), planejado_em: recua(diaBR(D + 30)), limite_em: recua(diaBR(D + 40)), status: "aberto" };
+      for (const [k, v] of Object.entries(quer)) if (rel[k] !== v) falha(`relógio: ${k} = ${rel[k]}, esperado ${v}`);
+
+      const { page } = await parte(diego.email, ESC2);
+      await abrirAtividades(page, casoId);
+      await visivel(page.getByText(tituloAnalise), "a análise não apareceu nas atividades do caso");
+      await page.locator("div.group").filter({ hasText: tituloAnalise }).first().getByText(tituloAnalise).click();
+      await visivel(page.getByRole("heading", { name: "Editar tarefa" }), "a análise não abriu");
+      await narrar(page, "#397 · indeferido há 12 dias: a análise decide ajuizar", 1600);
+      await page.getByRole("button", { name: "Ajuizar (montagem de inicial)" }).click();
+
+      let montagem = null;
+      for (let i = 0; i < 30 && !montagem; i++) {
+        const { data } = await admin.from("tarefas").select("id, titulo, due_at, metadata")
+          .eq("caso_id", casoId).eq("metadata->>relogio_etapa", "montagem").maybeSingle();
+        montagem = data;
+        if (!montagem) await page.waitForTimeout(500);
+      }
+      if (!montagem) falha("a montagem da inicial não nasceu depois do Ajuizar");
+      const noD20 = recua(diaBR(D + 20));
+      if (diaDoInstanteBR(montagem.due_at) !== noD20) {
+        falha(`montagem vence ${diaDoInstanteBR(montagem.due_at)}, esperado ${noD20} (D+20 fixo, não hoje + prazo)`);
+      }
+
+      await abrirAtividades(page, casoId);
+      await visivel(page.getByText(montagem.titulo), "a montagem não apareceu nas atividades");
+      await page.locator("div.group").filter({ hasText: montagem.titulo }).first().getByText(montagem.titulo).click();
+      const linha = page.getByTestId("relogio-linha");
+      await visivel(linha, "a linha do relógio não aparece na tarefa de montagem");
+      const textoLinha = await linha.innerText();
+      await narrar(page, "#397 · a montagem nasce no D+20 e a linha mostra onde o caso está no relógio", 1900);
+      await still(page, "397-montagem-no-d20");
+      if (!textoLinha.includes(`Montagem da inicial até ${dataBR(noD20)}`)) falha(`linha do relógio: "${textoLinha}"`);
+
+      const c = await como(diego.email, ESC2);
+      const longe = new Date(Date.now() + 40 * 86_400_000).toISOString();
+      const { error: eTrava } = await c.sb.from("tarefas").update({ due_at: longe }).eq("id", montagem.id);
+      if (eTrava?.code !== "MSC01") falha(`adiar pela API passou do gatilho (erro: ${eTrava?.code ?? "nenhum"})`);
+      const { data: depois } = await admin.from("tarefas").select("due_at").eq("id", montagem.id).single();
+      if (diaDoInstanteBR(depois.due_at) !== noD20) falha("o prazo mudou mesmo com o gatilho recusando");
+
+      return `relógio ${dataBR(rel.origem_em)} → protocolo ${dataBR(rel.planejado_em)}, limite ${dataBR(rel.limite_em)}; montagem no D+20 (${dataBR(noD20)}); adiar pela API sem tela → MSC01, prazo intacto`;
+    });
+
+    // =====================================================================
+    // #440 · template Concedido pela tela
+    //
+    // O erro: "permission denied for function implementacao_cadencia" no meio
+    // do template, com cópia parcial a cada tentativa. Aqui o advogado aplica o
+    // Concedido pela tela e cobra-se o conjunto INTEIRO: 3 tarefas, o
+    // acompanhamento vencendo em 5 dias úteis (conta do gatilho) e 1 andamento.
+    // E a régua estrutural: o túnel não acusa função fechada no caminho.
+    // =====================================================================
+    await item("#440", "template Concedido pela tela: conjunto inteiro, sem permission denied", async () => {
+      const { casoId, nomeCliente } = await casoNovo("440");
+      const { page } = await parte(diego.email, ESC2);
+      await abrirAtividades(page, casoId);
+      await page.getByRole("button", { name: "Nova tarefa" }).click();
+      await visivel(page.getByRole("heading", { name: "Nova tarefa" }), "o formulário de nova tarefa não abriu");
+      await visivel(page.getByRole("combobox").filter({ hasText: nomeCliente }), "o cliente não veio preenchido");
+      await page.getByRole("combobox").filter({ hasText: "Escolha um template" }).click();
+      await page.getByRole("option", { name: /Concedido/ }).click();
+      await visivel(page.getByText("Responsáveis das outras tarefas do template"), "o template não preencheu os itens");
+      await narrar(page, "#440 · o Concedido: análise, baixar PA e o acompanhamento de implementação", 1700);
+      await still(page, "440-template-concedido");
+      await page.getByRole("button", { name: "Salvar" }).click();
+
+      let tarefas = [];
+      for (let i = 0; i < 30 && tarefas.length < 3; i++) {
+        const { data } = await admin.from("tarefas").select("titulo, due_at, metadata").eq("caso_id", casoId);
+        tarefas = data ?? [];
+        if (tarefas.length < 3) await page.waitForTimeout(500);
+      }
+      const negado = await page.getByText(/permission denied/i).count();
+      await still(page, "440-depois-de-salvar");
+      if (negado) falha(`a tela mostrou "permission denied" (${tarefas.length} tarefa(s) gravada(s))`);
+      if (tarefas.length !== 3) falha(`gravou ${tarefas.length} tarefa(s), esperado 3: ${tarefas.map((t) => t.titulo).join(" | ")}`);
+      const acomp = tarefas.find((t) => t.metadata?.acompanhamento_implementacao === true);
+      if (!acomp) falha("sem a tarefa de acompanhamento de implementação");
+      const cinco = somarDiasUteis(hojeBR(), 5);
+      if (diaDoInstanteBR(acomp.due_at) !== cinco) falha(`acompanhamento vence ${diaDoInstanteBR(acomp.due_at)}, esperado ${cinco} (5 dias úteis)`);
+      const { count: ands } = await admin.from("andamentos").select("id", { count: "exact", head: true })
+        .eq("caso_id", casoId).eq("metadata->>template_aplicado", "concedido");
+      if (ands !== 1) falha(`${ands} andamento(s) do template, esperado 1`);
+      const [{ n }] = sql("select count(*) as n from private.funcoes_fechadas_no_caminho()");
+      if (Number(n) !== 0) falha(`o túnel acusa ${n} função(ões) fechada(s) no caminho de gatilho/policy`);
+      return `3 tarefas + 1 andamento; acompanhamento em 5 dias úteis (${dataBR(cinco)}); túnel: 0 fechadas no caminho`;
+    });
+
+    // =====================================================================
     // #400 · o filme
     // =====================================================================
     nota("#400", "filme de apresentação das permissões por pessoa",
@@ -593,6 +819,23 @@ const sql = (q) => {
       }
     }
     await passo("processo da conferência (por número) apagado", () => admin.from("processos_judiciais").delete().eq("numero_processo", CNJ));
+    for (const { caso, cliente } of desfazer.casos) {
+      const apaga = async (tabela, col, valor) => {
+        const { error } = await admin.from(tabela).delete().eq(col, valor);
+        if (error) throw new Error(`${tabela}: ${error.message}`);
+      };
+      await passo(`caso descartável ${caso.slice(0, 8)} apagado`, async () => {
+        const { data: ts } = await admin.from("tarefas").select("id").eq("caso_id", caso);
+        for (const t of ts ?? []) await apaga("pedidos_prorrogacao", "tarefa_id", t.id);
+        await apaga("tarefas", "caso_id", caso);
+        await apaga("relogios_prazo", "caso_id", caso);
+        await apaga("andamentos", "caso_id", caso);
+        await apaga("processos_admin", "caso_id", caso);
+        await apaga("processos_judiciais", "caso_id", caso);
+        await apaga("casos", "id", caso);
+        await apaga("clientes", "id", cliente);
+      });
+    }
 
     if (estudio) {
       const clipes = await estudio.encerrar();
@@ -601,7 +844,7 @@ const sql = (q) => {
       const notas = resultados.filter((r) => r.ok === null).length;
       let md = `# Conferência do lote em "Validar no staging"\n\n`;
       md += `Feita contra o STAGING (${BASE}, banco \`alhqbpbekmxpoibrrnbi\`) em `;
-      md += `${new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}, pelo Playwright.\n\n`;
+      md += `${new Date().toLocaleString("pt-BR", { timeZone: TZ })}, pelo Playwright.\n\n`;
       md += `**${ok} OK · ${ruim} falhou · ${notas} nota(s).** Stills em \`stills/\`, vídeo em \`video/\`.\n\n`;
       md += `O que isto responde: "o que está no staging funciona como está escrito". O que fica para você: se o comportamento é o que você quer.\n\n`;
       md += `| Card | Resultado | O que foi conferido |\n|---|---|---|\n`;
