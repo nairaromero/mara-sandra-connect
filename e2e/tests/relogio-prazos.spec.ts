@@ -213,6 +213,16 @@ test("painel de datas no topo do caso", async ({ page }) => {
   await expect(painel.getByTestId("relogio-do-caso")).toContainText(
     "liberado pela Mara até " + dataBR(diaBR(D + 35)),
   );
+
+  // "Entrada do caso" recolhe o resto do painel, e a escolha sobrevive ao recarregar.
+  await painel.getByTestId("painel-datas-alternar").click();
+  await expect(painel.getByTestId("painel-admin")).toBeHidden();
+  await expect(painel.getByTestId("painel-datas-alternar")).toContainText("1 requerimento");
+  await page.reload();
+  await expect(painel.getByTestId("painel-datas-alternar")).toContainText("Entrada do caso");
+  await expect(painel.getByTestId("painel-admin")).toBeHidden();
+  await painel.getByTestId("painel-datas-alternar").click();
+  await expect(painel.getByTestId("painel-admin")).toBeVisible();
 });
 
 async function montagem() {

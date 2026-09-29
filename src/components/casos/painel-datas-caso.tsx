@@ -7,13 +7,17 @@
 // As movimentações só SUGEREM: "Baixa definitiva" ou "Arquivamento" sem
 // desarquivamento depois → "parece encerrado". Trânsito em julgado aparece
 // como informação, não como encerramento (ainda vem cumprimento/RPV).
+//
+// A linha "Entrada do caso" recolhe/expande o resto do painel; a escolha fica
+// lembrada no navegador (vale para todos os casos). Aberto por padrão.
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { CalendarClock, Gavel } from "lucide-react";
+import { CalendarClock, ChevronDown, Gavel } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { supabase } from "@/lib/supabase";
 import { RelogioDoCaso } from "@/components/tarefas/relogio-prazo";
 import { dataBR, diaDoEventoBR } from "@/lib/fuso";
@@ -49,6 +53,29 @@ interface SinalJudicial {
 const RE_ENCERRA = /baixa definitiva|arquivamento|arquivado/i;
 const RE_DESARQUIVA = /desarquiv/i;
 const RE_TRANSITO = /tr[aâ]nsito em julgado/i;
+
+const CHAVE_RECOLHIDO = "msc:painel_datas_caso:recolhido";
+
+/** Aberto/recolhido lembrado no navegador. Guardar/ler pode falhar (privado, bloqueado): ignora. */
+function usePainelAberto(): [boolean, (aberto: boolean) => void] {
+  const [aberto, setAbertoState] = useState(() => {
+    try {
+      return window.localStorage.getItem(CHAVE_RECOLHIDO) !== "1";
+    } catch {
+      return true;
+    }
+  });
+  const setAberto = (v: boolean) => {
+    setAbertoState(v);
+    try {
+      if (v) window.localStorage.removeItem(CHAVE_RECOLHIDO);
+      else window.localStorage.setItem(CHAVE_RECOLHIDO, "1");
+    } catch {
+      /* sem armazenamento: só nesta visita */
+    }
+  };
+  return [aberto, setAberto];
+}
 
 export function PainelDatasCaso({
   casoId,
@@ -153,116 +180,152 @@ export function PainelDatasCaso({
   // do mais novo para o mais antigo).
   const relogioDe = (adminId: string | null, judicialId: string | null) =>
     relogios.find(
-      (r) => (r.processo_admin_id ?? null) === adminId && (r.processo_judicial_id ?? null) === judicialId,
+      (r) =>
+        (r.processo_admin_id ?? null) === adminId &&
+        (r.processo_judicial_id ?? null) === judicialId,
     ) ?? null;
   const relogioSemProcesso = relogioDe(null, null);
+  const [aberto, setAberto] = usePainelAberto();
+
+  // O que fica escondido quando recolhido, para quem olha saber que tem mais.
+  const resumo = [
+    processosAdmin.length > 0 &&
+      `${processosAdmin.length} ${processosAdmin.length === 1 ? "requerimento" : "requerimentos"}`,
+    processosJudiciais.length > 0 &&
+      `${processosJudiciais.length} ${processosJudiciais.length === 1 ? "processo judicial" : "processos judiciais"}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
-    <div className="rounded-lg border bg-card p-3 space-y-3" data-testid="painel-datas-caso">
-      <Dado rotulo="Entrada do caso" valor={dataBR(entradaEm)} />
+    <Collapsible
+      open={aberto}
+      onOpenChange={setAberto}
+      className="rounded-lg border bg-card p-3"
+      data-testid="painel-datas-caso"
+    >
+      <CollapsibleTrigger
+        className="flex w-full items-end justify-between gap-3 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        data-testid="painel-datas-alternar"
+        aria-label={aberto ? "Recolher datas do caso" : "Expandir datas do caso"}
+      >
+        <Dado rotulo="Entrada do caso" valor={dataBR(entradaEm)} />
+        <span className="flex items-center gap-2 text-xs text-muted-foreground">
+          {!aberto && resumo}
+          <ChevronDown
+            className={"h-4 w-4 shrink-0 transition-transform " + (aberto ? "rotate-180" : "")}
+          />
+        </span>
+      </CollapsibleTrigger>
 
-      {processosAdmin.map((p) => {
-        const relogio = relogioDe(p.id, null);
-        const indeferido = /indefer/i.test(p.decisao ?? "") || !!relogio;
-        const dataDecisao =
-          relogio && !relogio.origem_estimada ? relogio.origem_em : p.data_decisao;
-        return (
-          <div key={p.id} className="space-y-2 border-t pt-3" data-testid="painel-admin">
-            <p className="text-sm font-medium">
-              Requerimento {p.numero_requerimento ? "nº " + p.numero_requerimento : "sem número"}
-            </p>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <Dado
-                rotulo="Protocolo administrativo"
-                valor={p.data_protocolo ? dataBR(p.data_protocolo) : "—"}
-              />
-              <Dado
-                rotulo={indeferido ? "Indeferimento" : "Decisão"}
-                valor={dataDecisao ? dataBR(dataDecisao) : "—"}
-                detalhe={!indeferido && p.decisao ? p.decisao : undefined}
-                alerta={!!relogio?.origem_estimada}
-                alertaTexto="data não informada — o prazo contou da criação da análise"
-              />
-              <Dado rotulo="Número do benefício (NB)" valor={p.numero_beneficio || "—"} />
-            </div>
-            {relogio && <LinhaRelogio relogio={relogio} />}
-          </div>
-        );
-      })}
-
-      {relogioSemProcesso && (
-        <div className="space-y-1 border-t pt-3">
-          <p className="text-sm font-medium">Prazo sem processo vinculado</p>
-          <LinhaRelogio relogio={relogioSemProcesso} />
-        </div>
-      )}
-
-      {processosJudiciais.length > 0 && (
-        <div className="space-y-2 border-t pt-3" data-testid="painel-judicial">
-          {processosJudiciais.map((p) => {
-            const sinal = sinais[p.id];
-            const encerrado = p.situacao === "encerrado";
-            const relogio = relogioDe(null, p.id);
-            return (
-              <div key={p.id} className="flex flex-wrap items-start gap-2">
-                <Gavel className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium">
-                    {p.numero_processo ?? "Processo judicial sem número"}
-                    <Badge
-                      variant="outline"
-                      className={
-                        "ml-2 font-normal " +
-                        (encerrado ? "text-muted-foreground" : "border-emerald-300 text-emerald-700 dark:text-emerald-400")
-                      }
-                    >
-                      {encerrado
-                        ? "Encerrado" + (p.encerrado_em ? " em " + dataBR(p.encerrado_em) : "")
-                        : "Em andamento"}
-                    </Badge>
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {[p.vara, [p.comarca, p.uf].filter(Boolean).join("/")].filter(Boolean).join(" · ") ||
-                      "vara não informada"}
-                    {" · distribuído em "}
-                    {p.data_distribuicao ? dataBR(p.data_distribuicao) : "—"}
-                    {sinal?.transito && " · trânsito em julgado em " + dataBR(sinal.transito)}
-                  </p>
-                  {!encerrado && sinal?.sugereEncerrado && (
-                    <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-amber-800 dark:text-amber-300">
-                      Parece encerrado: “{sinal.sugereEncerrado.titulo}” em{" "}
-                      {dataBR(sinal.sugereEncerrado.dia)}.
-                      {podeEditarProcesso && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-6 px-2 text-xs"
-                          disabled={marcando === p.id}
-                          onClick={() => void marcarEncerrado(p.id, sinal.sugereEncerrado!.dia)}
-                        >
-                          Confirmar encerrado
-                        </Button>
-                      )}
-                    </p>
-                  )}
-                  {relogio && <LinhaRelogio relogio={relogio} />}
-                </div>
+      <CollapsibleContent className="mt-3 space-y-3">
+        {processosAdmin.map((p) => {
+          const relogio = relogioDe(p.id, null);
+          const indeferido = /indefer/i.test(p.decisao ?? "") || !!relogio;
+          const dataDecisao =
+            relogio && !relogio.origem_estimada ? relogio.origem_em : p.data_decisao;
+          return (
+            <div key={p.id} className="space-y-2 border-t pt-3" data-testid="painel-admin">
+              <p className="text-sm font-medium">
+                Requerimento {p.numero_requerimento ? "nº " + p.numero_requerimento : "sem número"}
+              </p>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <Dado
+                  rotulo="Protocolo administrativo"
+                  valor={p.data_protocolo ? dataBR(p.data_protocolo) : "—"}
+                />
+                <Dado
+                  rotulo={indeferido ? "Indeferimento" : "Decisão"}
+                  valor={dataDecisao ? dataBR(dataDecisao) : "—"}
+                  detalhe={!indeferido && p.decisao ? p.decisao : undefined}
+                  alerta={!!relogio?.origem_estimada}
+                  alertaTexto="data não informada — o prazo contou da criação da análise"
+                />
+                <Dado rotulo="Número do benefício (NB)" valor={p.numero_beneficio || "—"} />
               </div>
-            );
-          })}
-          {erroSinais && (
-            <p className="text-xs text-destructive">
-              Não consegui ler as movimentações dos processos judiciais.
-            </p>
-          )}
-        </div>
-      )}
+              {relogio && <LinhaRelogio relogio={relogio} />}
+            </div>
+          );
+        })}
+
+        {relogioSemProcesso && (
+          <div className="space-y-1 border-t pt-3">
+            <p className="text-sm font-medium">Prazo sem processo vinculado</p>
+            <LinhaRelogio relogio={relogioSemProcesso} />
+          </div>
+        )}
+
+        {processosJudiciais.length > 0 && (
+          <div className="space-y-2 border-t pt-3" data-testid="painel-judicial">
+            {processosJudiciais.map((p) => {
+              const sinal = sinais[p.id];
+              const encerrado = p.situacao === "encerrado";
+              const relogio = relogioDe(null, p.id);
+              return (
+                <div key={p.id} className="flex flex-wrap items-start gap-2">
+                  <Gavel className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium">
+                      {p.numero_processo ?? "Processo judicial sem número"}
+                      <Badge
+                        variant="outline"
+                        className={
+                          "ml-2 font-normal " +
+                          (encerrado
+                            ? "text-muted-foreground"
+                            : "border-emerald-300 text-emerald-700 dark:text-emerald-400")
+                        }
+                      >
+                        {encerrado
+                          ? "Encerrado" + (p.encerrado_em ? " em " + dataBR(p.encerrado_em) : "")
+                          : "Em andamento"}
+                      </Badge>
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {[p.vara, [p.comarca, p.uf].filter(Boolean).join("/")]
+                        .filter(Boolean)
+                        .join(" · ") || "vara não informada"}
+                      {" · distribuído em "}
+                      {p.data_distribuicao ? dataBR(p.data_distribuicao) : "—"}
+                      {sinal?.transito && " · trânsito em julgado em " + dataBR(sinal.transito)}
+                    </p>
+                    {!encerrado && sinal?.sugereEncerrado && (
+                      <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-amber-800 dark:text-amber-300">
+                        Parece encerrado: “{sinal.sugereEncerrado.titulo}” em{" "}
+                        {dataBR(sinal.sugereEncerrado.dia)}.
+                        {podeEditarProcesso && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-6 px-2 text-xs"
+                            disabled={marcando === p.id}
+                            onClick={() => void marcarEncerrado(p.id, sinal.sugereEncerrado!.dia)}
+                          >
+                            Confirmar encerrado
+                          </Button>
+                        )}
+                      </p>
+                    )}
+                    {relogio && <LinhaRelogio relogio={relogio} />}
+                  </div>
+                </div>
+              );
+            })}
+            {erroSinais && (
+              <p className="text-xs text-destructive">
+                Não consegui ler as movimentações dos processos judiciais.
+              </p>
+            )}
+          </div>
+        )}
+      </CollapsibleContent>
+      {/* Fora do conteúdo: falha de leitura não some quando o painel está recolhido. */}
       {erro && (
-        <p className="text-xs text-destructive">
+        <p className="mt-3 text-xs text-destructive">
           Não consegui carregar o prazo do caso. Recarregue a página.
         </p>
       )}
-    </div>
+    </Collapsible>
   );
 }
 

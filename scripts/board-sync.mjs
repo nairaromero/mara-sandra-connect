@@ -350,6 +350,17 @@ function motivoSemMerge(tipo, prs, apenasCitam) {
   return `nenhum PR vinculado à issue${pista}`;
 }
 
+/** Só o estado do PR, relido na hora — é o que muda durante um job. */
+async function estadoDoPr(numero) {
+  const d = await gql(
+    `query($o: String!, $r: String!, $n: Int!) {
+      repository(owner: $o, name: $r) { pullRequest(number: $n) { state } }
+    }`,
+    { o: REPO_OWNER, r: REPO_NAME, n: numero },
+  );
+  return d.repository.pullRequest.state;
+}
+
 // Os PRs que decidem um card: o próprio PR, ou os PRs vinculados à issue.
 // Sempre com a lista de arquivos INTEIRA — quem chama não precisa saber que
 // existe paginação.
@@ -553,10 +564,19 @@ async function gravarNasColunas(board, alvos) {
   await dormir(20_000);
   for (const it of itens) {
     const agora = await lerStatus(it.itemId);
-    if (agora !== it.coluna) {
-      await gravarStatus(board, it.itemId, it.coluna);
-      console.log(`${it.rotulo}: estava em "${agora}" (workflow nativo passou por cima) — regravado`);
+    if (agora === it.coluna) continue;
+    // Esta regravação existe para vencer o Auto-add nativo, que às vezes puxa o
+    // card depois deste job. Mas nem toda mudança nesses 20s é atropelo: se o PR
+    // foi MERGEADO no meio, o nativo moveu para "Validar no staging" com razão,
+    // e regravar arrasta o card de volta. Foi o que prendeu o #420 em "Em
+    // revisão" (aberto 15:25:05, mergeado 15:25:20, regravado 15:25:29) — o card
+    // ficou fora do release por 24h embora o trabalho já estivesse na main.
+    if (it.aindaVale && !(await it.aindaVale())) {
+      console.log(`${it.rotulo}: foi para "${agora}" e a razão de "${it.coluna}" deixou de valer — respeitado`);
+      continue;
     }
+    await gravarStatus(board, it.itemId, it.coluna);
+    console.log(`${it.rotulo}: estava em "${agora}" (workflow nativo passou por cima) — regravado`);
   }
 }
 
@@ -580,9 +600,12 @@ async function emRevisao(numero, { dryRun }) {
     return;
   }
   const coluna = COLUNA.revisao;
+  // "Em revisão" quer dizer "há PR aberto". Se ele fechar durante o job, a
+  // coluna deixa de valer e a regravação não deve insistir.
+  const aindaVale = async () => (await estadoDoPr(numero)) === "OPEN";
   const alvos = issues.length
-    ? issues.map((i) => ({ id: i.id, rotulo: `issue #${i.number}`, coluna }))
-    : [{ id: pr.id, rotulo: `#${numero} (PR sem issue ligada)`, coluna }];
+    ? issues.map((i) => ({ id: i.id, rotulo: `issue #${i.number}`, coluna, aindaVale }))
+    : [{ id: pr.id, rotulo: `#${numero} (PR sem issue ligada)`, coluna, aindaVale }];
   if (dryRun) {
     for (const a of alvos) console.log(`[dry-run] ${a.rotulo} -> ${a.coluna}`);
     if (issues.length) console.log(`[dry-run] #${numero}: card do PR seria arquivado se estiver no board`);
@@ -803,4 +826,4 @@ if (chamadoDireto) {
   });
 }
 
-export { prsDoCard, completarArquivos, migrationsDoPr, motivoSemMerge, CAMPOS_PR };
+export { prsDoCard, completarArquivos, migrationsDoPr, motivoSemMerge, estadoDoPr, CAMPOS_PR };
