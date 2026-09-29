@@ -15,12 +15,27 @@ test.use({ storageState: STORAGE_INTERNO });
 const admin = adminClient();
 let casoId: string;
 let nomeCliente: string;
+let casoConcedidoId: string;
+let nomeClienteConcedido: string;
 
 test.beforeAll(async () => {
   const sufixo = `Tarefa Template ${Date.now()}`;
   nomeCliente = `[E2E] ${sufixo}`;
   ({ casoId } = await seedClienteCaso(admin, { sufixo }));
+  const sufixoConcedido = `Template Concedido ${Date.now()}`;
+  nomeClienteConcedido = `[E2E] ${sufixoConcedido}`;
+  ({ casoId: casoConcedidoId } = await seedClienteCaso(admin, { sufixo: sufixoConcedido }));
 });
+
+/** Dia útil (seg–sex) n dias depois de `dia` (YYYY-MM-DD) — mesma conta de `public.somar_dias_uteis`. */
+function somarDiasUteis(dia: string, n: number): string {
+  const d = new Date(`${dia}T12:00:00Z`);
+  for (let i = 0; i < n; ) {
+    d.setUTCDate(d.getUTCDate() + 1);
+    if (d.getUTCDay() !== 0 && d.getUTCDay() !== 6) i++;
+  }
+  return d.toISOString().slice(0, 10);
+}
 
 test.afterAll(async () => {
   await cleanupE2E(admin);
@@ -96,4 +111,51 @@ test("template indeferido cria 2 tarefas, ambas com responsável", async ({ page
     .like("titulo", "Analise de Indeferimento%")
     .single();
   expect(diaDoInstanteBR(analise!.due_at as string)).toBe(recua(diaBR(-12 + 10)));
+});
+
+// O "Concedido" tem uma tarefa cujo prazo sai de um GATILHO do banco
+// (`tg_implementacao_due_inicial`, SECURITY INVOKER): ele roda como a pessoa
+// logada e chama `implementacao_cadencia`/`somar_dias_uteis`. Quando o revoke
+// em massa fechou essas duas, a tela estourava "permission denied for function
+// implementacao_cadencia" no meio do template e deixava cópia parcial
+// (21/09–29/09 em produção). Este teste é a prova de ponta a ponta; a régua
+// estrutural é `private.funcoes_fechadas_no_caminho()` no conferidor.
+test("template concedido cria as 3 tarefas e o acompanhamento vence em dias úteis", async ({ page }) => {
+  await abrirNovaTarefaNoCaso(page, casoConcedidoId);
+  await expect(page.getByRole("combobox").filter({ hasText: nomeClienteConcedido })).toBeVisible();
+
+  await page.getByRole("combobox").filter({ hasText: "Escolha um template" }).click();
+  await page.getByRole("option", { name: /Concedido/ }).click();
+  await expect(page.getByText("Responsáveis das outras tarefas do template")).toBeVisible();
+  await expect(page.getByText(/Acompanhamento de implementação/).first()).toBeVisible();
+
+  await page.getByRole("button", { name: "Salvar" }).click();
+
+  await expect
+    .poll(
+      async () => {
+        const { data } = await admin.from("tarefas").select("id").eq("caso_id", casoConcedidoId);
+        return data?.length ?? 0;
+      },
+      { timeout: 15_000, message: "esperando as 3 tarefas do Concedido no banco" },
+    )
+    .toBe(3);
+  await expect(page.getByText(/permission denied/i)).toHaveCount(0);
+
+  const { data: acomp } = await admin
+    .from("tarefas")
+    .select("due_at, metadata")
+    .eq("caso_id", casoConcedidoId)
+    .like("titulo", "Acompanhamento de implementação%")
+    .single();
+  expect((acomp!.metadata as { acompanhamento_implementacao?: boolean }).acompanhamento_implementacao).toBe(true);
+  // Sem processo judicial vinculado → administrativo → 5 dias úteis a partir de hoje.
+  expect(diaDoInstanteBR(acomp!.due_at as string)).toBe(somarDiasUteis(diaBR(0), 5));
+
+  const { count: andamentos } = await admin
+    .from("andamentos")
+    .select("id", { count: "exact", head: true })
+    .eq("caso_id", casoConcedidoId)
+    .eq("metadata->>template_aplicado", "concedido");
+  expect(andamentos).toBe(1);
 });

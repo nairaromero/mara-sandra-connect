@@ -161,7 +161,10 @@ o sistema em produção. Quando chegar, vale o seguinte:
   header, conta por papel e leitura da trilha nas specs), `src/lib/fuso.ts` (o
   fuso do escritório — o eslint barra `America/Sao_Paulo` fora dele),
   `src/lib/leitura.ts` (`lerLista`/`lerUm`/`lerContagem`: erro estoura, vazio é
-  vazio) e `buscarPaginado`.
+  vazio), `buscarPaginado` e `private.funcoes_fechadas_no_caminho()` (o que
+  gatilho INVOKER ou policy chama por dentro e está sem EXECUTE para
+  `authenticated` — a tela estoura "permission denied for function" no meio da
+  escrita; trava as migrations de EXECUTE e o conferidor acusa).
   O `scripts/rbac-conferir-exigencias.mjs` cobra o túnel da auditoria: insert
   direto na tabela vira divergência.
 - **Quem muda ACESSO audita** (desde 2026-09-27, `migration_rbac_25`/`26`; desenho em
