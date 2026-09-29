@@ -54,6 +54,7 @@
 //        1 erro de configuração ou algo que não deu para conferir.
 
 import { execFileSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -100,6 +101,7 @@ function tokenGitHub() {
 let TOKEN;
 
 async function gql(query, variables = {}) {
+  TOKEN ??= tokenGitHub();
   const resp = await fetch("https://api.github.com/graphql", {
     method: "POST",
     headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
@@ -227,7 +229,7 @@ async function cardsNaColuna(board, coluna) {
 const CAMPOS_PR = `
   number merged state baseRefName
   mergeCommit { oid }
-  files(first: 100) { totalCount nodes { path changeType } }
+  files(first: 100) { totalCount pageInfo { hasNextPage endCursor } nodes { path changeType } }
 `;
 
 // Os PRs ligados a uma issue, com os `campos` pedidos (tem que incluir
@@ -280,7 +282,43 @@ async function prsLigadosAIssue(issueNumero, campos) {
   return [...porNumero.values()];
 }
 
+// O GitHub entrega os arquivos do PR em páginas de 100. O lote do RBAC (#396)
+// tem 195, e até aqui o script parava na primeira e segurava o card com
+// "migrations não conferidas".
+//
+// A recusa estava CERTA — não dá para afirmar que não há migration no que não
+// se leu, e "não consegui conferir" é resposta diferente de "está tudo certo".
+// Errado era ser um beco sem saída: bastava pedir a página seguinte.
+//
+// Se a paginação falhar, o erro sobe e o card continua segurado (quem chama
+// transforma em "não consegui ler o card no GitHub"). A recusa segue de pé
+// como última linha; o que mudou é que agora ela é o caso raro, não a regra.
+async function completarArquivos(pr) {
+  let info = pr.files.pageInfo;
+  while (info?.hasNextPage) {
+    const d = await gql(
+      `query($o: String!, $r: String!, $n: Int!, $c: String) {
+        repository(owner: $o, name: $r) {
+          pullRequest(number: $n) {
+            files(first: 100, after: $c) {
+              pageInfo { hasNextPage endCursor }
+              nodes { path changeType }
+            }
+          }
+        }
+      }`,
+      { o: REPO_OWNER, r: REPO_NAME, n: pr.number, c: info.endCursor },
+    );
+    const pagina = d.repository.pullRequest.files;
+    pr.files.nodes.push(...pagina.nodes);
+    info = pagina.pageInfo;
+  }
+  return pr;
+}
+
 // Os PRs que decidem um card: o próprio PR, ou os PRs vinculados à issue.
+// Sempre com a lista de arquivos INTEIRA — quem chama não precisa saber que
+// existe paginação.
 async function prsDoCard(card) {
   if (card.tipo === "PullRequest") {
     const d = await gql(
@@ -289,9 +327,10 @@ async function prsDoCard(card) {
       }`,
       { o: REPO_OWNER, r: REPO_NAME, n: card.numero },
     );
-    return [d.repository.pullRequest];
+    return [await completarArquivos(d.repository.pullRequest)];
   }
-  return prsLigadosAIssue(card.numero, CAMPOS_PR);
+  const prs = await prsLigadosAIssue(card.numero, CAMPOS_PR);
+  return Promise.all(prs.map(completarArquivos));
 }
 
 function migrationsDoPr(pr) {
@@ -700,7 +739,7 @@ async function release({ dryRun, alvo, registroStaging }) {
 
 async function main() {
   const [modo, ...resto] = process.argv.slice(2);
-  TOKEN = tokenGitHub();
+  TOKEN = tokenGitHub();   // cedo, para faltar token falhar antes de qualquer efeito
 
   if (modo === "em-revisao" || modo === "fechado") {
     const numero = Number(resto[0]);
@@ -721,7 +760,12 @@ async function main() {
   );
 }
 
-main().catch((e) => {
-  console.error(`ERRO: ${e.message}`);
-  process.exit(1);
-});
+const chamadoDireto = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (chamadoDireto) {
+  main().catch((e) => {
+    console.error(`ERRO: ${e.message}`);
+    process.exit(1);
+  });
+}
+
+export { prsDoCard, completarArquivos, migrationsDoPr, CAMPOS_PR };
