@@ -19,6 +19,7 @@ import { STORAGE_INTERNO } from "../auth.setup";
 import { cursorVisivel } from "../cursor";
 import { adminClient, cleanupE2E, seedClienteCaso } from "../supabase-admin";
 import { abrirNovaTarefaNoCaso } from "../tarefas";
+import { TZ_BR } from "../fuso";
 
 test.use({ storageState: STORAGE_INTERNO });
 
@@ -168,7 +169,7 @@ test("exigência judicial cria solicitação com prazo e FATAL no dia útil ante
   expect(fatalTarefa, "tarefa FATAL não criada").toBeTruthy();
   expect(fatalTarefa!.tipo).toBe("prazo");
   const dueBR = new Intl.DateTimeFormat("sv-SE", {
-    timeZone: "America/Sao_Paulo",
+    timeZone: TZ_BR,
     dateStyle: "short",
     timeStyle: "short",
   }).format(new Date(fatalTarefa!.due_at));
@@ -197,7 +198,7 @@ test("exigência judicial cria solicitação com prazo e FATAL no dia útil ante
   expect(solics![0].descricao).toContain("mensagem simulada no E2E");
   expect(solics![0].descricao).toContain(enviarAteBR);
   expect(solics![0].descricao).not.toContain(fatalBR);
-  const prazoBR = new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Sao_Paulo" }).format(
+  const prazoBR = new Intl.DateTimeFormat("sv-SE", { timeZone: TZ_BR }).format(
     new Date(solics![0].prazo_at),
   );
   expect(prazoBR).toBe(enviarAte);

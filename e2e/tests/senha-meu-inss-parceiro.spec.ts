@@ -17,6 +17,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { STORAGE_INTERNO, STORAGE_PARCEIRO } from "../auth.setup";
 import { ENV } from "../env";
 import { adminClient, cleanupE2E, seedClienteCaso } from "../supabase-admin";
+import { TZ_BR } from "../fuso";
 
 test.describe.configure({ mode: "serial" });
 
@@ -43,7 +44,7 @@ async function logado(email: string, senha: string): Promise<SupabaseClient> {
 // "aaaa-mm-dd" de hoje + N dias úteis (sáb/dom não contam), em Brasília.
 function diasUteisBR(n: number): string {
   const hoje = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Sao_Paulo",
+    timeZone: TZ_BR,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -122,7 +123,7 @@ test.describe("equipe", () => {
     expect(p.descricao).toContain("não entra no Meu INSS");
     // Fim do dia de Brasília do prazo escolhido.
     const prazoBR = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "America/Sao_Paulo",
+      timeZone: TZ_BR,
       year: "numeric",
       month: "2-digit",
       day: "2-digit",

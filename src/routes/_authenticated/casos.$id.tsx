@@ -56,6 +56,8 @@ import {
   hojeChaveBR,
   horaDoEventoBR,
   inputDateBRParaIso,
+  inputDateTimeBRParaIso,
+  isoParaInputDateTimeBR,
   partesBR,
 } from "@/lib/fuso";
 import { descreverSolicitante } from "@/lib/documentos/solicitante";
@@ -2642,6 +2644,23 @@ interface TabAndamentosProps {
 // Formato: "nenhum" | "admin:<uuid>" | "judicial:<uuid>"
 const PROCESSO_NENHUM = "nenhum";
 
+// Card #315: "visível ao parceiro" virou escolha de três, porque lançar um
+// andamento ANTIGO visível não pode disparar e-mail de novidade (decisão da
+// Naira, 2026-09-18) — e às vezes se quer o contrário: publicar sem avisar.
+type AvisoParceiro = "oculto" | "sem_aviso" | "com_aviso";
+
+const AVISO_PARCEIRO_OPCOES: Array<{ valor: AvisoParceiro; rotulo: string }> = [
+  { valor: "oculto", rotulo: "Não vê este andamento" },
+  { valor: "sem_aviso", rotulo: "Vê, sem aviso" },
+  { valor: "com_aviso", rotulo: "Vê e recebe aviso (e-mail)" },
+];
+
+/** Quantos dias o instante está no passado (negativo = futuro). */
+function diasNoPassado(iso: string): number {
+  return Math.floor((Date.now() - new Date(iso).getTime()) / 86400_000);
+}
+
+
 function TabAndamentos(props: TabAndamentosProps) {
   // acoes de escrita dependem da permissao do vinculo (RBAC), nao do modo interno
   const { pode } = useAuth();
@@ -2665,10 +2684,34 @@ function TabAndamentos(props: TabAndamentosProps) {
   const [tipoDialogoNovo, setTipoDialogoNovo] = useState<"admin" | "judicial" | null>(null);
   const [titulo, setTitulo] = useState("");
   const [descricao, setDescricao] = useState("");
-  const [visivelParceiro, setVisivelParceiro] = useState(true);
+  // Card #315: a data do FATO (publicação/decisão), não a do lançamento. Sem
+  // ela, o andamento de um deferimento de julho entrava no topo da lista.
+  // Data e hora, por decisão da Naira (2026-09-18).
+  const [dataPublicacao, setDataPublicacao] = useState("");
+  const [avisoParceiro, setAvisoParceiro] = useState<AvisoParceiro>("com_aviso");
+  // Escolha explícita manda: depois que a pessoa mexe no aviso, mudar a data
+  // não desfaz o que ela escolheu.
+  const avisoTocado = useRef(false);
   const [processoVinculo, setProcessoVinculo] = useState(PROCESSO_NENHUM);
   const [salvando, setSalvando] = useState(false);
   const [togglandoVisId, setTogglandoVisId] = useState<string | null>(null);
+  // Confirmação da data (#315): data no futuro ou muito antiga pede um "sim"
+  // antes de gravar — a Naira pediu pra avisar, não pra impedir.
+  const [confirmacaoData, setConfirmacaoData] = useState<string | null>(null);
+  const respostaConfirmacao = useRef<((ok: boolean) => void) | null>(null);
+
+  function confirmarData(motivo: string): Promise<boolean> {
+    setConfirmacaoData(motivo);
+    return new Promise<boolean>((resolve) => {
+      respostaConfirmacao.current = resolve;
+    });
+  }
+
+  function responderConfirmacao(ok: boolean) {
+    setConfirmacaoData(null);
+    respostaConfirmacao.current?.(ok);
+    respostaConfirmacao.current = null;
+  }
 
   // Alterna a visibilidade do andamento para o parceiro (interno <-> visivel).
   async function toggleVisivelParceiro(a: Andamento) {
@@ -2869,7 +2912,8 @@ function TabAndamentos(props: TabAndamentosProps) {
   const [editando, setEditando] = useState<Andamento | null>(null);
   const [editTitulo, setEditTitulo] = useState("");
   const [editDescricao, setEditDescricao] = useState("");
-  const [editVisivelParceiro, setEditVisivelParceiro] = useState(true);
+  const [editDataPublicacao, setEditDataPublicacao] = useState("");
+  const [editAvisoParceiro, setEditAvisoParceiro] = useState<AvisoParceiro>("sem_aviso");
   const [editProcessoVinculo, setEditProcessoVinculo] = useState(PROCESSO_NENHUM);
   const [editSalvando, setEditSalvando] = useState(false);
 
@@ -2889,7 +2933,12 @@ function TabAndamentos(props: TabAndamentosProps) {
     setEditando(a);
     setEditTitulo(a.titulo || "");
     setEditDescricao(a.descricao || "");
-    setEditVisivelParceiro(a.visivel_parceiro);
+    setEditDataPublicacao(
+      isoParaInputDateTimeBR(a.data_evento ?? a.created_at ?? null),
+    );
+    // Na edição o padrão nunca é avisar de novo: quem quer disparar e-mail
+    // escolhe. Assim corrigir um título não vira notificação pro parceiro.
+    setEditAvisoParceiro(a.visivel_parceiro ? "sem_aviso" : "oculto");
     if (a.processo_admin_id) {
       setEditProcessoVinculo("admin:" + a.processo_admin_id);
     } else if (a.processo_judicial_id) {
@@ -2913,6 +2962,19 @@ function TabAndamentos(props: TabAndamentosProps) {
       toast.error("Título obrigatório");
       return;
     }
+    const dataIso = editDataPublicacao
+      ? inputDateTimeBRParaIso(editDataPublicacao)
+      : (editando.data_evento ?? editando.created_at);
+    if (!dataIso) {
+      toast.error("Data incorreta", {
+        description: "Confira o dia e a hora da publicação.",
+      });
+      return;
+    }
+    const dias = diasNoPassado(dataIso);
+    if (dias < 0 && !(await confirmarData("Essa data ainda não chegou."))) return;
+    if (dias > 730 && !(await confirmarData("Essa data tem mais de dois anos."))) return;
+
     setEditSalvando(true);
     try {
       let processoAdminId: string | null = null;
@@ -2927,7 +2989,8 @@ function TabAndamentos(props: TabAndamentosProps) {
         .update({
           titulo: editTitulo.trim(),
           descricao: editDescricao.trim() || null,
-          visivel_parceiro: temParceiro ? editVisivelParceiro : false,
+          visivel_parceiro: temParceiro ? editAvisoParceiro !== "oculto" : false,
+          data_evento: dataIso,
           processo_admin_id: processoAdminId,
           processo_judicial_id: processoJudicialId,
         })
@@ -2938,6 +3001,15 @@ function TabAndamentos(props: TabAndamentosProps) {
         // RLS bloqueou silenciosamente (0 linhas atualizadas)
         toast.error("Atualização não foi aplicada. Possível bloqueio de permissão. Avise o admin.");
         return;
+      }
+      // E-mail só quando a pessoa escolheu avisar E o parceiro ainda não via o
+      // andamento — editar um título não pode virar notificação (#315).
+      if (temParceiro && editAvisoParceiro === "com_aviso" && !editando.visivel_parceiro) {
+        supabase.functions
+          .invoke("notify-novo-andamento", { body: { andamento_id: editando.id } })
+          .then((r) => {
+            if (r.error) console.warn("notify-novo-andamento:", r.error);
+          });
       }
       toast.success("Andamento atualizado");
       fecharEdicao();
@@ -2991,6 +3063,22 @@ function TabAndamentos(props: TabAndamentosProps) {
 
   async function adicionar() {
     if (!titulo.trim() || !usuarioId) return;
+
+    // Data do fato (#315). Campo vazio = agora; texto que não vira data é
+    // erro explícito, e não um silencioso "hoje".
+    const dataIso = dataPublicacao
+      ? inputDateTimeBRParaIso(dataPublicacao)
+      : new Date().toISOString();
+    if (!dataIso) {
+      toast.error("Data incorreta", {
+        description: "Confira o dia e a hora da publicação.",
+      });
+      return;
+    }
+    const dias = diasNoPassado(dataIso);
+    if (dias < 0 && !(await confirmarData("Essa data ainda não chegou."))) return;
+    if (dias > 730 && !(await confirmarData("Essa data tem mais de dois anos."))) return;
+
     setSalvando(true);
     try {
       // Interpreta processoVinculo: "nenhum" | "admin:<id>" | "judicial:<id>"
@@ -3002,7 +3090,7 @@ function TabAndamentos(props: TabAndamentosProps) {
         processoJudicialId = processoVinculo.slice("judicial:".length);
       }
 
-      const visivelFinal = temParceiro ? visivelParceiro : false;
+      const visivelFinal = temParceiro ? avisoParceiro !== "oculto" : false;
       const resp = await supabase
         .from("andamentos")
         .insert({
@@ -3010,7 +3098,7 @@ function TabAndamentos(props: TabAndamentosProps) {
           origem: "interno",
           titulo: titulo.trim(),
           descricao: descricao.trim() || null,
-          data_evento: new Date().toISOString(),
+          data_evento: dataIso,
           criado_por: usuarioId,
           visivel_parceiro: visivelFinal,
           processo_admin_id: processoAdminId,
@@ -3024,15 +3112,25 @@ function TabAndamentos(props: TabAndamentosProps) {
       const novoAndamento = resp.data as Andamento | null;
       const novoAndamentoId = novoAndamento?.id;
       if (novoAndamento) {
-        // Lista ordenada por data_evento desc e o novo e agora: entra em cima.
-        setAndamentos((atual) => [novoAndamento, ...atual]);
+        // #315: com data do fato, o novo NÃO entra necessariamente no topo —
+        // insere e reordena por data_evento, como o carregar() faz.
+        setAndamentos((atual) =>
+          [novoAndamento, ...atual].sort(
+            (x, y) =>
+              new Date(y.data_evento ?? y.created_at ?? 0).getTime() -
+              new Date(x.data_evento ?? x.created_at ?? 0).getTime(),
+          ),
+        );
       }
       if (novoAndamentoId) marcarDestaque(novoAndamentoId);
 
       // Dispara email pro parceiro se andamento visivel. Fire-and-forget.
       // A edge function valida visivel_parceiro=true e parceiro_id antes de
       // realmente enviar - aqui so chamamos sempre que visivel pra simplificar.
-      if (visivelFinal && novoAndamentoId) {
+      // #315: publicar não é avisar. Lançamento retroativo entra visível sem
+      // e-mail (a Naira decidiu que andamento antigo não chega como novidade);
+      // quem quer avisar escolhe "Vê e recebe aviso".
+      if (visivelFinal && avisoParceiro === "com_aviso" && novoAndamentoId) {
         supabase.functions
           .invoke("notify-novo-andamento", {
             body: { andamento_id: novoAndamentoId },
@@ -3045,6 +3143,9 @@ function TabAndamentos(props: TabAndamentosProps) {
       toast.success("Andamento adicionado");
       setTitulo("");
       setDescricao("");
+      setDataPublicacao("");
+      setAvisoParceiro("com_aviso");
+      avisoTocado.current = false;
       setProcessoVinculo(PROCESSO_NENHUM);
       setTipoDialogoNovo(null);
       void onChange();
@@ -3079,7 +3180,9 @@ function TabAndamentos(props: TabAndamentosProps) {
     setTipoDialogoNovo(tipo);
     setTitulo("");
     setDescricao("");
-    setVisivelParceiro(true);
+    setDataPublicacao("");
+    setAvisoParceiro("com_aviso");
+    avisoTocado.current = false;
     if (tipo === "admin") {
       if (processosAdmin.length === 1) {
         setProcessoVinculo("admin:" + processosAdmin[0].id);
@@ -3101,7 +3204,9 @@ function TabAndamentos(props: TabAndamentosProps) {
     setTipoDialogoNovo(tipo);
     setTitulo("");
     setDescricao("");
-    setVisivelParceiro(true);
+    setDataPublicacao("");
+    setAvisoParceiro("com_aviso");
+    avisoTocado.current = false;
     setProcessoVinculo((tipo === "admin" ? "admin:" : "judicial:") + processoId);
   }
 
@@ -3796,18 +3901,39 @@ function TabAndamentos(props: TabAndamentosProps) {
                   />
                 </div>
               )}
+              <div>
+                <Label className="text-xs">Data da publicação</Label>
+                <Input
+                  type="datetime-local"
+                  aria-label="Data da publicação"
+                  value={dataPublicacao}
+                  onChange={(e) => {
+                    setDataPublicacao(e.target.value);
+                    // Andamento de outro dia não chega ao parceiro como
+                    // novidade (#315): o padrão do aviso acompanha a data.
+                    const iso = inputDateTimeBRParaIso(e.target.value);
+                    if (iso && temParceiro && !avisoTocado.current) {
+                      setAvisoParceiro(diasNoPassado(iso) >= 1 ? "sem_aviso" : "com_aviso");
+                    }
+                  }}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Quando o fato aconteceu (publicação, decisão, protocolo). Vazio = agora. É por
+                  ela que o andamento se coloca na ordem do caso.
+                </p>
+              </div>
               {temParceiro && (
-                <div className="flex items-center gap-2">
-                  <input
-                    id="visivel-parceiro"
-                    type="checkbox"
-                    checked={visivelParceiro}
-                    onChange={(e) => setVisivelParceiro(e.target.checked)}
-                    className="h-4 w-4"
+                <div>
+                  <Label className="text-xs">O parceiro indicador</Label>
+                  <Selecao
+                    value={avisoParceiro}
+                    onChange={(v) => {
+                      avisoTocado.current = true;
+                      setAvisoParceiro(v as AvisoParceiro);
+                    }}
+                    opcoes={AVISO_PARCEIRO_OPCOES.map((o) => ({ value: o.valor, label: o.rotulo }))}
+                    aria-label="O parceiro indicador"
                   />
-                  <Label htmlFor="visivel-parceiro" className="text-sm">
-                    Visível para o parceiro indicador
-                  </Label>
                 </div>
               )}
             </div>
@@ -3823,6 +3949,31 @@ function TabAndamentos(props: TabAndamentosProps) {
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Confirmação da data do fato (#315): avisa, não impede. */}
+      <AlertDialog
+        open={confirmacaoData !== null}
+        onOpenChange={(aberto) => {
+          if (!aberto) responderConfirmacao(false);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confere a data?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmacaoData} O andamento entra na ordem do caso por essa data.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => responderConfirmacao(false)}>
+              Voltar e corrigir
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={() => responderConfirmacao(true)}>
+              Salvar assim mesmo
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* ---- Dialog Editar andamento ---- */}
       {isInterno && pode("casos:editar") && (
@@ -3866,18 +4017,27 @@ function TabAndamentos(props: TabAndamentosProps) {
                   />
                 </div>
               )}
+              <div>
+                <Label className="text-xs">Data da publicação</Label>
+                <Input
+                  type="datetime-local"
+                  aria-label="Data da publicação"
+                  value={editDataPublicacao}
+                  onChange={(e) => setEditDataPublicacao(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Dá para corrigir a data de um andamento automático que veio errado.
+                </p>
+              </div>
               {temParceiro && (
-                <div className="flex items-center gap-2">
-                  <input
-                    id="edit-visivel-parceiro"
-                    type="checkbox"
-                    checked={editVisivelParceiro}
-                    onChange={(e) => setEditVisivelParceiro(e.target.checked)}
-                    className="h-4 w-4"
+                <div>
+                  <Label className="text-xs">O parceiro indicador</Label>
+                  <Selecao
+                    value={editAvisoParceiro}
+                    onChange={(v) => setEditAvisoParceiro(v as AvisoParceiro)}
+                    opcoes={AVISO_PARCEIRO_OPCOES.map((o) => ({ value: o.valor, label: o.rotulo }))}
+                    aria-label="O parceiro indicador"
                   />
-                  <Label htmlFor="edit-visivel-parceiro" className="text-sm">
-                    Visível para o parceiro indicador
-                  </Label>
                 </div>
               )}
             </div>
