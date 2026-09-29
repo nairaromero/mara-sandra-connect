@@ -26,14 +26,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Selecao } from "@/components/ui/selecao";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Sheet,
   SheetContent,
@@ -49,17 +43,21 @@ import {
   excluirEvento,
 } from "@/lib/agenda/queries";
 import { type AgendaEventoComJoins, type AgendaTipo, TIPO_LABEL } from "@/lib/agenda/types";
+import { ehTokenJudicial, processoDoToken, tokenDoProcesso } from "@/lib/processos/token";
 import { calcularDueAtRelativo } from "@/lib/agenda/helpers";
 import {
   comoLocalBR,
+  dataHoraBR,
   deLocalBR,
   formatarBR,
+  horaBR,
   hojeChaveBR,
   inputDateTimeBRParaIso,
   isoParaInputDateTimeBR,
 } from "@/lib/fuso";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
+import { usePodeAcao } from "@/components/acao-protegida";
 import {
   criarTarefa,
   listarCasosResumo,
@@ -116,6 +114,16 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
   const aberto = modo !== null;
   const { marcar: marcarDestaque } = useDestaque();
   const editando = modo?.kind === "editar";
+  // Quem não pode escrever na agenda ainda ABRE o evento para ler: o que some
+  // são Salvar, Excluir e Concluir. Editando, a decisão é sobre O EVENTO (com
+  // escopo `atribuidos` o banco só aceita o de quem está logado); criando,
+  // basta a permissão.
+  const eventoAberto = modo?.kind === "editar" ? modo.evento : null;
+  const podeGerenciar = usePodeAcao(
+    eventoAberto
+      ? { escrever: "agenda_eventos", linha: eventoAberto as unknown as Record<string, unknown> }
+      : { escrever: "agenda_eventos" },
+  );
   const evento = modo?.kind === "editar" ? modo.evento : null;
   // Perícia e audiência se concluem pela tarefa delas (tarefa de perícia e tarefa
   // de audiência), não pelo agendamento (#332): nesses tipos não há Concluir nem
@@ -138,6 +146,10 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
     Array<{ id: string; nome: string | null; email: string | null }>
   >([]);
   const [processosDoCaso, setProcessosDoCaso] = useState<ProcessoDoCasoOpcao[]>([]);
+  // Falha/atraso ao ler os processos NÃO pode virar "caso sem processo": com o
+  // processo obrigatório em perícia e audiência (card #357), lista vazia por
+  // erro deixaria passar compromisso sem frente, calado.
+  const [processosProntos, setProcessosProntos] = useState(false);
   // Templates de agenda (com pelo menos 1 item destino=agenda).
   const [templates, setTemplates] = useState<TarefaTemplateRow[]>([]);
   const [templateSelecionado, setTemplateSelecionado] = useState<string>("");
@@ -286,7 +298,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
   useEffect(() => {
     if (!avisoAplicavel || avisoEditado || !ctxCaso) return;
     const natureza: "admin" | "judicial" =
-      templateSelecionado === "pericia_judicial" || processoToken.startsWith("judicial:")
+      templateSelecionado === "pericia_judicial" || ehTokenJudicial(processoToken)
         ? "judicial"
         : "admin";
     let cancelado = false;
@@ -339,11 +351,20 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
   useEffect(() => {
     if (!casoId) {
       setProcessosDoCaso([]);
+      setProcessosProntos(true); // sem caso não há frente a escolher
       return;
     }
+    setProcessosProntos(false);
     listarProcessosDoCaso(casoId)
-      .then(setProcessosDoCaso)
-      .catch(() => {});
+      .then((ps) => {
+        setProcessosDoCaso(ps);
+        setProcessosProntos(true);
+      })
+      .catch((e) => {
+        console.error("listarProcessosDoCaso:", e);
+        setProcessosDoCaso([]);
+        setProcessosProntos(false);
+      });
   }, [casoId]);
 
   // Sincroniza form com modo na abertura.
@@ -386,13 +407,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
       setStartInput(isoToInputDatetime(e.start_at));
       setEndInput(isoToInputDatetime(e.end_at));
       setCasoId(e.caso_id);
-      setProcessoToken(
-        e.processo_admin_id
-          ? `admin:${e.processo_admin_id}`
-          : e.processo_judicial_id
-            ? `judicial:${e.processo_judicial_id}`
-            : "",
-      );
+      setProcessoToken(tokenDoProcesso(e));
       setResponsavelId(e.responsavel_id);
       setTemplateSelecionado("");
     }
@@ -479,17 +494,13 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
     processo_admin_id: string | null;
     processo_judicial_id: string | null;
   } {
-    if (!processoToken || !casoId) {
-      return { processo_admin_id: null, processo_judicial_id: null };
-    }
-    if (processoToken.startsWith("admin:")) {
-      return { processo_admin_id: processoToken.slice(6), processo_judicial_id: null };
-    }
-    if (processoToken.startsWith("judicial:")) {
-      return { processo_admin_id: null, processo_judicial_id: processoToken.slice(9) };
-    }
-    return { processo_admin_id: null, processo_judicial_id: null };
+    if (!casoId) return { processo_admin_id: null, processo_judicial_id: null };
+    return processoDoToken(processoToken);
   }
+
+  // Perícia/audiência com frente cadastrada no caso: processo obrigatório.
+  const processoObrigatorio =
+    (tipo === "pericia" || tipo === "audiencia") && !!casoId && processosDoCaso.length > 0;
 
   async function salvar() {
     if (!titulo.trim()) {
@@ -504,6 +515,24 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
     const endIso = inputDatetimeToIso(endInput);
     if (new Date(endIso).getTime() < new Date(startIso).getTime()) {
       toast.error("Fim não pode ser antes do início.");
+      return;
+    }
+    // Perícia e audiência SEMPRE correm dentro de um processo (Naira,
+    // 2026-09-18, card #357) — e é o processo que decide a coluna em que o
+    // parceiro vê o compromisso. Com frente no caso, escolher é obrigatório.
+    if ((tipo === "pericia" || tipo === "audiencia") && casoId && !processosProntos) {
+      toast.error("Não consegui carregar os processos do caso", {
+        description: "Perícia e audiência precisam do processo — tente de novo em instantes.",
+      });
+      return;
+    }
+    if (processoObrigatorio && !processoToken) {
+      toast.error(
+        tipo === "audiencia"
+          ? "Escolha o processo da audiência"
+          : "Escolha o processo da perícia",
+        { description: "Toda perícia ou audiência corre dentro de um processo." },
+      );
       return;
     }
     setSalvando(true);
@@ -542,14 +571,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
         if (!pularAvisos) {
           const avisos: string[] = [];
           if (new Date(startIso).getTime() < Date.now()) {
-            const quando = new Date(startIso).toLocaleString("pt-BR", {
-              day: "2-digit",
-              month: "2-digit",
-              year: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-              timeZone: "America/Sao_Paulo",
-            });
+            const quando = dataHoraBR(startIso);
             avisos.push(
               `A data do agendamento (${quando}) JÁ PASSOU — o evento não aparece entre os próximos.`,
             );
@@ -557,11 +579,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
           if (casoId) {
             const jaExiste = await buscarEventoMesmoDia(casoId, tipo, startIso);
             if (jaExiste) {
-              const hora = new Date(jaExiste.start_at).toLocaleTimeString("pt-BR", {
-                hour: "2-digit",
-                minute: "2-digit",
-                timeZone: "America/Sao_Paulo",
-              });
+              const hora = horaBR(jaExiste.start_at);
               avisos.push(
                 `Este cliente já tem ${TIPO_LABEL[tipo].toLowerCase()} neste dia (às ${hora}).`,
               );
@@ -795,72 +813,69 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
             {/* Rótulo "Cliente" — mesma regra do TarefaSheet: grava caso_id,
                 mas as opções são nomes de cliente (1:1 hoje). */}
             <Label>Cliente</Label>
-            <Select
+            {/* Eram 466 opções para rolar, sem busca — a mesma escolha que o
+                sheet de tarefa já deixava buscar. O <Selecao> liga a busca
+                sozinho a partir de LIMITE_BUSCA opções. */}
+            <Selecao
               value={casoId ?? "sem"}
-              onValueChange={(v) => {
+              onChange={(v) => {
                 setCasoId(v === "sem" ? null : v);
                 setProcessoToken("");
               }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Sem cliente" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="sem">Sem cliente</SelectItem>
-                {casos.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.cliente_nome ?? "(sem nome)"}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              opcoes={[
+                { value: "sem", label: "Sem cliente" },
+                ...casos.map((c) => ({ value: c.id, label: c.cliente_nome ?? "(sem nome)" })),
+              ]}
+              placeholder="Sem cliente"
+              buscaPlaceholder="Buscar cliente..."
+              vazio="Nenhum cliente encontrado."
+              data-selecao="cliente"
+            />
           </div>
 
           {casoId && processosDoCaso.length > 0 && (
             <div className="space-y-1.5">
-              <Label>Processo (opcional)</Label>
-              <Select
-                value={processoToken || "sem"}
-                onValueChange={(v) => setProcessoToken(v === "sem" ? "" : v)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Nenhum" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="sem">Sem processo específico</SelectItem>
-                  {processosDoCaso.map((p) => (
-                    <SelectItem key={`${p.natureza}:${p.id}`} value={`${p.natureza}:${p.id}`}>
-                      {p.rotulo}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>{processoObrigatorio ? "Processo *" : "Processo (opcional)"}</Label>
+              <Selecao
+  value={processoObrigatorio ? processoToken || undefined : processoToken || "sem"}
+  aria-label="Processo do compromisso"
+  onChange={(v) => setProcessoToken(v === "sem" ? "" : v)}
+  opcoes={[
+    { value: "sem", label: "Sem processo específico" },
+    ...processosDoCaso.map((p) => ({ value: `${p.natureza}:${p.id}`, label: p.rotulo })),
+  ]}
+  placeholder={processoObrigatorio ? "Escolha o processo" : "Nenhum"}
+/>
             </div>
           )}
 
           {!editando && templatesVisiveis.length > 0 && (
             <div className="space-y-1.5 rounded-md border border-dashed p-3 bg-muted/30">
               <Label>Template (atalho)</Label>
-              <Select value={templateSelecionado} onValueChange={setTemplateSelecionado}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Escolha um template" />
-                </SelectTrigger>
-                <SelectContent>
-                  {templatesVisiveis.map((t) => {
-                    const tarefasExtras = t.itens.filter((i) => i.destino === "tarefa").length;
-                    return (
-                      <SelectItem key={t.id} value={t.nome}>
-                        {t.rotulo ?? t.nome}{" "}
-                        <span className="text-muted-foreground">
-                          {tarefasExtras === 0
-                            ? "(só evento)"
-                            : `(evento + ${tarefasExtras} tarefa${tarefasExtras === 1 ? "" : "s"})`}
-                        </span>
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
+              <Selecao
+                value={templateSelecionado}
+                onChange={setTemplateSelecionado}
+                placeholder="Escolha um template"
+                opcoes={templatesVisiveis.map((t) => {
+                  const tarefasExtras = t.itens.filter((i) => i.destino === "tarefa").length;
+                  const resumo =
+                    tarefasExtras === 0
+                      ? "(só evento)"
+                      : `(evento + ${tarefasExtras} tarefa${tarefasExtras === 1 ? "" : "s"})`;
+                  const nome = t.rotulo ?? t.nome;
+                  // `label` é texto puro porque é nele que a busca procura;
+                  // `conteudo` só muda a exibição.
+                  return {
+                    value: t.nome,
+                    label: `${nome} ${resumo}`,
+                    conteudo: (
+                      <>
+                        {nome} <span className="text-muted-foreground">{resumo}</span>
+                      </>
+                    ),
+                  };
+                })}
+              />
               <p className="text-xs text-muted-foreground">
                 {templateSelecionado ? (
                   <>
@@ -982,18 +997,13 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
 
           <div className="space-y-1.5">
             <Label>Tipo</Label>
-            <Select value={tipo} onValueChange={(v) => setTipo(v as AgendaTipo)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {TIPOS.map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {TIPO_LABEL[t]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Selecao
+  value={tipo}
+  onChange={(v) => setTipo(v as AgendaTipo)}
+  opcoes={[
+    ...TIPOS.map((t) => ({ value: t, label: TIPO_LABEL[t] })),
+  ]}
+/>
           </div>
 
           <div className="space-y-1.5">
@@ -1045,22 +1055,14 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
 
           <div className="space-y-1.5">
             <Label>Responsável</Label>
-            <Select
-              value={responsavelId ?? "sem"}
-              onValueChange={(v) => setResponsavelId(v === "sem" ? null : v)}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="sem">Sem responsável</SelectItem>
-                {internos.map((u) => (
-                  <SelectItem key={u.id} value={u.id}>
-                    {u.nome ?? "(sem nome)"}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Selecao
+  value={responsavelId ?? "sem"}
+  onChange={(v) => setResponsavelId(v === "sem" ? null : v)}
+  opcoes={[
+    { value: "sem", label: "Sem responsável" },
+    ...internos.map((u) => ({ value: u.id, label: u.nome ?? "(sem nome)" })),
+  ]}
+/>
           </div>
 
           <div className="space-y-1.5">
@@ -1100,7 +1102,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
         </div>
 
         <SheetFooter className="gap-2 sm:gap-2">
-          {editando && (
+          {editando && podeGerenciar && (
             <Button
               variant="ghost"
               onClick={excluir}
@@ -1115,7 +1117,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
               Excluir
             </Button>
           )}
-          {editando && !concluiPelaTarefa && (
+          {editando && podeGerenciar && !concluiPelaTarefa && (
             <Button
               variant="outline"
               onClick={alternarConclusao}
@@ -1130,11 +1132,13 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
             </Button>
           )}
           <Button variant="outline" onClick={fechar} disabled={salvando}>
-            Cancelar
+            {podeGerenciar ? "Cancelar" : "Fechar"}
           </Button>
-          <Button onClick={salvar} disabled={salvando}>
-            {salvando ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
-          </Button>
+          {podeGerenciar && (
+            <Button onClick={salvar} disabled={salvando}>
+              {salvando ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
+            </Button>
+          )}
         </SheetFooter>
       </SheetContent>
 

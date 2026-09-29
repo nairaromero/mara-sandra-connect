@@ -14,6 +14,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { STORAGE_INTERNO } from "../auth.setup";
 import { ENV } from "../env";
+import { TZ_BR } from "../fuso";
 import { adminClient, cleanupE2E, seedClienteCaso } from "../supabase-admin";
 
 test.use({ storageState: STORAGE_INTERNO });
@@ -26,7 +27,7 @@ function inputDateTimeBR(d: Date): string {
   // O input datetime-local trabalha no fuso do navegador, que nos testes é o
   // de Brasília (playwright.config). Formato: 2026-07-21T09:00.
   const fmt = new Intl.DateTimeFormat("sv-SE", {
-    timeZone: "America/Sao_Paulo",
+    timeZone: TZ_BR,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",

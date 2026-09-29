@@ -46,7 +46,7 @@ const ULTIMO_USO_INTERVALO_MS = 5 * 60_000;
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, content-type, mcp-protocol-version",
+  "Access-Control-Allow-Headers": "authorization, content-type, mcp-protocol-version, x-escritorio-id",
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
 };
 
@@ -115,16 +115,20 @@ serve(async (req) => {
 
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
   const hash = await sha256Hex(token);
-  // Token e dono numa consulta so (FK ia_tokens.usuario_id -> usuarios): toda
+  // Token e dono numa consulta so (FK ia_tokens.usuario_id -> usuarios; o hint
+  // e obrigatorio desde emitido_por, que tambem aponta para usuarios): toda
   // chamada MCP passa por aqui.
   const { data: tok, error: tokErr } = await admin
     .from("ia_tokens")
-    .select("id,usuario_id,escopo,expira_em,revogado_em,ultimo_uso,usuarios(tipo,ativo,desligado_em,eh_admin)")
+    .select("*,usuarios!ia_tokens_usuario_id_fkey(tipo,ativo,desligado_em,eh_admin)")
     .eq("token_hash", hash)
     .maybeSingle();
   // Falha de banco NAO e token invalido: com 401 o mcp-remote tenta login OAuth
   // (que nao temos) e a conexao morre ate reiniciar o Claude Desktop.
-  if (tokErr) return httpJson({ error: "falha ao validar o token, tente de novo" }, 503);
+  if (tokErr) {
+    console.error("ia-mcp: consulta do token", tokErr);
+    return httpJson({ error: "falha ao validar o token, tente de novo" }, 503);
+  }
 
   const agora = Date.now();
   const expirado = tok?.expira_em ? new Date(tok.expira_em).getTime() < agora : false;
@@ -145,10 +149,62 @@ serve(async (req) => {
   // SEGUIR admin: quem perde o papel perde o MCP na hora, sem precisar revogar.
   // Liberar para outra pessoa (token emitido em nome de interno/parceiro) e a
   // #385 — la esta checagem passa a olhar o emissor.
-  if (perfil.eh_admin !== true) {
+  // RBAC multi-tenant: o token vale no escritório em que foi gerado, e o dono
+  // tem que seguir admin ATIVO NAQUELE escritório — o vínculo decide, não as
+  // colunas antigas de `usuarios`. (`escritorio_id` só não existe em banco sem
+  // as migrations; aí vale a checagem antiga.)
+  // #385: o token pode ter sido emitido por um admin para OUTRA pessoa. Regra:
+  // dono com vinculo ativo no escritorio do token (qualquer papel — a RLS dele
+  // decide o que ve) E emissor que AINDA PODE CONCEDER acesso ao MCP (emissor
+  // que perdeu a permissao ou foi desligado derruba o token na hora). Token
+  // antigo sem emissor = emitido para si mesmo, entao a regra recai sobre o dono.
+  //
+  // "Pode conceder" e a permissao `ia:mcp_conceder` efetiva — a mesma coisa que
+  // `ia-config` exige para emitir (nao o papel 'admin'). Eram duas reguas ate
+  // 26/09: com as permissoes por pessoa (migration_rbac_20) `ia:mcp_conceder`
+  // virou ajustavel, entao concede-la a quem nao e admin gerava token que
+  // nascia morto. Quem responde e `membro_pode` (migration_rbac_23), que le
+  // `private.permissoes_efetivas` — mesma fonte de `tem_permissao`.
+  const escritorioDoToken = (tok as { escritorio_id?: string | null }).escritorio_id ?? null;
+  const emissorId = ((tok as { emitido_por?: string | null }).emitido_por ?? tok.usuario_id) as string;
+  let tipo: "interno" | "parceiro" = perfil.tipo === "interno" ? "interno" : "parceiro";
+  if (escritorioDoToken) {
+    const { data: vincs, error: vincErr } = await admin
+      .from("membros")
+      .select("id, usuario_id, status, papel:papeis!inner(chave, tipo_acesso), escritorio:escritorios!inner(status)")
+      .eq("escritorio_id", escritorioDoToken)
+      .in("usuario_id", [...new Set([tok.usuario_id as string, emissorId])]);
+    if (vincErr) {
+      console.error("ia-mcp: vinculos do token", vincErr);
+      return httpJson({ error: "falha ao validar o token, tente de novo" }, 503);
+    }
+    type V = { id: string; usuario_id: string; status?: string; papel?: { chave?: string; tipo_acesso?: string }; escritorio?: { status?: string } };
+    const lista = (vincs ?? []) as Array<V>;
+    const dono = lista.find((v) => v.usuario_id === tok.usuario_id);
+    const emissor = lista.find((v) => v.usuario_id === emissorId);
+    if (!dono || dono.status !== "ativo" || dono.escritorio?.status !== "ativo") {
+      return httpJson({ error: "usuario desativado" }, 403);
+    }
+    if (!emissor || emissor.status !== "ativo") {
+      return httpJson({ error: "quem emitiu este token nao esta mais no escritorio" }, 403);
+    }
+    const { data: podeConceder, error: permErr } = await admin.rpc("membro_pode", {
+      p_membro_id: emissor.id,
+      p_permissao: "ia:mcp_conceder",
+    });
+    // Erro de banco nao e recusa: 503 para o cliente tentar de novo (o 403 aqui
+    // derrubaria uma conexao valida do Claude Desktop).
+    if (permErr) {
+      console.error("ia-mcp: permissao do emissor", permErr);
+      return httpJson({ error: "falha ao validar o token, tente de novo" }, 503);
+    }
+    if (podeConceder !== true) {
+      return httpJson({ error: "quem emitiu este token nao pode mais conceder acesso ao MCP" }, 403);
+    }
+    tipo = dono.papel?.tipo_acesso === "parceiro" ? "parceiro" : "interno";
+  } else if (perfil.eh_admin !== true) {
     return httpJson({ error: "o MCP esta liberado so para administradores" }, 403);
   }
-  const tipo: "interno" | "parceiro" = perfil.tipo === "interno" ? "interno" : "parceiro";
 
   // Marca uso (best-effort) so de token aceito, e no maximo a cada 5 min: o card
   // mostra "ultimo uso", nao precisa de uma escrita em ia_tokens por chamada.
@@ -174,7 +230,7 @@ serve(async (req) => {
   // do servidor: validar o token, marcar uso e gravar a auditoria.
   let sessao: SessaoDePessoa | null = null;
   async function getClient() {
-    sessao ??= await abrirSessaoDe(tok.usuario_id);
+    sessao ??= await abrirSessaoDe(tok.usuario_id, escritorioDoToken);
     return sessao.client;
   }
 
@@ -233,6 +289,7 @@ serve(async (req) => {
         const out = await tool.execute(client, args, { uid: tok.usuario_id, tipo });
         await admin.from("ia_acoes").insert({
           usuario_id: tok.usuario_id,
+          emitido_por: emissorId,
           superficie: "mcp",
           tipo: tool.tipo,
           ferramenta: nome,
@@ -248,6 +305,7 @@ serve(async (req) => {
         const m = e instanceof Error ? e.message : String(e);
         await admin.from("ia_acoes").insert({
           usuario_id: tok.usuario_id,
+          emitido_por: emissorId,
           superficie: "mcp",
           tipo: tool.tipo,
           ferramenta: nome,

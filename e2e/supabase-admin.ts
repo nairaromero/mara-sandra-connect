@@ -14,6 +14,19 @@ export function adminClient(): SupabaseClient {
 
 export const MARCADOR = "[E2E]";
 
+/**
+ * O escritório das contas `e2e+` (o padrão do sistema). Com o RBAC multi-tenant
+ * o service role enxerga TODOS os escritórios: fixture que pega "um caso
+ * qualquer" tem que pegar um do escritório de quem vai abrir a tela, senão a
+ * tela responde "caso não encontrado". Nulo em banco sem as migrations do RBAC
+ * (lá só existe um escritório e o filtro não faz falta).
+ */
+export async function escritorioE2E(admin: SupabaseClient): Promise<string | null> {
+  const { data, error } = await admin.from("escritorios").select("id").eq("padrao_sistema", true).maybeSingle();
+  if (error) return null;
+  return (data?.id as string | undefined) ?? null;
+}
+
 // CPF sintético válido (dígitos verificadores corretos) — clientes.cpf é NOT NULL.
 export function cpfValido(): string {
   const n: number[] = [];

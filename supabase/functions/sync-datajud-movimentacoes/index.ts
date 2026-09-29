@@ -56,7 +56,7 @@ const BUDGET_MS = 110_000;
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-region",
+    "authorization, x-client-info, apikey, content-type, x-region, x-escritorio-id",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -164,7 +164,7 @@ serve(async (req) => {
   }
 
   // Chamada pelos três jobs de cron e pela tela de processos.
-  const quem = await exigirUsuarioOuSistema(req, "cron:datajud", { tipo: "interno" });
+  const quem = await exigirUsuarioOuSistema(req, "cron:datajud", { tipo: "interno", permissao: "casos:editar" });
   if (quem instanceof Response) return quem;
   if (!SUPABASE_URL || !SERVICE_ROLE) {
     return jsonResponse({ error: "supabase env vars ausentes" }, 500);

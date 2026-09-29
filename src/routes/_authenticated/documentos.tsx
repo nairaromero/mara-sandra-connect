@@ -1,4 +1,5 @@
 import { createFileRoute, Link, Navigate } from "@tanstack/react-router";
+import { Selecao } from "@/components/ui/selecao";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -48,13 +49,6 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -118,6 +112,10 @@ interface SolicitacaoComCaso {
   solicitante?: { id: string; nome: string | null } | null;
   data_solicitacao: string;
   data_atendimento: string | null;
+  // Frente do pedido e dono da tarefa que nasce dele (card #357).
+  processo_admin_id: string | null;
+  processo_judicial_id: string | null;
+  responsavel_id: string | null;
   casos: CasoLite | null;
 }
 
@@ -194,7 +192,7 @@ function PrazoBadge({ prazoAt }: { prazoAt: string | null }) {
 // ===========================================================================
 
 function DocumentosPendentesPage() {
-  const { usuario } = useAuth();
+  const { usuario, podeEscrever } = useAuth();
   const isInterno = usuario?.tipo === "interno";
 
   const [loading, setLoading] = useState(true);
@@ -252,7 +250,7 @@ function DocumentosPendentesPage() {
       let q = supabase
         .from("solicitacoes_documento")
         .select(
-          "id, caso_id, tipo, tipos, descricao, status, origem, prazo_at, comentario, documento_id, solicitado_por, data_solicitacao, data_atendimento, solicitante:usuarios!solicitacoes_documento_solicitado_por_fkey(id, nome), casos(id, tipo_beneficio, fase, status, parceiro_id, clientes(id, nome))",
+          "id, caso_id, tipo, tipos, descricao, status, origem, prazo_at, comentario, documento_id, solicitado_por, data_solicitacao, data_atendimento, processo_admin_id, processo_judicial_id, responsavel_id, solicitante:usuarios!solicitacoes_documento_solicitado_por_fkey(id, nome), casos(id, tipo_beneficio, fase, status, parceiro_id, clientes(id, nome))",
         )
         .order("data_solicitacao", { ascending: false });
       // Parceiro só vê o que é dele providenciar: solicitação INTERNA é do
@@ -571,52 +569,44 @@ function DocumentosPendentesPage() {
             </div>
             <div>
               <Label className="text-xs">Status</Label>
-              <Select value={filtroStatus} onValueChange={setFiltroStatus}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="pendente">Pendentes</SelectItem>
-                  <SelectItem value="atendido">Atendidas</SelectItem>
-                  <SelectItem value="dispensado">Dispensadas</SelectItem>
-                  <SelectItem value="todos">Todas</SelectItem>
-                </SelectContent>
-              </Select>
+              <Selecao
+  value={filtroStatus}
+  onChange={setFiltroStatus}
+  opcoes={[
+    { value: "pendente", label: "Pendentes" },
+    { value: "atendido", label: "Atendidas" },
+    { value: "dispensado", label: "Dispensadas" },
+    { value: "todos", label: "Todas" },
+  ]}
+/>
             </div>
             <div>
               <Label className="text-xs">Origem</Label>
-              <Select value={filtroOrigem} onValueChange={setFiltroOrigem}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todas">Todas</SelectItem>
-                  <SelectItem value="interna">Interna</SelectItem>
-                  <SelectItem value="externa">Externa</SelectItem>
-                </SelectContent>
-              </Select>
+              <Selecao
+  value={filtroOrigem}
+  onChange={setFiltroOrigem}
+  opcoes={[
+    { value: "todas", label: "Todas" },
+    { value: "interna", label: "Interna" },
+    { value: "externa", label: "Externa" },
+  ]}
+/>
             </div>
             {isInterno && (
               <div>
                 <Label className="text-xs">Solicitado por</Label>
-                <Select value={filtroPessoa} onValueChange={setFiltroPessoa}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__eu__">Eu</SelectItem>
-                    <SelectItem value="__todos__">Todos do escritório</SelectItem>
-                    {internos
+                <Selecao
+  value={filtroPessoa}
+  onChange={setFiltroPessoa}
+  opcoes={[
+    { value: "__eu__", label: "Eu" },
+    { value: "__todos__", label: "Todos do escritório" },
+    ...internos
                       // Fora os usuários de teste ([E2E], [TESTE]) — existem
                       // em produção e não são gente do escritório.
-                      .filter((u) => u.id !== usuario?.id && !(u.nome ?? "").startsWith("["))
-                      .map((u) => (
-                        <SelectItem key={u.id} value={u.id}>
-                          {u.nome ?? "(sem nome)"}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
+                      .filter((u) => u.id !== usuario?.id && !(u.nome ?? "").startsWith("[")).map((u) => ({ value: u.id, label: u.nome ?? "(sem nome)" })),
+  ]}
+/>
               </div>
             )}
           </CardContent>
@@ -683,8 +673,11 @@ function DocumentosPendentesPage() {
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
-              {/* Radio "como atender" - so para interno + atendido */}
+              {/* Radio "como atender" - so para interno + atendido. Anexar sobe
+                  arquivo e insere em `documentos` (documentos:enviar): sem a
+                  permissão fica só "marcar como atendido". */}
               {isInterno &&
+                podeEscrever("documentos") &&
                 acaoAlvo &&
                 acaoAlvo.novoStatus === "atendido" && (
                   <div className="space-y-2">
@@ -928,6 +921,9 @@ interface SolicitacaoItemProps {
 
 function SolicitacaoItem(props: SolicitacaoItemProps) {
   const { s, isInterno, onAtendido, onDispensar, onEditar, onExcluir } = props;
+  // atender, dispensar, editar e excluir gravam em `solicitacoes_documento`,
+  // que passou a exigir casos:editar (migration_rbac_18).
+  const { podeEscrever } = useAuth();
   const isPendente = s.status === "pendente";
   const isAtendido = s.status === "atendido";
   const isDispensado = s.status === "dispensado";
@@ -1014,7 +1010,8 @@ function SolicitacaoItem(props: SolicitacaoItemProps) {
             </div>
           )}
         </div>
-        {isInterno && isPendente && (
+        {/* atender/dispensar grava em `solicitacoes_documento` (casos:editar) */}
+        {isInterno && isPendente && podeEscrever("solicitacoes_documento") && (
           <div className="flex gap-1">
             {ehSenha ? (
               <span className="text-xs text-muted-foreground self-center mr-1">
@@ -1062,7 +1059,7 @@ function SolicitacaoItem(props: SolicitacaoItemProps) {
         )}
         {/* Ja cumprida/dispensada: continua dando pra excluir de vez, senao
             pedido criado por engano fica preso no historico pra sempre. */}
-        {isInterno && !isPendente && (
+        {isInterno && !isPendente && podeEscrever("solicitacoes_documento") && (
           <Button
             size="sm"
             variant="ghost"

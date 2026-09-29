@@ -35,9 +35,10 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
-import { exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
+import { escopado, escritorioDoSistema, exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
 
-const COMUNICA_BASE = "https://comunicaapi.pje.jus.br/api/v1";
+// COMUNICA_BASE_URL so existe no ambiente LOCAL (mock de e2e/demo/mocks); fora dele e a API real.
+const COMUNICA_BASE = (Deno.env.get("COMUNICA_BASE_URL") ?? "https://comunicaapi.pje.jus.br/api/v1").replace(/\/+$/, "");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
@@ -48,7 +49,7 @@ const MAX_PAGINAS = 50;
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-escritorio-id",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -153,8 +154,10 @@ serve(async (req) => {
     return jsonResponse({ error: "metodo nao permitido" }, 405);
   }
 
-  // Chamada pelo n8n (service role) e pela tela de publicações.
-  const quem = await exigirUsuarioOuSistema(req, "n8n:djen-sync", { tipo: "interno" });
+  // Chamada pelo pg_cron (assinatura de sistema) e pela tela de publicações.
+  // Sistema = job `msc-djen-sync` do pg_cron (migration_cron_djen, assinatura
+  // `cron:djen-sync`); até 2026-09-23 era o workflow do n8n.
+  const quem = await exigirUsuarioOuSistema(req, "cron:djen-sync", { tipo: "interno" });
   if (quem instanceof Response) return quem;
   if (!SUPABASE_URL || !SERVICE_ROLE) {
     return jsonResponse({ error: "supabase env vars ausentes" }, 500);
@@ -192,8 +195,55 @@ serve(async (req) => {
     return jsonResponse({ error: "body invalido", detail: String(err) }, 400);
   }
 
-  const supabase = createClient(SUPABASE_URL, SERVICE_ROLE);
+  // Cada escritório tem as SUAS OABs monitoradas e os SEUS processos. Pessoa:
+  // só o escritório dela. n8n/cron: todos os escritórios ativos com OAB ativa,
+  // um por vez, cada um com o client PRESO a ele — a publicação de um
+  // escritório não pode casar com o processo de outro (o número do processo é
+  // único POR escritório), e a órfã nasce no escritório certo.
+  const supabaseBruto = createClient(SUPABASE_URL, SERVICE_ROLE);
+  let escritorios: string[];
+  if (quem.tipo === "pessoa") {
+    escritorios = quem.perfil.escritorio_id ? [quem.perfil.escritorio_id] : [];
+  } else {
+    const { data: comOab, error: eOab } = await supabaseBruto
+      .from("oabs_monitoradas")
+      // a FK de escritorio_id nesta tabela chama-se oabs_monitoradas_escritorio_fk
+      // (migration_rbac_02); com o nome errado o PostgREST responde "relationship not found"
+      .select("escritorio_id, escritorios!oabs_monitoradas_escritorio_fk(status)")
+      .eq("ativo", true);
+    if (eOab) return jsonResponse({ error: "erro lendo oabs_monitoradas", detail: eOab.message }, 500);
+    escritorios = [...new Set(
+      ((comOab ?? []) as Array<{ escritorio_id: string; escritorios: { status?: string } | null }>)
+        .filter((r) => (r.escritorios?.status ?? "ativo") === "ativo")
+        .map((r) => r.escritorio_id),
+    )];
+    if (escritorios.length === 0 && oabOverride) {
+      const padrao = await escritorioDoSistema(supabaseBruto);
+      escritorios = padrao ? [padrao] : [];
+    }
+  }
+  if (escritorios.length === 0) {
+    return jsonResponse({ error: "nenhum escritório com OAB ativa (e sem override)" }, 400);
+  }
 
+  const porEscritorio: Array<Record<string, unknown>> = [];
+  for (const escritorioId of escritorios) {
+    try {
+      porEscritorio.push({ escritorio_id: escritorioId, ...(await sincronizarEscritorio(escopado(supabaseBruto, escritorioId))) });
+    } catch (e) {
+      porEscritorio.push({ escritorio_id: escritorioId, error: String((e as Error)?.message ?? e) });
+    }
+  }
+  // Pessoa recebe o resultado do escritório dela como sempre; o cron, um bloco
+  // por escritório.
+  if (quem.tipo === "pessoa" && porEscritorio.length === 1) {
+    const unico = porEscritorio[0];
+    return jsonResponse(unico, unico.error ? 500 : 200);
+  }
+  return jsonResponse({ escritorios: porEscritorio, com_falha: porEscritorio.filter((e) => e.error).length });
+
+  // Um escritório inteiro: OABs dele, processos dele, publicações dele.
+  async function sincronizarEscritorio(supabase: ReturnType<typeof createClient>) {
   // --- OABs alvo ---
   let oabs: OabAlvo[];
   if (oabOverride) {
@@ -203,35 +253,20 @@ serve(async (req) => {
       .from("oabs_monitoradas")
       .select("numero, uf")
       .eq("ativo", true);
-    if (oabErr) {
-      return jsonResponse(
-        { error: "erro lendo oabs_monitoradas", detail: oabErr.message },
-        500,
-      );
-    }
+    if (oabErr) throw new Error(`erro lendo oabs_monitoradas: ${oabErr.message}`);
     oabs = (rows || []).map((r) => ({
       numero: String(r.numero),
       uf: String(r.uf).toUpperCase(),
     }));
   }
-  if (oabs.length === 0) {
-    return jsonResponse(
-      { error: "nenhuma OAB ativa (tabela vazia e sem override)" },
-      400,
-    );
-  }
+  if (oabs.length === 0) throw new Error("nenhuma OAB ativa neste escritório");
 
   // --- Mapa CNJ -> processo (carregado uma vez) ---
   const { data: procs, error: procErr } = await supabase
     .from("processos_judiciais")
     .select("id, caso_id, numero_processo")
     .not("numero_processo", "is", null);
-  if (procErr) {
-    return jsonResponse(
-      { error: "erro lendo processos_judiciais", detail: procErr.message },
-      500,
-    );
-  }
+  if (procErr) throw new Error(`erro lendo processos_judiciais: ${procErr.message}`);
   const cnjMap = new Map<string, { id: string; caso_id: string }>();
   for (const p of procs || []) {
     const k = normalizeCnj(p.numero_processo as string);
@@ -406,7 +441,7 @@ serve(async (req) => {
     }
   }
 
-  return jsonResponse({
+  return {
     dry_run: dryRun,
     oabs_consultadas: oabs.length,
     janela: { inicio: dataInicio, fim: dataFim },
@@ -421,5 +456,6 @@ serve(async (req) => {
     dedup_erros_amostra: dedupErros,
     amostra: amostra,
     erros: erros,
-  });
+  };
+  }
 });

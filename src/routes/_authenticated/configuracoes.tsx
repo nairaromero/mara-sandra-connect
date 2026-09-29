@@ -14,16 +14,22 @@ import {
   Plug,
   Webhook,
   type LucideIcon,
-} from "lucide-react";
+ LifeBuoy, Building2 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { AbaSuporte } from "@/components/suporte/aba-suporte";
+import { EscritorioMarcaCard } from "@/components/configuracoes/escritorio-marca-card";
+import { DuasEtapasCard } from "@/components/configuracoes/duas-etapas-card";
 import { formatarTelefone } from "@/lib/telefone";
 import { ClientOnly } from "@/components/client-only";
 import { IntegracaoIaCard } from "@/components/ia/integracao-ia-card";
 import { ConexaoClaudeCard } from "@/components/ia/conexao-claude-card";
 import { IntegracaoGmailCard } from "@/components/integracoes/integracao-gmail-card";
-import { WebhooksCard } from "@/components/integracoes/webhooks-card";
+import { IntegracaoWhatsappCard } from "@/components/integracoes/integracao-whatsapp-card";
+import { IntegracaoLegalmailCard } from "@/components/integracoes/integracao-legalmail-card";
+import { IntegracaoTiCard } from "@/components/integracoes/integracao-ti-card";
+import { EmBreveCard } from "@/components/integracoes/em-breve-card";
 import { TiposBeneficioCard } from "@/components/tipos-beneficio-card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -138,7 +144,7 @@ function AbaConfig({
 // ===========================================================================
 
 function ConfiguracoesPage() {
-  const { usuario, isAdmin } = useAuth();
+  const { usuario, isAdmin, pode, podeEscrever } = useAuth();
   const navigate = useNavigate();
   const search = Route.useSearch();
   const usuarioId = usuario ? usuario.id : null;
@@ -319,11 +325,17 @@ function ConfiguracoesPage() {
   // carregamento do papel: esta tela só sai do spinner depois que o `usuario`
   // carregou, e o isAdmin vem desse mesmo objeto.
   const ehInterno = dados.tipo === "interno";
+  // Cada aba pela PERMISSÃO que o servidor cobra, não por `eh_admin` (a coluna
+  // legada). Hoje o resultado coincide para quase tudo, mas "Tipos de benefício"
+  // já divergia: era oferecida a todo interno e o banco exige templates:gerenciar
+  // (auditoria de 24/09, planning/RBAC_AUDITORIA_TELAS.md §4.4).
   const abas = [
     "perfil",
     "seguranca",
-    ...(ehInterno ? ["beneficios"] : []),
-    ...(isAdmin ? ["integracoes", "webhooks"] : []),
+    ...(ehInterno && podeEscrever("tipos_beneficio") ? ["beneficios"] : []),
+    ...(pode("escritorio:configurar") ? ["escritorio"] : []),
+    ...(pode("integracoes:gerenciar") ? ["integracoes", "webhooks"] : []),
+    ...(isAdmin ? ["suporte"] : []),
   ];
   const tab = search.tab && abas.includes(search.tab) ? search.tab : "perfil";
   function irParaAba(v: string) {
@@ -376,7 +388,7 @@ function ConfiguracoesPage() {
               icone={KeyRound}
               rotulo="Segurança"
             />
-            {ehInterno && (
+            {ehInterno && podeEscrever("tipos_beneficio") && (
               <AbaConfig
                 value="beneficios"
                 ativa={tab === "beneficios"}
@@ -389,6 +401,12 @@ function ConfiguracoesPage() {
             {isAdmin && (
               <>
                 <AbaConfig
+                  value="escritorio"
+                  ativa={tab === "escritorio"}
+                  icone={Building2}
+                  rotulo="Escritório"
+                />
+                <AbaConfig
                   value="integracoes"
                   ativa={tab === "integracoes"}
                   icone={Plug}
@@ -399,6 +417,12 @@ function ConfiguracoesPage() {
                   ativa={tab === "webhooks"}
                   icone={Webhook}
                   rotulo="Webhooks"
+                />
+                <AbaConfig
+                  value="suporte"
+                  ativa={tab === "suporte"}
+                  icone={LifeBuoy}
+                  rotulo="Suporte"
                 />
               </>
             )}
@@ -642,10 +666,13 @@ function ConfiguracoesPage() {
                 </Button>
               </CardContent>
             </Card>
+
+            {/* Verificacao em duas etapas (TOTP): a propria pessoa ativa/desativa. */}
+            <DuasEtapasCard />
           </TabsContent>
 
-          {/* Tipos de beneficio (so interno gerencia o cadastro) */}
-          {ehInterno && (
+          {/* Tipos de benefício: exige templates:gerenciar (admin e advogado) */}
+          {ehInterno && podeEscrever("tipos_beneficio") && (
             <TabsContent value="beneficios">
               <TiposBeneficioCard />
             </TabsContent>
@@ -653,6 +680,12 @@ function ConfiguracoesPage() {
 
           {isAdmin && (
             <>
+              {/* Escritorio: nome de exibicao, logo e cor — a marca que aparece
+                  no topo, nos e-mails e nas mensagens deste escritorio. */}
+              <TabsContent value="escritorio">
+                <EscritorioMarcaCard />
+              </TabsContent>
+
               <TabsContent value="integracoes" className="space-y-6">
                 {/* Card: Integracao de IA */}
                 <IntegracaoIaCard />
@@ -660,15 +693,34 @@ function ConfiguracoesPage() {
                 {/* Card: Conectar Claude/ChatGPT (Superficie B) */}
                 <ConexaoClaudeCard />
 
-                {/* Card: Integração Gmail (INSS) */}
+                {/* Card: Integração Gmail (INSS) — a caixa deste escritório */}
                 <IntegracaoGmailCard />
+
+                {/* Card: WhatsApp (Evolution) — a instância deste escritório */}
+                <IntegracaoWhatsappCard />
+                {/* Legalmail e TI por escritório (RBAC 13): credencial própria; sem ela a tela não oferece os botões */}
+                <IntegracaoLegalmailCard />
+                <IntegracaoTiCard />
               </TabsContent>
 
               {/* Webhooks: era a página /webhooks com item na sidebar (até
-                  2026-09-14). A aba só monta o card quando abre, então a lista
-                  não é consultada em toda visita às Configurações. */}
+                  2026-09-14). Desde 2026-09-23 a aba fica, mas o módulo não é
+                  oferecido ("Em breve"): a entrega era feita pelo n8n, que saiu
+                  das rotinas do sistema; volta com uma function própria. O card
+                  antigo (WebhooksCard) continua no código para a retomada. */}
               <TabsContent value="webhooks">
-                <WebhooksCard />
+                <EmBreveCard
+                  titulo="Webhooks"
+                  marcador="webhooks"
+                  icone={Webhook}
+                  descricao="Avisos automáticos para o sistema do parceiro (novo andamento, decisão, documento) por HTTP assinado. A entrega está sendo refeita sem o n8n."
+                />
+              </TabsContent>
+
+              {/* Suporte: pedidos de acesso da plataforma a este escritorio
+                  (aprovar / recusar / encerrar). So admin, como manda o RBAC. */}
+              <TabsContent value="suporte">
+                <AbaSuporte />
               </TabsContent>
             </>
           )}

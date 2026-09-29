@@ -22,6 +22,7 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
+import { exigirUsuario } from "../_shared/auth.ts";
 import { decryptSecret } from "../_shared/crypto.ts";
 import { carregarIntegracao } from "../_shared/ia-integracao.ts";
 import { chatWith, type Attachment } from "../_shared/ia-providers.ts";
@@ -91,22 +92,11 @@ serve(async (req) => {
     return jsonResponse({ error: "ambiente incompleto" }, 500);
   }
 
-  const jwt = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
-  if (!jwt) return jsonResponse({ error: "sem token" }, 401);
-
+  // Interno ATIVO do escritório ativo (o preâmbulo antigo não conferia `ativo`).
+  const quem = await exigirUsuario(req, { tipo: "interno", permissao: "ia:usar" });
+  if (quem instanceof Response) return quem;
   const admin = createClient(SUPABASE_URL, SERVICE_KEY);
-  const { data: userData } = await admin.auth.getUser(jwt);
-  const uid = userData?.user?.id;
-  if (!uid) return jsonResponse({ error: "token invalido" }, 401);
-
-  const { data: perfil } = await admin
-    .from("usuarios")
-    .select("tipo")
-    .eq("id", uid)
-    .maybeSingle();
-  if (perfil?.tipo !== "interno") {
-    return jsonResponse({ error: "apenas interno pode ler documentos" }, 403);
-  }
+  const uid = quem.uid;
 
   // Chave própria; sem ela, cai na compartilhada do escritório (se houver).
   const resIntegracao = await carregarIntegracao(admin, uid);

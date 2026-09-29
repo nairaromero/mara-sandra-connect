@@ -7,7 +7,7 @@
 >
 > Complementa [ARQUITETURA.md](ARQUITETURA.md) (o que existe) e
 > [TODO.md](TODO.md) (o que falta). Ordem: por área, cronológica dentro de cada.
-> Revisado em 2026-08-23.
+> Revisado em 2026-09-22.
 
 Formato de cada decisão: **Contexto → Opções → Decisão → O que pesou → O que
 custou → Revisitar quando**. "Custou" é o preço que estamos pagando de fato, não
@@ -388,27 +388,86 @@ risco teórico.
   entra junto com a tabela de planos, e a decisão multi-tenant (abaixo) precisa
   ser tomada antes.
 
-### Decisão AINDA NÃO tomada · multi-tenant pra vender a outros escritórios
+### D23 · Multi-tenant em pool: um banco, `escritorio_id` + RLS (2026-09-21)
 
-Registrada aqui pra não se perder o raciocínio de 2026-08-23:
+- **Contexto.** Em 23/08 a recomendação era (b) um projeto Supabase por
+  escritório "enquanto os clientes se contarem em dezenas". A auditoria de 14/09
+  ([MULTI_TENANT_RBAC.md](MULTI_TENANT_RBAC.md) §3) mediu o que isso custa com
+  N=2: **116 de 120** ACLs de função já divergiam entre staging e produção. Em
+  21/09 a Naira pediu a implementação completa, primeiro local.
+- **Opções.** (a) pool — um projeto, `escritorio_id` em toda tabela de domínio,
+  RLS; (b) silo — um projeto por escritório; (c) schema por tenant.
+- **Decisão.** (a), com portabilidade para silo (mesmo código e mesmas
+  migrations; um escritório grande pode ganhar projeto próprio depois).
+  Construído localmente em 21–22/09 na branch `feat/rbac-multi-tenant`
+  (`migration_rbac_01…05`); guia de teste em
+  [RBAC_TESTE_LOCAL.md](RBAC_TESTE_LOCAL.md). Entra em vigor com o release.
+- **O que pesou.** O silo multiplica exatamente o erro que a auditoria achou —
+  grants e policies divergindo entre projetos — e 1–2 devs não sustentam N
+  pipelines. O pool concentra o risco num lugar que dá para **provar por
+  teste**: a matriz de ataques entre dois escritórios (23 testes E2E via API)
+  roda em todo `bun run e2e:local`. Princípio 2 continua respeitado com
+  estrutura, não flag: uma policy `RESTRICTIVE` por tabela
+  (`escritorio_id = escritorio_ativo()`), gatilho que valida o pai em todo
+  INSERT/UPDATE e `NOT NULL` em todas as 41 tabelas.
+- **O que custou.** `escritorio_id` em 41 tabelas; 143 policies reescritas na
+  forma (não no conteúdo); guard de escritório em toda RPC `SECURITY DEFINER`
+  (o `postgres` tem BYPASSRLS); 26 edge functions passam a resolver papel e
+  escritório pelo vínculo. E um pré-requisito que o plano não previa: **FK
+  simples + gatilho em vez de FK composta**, porque o PostgREST não resolve os
+  ~35 embeds por nome de coluna (`cliente:cliente_id(...)`) sobre FK composta —
+  a garantia é a mesma, a prova está no teste "filho apontando para pai de
+  outro escritório, inclusive com service role".
+- **Revisitar quando.** Um escritório exigir isolamento físico por contrato e
+  pagar por ele (~US$115/mês + operação) — aí vira silo clonado do pool. E
+  quando os embeds migrarem para hint de FK, voltar a FK composta.
 
-- **(a) Coluna `escritorio_id` + RLS por tenant num banco só** — caminho de
-  SaaS de centenas de clientes, mas exige reescrever as ~46 tabelas e ~133
-  policies, e o modo de falha é o pior possível do ramo: uma policy errada =
-  escritório A vendo processo do escritório B (dado de saúde, art. 11 LGPD).
-- **(b) Um projeto Supabase + um worker por escritório** — isolamento físico
-  (vazamento entre tenants estruturalmente impossível — princípio 2), billing
-  por tenant = fatura do projeto, LGPD como argumento de venda. Custo: operação
-  ×N (migrations, edge functions, seed — automatizável; os scripts já são
-  parametrizados por ref). Recomendação atual: **(b) enquanto os clientes se
-  contarem em dezenas**; revisitar (a) além de ~20-30 tenants.
+### D24 · Escritório ativo vem do header, conferido no banco (2026-09-21)
 
-Quando a decisão for tomada, ela vira o D23 com o formato padrão. O plano de execução
-completo — auditoria do que existe hoje, comparação (a) × (b) com números medidos, desenho
-de RBAC e as fases de migração — está em [MULTI_TENANT_RBAC.md](MULTI_TENANT_RBAC.md)
-(14/09/2026, revisto em 19/09). Ele **recomenda (a)**, pool com portabilidade para silo, e
-explica por que a conta de 23/08 mudou: o silo multiplica o drift de grants e policies que a
-auditoria encontrou entre os dois projetos que já existem.
+- **Contexto.** Uma pessoa pode ter vínculo em dois escritórios (parceira que
+  indica para os dois). Cada consulta precisa saber "em qual escritório estou".
+- **Opções.** (a) todos os meus escritórios de uma vez (policy `IN (...)`) — as
+  ~100 consultas do front passariam a misturar escritórios e cada tela teria
+  que filtrar; (b) claim no JWT via custom access token hook — desligar alguém
+  só valeria na renovação do token; (c) header `x-escritorio-id` enviado pelo
+  navegador e **validado contra `membros`** em `private.escritorio_ativo()`.
+- **Decisão.** (c). Header presente mas inválido = `NULL` (nada visível), nunca
+  fallback. Sem header, vale a preferência `usuarios.escritorio_ativo_id` ou o
+  único vínculo. Trocar de escritório = trocar o header e recarregar; cada aba
+  fica no seu.
+- **O que pesou.** Nenhuma tela mudou; forjar o header não abre nada (testado);
+  desligar o vínculo corta na próxima requisição, com o JWT ainda válido
+  (testado). Edge functions usam o mesmo caminho: `meu_contexto()` com o header
+  repassado.
+- **O que custou.** Um `fetch` custom no client Supabase e o cuidado de nunca
+  ler escritório do JWT. Realtime não recebe header — canais continuam
+  filtrados pela RLS, que usa a preferência gravada.
+
+### D25 · QG da plataforma vê operação, nunca conteúdo (2026-09-21)
+
+- **Contexto.** Vender para outros escritórios exige um superadmin que crie,
+  edite, suspenda e encerre escritórios e monitore saúde e uso de todos.
+- **Opções.** (a) superadmin com acesso total (bypass de RLS) — simples e
+  perigoso: uma conta vira o alvo que expõe todos os clientes; (b) **operação,
+  sem conteúdo** — o QG só chama funções `qg_*` que devolvem metadados e
+  contagens; conteúdo só com **acesso de suporte** pedido pelo staff, aprovado
+  pelo admin do escritório, com prazo, somente leitura e cada tela registrada na
+  auditoria do próprio escritório; break-glass sem aprovação só para quem tem a
+  flag, com registro; eliminação de dados exige segunda pessoa.
+- **Decisão.** (b), escolhida pela Naira em 21/09. QG num host próprio
+  (`qg.<domínio>`), sessão separada, staff em `plataforma_staff` (não é vínculo
+  de escritório: staff não vê nada em `localhost:8080`).
+- **O que pesou.** LGPD art. 11 (dado de saúde): o operador da plataforma não
+  precisa ver o CPF de ninguém para operar. Quem decide quem entra no conteúdo
+  é o escritório, e ele enxerga o rastro. Elimina a "conta que vale tudo".
+- **O que custou.** 22 funções `qg_*`, o fluxo de suporte (pedido → aprovação →
+  faixa somente-leitura → encerramento) e um segundo dono para eliminar. A tela
+  do escritório para aprovar suporte ainda não existe (RPC testada; fica para o
+  próximo lote). MFA (AAL2) obrigatória em produção via
+  `app_config.qg_exigir_aal2`; desligada só no local.
+- **Revisitar quando.** Houver suporte de verdade operando: medir quantos
+  pedidos, quanto tempo de aprovação, e se o break-glass foi usado — se nunca
+  foi, considerar tirar.
 
 ---
 

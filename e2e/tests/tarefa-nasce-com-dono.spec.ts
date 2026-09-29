@@ -31,10 +31,14 @@ test.beforeAll(async () => {
   if (!parceira) throw new Error(`parceiro de teste não encontrado: ${ENV.parceiroEmail}`);
   parceiroId = parceira.id;
 
+  // As duas contas sintéticas de equipe DO ESCRITÓRIO 1. Antes era "os dois
+  // primeiros internos por e-mail" — com mais de um escritório no banco isso
+  // passou a pegar gente do canário, e o padrão de um escritório nunca é alguém
+  // de outro (RBAC multi-tenant).
   const { data: internos } = await admin
     .from("usuarios")
     .select("id, email")
-    .eq("tipo", "interno")
+    .in("email", [ENV.adminEmail, ENV.internoEmail])
     .eq("ativo", true)
     .order("email", { ascending: true });
   if (!internos || internos.length < 2) {

@@ -51,7 +51,7 @@ STG_URL="postgresql://postgres.${STG_REF}:$(enc "$STG_PW")@${POOLER_STG}:5432/po
 # ---- Tabelas cujos dados NÃO saem de produção ------------------------------
 # Sensíveis (minimização na origem): no staging ficam VAZIAS — o passo 2 limpa
 # e o restore não traz nada.
-EXCLUIR=(ia_integracoes ia_tokens ia_acoes usuario_gmail_oauth aceites_termos
+EXCLUIR=(escritorio_integracoes acessos_suporte ia_integracoes ia_tokens ia_acoes usuario_gmail_oauth aceites_termos
   acessos_documento acessos_senha_inss alertas_duplicidade mensagens
   webhook_eventos whatsapp_mensagens whatsapp_outbox whatsapp_sessoes
   whatsapp_lid_map whatsapp_ativacao_codigos)
@@ -62,7 +62,13 @@ EXCLUIR=(ia_integracoes ia_tokens ia_acoes usuario_gmail_oauth aceites_termos
 # NÃO pode sair desta lista (a trava (e) no fim confere). Tabela daqui não pode
 # ter FK pra outra, senão o `truncate ... cascade` do passo 2 a levaria junto
 # (app_config não tem, nos dois bancos — conferido em 2026-09-11).
-PRESERVAR=(app_config)
+# RBAC (2026-09-23): o catálogo do modelo de acesso não existe em produção
+# enquanto o lote não for lançado, e mesmo depois é configuração do ambiente.
+# Preservar aqui evita o staging acordar sem escritórios/papéis na segunda.
+# `membros` e `plataforma_staff` NÃO dá para preservar (o truncate de usuarios
+# cascateia neles): o passo 6/6 reaplica as migrations (backfill de membros do
+# escritório padrão) e o seed do Canário/QG.
+PRESERVAR=(app_config escritorios papeis permissoes papel_permissoes escritorio_config)
 
 # Array SQL a partir dos nomes acima (fixos neste script, sem entrada externa).
 sql_array() { local s="" t; for t in "$@"; do s+="${s:+, }'$t'"; done; echo "array[$s]::text[]"; }
@@ -142,11 +148,25 @@ psql "$STG_URL" -q -v ON_ERROR_STOP=1 -v senha_sintetica="$SYNTH_PW" \
 # contas sintéticas de papel (e2e+admin/interno/parceiro) não existem lá —
 # recria aqui. Precisa de STAGING_SERVICE_ROLE_KEY e STAGING_PUBLISHABLE_KEY
 # (no .env.local ou como secret do workflow); sem elas, avisa e segue.
-echo "==> 5/5 contas sintéticas de papel…"
+echo "==> 5/6 contas sintéticas de papel…"
 if command -v node >/dev/null 2>&1; then
   node "$(dirname "$0")/seed-staging-contas.mjs" || echo "AVISO: seed de contas falhou — rode `node scripts/seed-staging-contas.mjs` à mão."
 else
   echo "AVISO: node ausente — rode `node scripts/seed-staging-contas.mjs` à mão."
+fi
+
+# RBAC: os usuários restaurados de produção precisam voltar a ser membros do
+# escritório padrão, e o Canário/QG de teste precisam existir de novo. As
+# migrations são idempotentes (backfill com on conflict); só rodam se a
+# branch tiver os arquivos (antes do lote, este passo não faz nada).
+echo "==> 6/6 RBAC: reaplicar migrations e seed do Canário…"
+if ls planning/sql-migrations/migration_rbac_01_*.sql >/dev/null 2>&1; then
+  for f in $(ls planning/sql-migrations/migration_rbac_*.sql | sort); do
+    node scripts/msc-sql.mjs --staging --file "$f" >/dev/null || { echo "AVISO: $f falhou no staging — rode à mão: node scripts/msc-sql.mjs --staging --file $f"; break; }
+  done
+  node "$(dirname "$0")/seed-local-rbac.mjs" --staging || echo "AVISO: seed do RBAC no staging falhou — rode `node scripts/seed-local-rbac.mjs --staging` à mão."
+else
+  echo "    (branch sem as migrations do RBAC: nada a reaplicar)"
 fi
 
 # (e) Pós-condição: o staging continua chamando as PRÓPRIAS edge functions.

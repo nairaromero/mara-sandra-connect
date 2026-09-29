@@ -138,6 +138,14 @@ function agruparPorDia(eventos: AgendaEventoComJoins[]): Array<{
 }
 
 function AgendaPage() {
+  // criar evento e agenda:gerenciar; quem nao tem (financeiro) so consulta
+  const { podeEscrever, podeEscreverLinha } = useAuth();
+  // "Novo evento" basta a permissão (quem tem escopo `atribuidos` cria o dele).
+  // Já a lixeira é decidida EVENTO A EVENTO: a policy aceita `todos`, ou
+  // `atribuidos` quando a pessoa é a responsável (src/lib/rbac/exigencias.ts).
+  const podeGerenciarAgenda = podeEscrever("agenda_eventos");
+  const podeExcluirEvento = (e: { responsavel_id?: string | null }) =>
+    podeEscreverLinha("agenda_eventos", e as Record<string, unknown>, "excluir");
   const [carregando, setCarregando] = useState(true);
   const [eventos, setEventos] = useState<AgendaEventoComJoins[]>([]);
   const [tarefasPericia, setTarefasPericia] = useState<TarefaComJoins[]>([]);
@@ -251,10 +259,12 @@ function AgendaPage() {
               contatar) ficam em Tarefas.
             </p>
           </div>
-          <Button onClick={() => setSheetModo({ kind: "criar" })}>
-            <Plus className="h-4 w-4" />
-            Novo evento
-          </Button>
+          {podeGerenciarAgenda && (
+            <Button onClick={() => setSheetModo({ kind: "criar" })}>
+              <Plus className="h-4 w-4" />
+              Novo evento
+            </Button>
+          )}
         </div>
 
         {/* Filtro por grupo + esconder concluídos.
@@ -325,7 +335,8 @@ function AgendaPage() {
           <AgendaMes
             eventos={itensVisiveis}
             onEventoClick={abrirEditor}
-            onEventoExcluir={excluirDoPainel}
+            onEventoExcluir={podeGerenciarAgenda ? excluirDoPainel : undefined}
+            podeExcluirEvento={podeExcluirEvento}
           />
         ) : dias.length === 0 ? (
           <Card>

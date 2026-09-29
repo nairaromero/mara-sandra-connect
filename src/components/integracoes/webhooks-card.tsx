@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Selecao } from "@/components/ui/selecao";
 import { toast } from "sonner";
 import {
   Check,
@@ -20,13 +21,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -299,7 +293,7 @@ export function WebhooksCard() {
         .select("id, url, eventos, ativo, secret_id, parceiro:parceiro_id(nome, email)")
         .order("created_at", { ascending: false }),
       supabase
-        .from("usuarios")
+        .from("usuarios_escritorio")
         .select("id, nome, email")
         .eq("eh_parceiro", true)
         .eq("ativo", true)
@@ -675,28 +669,14 @@ export function WebhooksCard() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label className="text-xs">Parceiro *</Label>
-                <Select value={novoParceiro} onValueChange={setNovoParceiro}>
-                  <SelectTrigger aria-label="Parceiro">
-                    <SelectValue placeholder="Selecione o parceiro" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {erroParceiros ? (
-                      <div className="px-2 py-1.5 text-sm text-destructive">
-                        Não foi possível carregar os parceiros
-                      </div>
-                    ) : parceiros.length === 0 ? (
-                      <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                        Nenhum parceiro ativo
-                      </div>
-                    ) : (
-                      parceiros.map((p) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.nome || p.email || p.id}
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
+                <Selecao
+  value={novoParceiro}
+  aria-label="Parceiro"
+  onChange={setNovoParceiro}
+  opcoes={erroParceiros ? [] : parceiros.map((p) => ({ value: p.id, label: p.nome || p.email || p.id }))}
+  placeholder="Selecione o parceiro"
+  vazio={erroParceiros ? "Não foi possível carregar os parceiros" : "Nenhum parceiro ativo"}
+/>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="novo-webhook-url" className="text-xs">

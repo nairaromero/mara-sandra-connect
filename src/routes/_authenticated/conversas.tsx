@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { Selecao } from "@/components/ui/selecao";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Loader2,
@@ -16,6 +17,9 @@ import {
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { buscarPaginado } from "@/lib/supabase-paginado";
+import { Paginador } from "@/components/paginador";
+import { usePorPagina } from "@/hooks/use-lista-paginada";
 import { dataBR, formatarBR, horaBR } from "@/lib/fuso";
 import { notificarEquipe } from "@/lib/notificar";
 import { ClientOnly } from "@/components/client-only";
@@ -26,13 +30,6 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -40,6 +37,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+
+// Conversas (threads) por pagina; os comentarios de cada thread da pagina vem inteiros.
+const POR_PAGINA_PADRAO = 25;
 
 export const Route = createFileRoute("/_authenticated/conversas")({
   component: ConversasPage,
@@ -160,7 +160,7 @@ function ConversasPage() {
     let vivo = true;
     (async () => {
       const r = await supabase
-        .from("usuarios")
+        .from("usuarios_escritorio")
         .select("id, nome")
         .eq("tipo", "interno")
         .eq("ativo", true)
@@ -178,6 +178,9 @@ function ConversasPage() {
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [comentarios, setComentarios] = useState<Array<ComentarioComCaso>>([]);
+  const [pagina, setPagina] = useState(1);
+  const [porPagina, setPorPagina] = usePorPagina("conversas", POR_PAGINA_PADRAO);
+  const [totalThreads, setTotalThreads] = useState<number | null>(null);
   const [leituraPorCaso, setLeituraPorCaso] = useState<Map<string, string>>(new Map());
   const [nomePorUsuario, setNomePorUsuario] = useState<Map<string, string>>(new Map());
   const [parceiroIds, setParceiroIds] = useState<Set<string>>(new Set());
@@ -192,19 +195,31 @@ function ConversasPage() {
   const [resposta, setResposta] = useState("");
   const [enviando, setEnviando] = useState(false);
 
+  // Uma pagina de THREADS (casos com comentario, da mais recente pra mais
+  // antiga — RPC conversas_threads, sob a RLS) e os comentarios so desses
+  // casos, inteiros. Antes vinha tudo sem limite — e o PostgREST cortava em
+  // 1.000 sem avisar.
   const carregar = useCallback(async () => {
     if (!jaCarregouRef.current) setLoading(true);
     else setRecarregando(true);
     setErro(null);
     try {
+      const th = await supabase.rpc("conversas_threads", { p_limite: porPagina, p_offset: (pagina - 1) * porPagina });
+      if (th.error) throw th.error;
+      const threads = (th.data ?? []) as Array<{ caso_id: string; ultimo_em: string; total: number }>;
+      const ids = threads.map((t) => t.caso_id);
+      setTotalThreads(threads[0]?.total ?? 0);
       const [comResp, leiResp, usrResp] = await Promise.all([
-        supabase
-          .from("comentarios")
-          .select(
-            "id, caso_id, autor_id, texto, created_at, parent_id, destinatario_id, casos!inner(id, tipo_beneficio, fase, status, parceiro_id, clientes(id, nome))",
-          )
-          .eq("rascunho", false)
-          .order("created_at", { ascending: false }),
+        ids.length === 0
+          ? Promise.resolve({ data: [], error: null })
+          : supabase
+              .from("comentarios")
+              .select(
+                "id, caso_id, autor_id, texto, created_at, parent_id, destinatario_id, casos!inner(id, tipo_beneficio, fase, status, parceiro_id, clientes(id, nome))",
+              )
+              .eq("rascunho", false)
+              .in("caso_id", ids)
+              .order("created_at", { ascending: false }),
         supabase.from("conversa_leitura").select("caso_id, last_read_at"),
         supabase.from("usuarios").select("id, nome, tipo"),
       ]);
@@ -234,7 +249,11 @@ function ConversasPage() {
       setRecarregando(false);
       jaCarregouRef.current = true;
     }
-  }, []);
+  }, [pagina, porPagina]);
+
+  useEffect(() => {
+    setPagina(1);
+  }, [porPagina]);
 
   useEffect(() => {
     carregar();
@@ -336,14 +355,22 @@ function ConversasPage() {
   useEffect(() => {
     if (!novaAberta || casosOpcoes.length > 0) return;
     (async () => {
-      const { data, error } = await supabase
-        .from("casos")
-        .select("id, parceiro_id, clientes(nome)")
-        .order("created_at", { ascending: false })
-        .limit(500);
-      if (error) return;
+      let data: Array<Record<string, unknown>> = [];
+      try {
+        data = await buscarPaginado<Record<string, unknown>>((ini, fim) =>
+          supabase
+            .from("casos")
+            .select("id, parceiro_id, clientes(nome)")
+            .order("created_at", { ascending: false })
+            .order("id")
+            .range(ini, fim),
+        );
+      } catch (e) {
+        setErro((e as { message?: string }).message || "Não consegui carregar os casos.");
+        return;
+      }
       setCasosOpcoes(
-        (data || []).map((c: Record<string, unknown>) => ({
+        data.map((c: Record<string, unknown>) => ({
           id: String(c.id),
           cliente: ((c.clientes as { nome?: string } | null)?.nome as string) || "(sem nome)",
           parceiro: c.parceiro_id ? nomePorUsuario.get(String(c.parceiro_id)) || "Parceiro" : null,
@@ -369,7 +396,10 @@ function ConversasPage() {
       setBuscaCaso("");
       const casoAberto = casoNovo;
       setCasoNovo(null);
-      await carregar();
+      // a conversa nova e a mais recente: esta na pagina 1 (o efeito recarrega
+      // ao trocar de pagina; se ja estamos nela, recarrega aqui)
+      if (pagina === 1) await carregar();
+      else setPagina(1);
       setSelecionado(casoAberto);
       await marcarLida(casoAberto);
       if (data?.id) {
@@ -588,20 +618,16 @@ function ConversasPage() {
             {!isParceiro && (
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground shrink-0">Para:</span>
-                <Select value={filtroPessoa} onValueChange={setFiltroPessoa}>
-                  <SelectTrigger className="h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__eu__">Minhas conversas</SelectItem>
-                    <SelectItem value="__todos__">Todas da equipe</SelectItem>
-                    {internosLista.map((u) => (
-                      <SelectItem key={u.id} value={u.id}>
-                        {u.nome ?? "(sem nome)"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Selecao
+  value={filtroPessoa}
+  onChange={setFiltroPessoa}
+  opcoes={[
+    { value: "__eu__", label: "Minhas conversas" },
+    { value: "__todos__", label: "Todas da equipe" },
+    ...internosLista.map((u) => ({ value: u.id, label: u.nome ?? "(sem nome)" })),
+  ]}
+  className="h-8 text-sm"
+/>
               </div>
             )}
 
@@ -682,6 +708,17 @@ function ConversasPage() {
                 })}
               </div>
             )}
+            <Paginador
+              pagina={pagina}
+              porPagina={porPagina}
+              total={totalThreads}
+              carregando={recarregando}
+              onPagina={setPagina}
+              onPorPagina={setPorPagina}
+              opcoes={[10, 25, 50]}
+              nome="conversas"
+              className="px-0"
+            />
           </div>
 
           {/* Painel da conversa */}

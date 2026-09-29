@@ -8,17 +8,10 @@ import { toast } from "sonner";
 import { Loader2, Trash2, ExternalLink, AlarmClock } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { DocTypeCombobox } from "@/components/doc-type-combobox";
+import { Selecao } from "@/components/ui/selecao";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Sheet,
   SheetContent,
@@ -63,6 +56,13 @@ import {
   type TarefaTipo,
 } from "@/lib/tarefas/types";
 import { buscarEventoMesmoDia, criarEvento } from "@/lib/agenda/queries";
+import {
+  SEM_PROCESSO,
+  ehTokenJudicial,
+  processoDoToken,
+  tokenDoProcesso,
+  type ProcessoDoItem,
+} from "@/lib/processos/token";
 import type { AgendaTipo } from "@/lib/agenda/types";
 import {
   calcularDueAtRelativo,
@@ -102,12 +102,14 @@ import { AnaliseCasoNovo } from "@/components/tarefas/analise-caso-novo";
 import { AnaliseIndeferimento } from "@/components/tarefas/analise-indeferimento";
 import { ComparecimentoPericia } from "@/components/tarefas/comparecimento-pericia";
 import { EnviarAvisoParceiro } from "@/components/tarefas/enviar-aviso-parceiro";
+import { EtapaProvidenciarDocumento } from "@/components/tarefas/etapa-providenciar-documento";
 import { EtapaCumprimentoExigencia } from "@/components/tarefas/etapa-cumprimento-exigencia";
 import { EtapaProtocoloRealizado } from "@/components/tarefas/etapa-protocolo-realizado";
-import { chaveDiaBR, hojeChaveBR } from "@/lib/fuso";
+import { chaveDiaBR, dataHoraBR, horaBR, hojeChaveBR } from "@/lib/fuso";
 import { useDestaque } from "@/lib/destaque/destaque-context";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
+import { usePodeAcao } from "@/components/acao-protegida";
 
 type Modo =
   | {
@@ -137,21 +139,20 @@ interface Props {
 const TIPOS: TarefaTipo[] = ["interna", "prazo", "pericia", "pos_protocolo", "contato_cliente"];
 
 // Valor único do select de processo: "" = nenhum, "admin:<id>" ou "judicial:<id>".
-function tokenDoProcesso(p: {
-  processo_admin_id: string | null;
-  processo_judicial_id: string | null;
-}): string {
-  if (p.processo_admin_id) return `admin:${p.processo_admin_id}`;
-  if (p.processo_judicial_id) return `judicial:${p.processo_judicial_id}`;
-  return "";
-}
-
-
 export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   const aberto = modo !== null;
   const { marcar: marcarDestaque } = useDestaque();
   const { usuario } = useAuth();
   const editando = modo?.kind === "editar";
+  // Salvar, Excluir e os blocos de etapa gravam em `tarefas` (e em `andamentos`).
+  // Ao EDITAR, quem manda é a linha: com escopo `atribuidos` só a tarefa de quem
+  // está logado. Ao CRIAR, basta ter a permissão (ele nasce responsável por ela).
+  const tarefaAberta = modo?.kind === "editar" ? modo.tarefa : null;
+  const podeMexer = usePodeAcao(
+    tarefaAberta
+      ? { escrever: "tarefas", linha: tarefaAberta as unknown as Record<string, unknown> }
+      : { escrever: "tarefas" },
+  );
   const tarefa = modo?.kind === "editar" ? modo.tarefa : null;
 
   const [titulo, setTitulo] = useState("");
@@ -165,6 +166,9 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   const [casoId, setCasoId] = useState<string | null>(null);
   const [trocandoCaso, setTrocandoCaso] = useState(false);
   // Único valor para processo: "" = nenhum, "admin:<id>" ou "judicial:<id>".
+  // "" = ainda não escolheu · SEM_PROCESSO = escolha consciente ·
+  // "admin:<id>"/"judicial:<id>" = frente do caso. O processo decide a coluna
+  // do kanban do parceiro (card #357), então escolher passou a ser obrigatório.
   const [processoToken, setProcessoToken] = useState<string>("");
   const [responsavelId, setResponsavelId] = useState<string | null>(null);
   const [dueDate, setDueDate] = useState<string>("");
@@ -325,6 +329,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
     Array<{ index: number; titulo: string; respId: string }>
   >([]);
   const [processosDoCaso, setProcessosDoCaso] = useState<ProcessoDoCasoOpcao[]>([]);
+  const [processosProntos, setProcessosProntos] = useState(true);
 
   const [salvando, setSalvando] = useState(false);
   // Diálogo de adiamento de prazo fatal: exige justificativa antes de salvar.
@@ -393,7 +398,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   useEffect(() => {
     if (!avisoAplicavel || avisoEditado || !ctxCaso) return;
     const natureza: "admin" | "judicial" =
-      templateSelecionado === "pericia_judicial" || processoToken.startsWith("judicial:")
+      templateSelecionado === "pericia_judicial" || ehTokenJudicial(processoToken)
         ? "judicial"
         : "admin";
     let cancelado = false;
@@ -431,12 +436,25 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   }, [aberto]);
 
   // Carrega processos do caso quando muda. Limpa quando não há caso.
+  // `processosProntos` separa "caso sem frente" de "não consegui ler": com a
+  // escolha obrigatória, lista vazia por erro liberaria salvar sem frente.
   useEffect(() => {
     if (!casoId) {
       setProcessosDoCaso([]);
+      setProcessosProntos(true);
       return;
     }
-    listarProcessosDoCaso(casoId).then(setProcessosDoCaso).catch(() => {});
+    setProcessosProntos(false);
+    listarProcessosDoCaso(casoId)
+      .then((ps) => {
+        setProcessosDoCaso(ps);
+        setProcessosProntos(true);
+      })
+      .catch((e) => {
+        console.error("listarProcessosDoCaso:", e);
+        setProcessosDoCaso([]);
+        setProcessosProntos(false);
+      });
   }, [casoId]);
 
   // Quando a Naira escolhe um template (modo criar), popula o form. Se o
@@ -599,21 +617,9 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
     onClose();
   }, [salvando, onClose]);
 
-  function parseProcesso(): {
-    processo_admin_id: string | null;
-    processo_judicial_id: string | null;
-  } {
-    // "" / "admin:<id>" / "judicial:<id>"  → 2 colunas mutuamente exclusivas.
-    if (!processoToken || !casoId) {
-      return { processo_admin_id: null, processo_judicial_id: null };
-    }
-    if (processoToken.startsWith("admin:")) {
-      return { processo_admin_id: processoToken.slice(6), processo_judicial_id: null };
-    }
-    if (processoToken.startsWith("judicial:")) {
-      return { processo_admin_id: null, processo_judicial_id: processoToken.slice(9) };
-    }
-    return { processo_admin_id: null, processo_judicial_id: null };
+  function parseProcesso(): ProcessoDoItem {
+    if (!casoId) return { processo_admin_id: null, processo_judicial_id: null };
+    return processoDoToken(processoToken);
   }
 
   /**
@@ -641,6 +647,21 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
     const statusEfetivo = statusForcado ?? status;
     if (!titulo.trim()) {
       toast.error("Título é obrigatório.");
+      return false;
+    }
+    // O processo define em qual coluna o parceiro vê o item (card #357).
+    // Com processo no caso, escolher é obrigatório — inclusive "Cliente sem
+    // processo", que é uma resposta, não um campo esquecido.
+    if (casoId && !processosProntos) {
+      toast.error("Não consegui carregar os processos do caso", {
+        description: "Sem essa lista não dá para dizer em que frente a tarefa entra.",
+      });
+      return false;
+    }
+    if (casoId && processosDoCaso.length > 0 && !processoToken) {
+      toast.error("Escolha o processo da tarefa", {
+        description: 'Se ainda não há processo, marque "Cliente sem processo".',
+      });
       return false;
     }
     const dueCalculado = isoFromInputDateTime(dueDate);
@@ -817,14 +838,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
           if (!pularAvisos) {
             const avisos: string[] = [];
             if (agendaStart.getTime() < Date.now()) {
-              const quando = agendaStart.toLocaleString("pt-BR", {
-                day: "2-digit",
-                month: "2-digit",
-                year: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-                timeZone: "America/Sao_Paulo",
-              });
+              const quando = dataHoraBR(agendaStart);
               avisos.push(
                 `A data do agendamento (${quando}) JÁ PASSOU — o evento vai direto pra aba Arquivados.`,
               );
@@ -836,11 +850,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                 startIso,
               );
               if (jaExiste) {
-                const hora = new Date(jaExiste.start_at).toLocaleTimeString("pt-BR", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  timeZone: "America/Sao_Paulo",
-                });
+                const hora = horaBR(jaExiste.start_at);
                 const rotuloEv =
                   (agendaItem.tipo as string) === "audiencia" ? "audiência" : "perícia";
                 avisos.push(
@@ -1048,6 +1058,11 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                   origem: `template:${tpl.nome}`,
                   data_solicitacao: new Date().toISOString(),
                   prazo_at: prazoParceiroAt,
+                  // O pedido herda a frente escolhida na tarefa: é ela que
+                  // decide a coluna do kanban do parceiro (card #357). Sem
+                  // isto, exigência de requerimento caía em Judiciais quando o
+                  // caso também tinha ação (achado do teste da Naira, 18/09).
+                  ...proc,
                 })
                 .select("id")
                 .single();
@@ -1183,7 +1198,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
       >
         <SheetHeader>
           <SheetTitle>{editando ? "Editar tarefa" : "Nova tarefa"}</SheetTitle>
-          {editando && tarefa && (
+          {editando && podeMexer && tarefa && (
             <SheetDescription className="space-y-0.5">
               {/* Autoria (trigger): quem criou e quem concluiu/cancelou. */}
               <span className="block">
@@ -1199,58 +1214,67 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
         </SheetHeader>
 
         <div className="space-y-4 py-4">
-          {editando && tarefa &&
+          {editando && podeMexer && tarefa &&
             (tarefa.metadata as { acompanhamento_processual?: boolean })?.acompanhamento_processual && (
               <EtapasAcompanhamento tarefa={tarefa} onUpdated={onSaved} />
           )}
 
-          {editando && tarefa &&
+          {editando && podeMexer && tarefa &&
             (tarefa.metadata as { acompanhamento_pericia?: boolean })
               ?.acompanhamento_pericia === true && (
               <AcompanhamentoPericia tarefa={tarefa} onUpdated={onSaved} />
             )}
 
-          {editando && tarefa &&
+          {editando && podeMexer && tarefa &&
             ((tarefa.metadata as { montagem_inicial?: boolean })?.montagem_inicial === true ||
               (tarefa.metadata as { montagem_requerimento?: boolean })?.montagem_requerimento === true) && (
               <MontagemInicial tarefa={tarefa} onUpdated={onSaved} />
             )}
 
-          {editando && tarefa &&
+          {editando && podeMexer && tarefa &&
             ehAnaliseInicial(tarefa.metadata) && (
               <AnaliseCasoNovo tarefa={tarefa} onUpdated={onSaved} />
             )}
 
-          {editando && tarefa &&
+          {editando && podeMexer && tarefa &&
             (tarefa.metadata as { analise_indeferimento?: boolean })?.analise_indeferimento === true && (
               <AnaliseIndeferimento tarefa={tarefa} onUpdated={onSaved} />
             )}
 
-          {editando && tarefa &&
+          {editando && podeMexer && tarefa &&
             (tarefa.metadata as { acompanhamento_implementacao?: boolean })
               ?.acompanhamento_implementacao === true && (
               <AcompanhamentoImplementacao tarefa={tarefa} onUpdated={onSaved} />
             )}
 
-          {editando && tarefa &&
+          {editando && podeMexer && tarefa &&
             (tarefa.metadata as { confirmar_comparecimento?: boolean })
               ?.confirmar_comparecimento === true && (
               <ComparecimentoPericia tarefa={tarefa} onUpdated={onSaved} />
             )}
 
-          {editando && tarefa &&
+          {editando && podeMexer && tarefa &&
             !!(tarefa.metadata as { enviar_aviso?: object })?.enviar_aviso && (
               <EnviarAvisoParceiro tarefa={tarefa} onUpdated={onSaved} />
             )}
 
-          {editando && tarefa &&
+          {editando && podeMexer && tarefa &&
             (tarefa.metadata as { cumprimento_exigencia?: boolean })?.cumprimento_exigencia && (
               <EtapaCumprimentoExigencia tarefa={tarefa} onUpdated={onSaved} />
             )}
 
-          {editando && tarefa &&
+          {editando && podeMexer && tarefa &&
             (tarefa.metadata as { protocolo_realizado?: boolean })?.protocolo_realizado && (
               <EtapaProtocoloRealizado tarefa={tarefa} onUpdated={onSaved} />
+            )}
+
+          {/* etapa nova do lote do kanban (#357): anexa documento e cumpre o
+              pedido — escreve em `documentos` e `solicitacoes_documento`, então
+              segue a mesma trava das outras etapas */}
+          {editando && podeMexer && tarefa &&
+            (tarefa.metadata as { providenciar_documento?: boolean })
+              ?.providenciar_documento === true && (
+              <EtapaProvidenciarDocumento tarefa={tarefa} onUpdated={onSaved} />
             )}
 
           <div className="space-y-1.5">
@@ -1287,8 +1311,8 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
             ) : (
               <>
                 {/* Combobox com busca: 395+ casos, rolar a lista nao dava. */}
-                <DocTypeCombobox
-                  options={[
+                <Selecao
+                  opcoes={[
                     { value: "sem", label: "Sem cliente" },
                     ...casos.map((c) => ({
                       value: c.id,
@@ -1301,8 +1325,8 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                     setProcessoToken("");
                   }}
                   placeholder="Sem cliente"
-                  searchPlaceholder="Buscar cliente..."
-                  emptyText="Nenhum cliente encontrado."
+                  buscaPlaceholder="Buscar cliente..."
+                  vazio="Nenhum cliente encontrado."
                 />
                 {editando && trocandoCaso && (
                   <div className="flex items-center gap-2">
@@ -1329,23 +1353,20 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
 
           {casoId && processosDoCaso.length > 0 && (
             <div className="space-y-1.5">
-              <Label>Processo (opcional)</Label>
-              <Select
-                value={processoToken || "sem"}
-                onValueChange={(v) => setProcessoToken(v === "sem" ? "" : v)}
-              >
-                <SelectTrigger><SelectValue placeholder="Nenhum" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="sem">Sem processo específico</SelectItem>
-                  {processosDoCaso.map((p) => (
-                    <SelectItem key={`${p.natureza}:${p.id}`} value={`${p.natureza}:${p.id}`}>
-                      {p.rotulo}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>Processo *</Label>
+              <Selecao
+  value={processoToken}
+  onChange={setProcessoToken}
+  opcoes={[
+    { value: SEM_PROCESSO, label: "Cliente sem processo" },
+    ...processosDoCaso.map((p) => ({ value: `${p.natureza}:${p.id}`, label: p.rotulo })),
+  ]}
+  placeholder="Escolha o processo"
+/>
               <p className="text-xs text-muted-foreground">
-                Vincula a tarefa a um requerimento ou processo judicial específico.
+                É o processo que decide em qual coluna o parceiro vê a tarefa:
+                requerimento vai para Administrativo, ação para Judiciais. Sem processo
+                ainda, marque "Cliente sem processo".
               </p>
             </div>
           )}
@@ -1353,48 +1374,37 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
           {!editando && casoId && templates.length > 0 && (
             <div className="space-y-1.5 rounded-md border border-dashed p-3 bg-muted/30">
               <Label>Template (atalho)</Label>
-              <Select value={templateSelecionado} onValueChange={setTemplateSelecionado}>
-                <SelectTrigger><SelectValue placeholder="Escolha um template" /></SelectTrigger>
-                <SelectContent>
-                  {templates.map((t) => (
-                    <SelectItem key={t.id} value={t.nome}>
-                      {(() => {
-                        // Conta cada destino pelo nome — andamento e
-                        // solicitação não são tarefas.
-                        const tarefasN = t.itens.filter(
-                          (i) => !i.destino || i.destino === "tarefa",
-                        ).length;
-                        const andamentosN = t.itens.filter(
-                          (i) => i.destino === "andamento",
-                        ).length;
-                        const solicN = t.itens.filter(
-                          (i) => i.destino === "solicitacao_documento",
-                        ).length;
-                        const partes: string[] = [];
-                        if (templateTemAgenda(t)) partes.push("agenda");
-                        if (tarefasN > 0)
-                          partes.push(`${tarefasN} tarefa${tarefasN === 1 ? "" : "s"}`);
-                        if (andamentosN > 0)
-                          partes.push(
-                            `${andamentosN} andamento${andamentosN === 1 ? "" : "s"}`,
-                          );
-                        if (solicN > 0)
-                          partes.push(
-                            `${solicN} solicitação${solicN === 1 ? "" : "ões"} de doc`,
-                          );
-                        return (
-                          <>
-                            {t.rotulo ?? t.nome}{" "}
-                            <span className="text-muted-foreground">
-                              ({partes.join(" + ") || "vazio"})
-                            </span>
-                          </>
-                        );
-                      })()}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Selecao
+  value={templateSelecionado}
+  onChange={setTemplateSelecionado}
+  opcoes={[
+    // O item mostra o resumo do template em cinza; a BUSCA procura no
+    // `label`, que é texto puro — procurar dentro de JSX não funciona, e
+    // rótulo que some da busca é item que a pessoa não acha.
+    ...templates.map((t) => {
+      const tarefasN = t.itens.filter((i) => !i.destino || i.destino === "tarefa").length;
+      const andamentosN = t.itens.filter((i) => i.destino === "andamento").length;
+      const solicN = t.itens.filter((i) => i.destino === "solicitacao_documento").length;
+      const partes: string[] = [];
+      if (templateTemAgenda(t)) partes.push("agenda");
+      if (tarefasN > 0) partes.push(`${tarefasN} tarefa${tarefasN === 1 ? "" : "s"}`);
+      if (andamentosN > 0) partes.push(`${andamentosN} andamento${andamentosN === 1 ? "" : "s"}`);
+      if (solicN > 0) partes.push(`${solicN} solicitação${solicN === 1 ? "" : "ões"} de doc`);
+      const resumo = partes.join(" + ") || "vazio";
+      const nome = t.rotulo ?? t.nome;
+      return {
+        value: t.nome,
+        label: `${nome} (${resumo})`,
+        conteudo: (
+          <>
+            {nome} <span className="text-muted-foreground">({resumo})</span>
+          </>
+        ),
+      };
+    }),
+  ]}
+  placeholder="Escolha um template"
+/>
               <p className="text-xs text-muted-foreground">
                 {templateSelecionado ? (
                   templateAgenda ? (
@@ -1568,14 +1578,13 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Tipo</Label>
-              <Select value={tipo} onValueChange={(v) => setTipo(v as TarefaTipo)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {TIPOS.map((t) => (
-                    <SelectItem key={t} value={t}>{TIPO_LABEL[t]}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Selecao
+  value={tipo}
+  onChange={(v) => setTipo(v as TarefaTipo)}
+  opcoes={[
+    ...TIPOS.map((t) => ({ value: t, label: TIPO_LABEL[t] })),
+  ]}
+/>
               {tipo === "pericia" && (
                 <label className="flex items-start gap-2 pt-1 text-xs text-muted-foreground cursor-pointer">
                   <input
@@ -1593,26 +1602,23 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
             </div>
             <div className="space-y-1.5">
               <Label>Prioridade</Label>
-              <Select
-                value={String(prioridade)}
-                onValueChange={(v) => setPrioridade(Number(v))}
-              >
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {[1, 2, 3, 4].map((p) => (
-                    <SelectItem key={p} value={String(p)}>{PRIORIDADE_LABEL[p]}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Selecao
+  value={String(prioridade)}
+  onChange={(v) => setPrioridade(Number(v))}
+  opcoes={[
+    ...[1, 2, 3, 4].map((p) => ({ value: String(p), label: PRIORIDADE_LABEL[p] })),
+  ]}
+/>
             </div>
           </div>
 
           {editando && (
             <div className="space-y-1.5">
               <Label>Status</Label>
-              <Select
-                value={status}
-                onValueChange={(v) => {
+              <Selecao
+  value={status}
+  aria-label="Status"
+  onChange={(v) => {
                   // "Feito" abre o popup de conclusão (não muda o status direto):
                   // Concluir tarefa (→ próxima sugerida) / Excluir com motivo.
                   if (v === "feito" && tarefa && tarefa.status !== "feito") {
@@ -1622,19 +1628,13 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                   }
                   setStatus(v as TarefaStatus);
                 }}
-              >
-                <SelectTrigger aria-label="Status"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {/* "Cancelado" saiu das opções; se a tarefa já é cancelada
-                      (histórico), mantém a opção só pra ela não sumir do select. */}
-                  {(STATUS_ORDEM.includes(status)
+  opcoes={[
+    ...(STATUS_ORDEM.includes(status)
                     ? STATUS_ORDEM
                     : [...STATUS_ORDEM, status]
-                  ).map((s) => (
-                    <SelectItem key={s} value={s}>{STATUS_LABEL[s]}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                  ).map((s) => ({ value: s, label: STATUS_LABEL[s] })),
+  ]}
+/>
             </div>
           )}
 
@@ -1747,23 +1747,21 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                   <Label className="text-xs font-normal text-red-900/80">
                     Prazo (dias úteis)
                   </Label>
-                  <Select
-                    value={prazoDias}
-                    onValueChange={(v) => {
+                  <Selecao
+  value={prazoDias}
+  aria-label="Prazo em dias úteis"
+  onChange={(v) => {
                       setPrazoDias(v);
                       recalcularFatal(pubData, v, prazoDiasCustom);
                     }}
-                  >
-                    <SelectTrigger aria-label="Prazo em dias úteis">
-                      <SelectValue placeholder="Escolher" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="5">5 dias</SelectItem>
-                      <SelectItem value="10">10 dias</SelectItem>
-                      <SelectItem value="15">15 dias</SelectItem>
-                      <SelectItem value="outro">Outro…</SelectItem>
-                    </SelectContent>
-                  </Select>
+  opcoes={[
+    { value: "5", label: "5 dias" },
+    { value: "10", label: "10 dias" },
+    { value: "15", label: "15 dias" },
+    { value: "outro", label: "Outro…" },
+  ]}
+  placeholder="Escolher"
+/>
                 </div>
               </div>
               {prazoDias === "outro" && (
@@ -1812,26 +1810,14 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
             {!editando && extrasResp.length > 0 && titulo.trim() && (
               <p className="text-xs text-muted-foreground">{titulo}</p>
             )}
-            <Select
-              value={responsavelId ?? "sem"}
-              onValueChange={(v) => setResponsavelId(v === "sem" ? null : v)}
-            >
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {/* Ao criar, o banco preenche sozinho quando fica vazio
-                    (trg_tarefas_set_responsavel: dono do caso -> quem já cuida
-                    dele -> padrão do escritório). Editando, "sem" continua
-                    sendo "sem". */}
-                <SelectItem value="sem">
-                  {editando ? "Sem responsável" : "Definir automaticamente"}
-                </SelectItem>
-                {internos.map((u) => (
-                  <SelectItem key={u.id} value={u.id}>
-                    {u.nome ?? "(sem nome)"}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Selecao
+  value={responsavelId ?? "sem"}
+  onChange={(v) => setResponsavelId(v === "sem" ? null : v)}
+  opcoes={[
+    { value: "sem", label: editando ? "Sem responsável" : "Definir automaticamente" },
+    ...internos.map((u) => ({ value: u.id, label: u.nome ?? "(sem nome)" })),
+  ]}
+/>
           </div>
 
           {/* Template que cria mais tarefas: um responsável por tarefa extra,
@@ -1842,27 +1828,20 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
               {extrasResp.map((e) => (
                 <div key={e.index} className="space-y-1">
                   <p className="text-xs text-muted-foreground">{e.titulo}</p>
-                  <Select
-                    value={e.respId}
-                    onValueChange={(v) =>
+                  <Selecao
+  value={e.respId}
+  onChange={(v) =>
                       setExtrasResp((prev) =>
                         prev.map((x) =>
                           x.index === e.index ? { ...x, respId: v } : x,
                         ),
-                      )
-                    }
-                  >
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="herdar">Mesmo da tarefa principal</SelectItem>
-                      <SelectItem value="sem">Definir automaticamente</SelectItem>
-                      {internos.map((u) => (
-                        <SelectItem key={u.id} value={u.id}>
-                          {u.nome ?? "(sem nome)"}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                      )}
+  opcoes={[
+    { value: "herdar", label: "Mesmo da tarefa principal" },
+    { value: "sem", label: "Definir automaticamente" },
+    ...internos.map((u) => ({ value: u.id, label: u.nome ?? "(sem nome)" })),
+  ]}
+/>
                 </div>
               ))}
             </div>
@@ -1871,7 +1850,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
         </div>
 
         <SheetFooter className="gap-2 sm:gap-2">
-          {editando && (
+          {editando && podeMexer && (
             <Button
               variant="ghost"
               onClick={abrirExcluir}
@@ -1883,13 +1862,15 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
             </Button>
           )}
           <Button variant="outline" onClick={fechar} disabled={salvando}>
-            Cancelar
+            {podeMexer ? "Cancelar" : "Fechar"}
           </Button>
           {/* Sem argumento de propósito: passar o evento do clique aqui faria
               `justificativa` chegar preenchida e pular o diálogo do prazo fatal. */}
-          <Button onClick={() => void salvar()} disabled={salvando}>
-            {salvando ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
-          </Button>
+          {podeMexer && (
+            <Button onClick={() => void salvar()} disabled={salvando}>
+              {salvando ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar"}
+            </Button>
+          )}
         </SheetFooter>
       </SheetContent>
 
@@ -1997,7 +1978,9 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Popup de conclusão/exclusão: Status="Feito" ou o botão Excluir. */}
+      {/* Popup de conclusão/exclusão: Status="Feito" ou o botão Excluir.
+          Só para quem pode escrever na tarefa — ele grava direto. */}
+      {podeMexer && (
       <ConcluirTarefaDialog
         tarefa={concluindoNoSheet}
         modoInicial={modoPopupSheet}
@@ -2019,6 +2002,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
           onClose();
         }}
       />
+      )}
     </Sheet>
   );
 }

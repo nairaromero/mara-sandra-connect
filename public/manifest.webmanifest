@@ -1,32 +1,17 @@
 {
-  "name": "Mara Sandra Advocacia",
-  "short_name": "Mara Sandra",
-  "description": "Plataforma do escritório Mara Sandra Advocacia previdenciária.",
+  "name": "Legal Connect",
+  "short_name": "Legal Connect",
+  "description": "Gestão de casos previdenciários para escritórios e parceiros.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#faf8f3",
-  "theme_color": "#b8862e",
+  "background_color": "#FCFAF6",
+  "theme_color": "#16243D",
   "lang": "pt-BR",
   "icons": [
-    {
-      "src": "/logo.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/logo.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/logo.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
-    }
+    { "src": "/marca/app-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/marca/app-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/marca/app-icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

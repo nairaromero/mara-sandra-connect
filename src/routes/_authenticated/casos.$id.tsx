@@ -42,6 +42,7 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
+import { useIntegracoesEscritorio } from "@/hooks/use-integracoes";
 import { useTiposBeneficio } from "@/hooks/use-tipos-beneficio";
 import { DESTAQUE_CLASSE, useFocoItem } from "@/hooks/use-foco-item";
 import { notificarEquipe } from "@/lib/notificar";
@@ -92,9 +93,10 @@ import {
 } from "@/lib/google-drive";
 import { BlocoPericiaCaso } from "@/components/bloco-pericia-caso";
 import { ClientOnly } from "@/components/client-only";
-import { DocTypeCombobox } from "@/components/doc-type-combobox";
+import { Selecao } from "@/components/ui/selecao";
 import { DrivePickerDialog, type DriveImportedFile } from "@/components/drive-picker-dialog";
 import { EditarSolicitacaoDialog } from "@/components/documentos/editar-solicitacao-dialog";
+import { SEM_PROCESSO, processoDoToken, tokenDaFrente } from "@/lib/processos/token";
 import { CumprirTrocaSenhaDialog } from "@/components/documentos/cumprir-troca-senha-dialog";
 import {
   buscarPedidoSenhaAberto,
@@ -130,15 +132,6 @@ import {
   type ArquivoCumprimento,
   type ItemSolicitacao,
 } from "@/lib/documentos/cumprimento";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -279,6 +272,10 @@ interface SolicitacaoDocumento {
   solicitante?: { id: string; nome: string | null } | null;
   data_solicitacao: string;
   data_atendimento: string | null;
+  // Frente do pedido e dono da tarefa que nasce dele (card #357).
+  processo_admin_id: string | null;
+  processo_judicial_id: string | null;
+  responsavel_id: string | null;
 }
 
 interface AnaliseTecnica {
@@ -664,7 +661,7 @@ function CasoDetalhePage() {
   const params = useParams({ from: "/_authenticated/casos/$id" });
   const casoId = params.id;
   const search = Route.useSearch();
-  const { usuario } = useAuth();
+  const { usuario, pode } = useAuth();
   const isInterno = usuario?.tipo === "interno";
 
   // Aba ativa controlada — permite deep-link via ?tab= (ex.: clicar numa
@@ -697,6 +694,10 @@ function CasoDetalhePage() {
   const [repasses, setRepasses] = useState<Array<Repasse>>([]);
   const [processosAdmin, setProcessosAdmin] = useState<Array<ProcessoAdmin>>([]);
   const [processosJudiciais, setProcessosJudiciais] = useState<Array<ProcessoJudicial>>([]);
+  // Os dois SELECTs de processo deram certo? Com o processo obrigatório no
+  // pedido de documento (card #357), lista vazia por erro de leitura não pode
+  // passar por "cliente sem processo".
+  const [processosCarregados, setProcessosCarregados] = useState(false);
 
   const carregar = useCallback(async () => {
     // Primeira carga bloqueia a tela. Recarga depois de salvar mantem os dados
@@ -727,7 +728,7 @@ function CasoDetalhePage() {
         supabase.from("casos").select("*").eq("id", casoId).maybeSingle(),
         // Lista de parceiros disponiveis (para edicao do caso). So interno usa.
         supabase
-          .from("usuarios")
+          .from("usuarios_escritorio")
           .select("id, nome, email")
           .eq("eh_parceiro", true)
           .order("nome", { ascending: true }),
@@ -872,6 +873,8 @@ function CasoDetalhePage() {
       if (!procJudResp.error) {
         setProcessosJudiciais((procJudResp.data || []) as Array<ProcessoJudicial>);
       }
+
+      setProcessosCarregados(!procAdminResp.error && !procJudResp.error);
     } catch (err) {
       console.error(err);
       const errObj = err as { message?: string };
@@ -1052,6 +1055,9 @@ function CasoDetalhePage() {
               usuarioId={usuario ? usuario.id : null}
               gdriveFolderId={caso.gdrive_folder_id ?? null}
               gdriveFolderName={caso.gdrive_folder_name ?? null}
+              processosAdmin={processosAdmin}
+              processosJudiciais={processosJudiciais}
+              processosCarregados={processosCarregados}
               focoId={search.foco}
               onChange={carregar}
             />
@@ -1085,7 +1091,7 @@ function CasoDetalhePage() {
             </div>
           </TabsContent>
 
-          {isInterno && (
+          {isInterno && pode("analises:ler") && (
             <TabsContent value="analise" className="mt-4">
               <TabAnaliseTecnica
                 casoId={casoId}
@@ -1155,6 +1161,8 @@ function CasoDetalhePage() {
 // A senha vem por RPC (get_senha_meu_inss) que decripta e registra auditoria;
 // o valor fica em cache na visita pra não gerar um log a cada toggle.
 function IdentidadeClienteLinha(props: { cliente: Cliente; isInterno: boolean }) {
+  // acoes de escrita dependem da permissao do vinculo (RBAC), nao do modo interno
+  const { pode } = useAuth();
   const { cliente, isInterno } = props;
   const [carregandoSenha, setCarregandoSenha] = useState(false);
   const [senhaValor, setSenhaValor] = useState<string | null>(null);
@@ -1287,60 +1295,63 @@ function IdentidadeClienteLinha(props: { cliente: Cliente; isInterno: boolean })
         )}
       </span>
 
-      {/* Senha MEU INSS — escondida por padrão */}
-      <span className="flex items-center gap-1">
-        <span className="text-xs text-muted-foreground flex items-center gap-1">
-          <KeyRound className="h-3.5 w-3.5" />
-          Senha MEU INSS:
-        </span>
-        {senhaVisivel ? (
-          senhaValor !== null ? (
-            <span
-              className={"font-mono" + (isInterno ? "" : " select-none")}
-              onCopy={isInterno ? undefined : (e) => e.preventDefault()}
-              onContextMenu={isInterno ? undefined : (e) => e.preventDefault()}
-            >
-              {senhaValor}
-            </span>
+      {/* Senha MEU INSS — escondida por padrão; só para quem tem senha_inss:ler
+          (financeiro não tem; o parceiro tem e continua vendo como antes) */}
+      {pode("senha_inss:ler") && (
+        <span className="flex items-center gap-1">
+          <span className="text-xs text-muted-foreground flex items-center gap-1">
+            <KeyRound className="h-3.5 w-3.5" />
+            Senha MEU INSS:
+          </span>
+          {senhaVisivel ? (
+            senhaValor !== null ? (
+              <span
+                className={"font-mono" + (isInterno ? "" : " select-none")}
+                onCopy={isInterno ? undefined : (e) => e.preventDefault()}
+                onContextMenu={isInterno ? undefined : (e) => e.preventDefault()}
+              >
+                {senhaValor}
+              </span>
+            ) : (
+              <span className="text-xs text-muted-foreground italic">não cadastrada</span>
+            )
           ) : (
-            <span className="text-xs text-muted-foreground italic">não cadastrada</span>
-          )
-        ) : (
-          <span className="font-mono tracking-widest text-muted-foreground">••••••</span>
-        )}
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-6 w-6 p-0"
-          onClick={toggleVerSenha}
-          disabled={carregandoSenha}
-          title={senhaVisivel ? "Ocultar senha" : "Ver senha"}
-        >
-          {carregandoSenha ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : senhaVisivel ? (
-            <EyeOff className="h-3.5 w-3.5" />
-          ) : (
-            <Eye className="h-3.5 w-3.5" />
+            <span className="font-mono tracking-widest text-muted-foreground">••••••</span>
           )}
-        </Button>
-        {isInterno && (
           <Button
             size="sm"
             variant="ghost"
             className="h-6 w-6 p-0"
-            onClick={copiarSenha}
+            onClick={toggleVerSenha}
             disabled={carregandoSenha}
-            title="Copiar senha"
+            title={senhaVisivel ? "Ocultar senha" : "Ver senha"}
           >
-            <Copy className="h-3.5 w-3.5" />
+            {carregandoSenha ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : senhaVisivel ? (
+              <EyeOff className="h-3.5 w-3.5" />
+            ) : (
+              <Eye className="h-3.5 w-3.5" />
+            )}
           </Button>
-        )}
-      </span>
+          {isInterno && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 w-6 p-0"
+              onClick={copiarSenha}
+              disabled={carregandoSenha}
+              title="Copiar senha"
+            >
+              <Copy className="h-3.5 w-3.5" />
+            </Button>
+          )}
+        </span>
+      )}
 
       {/* Telefone — só a equipe, mesma regra da Visão geral (o parceiro não vê
           contato do cliente). Sem número cadastrado, nem aparece. */}
-      {isInterno && cliente.telefone && (
+      {isInterno && pode("clientes:ler_contato") && cliente.telefone && (
         <span className="flex items-center gap-1">
           <span className="text-xs text-muted-foreground flex items-center gap-1">
             <Phone className="h-3.5 w-3.5" />
@@ -1373,6 +1384,9 @@ interface CasoHeaderProps {
 }
 
 function CasoHeader(props: CasoHeaderProps) {
+  // acoes de escrita dependem da permissao do vinculo (RBAC), nao do modo interno
+  const { pode } = useAuth();
+  const integracoes = useIntegracoesEscritorio();
   const { caso, cliente, isInterno, usuarioId, processosJudiciais, onChange } = props;
   const [syncingLM, setSyncingLM] = useState(false);
 
@@ -1476,7 +1490,7 @@ function CasoHeader(props: CasoHeaderProps) {
               CPF: {cpfFormatado} - {caso.tipo_beneficio}
             </CardDescription>
           </div>
-          {isInterno && (
+          {isInterno && pode("casos:editar") && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -1494,20 +1508,22 @@ function CasoHeader(props: CasoHeaderProps) {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  onClick={syncLegalmail}
-                  disabled={syncingLM}
-                  title="Atualizar movimentações dos processos Legalmail vinculados"
-                >
-                  {syncingLM && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
-                  Sync Legal
-                </DropdownMenuItem>
+                {integracoes.tem("legalmail") === true && (
+                  <DropdownMenuItem
+                    onClick={syncLegalmail}
+                    disabled={syncingLM}
+                    title="Atualizar movimentações dos processos Legalmail vinculados"
+                  >
+                    {syncingLM && <Loader2 className="h-3 w-3 mr-2 animate-spin" />}
+                    Sync Legal
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           )}
         </div>
         {/* Linha 2: etiquetas do cliente (editáveis pelo interno via popover). */}
-        <EtiquetasCliente clienteId={cliente.id} isInterno={isInterno} />
+        <EtiquetasCliente clienteId={cliente.id} isInterno={isInterno} podeEditar={isInterno && pode("casos:editar")} />
         {/* Linha 3: nascimento/idade, CPF e senha MEU INSS à mão (copiáveis). */}
         <IdentidadeClienteLinha cliente={cliente} isInterno={isInterno} />
       </CardHeader>
@@ -1529,6 +1545,8 @@ interface TabVisaoGeralProps {
 }
 
 function TabVisaoGeral(props: TabVisaoGeralProps) {
+  // permissao de excluir cliente vem do vinculo (RBAC), nao do modo interno
+  const { pode } = useAuth();
   const tiposBeneficio = useTiposBeneficio();
   const { caso, cliente, parceiro, parceirosDisponiveis, isInterno, onChange } = props;
   const navigate = useNavigate();
@@ -1922,10 +1940,13 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
           <CardHeader>
             <div className="flex items-center justify-between gap-2">
               <CardTitle className="text-base">Dados do cliente</CardTitle>
-              <Button size="sm" variant="outline" onClick={abrirDialogCliente}>
-                <Pencil className="h-3.5 w-3.5 mr-1" />
-                Editar
-              </Button>
+              {/* editar o cliente escreve em `clientes` (policy: casos:editar) */}
+              {isInterno && pode("casos:editar") && (
+                <Button size="sm" variant="outline" onClick={abrirDialogCliente}>
+                  <Pencil className="h-3.5 w-3.5 mr-1" />
+                  Editar
+                </Button>
+              )}
             </div>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
@@ -1972,9 +1993,9 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
               )}
             </div>
             <Linha label="Nascimento" valor={formatDate(cliente.data_nascimento)} />
-            {isInterno && <Linha label="Telefone" valor={formatarTelefone(cliente.telefone) || "-"} />}
-            {isInterno && <Linha label="E-mail" valor={cliente.email || "-"} />}
-            {isInterno && (
+            {isInterno && pode("clientes:ler_contato") && <Linha label="Telefone" valor={formatarTelefone(cliente.telefone) || "-"} />}
+            {isInterno && pode("clientes:ler_contato") && <Linha label="E-mail" valor={cliente.email || "-"} />}
+            {isInterno && pode("clientes:ler_contato") && (
               // Senha MEU INSS inline: olhinho revela (RPC com audit) e o
               // copiar fica ao lado pra praticidade.
               <div className="pt-2 border-t flex items-center justify-between gap-2">
@@ -2020,7 +2041,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                 </div>
               </div>
             )}
-            {isInterno && (pedidoSenha || caso.parceiro_id) && (
+            {isInterno && pode("senha_inss:ler") && (pedidoSenha || caso.parceiro_id) && (
               <div className="flex items-center justify-end gap-2 text-xs">
                 {pedidoSenha ? (
                   <span className="flex items-center gap-1 min-w-0 text-muted-foreground">
@@ -2179,7 +2200,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                     placeholder="Rua, número, bairro, cidade/UF"
                   />
                 </div>
-                {isInterno && (
+                {isInterno && pode("casos:editar") && (
                   <div>
                     <Label className="text-xs">Observações</Label>
                     <Textarea
@@ -2190,31 +2211,24 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                   </div>
                 )}
 
-                {isInterno && (
+                {isInterno && pode("casos:editar") && (
                   /* ---- Dados do caso (edicao unificada, so interno) ---- */
                   <div className="border-t pt-3 space-y-3">
                     <p className="text-sm font-medium">Dados do caso</p>
                     <div>
                       <Label className="text-xs">Tipo de benefício</Label>
-                      <Select value={csTipoBeneficio} onValueChange={setCsTipoBeneficio}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {/* Valor atual fora da lista (ex.: desativado em
-                              Configuracoes ou "a_definir"): mantem visivel. */}
-                          {csTipoBeneficio && !tiposBeneficio.includes(csTipoBeneficio) && (
-                            <SelectItem value={csTipoBeneficio}>
-                              {csTipoBeneficio} (atual)
-                            </SelectItem>
-                          )}
-                          {tiposBeneficio.map((t) => (
-                            <SelectItem key={t} value={t}>
-                              {t}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <Selecao
+                        value={csTipoBeneficio}
+                        onChange={setCsTipoBeneficio}
+                        opcoes={[
+                          // Valor atual fora da lista (ex.: desativado em
+                          // Configuracoes ou "a_definir"): mantem visivel.
+                          ...(csTipoBeneficio && !tiposBeneficio.includes(csTipoBeneficio)
+                            ? [{ value: csTipoBeneficio, label: `${csTipoBeneficio} (atual)` }]
+                            : []),
+                          ...tiposBeneficio.map((t) => ({ value: t, label: t })),
+                        ]}
+                      />
                     </div>
                     <div className="flex items-start gap-2">
                       <input
@@ -2234,75 +2248,49 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                     {!csInterno && (
                       <div>
                         <Label className="text-xs">Parceiro indicador</Label>
-                        <Select value={csParceiroId} onValueChange={setCsParceiroId}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Selecione um parceiro..." />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {parceirosDisponiveis.length === 0 && (
-                              <SelectItem value="__vazio__" disabled>
-                                Nenhum parceiro cadastrado
-                              </SelectItem>
-                            )}
-                            {parceirosDisponiveis.map((p) => (
-                              <SelectItem key={p.id} value={p.id}>
-                                {p.nome || p.email || "(sem nome)"}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <Selecao
+  value={csParceiroId}
+  onChange={setCsParceiroId}
+  opcoes={[
+    { value: "__vazio__", label: "Nenhum parceiro cadastrado" },
+    ...parceirosDisponiveis.map((p) => ({ value: p.id, label: p.nome || p.email || "(sem nome)" })),
+  ]}
+  placeholder="Selecione um parceiro..."
+/>
                       </div>
                     )}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <Label className="text-xs">Fase</Label>
-                        <Select value={csFase} onValueChange={setCsFase}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {FASES_CASO.map((f) => (
-                              <SelectItem key={f.value} value={f.value}>
-                                {f.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <Selecao
+  value={csFase}
+  onChange={setCsFase}
+  opcoes={[
+    ...FASES_CASO.map((f) => ({ value: f.value, label: f.label })),
+  ]}
+/>
                       </div>
                       <div>
                         <Label className="text-xs">Status</Label>
-                        <Select value={csStatus} onValueChange={setCsStatus}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {STATUS_CASO.map((s) => (
-                              <SelectItem key={s.value} value={s.value}>
-                                {s.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <Selecao
+  value={csStatus}
+  onChange={setCsStatus}
+  opcoes={[
+    ...STATUS_CASO.map((s) => ({ value: s.value, label: s.label })),
+  ]}
+/>
                       </div>
                     </div>
                     <div>
                       <Label className="text-xs">Responsável pelo caso</Label>
-                      <Select
-                        value={csResponsavelId || "sem"}
-                        onValueChange={(v) => setCsResponsavelId(v === "sem" ? "" : v)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="sem">Sem dono definido</SelectItem>
-                          {internosCaso.map((u) => (
-                            <SelectItem key={u.id} value={u.id}>
-                              {u.nome ?? u.email ?? "(sem nome)"}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <Selecao
+  value={csResponsavelId || "sem"}
+  onChange={(v) => setCsResponsavelId(v === "sem" ? "" : v)}
+  opcoes={[
+    { value: "sem", label: "Sem dono definido" },
+    ...internosCaso.map((u) => ({ value: u.id, label: u.nome ?? u.email ?? "(sem nome)" })),
+  ]}
+/>
                       <p className="text-xs text-muted-foreground mt-1">
                         Tarefa automática deste caso (documento do parceiro, publicação, exigência) nasce para essa pessoa. Sem dono, vai para quem já cuida do caso — ou para o padrão do escritório.
                       </p>
@@ -2310,7 +2298,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                   </div>
                 )}
 
-                {isInterno && (
+                {isInterno && pode("senha_inss:ler") && (
                   /* Senha MEU INSS - sempre vazio. Vazio = manter, preenchido =
                     substituir via RPC criptografada. Status atual (ja tem ou
                     nao) eh mostrado em texto auxiliar. Parceiro usa botao
@@ -2343,8 +2331,9 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
               <DialogFooter className="sm:justify-between gap-2">
                 {/* Excluir vai a esquerda - separacao visual clara da acao
                   primaria (Salvar). Espacamento sm:justify-between joga
-                  o destrutivo pra ponta. So interno - parceiro nao apaga. */}
-                {isInterno && (
+                  o destrutivo pra ponta. So quem tem clientes:excluir (admin,
+                  desde a migration_rbac_08) - o banco recusa os demais. */}
+                {isInterno && pode("clientes:excluir") && (
                   <Button
                     variant="destructive"
                     onClick={() => setConfExcluirCliente(true)}
@@ -2373,7 +2362,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
           </Dialog>
           {/* AlertDialog de confirmacao de exclusao. Acao destrutiva amplia o
             consentimento explicito do usuario - lista o que vai sumir. */}
-          {isInterno && (
+          {isInterno && pode("clientes:excluir") && (
             <AlertDialog
               open={confExcluirCliente}
               onOpenChange={(o) => {
@@ -2418,7 +2407,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
               </AlertDialogContent>
             </AlertDialog>
           )}
-          {isInterno && (
+          {isInterno && pode("casos:editar") && (
             <Dialog
               open={abrirPedirSenha}
               onOpenChange={(o) => !o && !enviandoPedidoSenha && setAbrirPedirSenha(false)}
@@ -2653,6 +2642,8 @@ function diasNoPassado(iso: string): number {
 
 
 function TabAndamentos(props: TabAndamentosProps) {
+  // acoes de escrita dependem da permissao do vinculo (RBAC), nao do modo interno
+  const { pode } = useAuth();
   const {
     casoId,
     andamentos,
@@ -3235,7 +3226,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                 {a.autor.nome}
               </span>
             )}
-            {isInterno && temParceiro && (
+            {isInterno && pode("casos:editar") && temParceiro && (
               <Button
                 type="button"
                 size="sm"
@@ -3260,7 +3251,7 @@ function TabAndamentos(props: TabAndamentosProps) {
               </Button>
             )}
           </div>
-          {isInterno && (
+          {isInterno && pode("casos:editar") && (
             <div className="flex items-center gap-1 shrink-0">
               <Button
                 size="sm"
@@ -3325,7 +3316,7 @@ function TabAndamentos(props: TabAndamentosProps) {
           (destacadoGlobal ? " " + DESTAQUE_CLASSE_GLOBAL : "")
         }
       >
-        {isInterno && (
+        {isInterno && pode("casos:editar") && (
           <input
             type="checkbox"
             checked={selecionadosVinculados.has(a.id)}
@@ -3407,7 +3398,7 @@ function TabAndamentos(props: TabAndamentosProps) {
               {ands.length} andamento{ands.length === 1 ? "" : "s"}
             </span>
             {/* Botao "+ Andamento" por processo - so para a equipe interna. */}
-            {isInterno && (
+            {isInterno && pode("casos:editar") && (
               <Button
                 size="sm"
                 variant="outline"
@@ -3470,7 +3461,7 @@ function TabAndamentos(props: TabAndamentosProps) {
       {/* Barra global de transferência (aparece quando há andamentos vinculados
           selecionados em qualquer accordion). Permite mover entre processos do
           mesmo tipo OU entre admin↔judicial. */}
-      {isInterno && selecionadosVinculados.size > 0 && (
+      {isInterno && pode("casos:editar") && selecionadosVinculados.size > 0 && (
         <div className="sticky top-0 z-10 bg-card border rounded-md p-3 flex items-end gap-2 flex-wrap shadow-sm">
           <div className="flex-1 min-w-[200px]">
             <Label className="text-xs">
@@ -3478,26 +3469,15 @@ function TabAndamentos(props: TabAndamentosProps) {
               {selecionadosVinculados.size === 1 ? "" : "s"} selecionado
               {selecionadosVinculados.size === 1 ? "" : "s"} para
             </Label>
-            <Select
+            <Selecao
               value={destinoTransfVinculados}
-              onValueChange={setDestinoTransfVinculados}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Escolha processo de destino..." />
-              </SelectTrigger>
-              <SelectContent>
-                {processosAdmin.map((p) => (
-                  <SelectItem key={"a-" + p.id} value={"admin:" + p.id}>
-                    Admin: {p.numero_requerimento || "(sem número)"}
-                  </SelectItem>
-                ))}
-                {processosJudiciais.map((p) => (
-                  <SelectItem key={"j-" + p.id} value={"judicial:" + p.id}>
-                    Judicial: {p.numero_processo || "(sem número)"}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              onChange={setDestinoTransfVinculados}
+              placeholder="Escolha processo de destino..."
+              opcoes={[
+                ...processosAdmin.map((p) => ({ value: "admin:" + p.id, label: `Admin: ${p.numero_requerimento || "(sem número)"}` })),
+                ...processosJudiciais.map((p) => ({ value: "judicial:" + p.id, label: `Judicial: ${p.numero_processo || "(sem número)"}` })),
+              ]}
+            />
           </div>
           <Button
             size="sm"
@@ -3526,7 +3506,7 @@ function TabAndamentos(props: TabAndamentosProps) {
       {/* Barra: buscar teor das publicações (interno) + toggle de rotina. */}
       {(isInterno || totalRotina > 0) && (
         <div className="flex items-center justify-between gap-2">
-          {isInterno ? (
+          {isInterno && pode("casos:editar") ? (
             <Button
               size="sm"
               variant="outline"
@@ -3578,7 +3558,7 @@ function TabAndamentos(props: TabAndamentosProps) {
               <CardTitle className="text-base">Andamentos Administrativos</CardTitle>
               <CardDescription>Movimentações vinculadas a processos do INSS.</CardDescription>
             </div>
-            {isInterno && (
+            {isInterno && pode("casos:editar") && (
               <Button
                 size="sm"
                 onClick={() => abrirNovoTipo("admin")}
@@ -3655,37 +3635,24 @@ function TabAndamentos(props: TabAndamentosProps) {
                   {abertoSemProcessoAdmin && (
                     <div className="border-t">
                       {/* Barra de transferencia */}
-                      {isInterno && (
+                      {isInterno && pode("casos:editar") && (
                         <div className="bg-muted/30 p-3 border-b flex items-end gap-2 flex-wrap">
                           <div className="flex-1 min-w-[200px]">
                             <Label className="text-xs">Transferir selecionados para</Label>
-                            <Select
+                            <Selecao
                               value={destinoTransfSemProc}
-                              onValueChange={setDestinoTransfSemProc}
+                              onChange={setDestinoTransfSemProc}
                               disabled={processosAdmin.length === 0 && processosJudiciais.length === 0}
-                            >
-                              <SelectTrigger>
-                                <SelectValue
-                                  placeholder={
-                                    processosAdmin.length === 0 && processosJudiciais.length === 0
-                                      ? "Nenhum processo cadastrado"
-                                      : "Selecione um processo..."
-                                  }
-                                />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {processosAdmin.map((p) => (
-                                  <SelectItem key={"a-" + p.id} value={"admin:" + p.id}>
-                                    Admin: {p.numero_requerimento || "(sem número)"}
-                                  </SelectItem>
-                                ))}
-                                {processosJudiciais.map((p) => (
-                                  <SelectItem key={"j-" + p.id} value={"judicial:" + p.id}>
-                                    Judicial: {p.numero_processo || "(sem número)"}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                              placeholder={
+                                processosAdmin.length === 0 && processosJudiciais.length === 0
+                                  ? "Nenhum processo cadastrado"
+                                  : "Selecione um processo..."
+                              }
+                              opcoes={[
+                ...processosAdmin.map((p) => ({ value: "admin:" + p.id, label: `Admin: ${p.numero_requerimento || "(sem número)"}` })),
+                ...processosJudiciais.map((p) => ({ value: "judicial:" + p.id, label: `Judicial: ${p.numero_processo || "(sem número)"}` })),
+                              ]}
+                            />
                           </div>
                           <Button
                             size="sm"
@@ -3722,7 +3689,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                             }
                           >
                             <div className="flex items-start gap-2">
-                              {isInterno && (
+                              {isInterno && pode("casos:editar") && (
                                 <input
                                   type="checkbox"
                                   checked={selecionadosSemProc.has(a.id)}
@@ -3753,7 +3720,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                 <CardTitle className="text-base">Andamentos Judiciais</CardTitle>
                 <CardDescription>Movimentações vinculadas a processos judiciais.</CardDescription>
               </div>
-              {isInterno && (
+              {isInterno && pode("casos:editar") && (
                 <Button
                   size="sm"
                   onClick={() => abrirNovoTipo("judicial")}
@@ -3800,27 +3767,19 @@ function TabAndamentos(props: TabAndamentosProps) {
           </CardHeader>
           <CardContent>
             {/* Barra de transferencia */}
-            {isInterno && (processosAdmin.length > 0 || processosJudiciais.length > 0) && (
+            {isInterno && pode("casos:editar") && (processosAdmin.length > 0 || processosJudiciais.length > 0) && (
               <div className="bg-muted/30 p-3 border rounded-md mb-3 flex items-end gap-2 flex-wrap">
                 <div className="flex-1 min-w-[200px]">
                   <Label className="text-xs">Transferir selecionados para</Label>
-                  <Select value={destinoTransfGerais} onValueChange={setDestinoTransfGerais}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione um processo..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {processosAdmin.map((p) => (
-                        <SelectItem key={"a-" + p.id} value={"admin:" + p.id}>
-                          Admin: {p.numero_requerimento || "(sem número)"}
-                        </SelectItem>
-                      ))}
-                      {processosJudiciais.map((p) => (
-                        <SelectItem key={"j-" + p.id} value={"judicial:" + p.id}>
-                          Judicial: {p.numero_processo || "(sem número)"}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Selecao
+                    value={destinoTransfGerais}
+                    onChange={setDestinoTransfGerais}
+                    opcoes={[
+                      ...processosAdmin.map((p) => ({ value: "admin:" + p.id, label: `Admin: ${p.numero_requerimento || "(sem número)"}` })),
+                      ...processosJudiciais.map((p) => ({ value: "judicial:" + p.id, label: `Judicial: ${p.numero_processo || "(sem número)"}` })),
+                    ]}
+                    placeholder="Selecione um processo..."
+                  />
                 </div>
                 <Button
                   size="sm"
@@ -3847,7 +3806,7 @@ function TabAndamentos(props: TabAndamentosProps) {
                   }
                 >
                   <div className="flex items-start gap-2">
-                    {isInterno && (
+                    {isInterno && pode("casos:editar") && (
                       <input
                         type="checkbox"
                         checked={selecionadosGerais.has(a.id)}
@@ -3865,7 +3824,7 @@ function TabAndamentos(props: TabAndamentosProps) {
       )}
 
       {/* ---- Dialog Novo andamento (unificado, controlado por tipoDialogoNovo) ---- */}
-      {isInterno && (
+      {isInterno && pode("casos:editar") && (
         <Dialog
           open={tipoDialogoNovo !== null}
           onOpenChange={(open) => {
@@ -3911,26 +3870,15 @@ function TabAndamentos(props: TabAndamentosProps) {
               {mostrarSelectProcessoDialog && (
                 <div>
                   <Label className="text-xs">Processo</Label>
-                  <Select value={processoVinculo} onValueChange={setProcessoVinculo}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione o processo..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={PROCESSO_NENHUM}>Nenhum (sem vínculo)</SelectItem>
-                      {isAdminDialog &&
-                        processosAdmin.map((p) => (
-                          <SelectItem key={"a-" + p.id} value={"admin:" + p.id}>
-                            Admin: {p.numero_requerimento || "(sem número)"}
-                          </SelectItem>
-                        ))}
-                      {isJudDialog &&
-                        processosJudiciais.map((p) => (
-                          <SelectItem key={"j-" + p.id} value={"judicial:" + p.id}>
-                            Judicial: {p.numero_processo || "(sem número)"}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
+                  <Selecao
+                    value={processoVinculo}
+                    onChange={setProcessoVinculo}
+                    opcoes={[
+                      ...processosAdmin.map((p) => ({ value: "admin:" + p.id, label: `Admin: ${p.numero_requerimento || "(sem número)"}` })),
+                      ...processosJudiciais.map((p) => ({ value: "judicial:" + p.id, label: `Judicial: ${p.numero_processo || "(sem número)"}` })),
+                    ]}
+                    placeholder="Selecione o processo..."
+                  />
                 </div>
               )}
               <div>
@@ -3957,24 +3905,15 @@ function TabAndamentos(props: TabAndamentosProps) {
               {temParceiro && (
                 <div>
                   <Label className="text-xs">O parceiro indicador</Label>
-                  <Select
+                  <Selecao
                     value={avisoParceiro}
-                    onValueChange={(v) => {
+                    onChange={(v) => {
                       avisoTocado.current = true;
                       setAvisoParceiro(v as AvisoParceiro);
                     }}
-                  >
-                    <SelectTrigger aria-label="O parceiro indicador">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {AVISO_PARCEIRO_OPCOES.map((o) => (
-                        <SelectItem key={o.valor} value={o.valor}>
-                          {o.rotulo}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    opcoes={AVISO_PARCEIRO_OPCOES.map((o) => ({ value: o.valor, label: o.rotulo }))}
+                    aria-label="O parceiro indicador"
+                  />
                 </div>
               )}
             </div>
@@ -4017,7 +3956,7 @@ function TabAndamentos(props: TabAndamentosProps) {
       </AlertDialog>
 
       {/* ---- Dialog Editar andamento ---- */}
-      {isInterno && (
+      {isInterno && pode("casos:editar") && (
         <Dialog
           open={editando !== null}
           onOpenChange={(open) => {
@@ -4047,24 +3986,15 @@ function TabAndamentos(props: TabAndamentosProps) {
               {temProcessos && !processoUnico && (
                 <div>
                   <Label className="text-xs">Processo (opcional)</Label>
-                  <Select value={editProcessoVinculo} onValueChange={setEditProcessoVinculo}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Vincular a um processo..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={PROCESSO_NENHUM}>Nenhum</SelectItem>
-                      {processosAdmin.map((p) => (
-                        <SelectItem key={"a-" + p.id} value={"admin:" + p.id}>
-                          Admin: {p.numero_requerimento || "(sem número)"}
-                        </SelectItem>
-                      ))}
-                      {processosJudiciais.map((p) => (
-                        <SelectItem key={"j-" + p.id} value={"judicial:" + p.id}>
-                          Judicial: {p.numero_processo || "(sem número)"}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Selecao
+                    value={editProcessoVinculo}
+                    onChange={setEditProcessoVinculo}
+                    opcoes={[
+                      ...processosAdmin.map((p) => ({ value: "admin:" + p.id, label: `Admin: ${p.numero_requerimento || "(sem número)"}` })),
+                      ...processosJudiciais.map((p) => ({ value: "judicial:" + p.id, label: `Judicial: ${p.numero_processo || "(sem número)"}` })),
+                    ]}
+                    placeholder="Vincular a um processo..."
+                  />
                 </div>
               )}
               <div>
@@ -4082,21 +4012,12 @@ function TabAndamentos(props: TabAndamentosProps) {
               {temParceiro && (
                 <div>
                   <Label className="text-xs">O parceiro indicador</Label>
-                  <Select
+                  <Selecao
                     value={editAvisoParceiro}
-                    onValueChange={(v) => setEditAvisoParceiro(v as AvisoParceiro)}
-                  >
-                    <SelectTrigger aria-label="O parceiro indicador">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {AVISO_PARCEIRO_OPCOES.map((o) => (
-                        <SelectItem key={o.valor} value={o.valor}>
-                          {o.rotulo}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    onChange={(v) => setEditAvisoParceiro(v as AvisoParceiro)}
+                    opcoes={AVISO_PARCEIRO_OPCOES.map((o) => ({ value: o.valor, label: o.rotulo }))}
+                    aria-label="O parceiro indicador"
+                  />
                 </div>
               )}
             </div>
@@ -4124,6 +4045,12 @@ interface TabDocumentosProps {
   casoId: string;
   documentos: Array<Documento>;
   solicitacoes: Array<SolicitacaoDocumento>;
+  // Processos do caso: o pedido ao parceiro precisa dizer de qual frente ele é
+  // — é isso que decide a coluna do kanban dele (card #357).
+  processosAdmin: Array<ProcessoAdmin>;
+  processosJudiciais: Array<ProcessoJudicial>;
+  /** false = os SELECTs de processo falharam; não é "caso sem processo". */
+  processosCarregados: boolean;
   isInterno: boolean;
   usuarioId: string | null;
   gdriveFolderId: string | null;
@@ -4141,12 +4068,15 @@ function TabDocumentos(props: TabDocumentosProps) {
     usuarioId,
     gdriveFolderId,
     gdriveFolderName,
+    processosAdmin,
+    processosJudiciais,
+    processosCarregados,
     focoId,
     onChange,
   } = props;
   const foco = useFocoItem(focoId);
   // Usuario logado (usado pelo preview do parceiro para watermark)
-  const { usuario } = useAuth();
+  const { usuario, pode, podeEscrever } = useAuth();
 
   // Modal para coletar motivo (dispensa ou atendimento)
   const [acaoAlvo, setAcaoAlvo] = useState<{
@@ -4508,17 +4438,27 @@ function TabDocumentos(props: TabDocumentosProps) {
           "\n\nRemover também do sistema?\n\n" +
           "OK = apaga aqui também.\n" +
           "Cancelar = mantém aqui; use \"Subir pendentes\" pra devolvê-los ao Drive.";
-        if (window.confirm(msg)) {
+        // Apagar é OUTRA permissão (documentos:excluir): quem só envia sincroniza
+        // sem a pergunta. Antes ela aparecia e o banco recusava calado.
+        if (podeEscrever("documentos", "excluir") && window.confirm(msg)) {
           const removidosIds = new Set<string>();
           for (const d of apagadosNoDrive) {
-            try {
-              await supabase.storage.from("documentos").remove([d.storage_path]);
-              await supabase.from("documentos").delete().eq("id", d.id);
-              removidos++;
-              removidosIds.add(d.id);
-            } catch (err) {
-              console.warn("[drive] falha ao remover", d.nome_arquivo, err);
+            // O supabase-js NÃO lança em erro de RLS: devolve { error }. Contar
+            // sem olhar isso fazia a tela dizer "N removido(s)" com zero removido.
+            const { error: errStorage } = await supabase.storage
+              .from("documentos")
+              .remove([d.storage_path]);
+            if (errStorage) {
+              console.warn("[drive] falha ao remover do storage", d.nome_arquivo, errStorage);
+              continue;
             }
+            const { error: errLinha } = await supabase.from("documentos").delete().eq("id", d.id);
+            if (errLinha) {
+              console.warn("[drive] falha ao remover do banco", d.nome_arquivo, errLinha);
+              continue;
+            }
+            removidos++;
+            removidosIds.add(d.id);
           }
           aindaSumidos = aindaSumidos.filter((id) => !removidosIds.has(id));
         }
@@ -5350,7 +5290,8 @@ function TabDocumentos(props: TabDocumentosProps) {
             <div>
               <CardTitle className="text-base">Documentos do caso</CardTitle>
               <CardDescription>Arquivos anexados a este caso.</CardDescription>
-              {isInterno && gdriveFolderId && (
+              {/* desvincular grava em `casos` (casos:editar) */}
+              {isInterno && podeEscrever("casos") && gdriveFolderId && (
                 <div className="mt-1 text-xs text-muted-foreground flex items-center gap-1">
                   <span>Pasta vinculada:</span>
                   <span className="font-medium text-foreground">
@@ -5369,7 +5310,7 @@ function TabDocumentos(props: TabDocumentosProps) {
               )}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              {isInterno && lista.length > 0 && (
+              {isInterno && pode("documentos:enviar") && lista.length > 0 && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -5392,6 +5333,9 @@ function TabDocumentos(props: TabDocumentosProps) {
                       Baixar
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
+                    {/* apagar documento é OUTRA permissão (documentos:excluir):
+                        o menu abre com documentos:enviar, o item só com esta */}
+                    {podeEscrever("documentos", "excluir") && (
                     <DropdownMenuItem
                       onClick={deletarSelecionados}
                       className="text-destructive focus:text-destructive"
@@ -5399,11 +5343,12 @@ function TabDocumentos(props: TabDocumentosProps) {
                       <Trash2 className="h-4 w-4 mr-2" />
                       Excluir
                     </DropdownMenuItem>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}
               {/* Numerar documentos sem prefixo (ordem de categoria) */}
-              {isInterno &&
+              {isInterno && pode("documentos:enviar") &&
                 (() => {
                   const semNumeroCount = documentos.filter(
                     (d) => !d.pasta_relativa && prefixoNumerico(d.nome_arquivo) === null,
@@ -5432,7 +5377,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                   );
                 })()}
               {/* Botoes de Drive: vincular pasta / sync / importar avulso */}
-              {isInterno && isGoogleDriveConfigured() && gdriveFolderId && (
+              {isInterno && pode("documentos:enviar") && isGoogleDriveConfigured() && gdriveFolderId && (
                 <Button
                   size="sm"
                   variant="outline"
@@ -5465,7 +5410,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                   )}
                 </Button>
               )}
-              {isInterno && isGoogleDriveConfigured() && gdriveFolderId && (
+              {isInterno && pode("documentos:enviar") && isGoogleDriveConfigured() && gdriveFolderId && (
                 (() => {
                   const semId = documentos.filter(
                     (d) => !d.gdrive_file_id,
@@ -5507,7 +5452,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                   );
                 })()
               )}
-              {isInterno && isGoogleDriveConfigured() && !gdriveFolderId && (
+              {isInterno && pode("documentos:enviar") && isGoogleDriveConfigured() && !gdriveFolderId && (
                 <Button
                   size="sm"
                   variant="outline"
@@ -5523,7 +5468,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                   Vincular pasta
                 </Button>
               )}
-              {isInterno && isGoogleDriveConfigured() && (
+              {isInterno && pode("documentos:enviar") && isGoogleDriveConfigured() && (
                 <Button
                   size="sm"
                   variant="outline"
@@ -5534,12 +5479,15 @@ function TabDocumentos(props: TabDocumentosProps) {
                   Importar arquivos
                 </Button>
               )}
-              <UploadDoc
-                casoId={casoId}
-                usuarioId={usuarioId}
-                gdriveFolderId={gdriveFolderId}
-                onChange={onChange}
-              />
+              {/* enviar documento escreve na tabela `documentos` (documentos:enviar) */}
+              {podeEscrever("documentos") && (
+                <UploadDoc
+                  casoId={casoId}
+                  usuarioId={usuarioId}
+                  gdriveFolderId={gdriveFolderId}
+                  onChange={onChange}
+                />
+              )}
             </div>
           </div>
         </CardHeader>
@@ -5638,7 +5586,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                       }
                     >
                       <div className="flex items-center gap-3 min-w-0">
-                        {isInterno && (
+                        {isInterno && pode("documentos:excluir") && (
                           <input
                             type="checkbox"
                             checked={docsSelecionados.has(d.id)}
@@ -5677,7 +5625,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                         </Button>
                         {/* Interno: toggle de autorizacao pro parceiro baixar.
                           Padrao = nao baixa; equipe libera por doc. */}
-                        {isInterno && (
+                        {isInterno && pode("documentos:enviar") && (
                           <Button
                             size="sm"
                             variant={d.download_parceiro ? "secondary" : "outline"}
@@ -5707,7 +5655,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                             Baixar
                           </Button>
                         )}
-                        {isInterno && (
+                        {isInterno && pode("documentos:enviar") && (
                           <Button
                             size="sm"
                             variant="ghost"
@@ -5718,7 +5666,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                             <Pencil className="h-4 w-4" />
                           </Button>
                         )}
-                        {isInterno && (
+                        {isInterno && pode("documentos:excluir") && (
                           <Button
                             size="sm"
                             variant="ghost"
@@ -5807,8 +5755,17 @@ function TabDocumentos(props: TabDocumentosProps) {
                   : "Documentos que o escritório precisa. Envie por 'Adicionar' abaixo."}
               </CardDescription>
             </div>
-            {isInterno && (
-              <SolicitarDocBotao casoId={casoId} usuarioId={usuarioId} onChange={onChange} />
+            {/* pedir documento grava em `solicitacoes_documento` (casos:editar);
+                as props de processo vêm do lote do kanban (#357) */}
+            {isInterno && podeEscrever("solicitacoes_documento") && (
+              <SolicitarDocBotao
+                casoId={casoId}
+                usuarioId={usuarioId}
+                processosAdmin={processosAdmin}
+                processosJudiciais={processosJudiciais}
+                processosCarregados={processosCarregados}
+                onChange={onChange}
+              />
             )}
           </div>
         </CardHeader>
@@ -5922,7 +5879,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                         );
                       })()}
                     </div>
-                    {isInterno && isPendente && (
+                    {isInterno && isPendente && podeEscrever("solicitacoes_documento") && (
                       <div className="flex gap-1">
                         {ehPedidoSenhaMeuInss(s.tipo) ? (
                           <span className="text-xs text-muted-foreground self-center mr-1">
@@ -6078,8 +6035,10 @@ function TabDocumentos(props: TabDocumentosProps) {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            {/* Radio "como atender" - so para interno + atendido */}
-            {isInterno && acaoAlvo && acaoAlvo.novoStatus === "atendido" && (
+            {/* Radio "como atender" - so para interno + atendido. Anexar sobe
+                arquivo e insere em `documentos` (documentos:enviar): sem a
+                permissão, sobra só "marcar como atendido". */}
+            {isInterno && podeEscrever("documentos") && acaoAlvo && acaoAlvo.novoStatus === "atendido" && (
               <div className="space-y-2">
                 <Label className="text-xs">Como atender</Label>
                 <div className="flex flex-col gap-2">
@@ -6221,7 +6180,7 @@ function TabDocumentos(props: TabDocumentosProps) {
         </DialogContent>
       </Dialog>
       {/* Dialog do Google Drive Picker (interno only). */}
-      {isInterno && (
+      {isInterno && pode("documentos:enviar") && (
         <DrivePickerDialog
           arquivosSelecionados={drivePicked?.files ?? null}
           accessToken={drivePicked?.accessToken ?? ""}
@@ -6510,8 +6469,8 @@ function UploadDoc(props: {
                   </div>
                   <div>
                     <Label className="text-xs">Tipo</Label>
-                    <DocTypeCombobox
-                      options={tiposOptions}
+                    <Selecao
+                      opcoes={tiposOptions}
                       value={it.tipo}
                       onChange={(v) => atualizarTipo(it.id, v)}
                       placeholder="Selecione ou busque o tipo..."
@@ -6566,9 +6525,13 @@ function UploadDoc(props: {
 function SolicitarDocBotao(props: {
   casoId: string;
   usuarioId: string | null;
+  processosAdmin: Array<ProcessoAdmin>;
+  processosJudiciais: Array<ProcessoJudicial>;
+  processosCarregados: boolean;
   onChange: () => void;
 }) {
-  const { casoId, usuarioId, onChange } = props;
+  const { casoId, usuarioId, processosAdmin, processosJudiciais, processosCarregados, onChange } =
+    props;
   const [aberto, setAberto] = useState(false);
   const [tipo, setTipo] = useState("");
   const [tipoPersonalizado, setTipoPersonalizado] = useState("");
@@ -6591,12 +6554,17 @@ function SolicitarDocBotao(props: {
   // Interna: quem da equipe vai providenciar — o banco abre a tarefa pra
   // essa pessoa (Naira, 2026-08-26).
   const [responsavelId, setResponsavelId] = useState("");
+  // Frente do pedido: "" = não escolheu · "sem" = cliente sem processo ·
+  // "admin:<id>" / "judicial:<id>". Decide a coluna do kanban (card #357).
+  const [processoToken, setProcessoToken] = useState("");
   const [internos, setInternos] = useState<
     Array<{ id: string; nome: string | null; email: string | null }>
   >([]);
 
   useEffect(() => {
-    if (!aberto || origem !== "interna" || internos.length > 0) return;
+    // A lista serve pros dois casos: interna (quem providencia) e externa
+    // (quem analisa quando o documento voltar).
+    if (!aberto || internos.length > 0) return;
     listarInternosAtivos()
       .then(setInternos)
       .catch((e) => console.error("listarInternosAtivos:", e));
@@ -6605,9 +6573,34 @@ function SolicitarDocBotao(props: {
   const tiposOptions = TIPOS_DOCUMENTO_OPTIONS;
 
   const atualValido = !!tipo && (tipo !== "outro" || tipoPersonalizado.trim().length > 0);
+  // Frentes do caso pro seletor. Com uma só, já vem escolhida — ninguém
+  // precisa decidir o óbvio.
+  const frentes = useMemo(
+    () => [
+      ...processosAdmin.map((p) => ({
+        token: tokenDaFrente("admin", p.id),
+        rotulo: "Requerimento " + (p.numero_requerimento || "(sem número)"),
+      })),
+      ...processosJudiciais.map((p) => ({
+        token: tokenDaFrente("judicial", p.id),
+        rotulo: "Processo judicial " + (p.numero_processo || "(sem número)"),
+      })),
+    ],
+    [processosAdmin, processosJudiciais],
+  );
+  useEffect(() => {
+    if (!aberto) return;
+    setProcessoToken(frentes.length === 1 ? frentes[0].token : "");
+  }, [aberto, frentes]);
+
   const valido =
     (atualValido || adicionados.length > 0) &&
-    (origem !== "interna" || !!responsavelId);
+    (origem !== "interna" || !!responsavelId) &&
+    // Com processo no caso, escolher a frente é obrigatório (card #357) —
+    // "Cliente sem processo" é uma das respostas. Se a leitura dos processos
+    // falhou, ninguém sabe se há frente: trava em vez de gravar no escuro.
+    processosCarregados &&
+    (frentes.length === 0 || !!processoToken);
 
   function adicionarAtual() {
     if (!atualValido) return;
@@ -6653,7 +6646,9 @@ function SolicitarDocBotao(props: {
           status: "pendente",
           origem: origem,
           solicitado_por: usuarioId,
-          responsavel_id: origem === "interna" ? responsavelId : null,
+          // Interna: quem providencia. Externa: quem analisa quando voltar.
+          responsavel_id: responsavelId || null,
+          ...processoDoToken(processoToken),
           prazo_at: prazoIsoBase ? fimDoDiaBR(prazoIsoBase).toISOString() : null,
         })
         .select("id")
@@ -6714,8 +6709,8 @@ function SolicitarDocBotao(props: {
           <div>
             <Label className="text-xs">Tipo de documento</Label>
             <div className={"rounded-md " + (flashNovoCampo ? DESTAQUE_CLASSE : "")}>
-              <DocTypeCombobox
-                options={tiposOptions}
+              <Selecao
+                opcoes={tiposOptions}
                 value={tipo}
                 onChange={setTipo}
                 placeholder="Selecione ou busque o tipo..."
@@ -6770,34 +6765,74 @@ function SolicitarDocBotao(props: {
           </Button>
           <div>
             <Label className="text-xs">Quem vai providenciar?</Label>
-            <Select value={origem} onValueChange={setOrigem}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="externa">Externa - parceiro ou cliente envia</SelectItem>
-                <SelectItem value="interna">Interna - escritório providencia</SelectItem>
-              </SelectContent>
-            </Select>
+            <Selecao
+  value={origem}
+  onChange={setOrigem}
+  opcoes={[
+    { value: "externa", label: "Externa - parceiro ou cliente envia" },
+    { value: "interna", label: "Interna - escritório providencia" },
+  ]}
+/>
           </div>
           {origem === "interna" && (
             <div>
               <Label className="text-xs">Responsável na equipe (obrigatório)</Label>
-              <Select value={responsavelId} onValueChange={setResponsavelId}>
-                <SelectTrigger aria-label="Responsável na equipe">
-                  <SelectValue placeholder="Quem vai providenciar" />
-                </SelectTrigger>
-                <SelectContent>
-                  {internos.map((u) => (
-                    <SelectItem key={u.id} value={u.id}>
-                      {u.nome || u.email || u.id}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Selecao
+  value={responsavelId}
+  aria-label="Responsável na equipe"
+  onChange={setResponsavelId}
+  opcoes={[
+    ...internos.map((u) => ({ value: u.id, label: u.nome || u.email || u.id })),
+  ]}
+  placeholder="Quem vai providenciar"
+/>
               <p className="text-xs text-muted-foreground mt-1">
                 A tarefa "Providenciar documentos" abre no nome dessa pessoa e se
                 conclui sozinha quando a solicitação for atendida.
+              </p>
+            </div>
+          )}
+          {!processosCarregados && (
+            <p className="text-xs text-destructive">
+              Não consegui carregar os processos do caso — recarregue a página antes de pedir o
+              documento.
+            </p>
+          )}
+          {frentes.length > 0 && (
+            <div>
+              <Label className="text-xs">Processo *</Label>
+              <Selecao
+  value={processoToken}
+  aria-label="Processo do pedido"
+  onChange={setProcessoToken}
+  opcoes={[
+    { value: SEM_PROCESSO, label: "Cliente sem processo" },
+    ...frentes.map((f) => ({ value: f.token, label: f.rotulo })),
+  ]}
+  placeholder="Escolha o processo"
+/>
+              <p className="text-xs text-muted-foreground mt-1">
+                É o processo que decide em qual coluna o parceiro vê o pedido: requerimento
+                vai para Administrativo, ação para Judiciais.
+              </p>
+            </div>
+          )}
+          {origem === "externa" && internos.length > 0 && (
+            <div>
+              <Label className="text-xs">Quem cuida quando o documento voltar (opcional)</Label>
+              <Selecao
+  value={responsavelId || "auto"}
+  aria-label="Quem cuida quando o documento voltar"
+  onChange={(v) => setResponsavelId(v === "auto" ? "" : v)}
+  opcoes={[
+    { value: "auto", label: "Definir automaticamente" },
+    ...internos.map((u) => ({ value: u.id, label: u.nome || u.email || u.id })),
+  ]}
+  placeholder="Definir automaticamente"
+/>
+              <p className="text-xs text-muted-foreground mt-1">
+                A tarefa que nascer com o documento — analisar o que chegou ou cumprir a
+                exigência — abre no nome dessa pessoa.
               </p>
             </div>
           )}
@@ -7592,16 +7627,15 @@ function TabRepasses(props: TabRepassesProps) {
                   </div>
                   <div>
                     <Label className="text-xs">Status inicial</Label>
-                    <Select value={statusInicial} onValueChange={setStatusInicial}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="previsto">Previsto</SelectItem>
-                        <SelectItem value="a_pagar">A pagar</SelectItem>
-                        <SelectItem value="pago">Pago</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Selecao
+  value={statusInicial}
+  onChange={setStatusInicial}
+  opcoes={[
+    { value: "previsto", label: "Previsto" },
+    { value: "a_pagar", label: "A pagar" },
+    { value: "pago", label: "Pago" },
+  ]}
+/>
                   </div>
                 </div>
                 <DialogFooter>
@@ -7661,16 +7695,16 @@ function TabRepasses(props: TabRepassesProps) {
                     {STATUS_REPASSE_LABEL[r.status] || r.status}
                   </Badge>
                   {isInterno && r.status !== "pago" && (
-                    <Select value={r.status} onValueChange={(v) => atualizarStatus(r, v)}>
-                      <SelectTrigger className="h-8 w-32 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="previsto">Previsto</SelectItem>
-                        <SelectItem value="a_pagar">A pagar</SelectItem>
-                        <SelectItem value="pago">Pago</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Selecao
+  value={r.status}
+  onChange={(v) => atualizarStatus(r, v)}
+  opcoes={[
+    { value: "previsto", label: "Previsto" },
+    { value: "a_pagar", label: "A pagar" },
+    { value: "pago", label: "Pago" },
+  ]}
+  className="h-8 w-32 text-xs"
+/>
                   )}
                 </div>
               </li>
@@ -7714,6 +7748,9 @@ interface ResultadoBuscaLM {
 }
 
 function TabProcessos(props: TabProcessosProps) {
+  // acoes de escrita dependem da permissao do vinculo (RBAC), nao do modo interno
+  const { pode } = useAuth();
+  const integracoes = useIntegracoesEscritorio();
   const tiposBeneficio = useTiposBeneficio();
   const {
     casoId,
@@ -8316,7 +8353,7 @@ function TabProcessos(props: TabProcessosProps) {
                 </p>
               )}
             </div>
-            {isInterno && (
+            {isInterno && pode("casos:editar") && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0">
@@ -8378,7 +8415,7 @@ function TabProcessos(props: TabProcessosProps) {
               <CardTitle className="text-base">Processos administrativos</CardTitle>
               <CardDescription>Requerimentos protocolados no INSS.</CardDescription>
             </div>
-            {isInterno && (
+            {isInterno && pode("casos:editar") && (
               <Button size="sm" onClick={() => abrirNovoAdmin()}>
                 <Plus className="h-4 w-4 mr-2" />
                 Novo
@@ -8404,46 +8441,31 @@ function TabProcessos(props: TabProcessosProps) {
                   </div>
                   <div>
                     <Label className="text-xs">Tipo de benefício</Label>
-                    <Select
+                    <Selecao
                       value={tipoBeneficioAdmin || "__none__"}
-                      onValueChange={(v) => setTipoBeneficioAdmin(v === "__none__" ? "" : v)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecione o benefício" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">Não informado</SelectItem>
-                        {tipoBeneficioAdmin && !tiposBeneficio.includes(tipoBeneficioAdmin) && (
-                          <SelectItem value={tipoBeneficioAdmin}>
-                            {tipoBeneficioAdmin} (atual)
-                          </SelectItem>
-                        )}
-                        {tiposBeneficio.map((b) => (
-                          <SelectItem key={b} value={b}>
-                            {b}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      onChange={(v) => setTipoBeneficioAdmin(v === "__none__" ? "" : v)}
+                      placeholder="Selecione o benefício"
+                      opcoes={[
+                        { value: "__none__", label: "Não informado" },
+                        // valor fora da lista (desativado nas Configurações): fica visível
+                        ...(tipoBeneficioAdmin && !tiposBeneficio.includes(tipoBeneficioAdmin)
+                          ? [{ value: tipoBeneficioAdmin, label: `${tipoBeneficioAdmin} (atual)` }]
+                          : []),
+                        ...tiposBeneficio.map((b) => ({ value: b, label: b })),
+                      ]}
+                    />
                   </div>
                   <div>
                     <Label className="text-xs">Processo de origem (pai)</Label>
-                    <Select
-                      value={parentAdmin || "__none__"}
-                      onValueChange={(v) => setParentAdmin(v === "__none__" ? "" : v)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Nenhum (principal)" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">Nenhum (principal)</SelectItem>
-                        {parentOptions(editAdminId).map((n) => (
-                          <SelectItem key={n.tipo + ":" + n.id} value={n.id}>
-                            {nodeLabel(n)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Selecao
+  value={parentAdmin || "__none__"}
+  onChange={(v) => setParentAdmin(v === "__none__" ? "" : v)}
+  opcoes={[
+    { value: "__none__", label: "Nenhum (principal)" },
+    ...parentOptions(editAdminId).map((n) => ({ value: n.id, label: nodeLabel(n) })),
+  ]}
+  placeholder="Nenhum (principal)"
+/>
                   </div>
                   <div>
                     <Label className="text-xs">Data do protocolo</Label>
@@ -8506,7 +8528,7 @@ function TabProcessos(props: TabProcessosProps) {
               <CardDescription>Ações ajuizadas relacionadas ao caso.</CardDescription>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              {isInterno && (
+              {isInterno && pode("casos:editar") && integracoes.tem("legalmail") === true && (
                 <Button
                   size="sm"
                   variant="outline"
@@ -8519,7 +8541,7 @@ function TabProcessos(props: TabProcessosProps) {
                   Buscar no Legalmail
                 </Button>
               )}
-              {isInterno && (
+              {isInterno && pode("casos:editar") && (
                 <Button size="sm" onClick={() => abrirNovoJud()}>
                   <Plus className="h-4 w-4 mr-2" />
                   Novo
@@ -8561,51 +8583,40 @@ function TabProcessos(props: TabProcessosProps) {
                     </div>
                     <div>
                       <Label className="text-xs">Processo de origem (pai)</Label>
-                      <Select
-                        value={parentJud || "__none__"}
-                        onValueChange={(v) => setParentJud(v === "__none__" ? "" : v)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Nenhum (principal)" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__none__">Nenhum (principal)</SelectItem>
-                          {parentOptions(editJudId).map((n) => (
-                            <SelectItem key={n.tipo + ":" + n.id} value={n.id}>
-                              {nodeLabel(n)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <Selecao
+  value={parentJud || "__none__"}
+  onChange={(v) => setParentJud(v === "__none__" ? "" : v)}
+  opcoes={[
+    { value: "__none__", label: "Nenhum (principal)" },
+    ...parentOptions(editJudId).map((n) => ({ value: n.id, label: nodeLabel(n) })),
+  ]}
+  placeholder="Nenhum (principal)"
+/>
                     </div>
                     <div>
                       <Label className="text-xs">Tribunal *</Label>
-                      <Select value={vara || undefined} onValueChange={setVara}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecione o tribunal" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {vara && !TRIBUNAIS.includes(vara) && (
-                            <SelectItem value={vara}>{vara} (atual)</SelectItem>
-                          )}
-                          <SelectGroup>
-                            <SelectLabel>Justiça Federal</SelectLabel>
-                            {TRIBUNAIS_FEDERAIS.map((t) => (
-                              <SelectItem key={t} value={t}>
-                                {t}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                          <SelectGroup>
-                            <SelectLabel>Justiça Estadual</SelectLabel>
-                            {TRIBUNAIS_ESTADUAIS.map((t) => (
-                              <SelectItem key={t} value={t}>
-                                {t}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
+                      <Selecao
+                        value={vara || undefined}
+                        onChange={setVara}
+                        placeholder="Selecione o tribunal"
+                        opcoes={[
+                          // Valor fora das listas (tribunal antigo ou digitado):
+                          // continua visível, sem grupo, no topo.
+                          ...(vara && !TRIBUNAIS.includes(vara)
+                            ? [{ value: vara, label: `${vara} (atual)` }]
+                            : []),
+                          ...TRIBUNAIS_FEDERAIS.map((t) => ({
+                            value: t,
+                            label: t,
+                            grupo: "Justiça Federal",
+                          })),
+                          ...TRIBUNAIS_ESTADUAIS.map((t) => ({
+                            value: t,
+                            label: t,
+                            grupo: "Justiça Estadual",
+                          })),
+                        ]}
+                      />
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <div className="sm:col-span-2">

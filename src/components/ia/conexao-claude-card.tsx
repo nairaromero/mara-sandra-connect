@@ -3,6 +3,7 @@
 // Claude do proprio usuario. O token em claro aparece UMA UNICA VEZ, na criacao.
 
 import { useEffect, useState } from "react";
+import { Selecao } from "@/components/ui/selecao";
 import { toast } from "sonner";
 import { Loader2, Plus, Copy, Trash2, Plug, KeyRound, AlertTriangle } from "lucide-react";
 
@@ -11,15 +12,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { iaTokens, IA_MCP_URL, type IaToken } from "@/lib/ia/client";
+import { iaTokens, IA_MCP_URL, type IaToken, type IaTokenPessoa } from "@/lib/ia/client";
 import { dataBR } from "@/lib/fuso";
+import { useAuth } from "@/hooks/use-auth";
 
 function copiar(texto: string, msg = "Copiado") {
   navigator.clipboard.writeText(texto).then(
@@ -29,8 +24,14 @@ function copiar(texto: string, msg = "Copiado") {
 }
 
 export function ConexaoClaudeCard() {
+  const { usuario, pode } = useAuth();
+  const concede = pode("ia:mcp_conceder");
   const [carregando, setCarregando] = useState(true);
   const [tokens, setTokens] = useState<IaToken[]>([]);
+  // #385: o admin escolhe a quem emitir; "eu" = para si mesmo
+  const [pessoas, setPessoas] = useState<IaTokenPessoa[]>([]);
+  const [paraQuem, setParaQuem] = useState<string>("eu");
+  const [novoPara, setNovoPara] = useState<IaTokenPessoa | null>(null);
 
   const [nome, setNome] = useState("");
   const [escopo, setEscopo] = useState<"leitura" | "completo">("leitura");
@@ -50,16 +51,27 @@ export function ConexaoClaudeCard() {
     carregar();
   }, []);
 
+  useEffect(() => {
+    if (!concede) return;
+    iaTokens.pessoas().then(({ data, error }) => {
+      if (error) toast.error(error.message || "Falha ao listar as pessoas");
+      if (data) setPessoas(data.pessoas.filter((p) => p.usuario_id !== usuario?.id));
+    });
+  }, [concede, usuario?.id]);
+
   async function criar() {
     setCriando(true);
+    const alvo = paraQuem === "eu" ? null : pessoas.find((p) => p.usuario_id === paraQuem) ?? null;
     const { data, error } = await iaTokens.criar({
-      nome: nome.trim() || "Meu Claude",
+      nome: nome.trim() || (alvo ? `Claude de ${alvo.nome ?? alvo.email ?? "colega"}` : "Meu Claude"),
       escopo,
       dias: dias === "0" ? undefined : Number(dias),
+      ...(alvo ? { usuario_id: alvo.usuario_id } : {}),
     });
     setCriando(false);
     if (data?.ok) {
       setNovoToken(data.token);
+      setNovoPara(alvo);
       setNome("");
       await carregar();
     } else {
@@ -104,6 +116,12 @@ export function ConexaoClaudeCard() {
               <AlertTriangle className="h-3.5 w-3.5" />
               Copie agora - este token não será mostrado de novo.
             </p>
+            {novoPara && (
+              <p className="mb-2 text-xs" data-token-para>
+                Token de <strong>{novoPara.nome ?? novoPara.email}</strong>: envie a essa pessoa por um canal seguro.
+                Tudo que for feito com ele sai no nome dela, com o que ela pode ver no sistema.
+              </p>
+            )}
             <div className="flex items-center gap-2">
               <code className="flex-1 overflow-x-auto rounded bg-background px-2 py-1 text-xs">
                 {novoToken}
@@ -123,6 +141,25 @@ export function ConexaoClaudeCard() {
         )}
 
         {/* Gerar novo token */}
+        {concede && (
+          <div>
+            <Label className="text-xs">Para quem</Label>
+            <Selecao
+  value={paraQuem}
+  aria-label="Para quem emitir o token"
+  onChange={setParaQuem}
+  opcoes={[
+    { value: "eu", label: "Para mim" },
+    ...pessoas.map((p) => ({ value: p.usuario_id, label: (p.nome ?? p.email) + (p.papel_nome ? ` · ${p.papel_nome}` : "") })),
+  ]}
+  className="w-full sm:w-[320px]"
+/>
+            <p className="mt-1 text-xs text-muted-foreground">
+              O token roda como a pessoa escolhida: ela vê pelo Claude o mesmo que vê no sistema. Só quem emitiu
+              (ou a própria pessoa) vê e revoga.
+            </p>
+          </div>
+        )}
         <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto_auto] sm:items-end">
           <div>
             <Label className="text-xs">Nome do token</Label>
@@ -134,29 +171,29 @@ export function ConexaoClaudeCard() {
           </div>
           <div>
             <Label className="text-xs">Acesso</Label>
-            <Select value={escopo} onValueChange={(v) => setEscopo(v as "leitura" | "completo")}>
-              <SelectTrigger className="w-[150px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="leitura">Somente leitura</SelectItem>
-                <SelectItem value="completo">Leitura e escrita</SelectItem>
-              </SelectContent>
-            </Select>
+            <Selecao
+  value={escopo}
+  onChange={(v) => setEscopo(v as "leitura" | "completo")}
+  opcoes={[
+    { value: "leitura", label: "Somente leitura" },
+    { value: "completo", label: "Leitura e escrita" },
+  ]}
+  className="w-[150px]"
+/>
           </div>
           <div>
             <Label className="text-xs">Validade</Label>
-            <Select value={dias} onValueChange={setDias}>
-              <SelectTrigger className="w-[130px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="30">30 dias</SelectItem>
-                <SelectItem value="90">90 dias</SelectItem>
-                <SelectItem value="365">1 ano</SelectItem>
-                <SelectItem value="0">Sem expiração</SelectItem>
-              </SelectContent>
-            </Select>
+            <Selecao
+  value={dias}
+  onChange={setDias}
+  opcoes={[
+    { value: "30", label: "30 dias" },
+    { value: "90", label: "90 dias" },
+    { value: "365", label: "1 ano" },
+    { value: "0", label: "Sem expiração" },
+  ]}
+  className="w-[130px]"
+/>
           </div>
           <Button onClick={criar} disabled={criando}>
             {criando ? (
@@ -190,6 +227,14 @@ export function ConexaoClaudeCard() {
                     <div className="flex items-center gap-2 text-sm font-medium">
                       <KeyRound className="h-3.5 w-3.5 shrink-0" />
                       {t.nome}
+                      {t.usuario_id !== usuario?.id && t.dono && (
+                        <span className="ml-1 text-xs text-muted-foreground" data-token-dono>
+                          · de {t.dono.nome ?? t.dono.email}
+                        </span>
+                      )}
+                      {t.usuario_id === usuario?.id && t.emitido_por && t.emitido_por !== usuario?.id && (
+                        <span className="ml-1 text-xs text-muted-foreground">· emitido por um administrador</span>
+                      )}
                       <Badge variant="outline" className="text-[10px]">
                         {t.escopo}
                       </Badge>

@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { Selecao } from "@/components/ui/selecao";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -10,13 +11,16 @@ import {
   Shield,
   ShieldAlert,
   ShieldCheck,
+  UserCog,
   UserMinus,
   UserPlus,
   Users,
+  SlidersHorizontal,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { lerContagem } from "@/lib/leitura";
 import { dataBR } from "@/lib/fuso";
 import { ClientOnly } from "@/components/client-only";
 import { Button } from "@/components/ui/button";
@@ -47,13 +51,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { PermissoesSheet } from "@/components/equipe/permissoes-sheet";
 
 export const Route = createFileRoute("/_authenticated/equipe")({
   component: EquipePage,
@@ -67,28 +65,83 @@ interface InternoRow {
   eh_admin: boolean | null;
   onboarded_em: string | null;
   desligado_em: string | null;
+  /** Papel no escritório ativo: admin, advogado, assistente, financeiro. */
+  papel: string;
+  papel_nome: string;
+}
+
+interface PapelInterno {
+  chave: string;
+  nome: string;
+  descricao: string | null;
 }
 
 function EquipePage() {
-  const { usuario, isAdmin } = useAuth();
+  const { usuario, escritorio, pode } = useAuth();
   // Só admin (Naira/Mara) entra aqui. Os demais internos nem veem o item
   // na sidebar; se caírem pela URL, levam aviso + redirect.
-  const isInterno = isAdmin;
+  // A página é de quem GERENCIA A EQUIPE — a mesma permissão que as RPCs
+  // exigem. Não se soma `isAdmin`: desde os ajustes por pessoa
+  // (migration_rbac_20) um não-admin pode receber `equipe:gerenciar`, e a tela
+  // tem de abrir para ele, senão o servidor deixa e a tela nega.
+  const isInterno = pode("equipe:gerenciar");
 
   const [lista, setLista] = useState<Array<InternoRow>>([]);
+  // Ajuste de permissões por pessoa (só admin; a RPC confere e audita).
+  const [permissoesDe, setPermissoesDe] = useState<InternoRow | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
   const [enviando, setEnviando] = useState(false);
 
+  const [papeis, setPapeis] = useState<Array<PapelInterno>>([]);
+  const [papelConvite, setPapelConvite] = useState("advogado");
+
+  // A equipe é o que está em `membros` do escritório ATIVO (RBAC multi-tenant):
+  // papel e status moram no vínculo, não mais nas colunas de `usuarios`. A RLS
+  // já entrega só os vínculos deste escritório.
   const carregar = useCallback(async () => {
     setCarregando(true);
-    const { data, error } = await supabase
-      .from("usuarios")
-      .select("id, nome, email, ativo, eh_admin, onboarded_em, desligado_em")
-      .eq("tipo", "interno")
-      .order("nome", { ascending: true });
-    if (!error) setLista((data || []) as Array<InternoRow>);
+    const [membrosResp, papeisResp] = await Promise.all([
+      supabase
+        .from("membros")
+        .select(
+          "status, desativado_em, papel:papeis!inner(chave, nome, tipo_acesso), usuario:usuarios!membros_usuario_id_fkey(id, nome, email, onboarded_em)",
+        )
+        .eq("papel.tipo_acesso", "interno"),
+      supabase.from("papeis").select("chave, nome, descricao").eq("tipo_acesso", "interno").order("ordem"),
+    ]);
+    if (membrosResp.error) {
+      // Falha de consulta não é "equipe vazia".
+      console.error(membrosResp.error);
+      toast.error("Não consegui carregar a equipe.");
+    } else {
+      type Linha = {
+        status: string;
+        desativado_em: string | null;
+        papel: { chave: string; nome: string } | null;
+        usuario: { id: string; nome: string | null; email: string | null; onboarded_em: string | null } | null;
+      };
+      const linhas = ((membrosResp.data ?? []) as unknown as Array<Linha>)
+        .filter((m) => m.usuario)
+        .map<InternoRow>((m) => ({
+          id: m.usuario!.id,
+          nome: m.usuario!.nome,
+          email: m.usuario!.email,
+          onboarded_em: m.usuario!.onboarded_em,
+          ativo: m.status === "ativo",
+          desligado_em: m.status === "desativado" ? (m.desativado_em ?? new Date(0).toISOString()) : null,
+          eh_admin: m.papel?.chave === "admin",
+          // `membros.papel_id` é NOT NULL: sem papel aqui significa join que
+          // não veio, não pessoa sem papel. Chutar "advogado" mostrava um
+          // papel que a pessoa pode não ter — melhor dizer que não se sabe.
+          papel: m.papel?.chave ?? "",
+          papel_nome: m.papel?.nome ?? "sem papel",
+        }))
+        .sort((a, b) => (a.nome ?? "").localeCompare(b.nome ?? "", "pt-BR"));
+      setLista(linhas);
+    }
+    if (!papeisResp.error) setPapeis((papeisResp.data ?? []) as Array<PapelInterno>);
     setCarregando(false);
   }, []);
 
@@ -116,6 +169,7 @@ function EquipePage() {
           nome: nome.trim(),
           email: emailNorm,
           tipo: "interno",
+          papel: papelConvite,
           redirect_to: redirectTo,
         },
       });
@@ -125,8 +179,11 @@ function EquipePage() {
         toast.error(r.error);
         return;
       }
+      const rv = r as { vinculado?: boolean };
       toast.success(
-        r.ja_existia
+        rv.vinculado
+          ? `${emailNorm} já tinha conta: foi adicionado(a) a este escritório.`
+          : r.ja_existia
           ? "Esse e-mail já tem cadastro."
           : `Convite enviado para ${emailNorm}. Peça para verificar a caixa de entrada.`,
       );
@@ -167,6 +224,22 @@ function EquipePage() {
     }
   }
 
+  // ---- Papel (admin, advogado, assistente, financeiro) ----
+  async function definirPapel(u: InternoRow, papel: PapelInterno) {
+    setMudandoAdmin(u.id);
+    try {
+      const { error } = await supabase.rpc("definir_papel", { p_usuario_id: u.id, p_papel: papel.chave });
+      if (error) throw error;
+      toast.success(`${u.nome ?? "Pessoa"} agora é ${papel.nome.toLowerCase()}.`);
+      carregar();
+    } catch (err) {
+      console.error(err);
+      toast.error((err as { message?: string }).message || "Falha ao alterar o papel");
+    } finally {
+      setMudandoAdmin(null);
+    }
+  }
+
   // ---- Desligar da equipe (com migração das tarefas abertas) ----
   const [desligarAlvo, setDesligarAlvo] = useState<InternoRow | null>(null);
   const [desligarAbertas, setDesligarAbertas] = useState<number | null>(null);
@@ -177,12 +250,25 @@ function EquipePage() {
     setDesligarAlvo(u);
     setDesligarAbertas(null);
     setDesligarNovoResp("");
-    const { count } = await supabase
-      .from("tarefas")
-      .select("id", { count: "exact", head: true })
-      .eq("responsavel_id", u.id)
-      .eq("status", "a_fazer");
-    setDesligarAbertas(count ?? 0);
+    // `lerContagem` e não `count ?? 0`: falha na contagem virava "0 abertas", a
+    // tela deixava de pedir quem assume, e só o banco recusava depois
+    // (`Há N tarefa(s) aberta(s)`) — a tela mentia e o erro aparecia fora de
+    // hora. Agora a falha aparece aqui, com nome (src/lib/leitura.ts).
+    try {
+      setDesligarAbertas(
+        await lerContagem(
+          supabase
+            .from("tarefas")
+            .select("id", { count: "exact", head: true })
+            .eq("responsavel_id", u.id)
+            .eq("status", "a_fazer"),
+          "tarefas abertas da pessoa",
+        ),
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "não consegui contar as tarefas abertas");
+      setDesligarAlvo(null);
+    }
   }
 
   async function desligarConfirmado() {
@@ -258,8 +344,8 @@ function EquipePage() {
           Equipe interna
         </h1>
         <p className="text-sm text-muted-foreground">
-          Convide pessoas da equipe, defina quem é administrador(a) e desligue
-          quem saiu (as tarefas abertas passam pra outra pessoa).
+          Convide pessoas da equipe{escritorio ? ` de ${escritorio.escritorio_nome}` : ""}, defina o papel de
+          cada uma e desligue quem saiu (as tarefas abertas passam pra outra pessoa).
         </p>
       </div>
 
@@ -279,7 +365,7 @@ function EquipePage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+            <div className="grid gap-3 sm:grid-cols-[1fr_1fr_12rem_auto] sm:items-end">
               <div>
                 <Label className="text-xs">Nome completo</Label>
                 <Input
@@ -297,6 +383,17 @@ function EquipePage() {
                   placeholder="email@escritorio.com.br"
                 />
               </div>
+              <div>
+                <Label className="text-xs">Papel</Label>
+                <Selecao
+  value={papelConvite}
+  aria-label="Papel do convidado"
+  onChange={setPapelConvite}
+  opcoes={[
+    ...papeis.map((p) => ({ value: p.chave, label: p.nome })),
+  ]}
+/>
+              </div>
               <Button onClick={convidar} disabled={enviando}>
                 {enviando
                   ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -313,7 +410,7 @@ function EquipePage() {
               Usuários internos ({ativos.length})
             </CardTitle>
             <CardDescription>
-              Pessoas com acesso interno à plataforma. Admin (Naira/Mara) vê
+              Pessoas com acesso interno a este escritório. Administrador vê
               Equipe, Auditoria e as integrações e webhooks das Configurações.
             </CardDescription>
           </CardHeader>
@@ -359,6 +456,18 @@ function EquipePage() {
                               admin
                             </Badge>
                           )}
+                          {/* Todo papel aparece, inclusive advogado. Até 28/09 a
+                              etiqueta escondia "advogado" — herança de quando
+                              interno ERA advogado por padrão e a etiqueta
+                              marcava a exceção. Com o RBAC, advogado é um papel
+                              entre quatro, e esconder a etiqueta fazia
+                              "é advogado" parecer "está sem papel". Admin já
+                              tem a etiqueta dourada acima; não repete. */}
+                          {!u.eh_admin && (
+                            <Badge variant="outline" className="text-xs">
+                              {u.papel_nome.toLowerCase()}
+                            </Badge>
+                          )}
                           {!u.onboarded_em && (
                             <Badge variant="outline" className="text-xs">
                               convite pendente
@@ -385,6 +494,19 @@ function EquipePage() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                onSelect={() => setPermissoesDe(u)}
+                                disabled={souEu}
+                              >
+                                <SlidersHorizontal className="h-4 w-4" />
+                                Permissões
+                                {souEu && (
+                                  <span className="text-xs text-muted-foreground ml-1">
+                                    (não de si)
+                                  </span>
+                                )}
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
                               {u.eh_admin ? (
                                 <DropdownMenuItem
                                   disabled={souEu}
@@ -404,6 +526,19 @@ function EquipePage() {
                                   Tornar admin
                                 </DropdownMenuItem>
                               )}
+                              {papeis
+                                .filter((p) => p.chave !== "admin" && p.chave !== u.papel)
+                                .map((p) => (
+                                  <DropdownMenuItem
+                                    key={p.chave}
+                                    disabled={souEu}
+                                    onSelect={() => definirPapel(u, p)}
+                                    title={p.descricao ?? undefined}
+                                  >
+                                    <UserCog className="h-4 w-4" />
+                                    Tornar {p.nome.toLowerCase()}
+                                  </DropdownMenuItem>
+                                ))}
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
                                 disabled={souEu}
@@ -502,18 +637,15 @@ function EquipePage() {
                         Ela tem <strong>{desligarAbertas}</strong> tarefa(s) aberta(s) (a
                         fazer). Escolha quem assume:
                       </p>
-                      <Select value={desligarNovoResp} onValueChange={setDesligarNovoResp}>
-                        <SelectTrigger aria-label="Quem assume as tarefas">
-                          <SelectValue placeholder="Quem assume as tarefas" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {candidatos.map((c) => (
-                            <SelectItem key={c.id} value={c.id}>
-                              {c.nome || c.email}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <Selecao
+  value={desligarNovoResp}
+  aria-label="Quem assume as tarefas"
+  onChange={setDesligarNovoResp}
+  opcoes={[
+    ...candidatos.map((c) => ({ value: c.id, label: c.nome || c.email || c.id })),
+  ]}
+  placeholder="Quem assume as tarefas"
+/>
                       <p className="text-xs">
                         Tarefas já concluídas/canceladas e eventos de agenda passados ficam
                         no nome dela. Eventos futuros também vão pra pessoa escolhida.
@@ -543,6 +675,23 @@ function EquipePage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* Ajuste de permissões por pessoa: a lista vem do banco e cada
+            mudança passa pela RPC, que confere as travas e audita. */}
+        <PermissoesSheet
+          pessoa={
+            permissoesDe
+              ? {
+                  id: permissoesDe.id,
+                  nome: permissoesDe.nome,
+                  email: permissoesDe.email,
+                  papel_nome: permissoesDe.papel_nome,
+                }
+              : null
+          }
+          onFechar={() => setPermissoesDe(null)}
+          onMudou={carregar}
+        />
       </ClientOnly>
     </div>
   );

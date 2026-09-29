@@ -15,6 +15,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { MarcaLegalConnect } from "@/components/marca-legal-connect";
 import { ClientOnly } from "@/components/client-only";
 
 export const Route = createFileRoute("/redefinir-senha")({
@@ -58,11 +59,7 @@ function RedefinirSenhaPage() {
     <div className="flex min-h-screen items-center justify-center px-4 bg-gradient-to-br from-background via-background to-gold-soft/50">
       <div className="w-full max-w-md">
         <div className="mb-8 flex flex-col items-center gap-3">
-          <img
-            src="/logo.png"
-            alt="Mara Sandra Vian Advocacia"
-            className="h-32 w-auto object-contain"
-          />
+          <MarcaLegalConnect variante="empilhado" className="h-28 w-auto" />
         </div>
 
         <Card className="border-border/60 shadow-sm">

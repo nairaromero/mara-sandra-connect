@@ -1,9 +1,9 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Selecao } from "@/components/ui/selecao";
 import { useEffect, useMemo, useState } from "react";
 import {
   CalendarPlus,
   Check,
-  ChevronLeft,
   ChevronRight,
   ChevronsUpDown,
   FileDown,
@@ -17,18 +17,12 @@ import { toast } from "sonner";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { Paginador } from "@/components/paginador";
 import { ClientOnly } from "@/components/client-only";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -191,7 +185,7 @@ function StatusBadge({ status }: { status: string | null }) {
 // ===========================================================================
 
 function ClientesPage() {
-  const { usuario } = useAuth();
+  const { usuario, pode } = useAuth();
   const isInterno = usuario?.tipo === "interno";
   const navigate = useNavigate();
   const [casos, setCasos] = useState<Array<CasoRow>>([]);
@@ -501,15 +495,19 @@ function ClientesPage() {
               )}
               Exportar Excel
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setImportarDialogAberto(true)}
-              title="Importa clientes de um Excel"
-            >
-              <Upload className="h-4 w-4 mr-1" />
-              Importar Excel
-            </Button>
+            {/* Importar cria cliente e caso: só para quem tem casos:editar (o
+                financeiro só lê). O banco barraria de qualquer jeito. */}
+            {pode("casos:editar") && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setImportarDialogAberto(true)}
+                title="Importa clientes de um Excel"
+              >
+                <Upload className="h-4 w-4 mr-1" />
+                Importar Excel
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -546,23 +544,16 @@ function ClientesPage() {
               {isInterno && (
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-muted-foreground shrink-0">Parceiro:</span>
-                  <Select
-                    value={parceiroFiltro || "__todos__"}
-                    onValueChange={(v) => setParceiroFiltro(v === "__todos__" ? "" : v)}
-                  >
-                    <SelectTrigger className="w-auto min-w-[160px] h-8 text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__todos__">Todos</SelectItem>
-                      <SelectItem value="__interno__">Sem parceiro (interno)</SelectItem>
-                      {parceirosDisponiveis.map((nome) => (
-                        <SelectItem key={nome} value={nome}>
-                          {nome}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Selecao
+  value={parceiroFiltro || "__todos__"}
+  onChange={(v) => setParceiroFiltro(v === "__todos__" ? "" : v)}
+  opcoes={[
+    { value: "__todos__", label: "Todos" },
+    { value: "__interno__", label: "Sem parceiro (interno)" },
+    ...parceirosDisponiveis.map((nome) => ({ value: nome, label: nome })),
+  ]}
+  className="w-auto min-w-[160px] h-8 text-sm"
+/>
                 </div>
               )}
 
@@ -649,42 +640,28 @@ function ClientesPage() {
               {/* Filtro por status (algum caso do cliente nesse status) */}
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground shrink-0">Status:</span>
-                <Select
-                  value={statusFiltro || "__todos__"}
-                  onValueChange={(v) => setStatusFiltro(v === "__todos__" ? "" : v)}
-                >
-                  <SelectTrigger className="w-auto min-w-[150px] h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__todos__">Todos</SelectItem>
-                    {Object.entries(STATUS_VARIANT).map(([valor, cfg]) => (
-                      <SelectItem key={valor} value={valor}>
-                        {cfg.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Selecao
+  value={statusFiltro || "__todos__"}
+  onChange={(v) => setStatusFiltro(v === "__todos__" ? "" : v)}
+  opcoes={[
+    { value: "__todos__", label: "Todos" },
+    ...Object.entries(STATUS_VARIANT).map(([valor, cfg]) => ({ value: valor, label: cfg.label })),
+  ]}
+  className="w-auto min-w-[150px] h-8 text-sm"
+/>
               </div>
 
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground shrink-0">Benefício:</span>
-                <Select
-                  value={beneficioFiltro || "__todos__"}
-                  onValueChange={(v) => setBeneficioFiltro(v === "__todos__" ? "" : v)}
-                >
-                  <SelectTrigger className="w-auto min-w-[170px] h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__todos__">Todos</SelectItem>
-                    {beneficiosDisponiveis.map((b) => (
-                      <SelectItem key={b.valor} value={b.valor}>
-                        {b.rotulo}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Selecao
+  value={beneficioFiltro || "__todos__"}
+  onChange={(v) => setBeneficioFiltro(v === "__todos__" ? "" : v)}
+  opcoes={[
+    { value: "__todos__", label: "Todos" },
+    ...beneficiosDisponiveis.map((b) => ({ value: b.valor, label: b.rotulo })),
+  ]}
+  className="w-auto min-w-[170px] h-8 text-sm"
+/>
               </div>
 
               {(parceiroFiltro || etiquetaFiltro || statusFiltro || beneficioFiltro) && (
@@ -946,7 +923,7 @@ function ClientesPage() {
                             </TableCell>
                             <TableCell>
                               <div className="flex items-center gap-1 justify-end">
-                                {isInterno && casoMaisRecente && (
+                                {pode("agenda:gerenciar") && casoMaisRecente && (
                                   <Button
                                     size="sm"
                                     variant="ghost"
@@ -979,56 +956,15 @@ function ClientesPage() {
                 </div>
 
                 {/* Paginacao (compartilhada mobile/desktop) */}
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span className="shrink-0">Por página:</span>
-                    <Select
-                      value={String(porPagina)}
-                      onValueChange={(v) => setPorPagina(Number(v))}
-                    >
-                      <SelectTrigger className="h-7 w-[72px] text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {[10, 50, 100].map((n) => (
-                          <SelectItem key={n} value={String(n)}>
-                            {n}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <span className="tabular-nums">
-                      {(paginaAtual - 1) * porPagina + 1}–
-                      {Math.min(paginaAtual * porPagina, clientesFiltrados.length)} de{" "}
-                      {clientesFiltrados.length}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 px-2 text-xs"
-                      disabled={paginaAtual <= 1}
-                      onClick={() => setPagina(paginaAtual - 1)}
-                    >
-                      <ChevronLeft className="h-3.5 w-3.5 mr-0.5" />
-                      Anterior
-                    </Button>
-                    <span className="px-2 text-xs tabular-nums text-muted-foreground">
-                      {paginaAtual} / {totalPaginas}
-                    </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 px-2 text-xs"
-                      disabled={paginaAtual >= totalPaginas}
-                      onClick={() => setPagina(paginaAtual + 1)}
-                    >
-                      Próxima
-                      <ChevronRight className="h-3.5 w-3.5 ml-0.5" />
-                    </Button>
-                  </div>
-                </div>
+                <Paginador
+                  pagina={paginaAtual}
+                  porPagina={porPagina}
+                  total={clientesFiltrados.length}
+                  onPagina={setPagina}
+                  onPorPagina={setPorPagina}
+                  nome="clientes"
+                  className="mt-3 border-t border-border px-0"
+                />
               </>
             )}
           </CardContent>

@@ -32,11 +32,16 @@ interface Props {
   // Lixeira nos cards do painel do dia (só eventos de verdade — os
   // pseudo-eventos de tarefa, id "tarefa:*", se excluem pela tarefa).
   onEventoExcluir?: (id: string) => void;
+  /**
+   * Quem pode excluir ESTE evento. Com escopo `atribuidos` o banco só aceita o
+   * evento de quem está logado, então a lixeira é decidida evento a evento.
+   */
+  podeExcluirEvento?: (evento: AgendaEventoComJoins) => boolean;
 }
 
 const WEEK_LABELS = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
 
-export function AgendaMes({ eventos, onEventoClick, onDiaClick, onEventoExcluir }: Props) {
+export function AgendaMes({ eventos, onEventoClick, onDiaClick, onEventoExcluir, podeExcluirEvento }: Props) {
   // Grade e "hoje" seguem o calendário de Brasília: às 7h de Madri ainda é
   // ontem no Brasil, e a perícia não pode pular de célula por causa disso.
   const [refDate, setRefDate] = useState<Date>(() => comoLocalBR(new Date()));
@@ -235,7 +240,8 @@ export function AgendaMes({ eventos, onEventoClick, onDiaClick, onEventoExcluir 
                     >
                       {tipoBadge(e).label}
                     </Badge>
-                    {onEventoExcluir && !e.id.startsWith("tarefa:") && (
+                    {onEventoExcluir && !e.id.startsWith("tarefa:") &&
+                      (podeExcluirEvento?.(e) ?? true) && (
                       <Button
                         type="button"
                         size="sm"
