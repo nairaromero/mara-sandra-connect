@@ -118,6 +118,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // comportamento antigo — as checagens de tipo/admin decidem, `pode()` não barra.
   const [rbacIndisponivel, setRbacIndisponivel] = useState(false);
 
+  // Permissões são lidas uma vez, no login. Desde que o admin pode ajustá-las
+  // por pessoa (migration_rbac_20), o banco passa a recusar (ou aceitar) na
+  // hora, mas a TELA continuaria com a lista velha até a pessoa sair e entrar.
+  // Reler quando a aba volta ao foco resolve sem custo perceptível: é uma
+  // consulta pequena e só quando a pessoa volta para o sistema.
+  useEffect(() => {
+    function aoVoltar() {
+      if (document.visibilityState === "visible" && session?.user?.id) void loadEscritorio();
+    }
+    document.addEventListener("visibilitychange", aoVoltar);
+    window.addEventListener("focus", aoVoltar);
+    return () => {
+      document.removeEventListener("visibilitychange", aoVoltar);
+      window.removeEventListener("focus", aoVoltar);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.id]);
+
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, sess) => {
       setSession(sess);

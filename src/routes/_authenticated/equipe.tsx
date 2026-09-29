@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { Selecao } from "@/components/ui/selecao";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -14,10 +15,12 @@ import {
   UserMinus,
   UserPlus,
   Users,
+  SlidersHorizontal,
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { lerContagem } from "@/lib/leitura";
 import { dataBR } from "@/lib/fuso";
 import { ClientOnly } from "@/components/client-only";
 import { Button } from "@/components/ui/button";
@@ -48,13 +51,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { PermissoesSheet } from "@/components/equipe/permissoes-sheet";
 
 export const Route = createFileRoute("/_authenticated/equipe")({
   component: EquipePage,
@@ -80,13 +77,18 @@ interface PapelInterno {
 }
 
 function EquipePage() {
-  const { usuario, isAdmin, escritorio, pode } = useAuth();
+  const { usuario, escritorio, pode } = useAuth();
   // Só admin (Naira/Mara) entra aqui. Os demais internos nem veem o item
   // na sidebar; se caírem pela URL, levam aviso + redirect.
-  // a página inteira é de quem gerencia a equipe (RPCs exigem equipe:gerenciar)
-  const isInterno = isAdmin && pode("equipe:gerenciar");
+  // A página é de quem GERENCIA A EQUIPE — a mesma permissão que as RPCs
+  // exigem. Não se soma `isAdmin`: desde os ajustes por pessoa
+  // (migration_rbac_20) um não-admin pode receber `equipe:gerenciar`, e a tela
+  // tem de abrir para ele, senão o servidor deixa e a tela nega.
+  const isInterno = pode("equipe:gerenciar");
 
   const [lista, setLista] = useState<Array<InternoRow>>([]);
+  // Ajuste de permissões por pessoa (só admin; a RPC confere e audita).
+  const [permissoesDe, setPermissoesDe] = useState<InternoRow | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
@@ -130,8 +132,11 @@ function EquipePage() {
           ativo: m.status === "ativo",
           desligado_em: m.status === "desativado" ? (m.desativado_em ?? new Date(0).toISOString()) : null,
           eh_admin: m.papel?.chave === "admin",
-          papel: m.papel?.chave ?? "advogado",
-          papel_nome: m.papel?.nome ?? "Advogado",
+          // `membros.papel_id` é NOT NULL: sem papel aqui significa join que
+          // não veio, não pessoa sem papel. Chutar "advogado" mostrava um
+          // papel que a pessoa pode não ter — melhor dizer que não se sabe.
+          papel: m.papel?.chave ?? "",
+          papel_nome: m.papel?.nome ?? "sem papel",
         }))
         .sort((a, b) => (a.nome ?? "").localeCompare(b.nome ?? "", "pt-BR"));
       setLista(linhas);
@@ -245,12 +250,25 @@ function EquipePage() {
     setDesligarAlvo(u);
     setDesligarAbertas(null);
     setDesligarNovoResp("");
-    const { count } = await supabase
-      .from("tarefas")
-      .select("id", { count: "exact", head: true })
-      .eq("responsavel_id", u.id)
-      .eq("status", "a_fazer");
-    setDesligarAbertas(count ?? 0);
+    // `lerContagem` e não `count ?? 0`: falha na contagem virava "0 abertas", a
+    // tela deixava de pedir quem assume, e só o banco recusava depois
+    // (`Há N tarefa(s) aberta(s)`) — a tela mentia e o erro aparecia fora de
+    // hora. Agora a falha aparece aqui, com nome (src/lib/leitura.ts).
+    try {
+      setDesligarAbertas(
+        await lerContagem(
+          supabase
+            .from("tarefas")
+            .select("id", { count: "exact", head: true })
+            .eq("responsavel_id", u.id)
+            .eq("status", "a_fazer"),
+          "tarefas abertas da pessoa",
+        ),
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "não consegui contar as tarefas abertas");
+      setDesligarAlvo(null);
+    }
   }
 
   async function desligarConfirmado() {
@@ -367,18 +385,14 @@ function EquipePage() {
               </div>
               <div>
                 <Label className="text-xs">Papel</Label>
-                <Select value={papelConvite} onValueChange={setPapelConvite}>
-                  <SelectTrigger aria-label="Papel do convidado">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {papeis.map((p) => (
-                      <SelectItem key={p.chave} value={p.chave}>
-                        {p.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Selecao
+  value={papelConvite}
+  aria-label="Papel do convidado"
+  onChange={setPapelConvite}
+  opcoes={[
+    ...papeis.map((p) => ({ value: p.chave, label: p.nome })),
+  ]}
+/>
               </div>
               <Button onClick={convidar} disabled={enviando}>
                 {enviando
@@ -442,7 +456,14 @@ function EquipePage() {
                               admin
                             </Badge>
                           )}
-                          {!u.eh_admin && u.papel !== "advogado" && (
+                          {/* Todo papel aparece, inclusive advogado. Até 28/09 a
+                              etiqueta escondia "advogado" — herança de quando
+                              interno ERA advogado por padrão e a etiqueta
+                              marcava a exceção. Com o RBAC, advogado é um papel
+                              entre quatro, e esconder a etiqueta fazia
+                              "é advogado" parecer "está sem papel". Admin já
+                              tem a etiqueta dourada acima; não repete. */}
+                          {!u.eh_admin && (
                             <Badge variant="outline" className="text-xs">
                               {u.papel_nome.toLowerCase()}
                             </Badge>
@@ -473,6 +494,19 @@ function EquipePage() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                onSelect={() => setPermissoesDe(u)}
+                                disabled={souEu}
+                              >
+                                <SlidersHorizontal className="h-4 w-4" />
+                                Permissões
+                                {souEu && (
+                                  <span className="text-xs text-muted-foreground ml-1">
+                                    (não de si)
+                                  </span>
+                                )}
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
                               {u.eh_admin ? (
                                 <DropdownMenuItem
                                   disabled={souEu}
@@ -603,18 +637,15 @@ function EquipePage() {
                         Ela tem <strong>{desligarAbertas}</strong> tarefa(s) aberta(s) (a
                         fazer). Escolha quem assume:
                       </p>
-                      <Select value={desligarNovoResp} onValueChange={setDesligarNovoResp}>
-                        <SelectTrigger aria-label="Quem assume as tarefas">
-                          <SelectValue placeholder="Quem assume as tarefas" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {candidatos.map((c) => (
-                            <SelectItem key={c.id} value={c.id}>
-                              {c.nome || c.email}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <Selecao
+  value={desligarNovoResp}
+  aria-label="Quem assume as tarefas"
+  onChange={setDesligarNovoResp}
+  opcoes={[
+    ...candidatos.map((c) => ({ value: c.id, label: c.nome || c.email || c.id })),
+  ]}
+  placeholder="Quem assume as tarefas"
+/>
                       <p className="text-xs">
                         Tarefas já concluídas/canceladas e eventos de agenda passados ficam
                         no nome dela. Eventos futuros também vão pra pessoa escolhida.
@@ -644,6 +675,23 @@ function EquipePage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* Ajuste de permissões por pessoa: a lista vem do banco e cada
+            mudança passa pela RPC, que confere as travas e audita. */}
+        <PermissoesSheet
+          pessoa={
+            permissoesDe
+              ? {
+                  id: permissoesDe.id,
+                  nome: permissoesDe.nome,
+                  email: permissoesDe.email,
+                  papel_nome: permissoesDe.papel_nome,
+                }
+              : null
+          }
+          onFechar={() => setPermissoesDe(null)}
+          onMudou={carregar}
+        />
       </ClientOnly>
     </div>
   );

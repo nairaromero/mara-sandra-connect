@@ -12,6 +12,7 @@ import { CalendarDays, CheckCircle2, User as UserIcon, XCircle } from "lucide-re
 import { Badge } from "@/components/ui/badge";
 import { DESTAQUE_CLASSE_GLOBAL, useDestaqueAtivo } from "@/lib/destaque/destaque-context";
 import { cn } from "@/lib/utils";
+import { dataHoraBR, formatarBR } from "@/lib/fuso";
 import { EtapasAcompanhamento } from "@/components/tarefas/etapas-acompanhamento";
 import { AcompanhamentoPericia } from "@/components/tarefas/acompanhamento-pericia";
 import { AcompanhamentoImplementacao } from "@/components/tarefas/acompanhamento-implementacao";
@@ -226,16 +227,10 @@ export function TarefaCard({
                       ? "border-blue-500/50 text-blue-700 dark:text-blue-300"
                       : "border-emerald-500/50 text-emerald-700 dark:text-emerald-300",
                   )}
-                  title={new Date(periciaEm).toLocaleString("pt-BR", {
-                    timeZone: "America/Sao_Paulo",
-                  })}
+                  title={dataHoraBR(periciaEm)}
                 >
                   {refAudiencia ? "Audiência" : "Perícia"} ·{" "}
-                  {new Date(periciaEm).toLocaleDateString("pt-BR", {
-                    day: "2-digit",
-                    month: "2-digit",
-                    timeZone: "America/Sao_Paulo",
-                  })}
+                  {formatarBR(periciaEm, { day: "2-digit", month: "2-digit" })}
                 </Badge>
               )}
               {tarefa.processo_judicial && (

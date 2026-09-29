@@ -70,6 +70,11 @@ node scripts/msc-sql.mjs --local --file planning/sql-migrations/migration_x.sql
 2. Crio branch `feat/x` saindo de `staging` e rodo `bun run local:copiar`.
 3. Commit, push, abro PR `feat/x → staging` com `Closes #N` (o card) no corpo.
 4. Naira valida (em staging.marasandraconnect.com, com a conta do papel certo, ou local) e merge.
+   Antes de chamar a Naira, a parte que a máquina responde: `bun run e2e:staging` (suíte contra
+   o staging) e `node e2e/demo/roteiros/conferencia-lote-staging.cjs` (um item por card da coluna
+   "Validar no staging", com still e veredito; escreve só no Canário e devolve tudo no fim).
+   A conferência responde "funciona como está escrito" — se o comportamento é o certo continua
+   sendo julgamento dela.
 5. Quando um lote estiver validado: Naira merge `staging → main` → deploy prod.
    O PR de release abre **com o label `release`**
    (`gh pr create --base main --head staging --label release`) — assim ele fica fora do board.
@@ -98,7 +103,7 @@ node scripts/msc-sql.mjs --local --file planning/sql-migrations/migration_x.sql
 
 - `usuarios.tipo` = modo de acesso (`interno` x `parceiro`). `usuarios.eh_parceiro` = papel comercial.
 - `usuarios.eh_admin` (desde 2026-08-19) = admin do escritório. **Só Naira e Mara.** No front: `const { isAdmin } = useAuth()`. No SQL: `public.is_admin()`.
-- Só admin vê: Equipe interna (`/equipe`), Auditoria, e em Configurações as abas **Integrações** (Integração de IA / Conectar Claude / Integração Google) e **Webhooks**. Convidar interno (edge `convidar-usuario`) exige admin. RLS de webhooks/auditoria usa `is_admin()`.
+- Só admin vê: Equipe interna (`/equipe`), Auditoria, e em Configurações as abas **Integrações** (Integração de IA / Conectar Claude / Integração Google) e **Webhooks**. Convidar interno (edge `convidar-usuario`) exige admin. RLS de webhooks usa `is_admin()`; a de **auditoria não** — desde a `migration_rbac_24` as duas leituras da tela (`auditoria_plataforma` e `acessos_senha_inss`) cobram `tem_permissao('auditoria:ler')`, que é do admin por padrão e pode ser concedida a uma pessoa.
 - Configurações (desde 2026-09-14) segue o layout de `/parceiros`: centralizada, abas com a ativa na URL (`?tab=seguranca|beneficios|integracoes|webhooks`; sem `tab` = Perfil). Aba fora do papel da pessoa cai em Perfil sem reescrever a URL. Webhooks saiu da sidebar; `/webhooks` só redireciona pra `?tab=webhooks`.
 - **Convite (desde 2026-09-18, #362):** quem é convidado cria senha antes de usar o sistema. Quem decide é `usuarios.senha_definida_em` (nulo = ainda não criou), marcado pelo gatilho `trg_senha_definida` em `auth.users` — nunca pelo front. Não voltar a inferir por `auth.users.encrypted_password`: o Supabase preenche esse campo sozinho quando a pessoa abre o link do convite.
 - Gestão da equipe pela UI (`/equipe`, RPCs em migration_equipe_admin_desligar): `definir_admin`, `desligar_interno` (não apaga: `ativo=false` + ban no auth + tarefas abertas/agenda futura migram pra outra pessoa; histórico fica no nome), `reativar_interno`.
@@ -145,6 +150,30 @@ o sistema em produção. Quando chegar, vale o seguinte:
   molde (`private.tabelas_de_dominio()` lista quem fica de fora e por quê).
 - **RPC `SECURITY DEFINER`** que recebe id de linha começa com
   `private.exigir_no_escritorio('tabela'::regclass, p_id)` — o `postgres` tem BYPASSRLS.
+- **Função túnel: uma fonte de verdade, não N pontos** (pedido da Naira,
+  2026-09-27). Antes de escrever a segunda cópia de uma lógica, ela vira função
+  com um lugar só — e o que não pode variar deixa de ser parâmetro. Os túneis
+  que já existem: `private.tem_permissao` → `private.permissoes_efetivas`
+  (decisão de permissão), `private.auditar` (trilha no SQL),
+  `supabase/functions/_shared/auditoria.ts` (trilha nas edge: escritório, ator e
+  `tipo_ator` vêm do `quem`, e `acao` é tipo fechado), `src/lib/rbac/exigencias.ts`
+  + `podeEscrever`/`podeChamar` (o que a tela oferece), `e2e/rbac.ts` (sessão,
+  header, conta por papel e leitura da trilha nas specs), `src/lib/fuso.ts` (o
+  fuso do escritório — o eslint barra `America/Sao_Paulo` fora dele),
+  `src/lib/leitura.ts` (`lerLista`/`lerUm`/`lerContagem`: erro estoura, vazio é
+  vazio) e `buscarPaginado`.
+  O `scripts/rbac-conferir-exigencias.mjs` cobra o túnel da auditoria: insert
+  direto na tabela vira divergência.
+- **Quem muda ACESSO audita** (desde 2026-09-27, `migration_rbac_25`/`26`; desenho em
+  planning/AUDITABILIDADE.md): papel, permissão, status do vínculo, titularidade e staff
+  chamam `private.auditar` com o antes e o depois; apagar cliente, documento ou andamento
+  deixa rastro (`auditoria`, `documentos_excluidos`, `andamentos_excluidos`); e função que
+  LIMPA um rastro da linha — as reativações limpam `desativado_por` — escreve na trilha
+  antes. Edge function que muda acesso ou identidade audita ela mesma (`update-parceiro`,
+  `excluir-parceiro`, `convidar-usuario`, `integracoes-escritorio`). `tipo_ator = 'membro'`
+  mantém a linha dentro do escritório: o `qg_auditoria` só lê `plataforma` e `suporte`.
+  Quem confere: `node scripts/rbac-conferir-exigencias.mjs`, que acusa função da lista sem
+  `private.auditar` e tabela sem o gatilho da trilha.
 - **Edge function**: `exigirUsuario(req, { permissao: "x:y" })` resolve papel e escritório
   via `meu_contexto()`; `exigirRecurso(quem, tabela, id)` antes de tocar em linha; client de
   service role sempre `escopado(sb, escritorioId)`. Integrações de sistema (INSS, DJEN,
@@ -205,13 +234,19 @@ no lote de agosto: **sempre olhar se nada quebrou no meio do caminho.**
 3. Reler o próprio diff com lente de revisor, caçando os padrões que já morderam:
    - função de banco reescrita a partir de migration velha — partir SEMPRE do
      `pg_get_functiondef` da produção e comparar hash staging×prod antes/depois;
-   - falha de query engolida virando "não existe" (error ignorado ≠ resultado vazio);
+   - falha de query engolida virando "não existe" (error ignorado ≠ resultado
+     vazio) — use `lerLista`/`lerUm`/`lerContagem` de `src/lib/leitura.ts`;
+     `bun test e2e/unit/leituras-checadas.test.ts` lista quem ainda ignora e por quê;
    - data fora do calendário de Brasília (usar `src/lib/fuso.ts`, nunca `new Date()` cru);
    - guard de contexto ainda carregando (comparar contra null passa calada);
    - dedup/anti-spam largo demais engolindo o 2º evento legítimo;
    - migration re-rodável desfazendo estado intencional (ex.: `oculto_na_ui`);
    - matching amplo demais (`like '%_aviso'` concluiu tarefa errada);
-   - chamada externa (IA/HTTP) sem timeout.
+   - chamada externa (IA/HTTP) sem timeout;
+   - limpeza de spec só-local escrevendo no banco errado: `test.skip(!ENV.local)` pula
+     os testes, o `afterAll` roda mesmo assim, e a suíte aponta para o STAGING em
+     `e2e:staging` — use `limpezaLocal` (`e2e/rbac.ts`); `bun test
+     e2e/unit/limpeza-por-ambiente.test.ts` é a régua.
 4. Depois de subir, conferir o que roda **de verdade**: logs da edge function,
    `cron.job_run_details`, respostas do pg_net, dado esperado no banco.
    Deploy verde ≠ funcionando.

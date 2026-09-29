@@ -79,6 +79,13 @@ export const ESCRITA: Record<string, { todas?: Exigencia } & Partial<Record<Oper
   solicitacoes_documento: { todas: { permissao: "casos:editar" } },
   alertas_duplicidade: { todas: { permissao: "casos:editar" } },
 
+  // as duas que a varredura de 27/09 encontrou ainda na policy antiga
+  // `is_interno()` (migration_rbac_27): a análise técnica, que o FINANCEIRO
+  // conseguia gravar, e a conexão do Gmail do INSS, cujo card já exigia
+  // `integracoes:gerenciar` na tela enquanto o banco aceitava qualquer interno.
+  analises_tecnicas: { todas: { permissao: "casos:editar" } },
+  usuario_gmail_oauth: { todas: { permissao: "integracoes:gerenciar" } },
+
   etiquetas: { todas: { permissao: "etiquetas:gerenciar" } },
   tarefa_templates: { todas: { permissao: "templates:gerenciar" } },
   tipos_beneficio: { todas: { permissao: "templates:gerenciar" } },
@@ -99,6 +106,12 @@ export const RPC: Record<string, Exigencia> = {
   escritorio_definir_marca: { permissao: "escritorio:configurar" },
   gmail_inss_status: { permissao: "integracoes:gerenciar" },
   // funções privilegiadas que passaram a conferir permissão (migration_rbac_17)
+  // a trilha do escritório (migration_rbac_24): a permissão, não o papel admin
+  auditoria_plataforma: { permissao: "auditoria:ler" },
+  // ajuste de permissões por pessoa (migration_rbac_20): só quem gerencia a equipe
+  permissoes_do_membro: { permissao: "equipe:gerenciar" },
+  definir_permissao_do_membro: { permissao: "equipe:gerenciar" },
+  resetar_permissoes_do_membro: { permissao: "equipe:gerenciar" },
   aplicar_template: { permissao: "tarefas:gerenciar" },
   vincular_publicacao_dje: { permissao: "casos:editar" },
   set_senha_meu_inss: { permissao: "senha_inss:ler" },

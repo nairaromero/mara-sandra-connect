@@ -24,6 +24,7 @@ import { excluirTarefaComMotivo } from "@/lib/tarefas/queries";
 import { useDestaque } from "@/lib/destaque/destaque-context";
 import { formatarBR } from "@/lib/fuso";
 import { proximoDiaUtil } from "@/lib/agenda/helpers";
+import { lerLista } from "@/lib/leitura";
 
 const DIAS_ATE_PRIMEIRA_CONFERENCIA = 10;
 
@@ -105,13 +106,17 @@ export function ComparecimentoPericia({
         q = tarefa.processo_judicial_id
           ? q.eq("processo_judicial_id", tarefa.processo_judicial_id)
           : q.is("processo_judicial_id", null);
-        const { data: acomp, error: errAcomp } = await q;
         // Erro não pode virar "não existe": criaria acompanhamento duplicado.
-        if (errAcomp) throw errAcomp;
+        // Pelo túnel, e não com `if (err) throw` à mão — dois estilos para a
+        // mesma decisão é como a divergência recomeça (src/lib/leitura.ts).
+        const acomp = await lerLista<{ id: string; status: string }>(
+          q,
+          "acompanhamento de perícia aberto neste processo",
+        );
 
         if (compareceu) {
           // Garante que o acompanhamento do resultado existe.
-          if (!acomp || acomp.length === 0) {
+          if (acomp.length === 0) {
             const due = proximoDiaUtil(
               new Date(Date.now() + DIAS_ATE_PRIMEIRA_CONFERENCIA * 86400_000),
             );

@@ -101,21 +101,30 @@ test.describe("glossário — equipe (admin)", () => {
 test.describe("glossário — parceiro", () => {
   test.use({ storageState: STORAGE_PARCEIRO });
 
-  test("vê o glossário sem os termos técnicos nem os de equipe", async ({ page }) => {
+  test("vê só o que é dele: nada de equipe, RBAC nem plataforma", async ({ page }) => {
     await page.goto("/glossario");
     await cursorVisivel(page);
     await expect(page.getByRole("heading", { name: "Glossário", level: 1 })).toBeVisible();
+
+    // o que é dele
     await expect(page.locator("article#parceiro")).toBeVisible();
     await expect(page.locator("article#repasse")).toBeVisible();
-    // interno-only e técnico não aparecem
+    await expect(page.locator("article#indicados"), "o alcance do parceiro").toBeVisible();
+
+    // o que NÃO é dele (desde 28/09): o parceiro não gerencia ninguém, não vê
+    // análise técnica e não administra o escritório — a máquina de papéis,
+    // permissões e plataforma saiu da vista dele
+    for (const id of ["admin", "advogado", "papel", "permissao", "escopo", "convite",
+                      "analise-tecnica", "etiqueta", "qg", "acesso-suporte", "equipe", "token-mcp"]) {
+      await expect(page.locator(`article#${id}`), `${id} não é do parceiro`).toHaveCount(0);
+    }
     await expect(page.getByRole("heading", { name: "Ambientes e técnica" })).toHaveCount(0);
-    await expect(page.locator("article#token-mcp")).toHaveCount(0);
-    await expect(page.locator("article#equipe")).toHaveCount(0);
-    // e o "veja também" do Administrador não oferece o que o parceiro não vê
-    await buscar(page, "administrador");
-    const adminCard = page.locator("article#admin");
-    await expect(adminCard).toBeVisible();
-    await expect(adminCard.getByRole("button", { name: "Equipe" })).toHaveCount(0);
-    await expect(adminCard.getByRole("button", { name: "Acesso de suporte" })).toBeVisible();
+
+    // e o "veja também" não oferece o que ele não vê
+    await buscar(page, "visível ao parceiro");
+    const card = page.locator("article#visivel-parceiro");
+    await expect(card).toBeVisible();
+    await expect(card.getByRole("button", { name: "Análise técnica" })).toHaveCount(0);
+    await expect(card.getByRole("button", { name: "Andamento" })).toBeVisible();
   });
 });

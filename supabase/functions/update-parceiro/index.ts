@@ -35,6 +35,7 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { exigirRecurso, exigirUsuario } from "../_shared/auth.ts";
+import { auditar } from "../_shared/auditoria.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -213,6 +214,17 @@ serve(async (req) => {
         409,
       );
     }
+
+    // Trilha ANTES de trocar: esta e a acao cuja unica defesa era "so a
+    // administracao faz" (incidente de 20/09) e que nao deixava rastro nenhum
+    // — gap 1 do planning/AUDITABILIDADE.md. Registrada antes porque, depois,
+    // o e-mail antigo nao existe mais em lugar nenhum.
+    await auditar(quem, {
+      acao: "parceiro.email_alterado",
+      recurso: "usuarios",
+      recurso_id: usuarioId,
+      detalhes: { de: a.email, para: novoEmail, nome: novoNome, enviar_link: enviarLink },
+    });
 
     const updResp = await supabaseAdmin.auth.admin.updateUserById(usuarioId, {
       email: novoEmail,

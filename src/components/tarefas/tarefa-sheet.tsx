@@ -8,17 +8,10 @@ import { toast } from "sonner";
 import { Loader2, Trash2, ExternalLink, AlarmClock } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { DocTypeCombobox } from "@/components/doc-type-combobox";
+import { Selecao } from "@/components/ui/selecao";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Sheet,
   SheetContent,
@@ -113,7 +106,7 @@ import { EnviarAvisoParceiro } from "@/components/tarefas/enviar-aviso-parceiro"
 import { EtapaProvidenciarDocumento } from "@/components/tarefas/etapa-providenciar-documento";
 import { EtapaCumprimentoExigencia } from "@/components/tarefas/etapa-cumprimento-exigencia";
 import { EtapaProtocoloRealizado } from "@/components/tarefas/etapa-protocolo-realizado";
-import { chaveDiaBR, hojeChaveBR } from "@/lib/fuso";
+import { chaveDiaBR, dataHoraBR, horaBR, hojeChaveBR } from "@/lib/fuso";
 import { useDestaque } from "@/lib/destaque/destaque-context";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
@@ -1041,14 +1034,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
           if (!pularAvisos) {
             const avisos: string[] = [];
             if (agendaStart.getTime() < Date.now()) {
-              const quando = agendaStart.toLocaleString("pt-BR", {
-                day: "2-digit",
-                month: "2-digit",
-                year: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-                timeZone: "America/Sao_Paulo",
-              });
+              const quando = dataHoraBR(agendaStart);
               avisos.push(
                 `A data do agendamento (${quando}) JÁ PASSOU — o evento vai direto pra aba Arquivados.`,
               );
@@ -1060,11 +1046,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                 startIso,
               );
               if (jaExiste) {
-                const hora = new Date(jaExiste.start_at).toLocaleTimeString("pt-BR", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  timeZone: "America/Sao_Paulo",
-                });
+                const hora = horaBR(jaExiste.start_at);
                 const rotuloEv =
                   (agendaItem.tipo as string) === "audiencia" ? "audiência" : "perícia";
                 avisos.push(
@@ -1548,8 +1530,8 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
             ) : (
               <>
                 {/* Combobox com busca: 395+ casos, rolar a lista nao dava. */}
-                <DocTypeCombobox
-                  options={[
+                <Selecao
+                  opcoes={[
                     { value: "sem", label: "Sem cliente" },
                     ...casos.map((c) => ({
                       value: c.id,
@@ -1562,8 +1544,8 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                     setProcessoToken("");
                   }}
                   placeholder="Sem cliente"
-                  searchPlaceholder="Buscar cliente..."
-                  emptyText="Nenhum cliente encontrado."
+                  buscaPlaceholder="Buscar cliente..."
+                  vazio="Nenhum cliente encontrado."
                 />
                 {editando && trocandoCaso && (
                   <div className="flex items-center gap-2">
@@ -1591,17 +1573,15 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
           {casoId && processosDoCaso.length > 0 && (
             <div className="space-y-1.5">
               <Label>Processo *</Label>
-              <Select value={processoToken} onValueChange={setProcessoToken}>
-                <SelectTrigger><SelectValue placeholder="Escolha o processo" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={SEM_PROCESSO}>Cliente sem processo</SelectItem>
-                  {processosDoCaso.map((p) => (
-                    <SelectItem key={`${p.natureza}:${p.id}`} value={`${p.natureza}:${p.id}`}>
-                      {p.rotulo}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Selecao
+  value={processoToken}
+  onChange={setProcessoToken}
+  opcoes={[
+    { value: SEM_PROCESSO, label: "Cliente sem processo" },
+    ...processosDoCaso.map((p) => ({ value: `${p.natureza}:${p.id}`, label: p.rotulo })),
+  ]}
+  placeholder="Escolha o processo"
+/>
               <p className="text-xs text-muted-foreground">
                 É o processo que decide em qual coluna o parceiro vê a tarefa:
                 requerimento vai para Administrativo, ação para Judiciais. Sem processo
@@ -1613,48 +1593,37 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
           {!editando && casoId && templates.length > 0 && (
             <div className="space-y-1.5 rounded-md border border-dashed p-3 bg-muted/30">
               <Label>Template (atalho)</Label>
-              <Select value={templateSelecionado} onValueChange={setTemplateSelecionado}>
-                <SelectTrigger><SelectValue placeholder="Escolha um template" /></SelectTrigger>
-                <SelectContent>
-                  {templates.map((t) => (
-                    <SelectItem key={t.id} value={t.nome}>
-                      {(() => {
-                        // Conta cada destino pelo nome — andamento e
-                        // solicitação não são tarefas.
-                        const tarefasN = t.itens.filter(
-                          (i) => !i.destino || i.destino === "tarefa",
-                        ).length;
-                        const andamentosN = t.itens.filter(
-                          (i) => i.destino === "andamento",
-                        ).length;
-                        const solicN = t.itens.filter(
-                          (i) => i.destino === "solicitacao_documento",
-                        ).length;
-                        const partes: string[] = [];
-                        if (templateTemAgenda(t)) partes.push("agenda");
-                        if (tarefasN > 0)
-                          partes.push(`${tarefasN} tarefa${tarefasN === 1 ? "" : "s"}`);
-                        if (andamentosN > 0)
-                          partes.push(
-                            `${andamentosN} andamento${andamentosN === 1 ? "" : "s"}`,
-                          );
-                        if (solicN > 0)
-                          partes.push(
-                            `${solicN} solicitação${solicN === 1 ? "" : "ões"} de doc`,
-                          );
-                        return (
-                          <>
-                            {t.rotulo ?? t.nome}{" "}
-                            <span className="text-muted-foreground">
-                              ({partes.join(" + ") || "vazio"})
-                            </span>
-                          </>
-                        );
-                      })()}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Selecao
+  value={templateSelecionado}
+  onChange={setTemplateSelecionado}
+  opcoes={[
+    // O item mostra o resumo do template em cinza; a BUSCA procura no
+    // `label`, que é texto puro — procurar dentro de JSX não funciona, e
+    // rótulo que some da busca é item que a pessoa não acha.
+    ...templates.map((t) => {
+      const tarefasN = t.itens.filter((i) => !i.destino || i.destino === "tarefa").length;
+      const andamentosN = t.itens.filter((i) => i.destino === "andamento").length;
+      const solicN = t.itens.filter((i) => i.destino === "solicitacao_documento").length;
+      const partes: string[] = [];
+      if (templateTemAgenda(t)) partes.push("agenda");
+      if (tarefasN > 0) partes.push(`${tarefasN} tarefa${tarefasN === 1 ? "" : "s"}`);
+      if (andamentosN > 0) partes.push(`${andamentosN} andamento${andamentosN === 1 ? "" : "s"}`);
+      if (solicN > 0) partes.push(`${solicN} solicitação${solicN === 1 ? "" : "ões"} de doc`);
+      const resumo = partes.join(" + ") || "vazio";
+      const nome = t.rotulo ?? t.nome;
+      return {
+        value: t.nome,
+        label: `${nome} (${resumo})`,
+        conteudo: (
+          <>
+            {nome} <span className="text-muted-foreground">({resumo})</span>
+          </>
+        ),
+      };
+    }),
+  ]}
+  placeholder="Escolha um template"
+/>
               <p className="text-xs text-muted-foreground">
                 {templateSelecionado ? (
                   templateAgenda ? (
@@ -1829,14 +1798,13 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Tipo</Label>
-              <Select value={tipo} onValueChange={(v) => setTipo(v as TarefaTipo)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {TIPOS.map((t) => (
-                    <SelectItem key={t} value={t}>{TIPO_LABEL[t]}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Selecao
+  value={tipo}
+  onChange={(v) => setTipo(v as TarefaTipo)}
+  opcoes={[
+    ...TIPOS.map((t) => ({ value: t, label: TIPO_LABEL[t] })),
+  ]}
+/>
               {tipo === "pericia" && (
                 <label className="flex items-start gap-2 pt-1 text-xs text-muted-foreground cursor-pointer">
                   <input
@@ -1854,17 +1822,13 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
             </div>
             <div className="space-y-1.5">
               <Label>Prioridade</Label>
-              <Select
-                value={String(prioridade)}
-                onValueChange={(v) => setPrioridade(Number(v))}
-              >
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {[1, 2, 3, 4].map((p) => (
-                    <SelectItem key={p} value={String(p)}>{PRIORIDADE_LABEL[p]}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Selecao
+  value={String(prioridade)}
+  onChange={(v) => setPrioridade(Number(v))}
+  opcoes={[
+    ...[1, 2, 3, 4].map((p) => ({ value: String(p), label: PRIORIDADE_LABEL[p] })),
+  ]}
+/>
             </div>
           </div>
           </>)}
@@ -1872,9 +1836,10 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
           {editando && (
             <div className="space-y-1.5">
               <Label>Status</Label>
-              <Select
-                value={status}
-                onValueChange={(v) => {
+              <Selecao
+  value={status}
+  aria-label="Status"
+  onChange={(v) => {
                   // "Feito" abre o popup de conclusão (não muda o status direto):
                   // Concluir tarefa (→ próxima sugerida) / Excluir com motivo.
                   if (v === "feito" && tarefa && tarefa.status !== "feito") {
@@ -1884,19 +1849,13 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                   }
                   setStatus(v as TarefaStatus);
                 }}
-              >
-                <SelectTrigger aria-label="Status"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {/* "Cancelado" saiu das opções; se a tarefa já é cancelada
-                      (histórico), mantém a opção só pra ela não sumir do select. */}
-                  {(STATUS_ORDEM.includes(status)
+  opcoes={[
+    ...(STATUS_ORDEM.includes(status)
                     ? STATUS_ORDEM
                     : [...STATUS_ORDEM, status]
-                  ).map((s) => (
-                    <SelectItem key={s} value={s}>{STATUS_LABEL[s]}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                  ).map((s) => ({ value: s, label: STATUS_LABEL[s] })),
+  ]}
+/>
             </div>
           )}
 
@@ -2068,23 +2027,21 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                   <Label className="text-xs font-normal text-red-900/80">
                     Prazo (dias úteis)
                   </Label>
-                  <Select
-                    value={prazoDias}
-                    onValueChange={(v) => {
+                  <Selecao
+  value={prazoDias}
+  aria-label="Prazo em dias úteis"
+  onChange={(v) => {
                       setPrazoDias(v);
                       recalcularFatal(pubData, v, prazoDiasCustom);
                     }}
-                  >
-                    <SelectTrigger aria-label="Prazo em dias úteis">
-                      <SelectValue placeholder="Escolher" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="5">5 dias</SelectItem>
-                      <SelectItem value="10">10 dias</SelectItem>
-                      <SelectItem value="15">15 dias</SelectItem>
-                      <SelectItem value="outro">Outro…</SelectItem>
-                    </SelectContent>
-                  </Select>
+  opcoes={[
+    { value: "5", label: "5 dias" },
+    { value: "10", label: "10 dias" },
+    { value: "15", label: "15 dias" },
+    { value: "outro", label: "Outro…" },
+  ]}
+  placeholder="Escolher"
+/>
                 </div>
               </div>
               {prazoDias === "outro" && (
@@ -2134,26 +2091,14 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
             {!editando && extrasResp.length > 0 && titulo.trim() && (
               <p className="text-xs text-muted-foreground">{titulo}</p>
             )}
-            <Select
-              value={responsavelId ?? "sem"}
-              onValueChange={(v) => setResponsavelId(v === "sem" ? null : v)}
-            >
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {/* Ao criar, o banco preenche sozinho quando fica vazio
-                    (trg_tarefas_set_responsavel: dono do caso -> quem já cuida
-                    dele -> padrão do escritório). Editando, "sem" continua
-                    sendo "sem". */}
-                <SelectItem value="sem">
-                  {editando ? "Sem responsável" : "Definir automaticamente"}
-                </SelectItem>
-                {internos.map((u) => (
-                  <SelectItem key={u.id} value={u.id}>
-                    {u.nome ?? "(sem nome)"}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Selecao
+  value={responsavelId ?? "sem"}
+  onChange={(v) => setResponsavelId(v === "sem" ? null : v)}
+  opcoes={[
+    { value: "sem", label: editando ? "Sem responsável" : "Definir automaticamente" },
+    ...internos.map((u) => ({ value: u.id, label: u.nome ?? "(sem nome)" })),
+  ]}
+/>
           </div>
           )}
 
@@ -2165,27 +2110,20 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
               {extrasResp.map((e) => (
                 <div key={e.index} className="space-y-1">
                   <p className="text-xs text-muted-foreground">{e.titulo}</p>
-                  <Select
-                    value={e.respId}
-                    onValueChange={(v) =>
+                  <Selecao
+  value={e.respId}
+  onChange={(v) =>
                       setExtrasResp((prev) =>
                         prev.map((x) =>
                           x.index === e.index ? { ...x, respId: v } : x,
                         ),
-                      )
-                    }
-                  >
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="herdar">Mesmo da tarefa principal</SelectItem>
-                      <SelectItem value="sem">Definir automaticamente</SelectItem>
-                      {internos.map((u) => (
-                        <SelectItem key={u.id} value={u.id}>
-                          {u.nome ?? "(sem nome)"}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                      )}
+  opcoes={[
+    { value: "herdar", label: "Mesmo da tarefa principal" },
+    { value: "sem", label: "Definir automaticamente" },
+    ...internos.map((u) => ({ value: u.id, label: u.nome ?? "(sem nome)" })),
+  ]}
+/>
                 </div>
               ))}
             </div>

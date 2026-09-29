@@ -1,9 +1,11 @@
+import { TZ_BR } from "./fuso";
+
 // Datas de calendário de Brasília para as specs (o banco conta prazos no dia
 // de Brasília, não no do runner).
 
 /** Dia de Brasília, `n` dias a partir de hoje ("YYYY-MM-DD"). */
 export function diaBR(n: number): string {
-  const hoje = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+  const hoje = new Date().toLocaleDateString("en-CA", { timeZone: TZ_BR });
   const [y, m, d] = hoje.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
 }
@@ -18,7 +20,7 @@ export function recua(dia: string): string {
 
 /** Dia de Brasília de um instante ISO. */
 export function diaDoInstanteBR(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+  return new Date(iso).toLocaleDateString("en-CA", { timeZone: TZ_BR });
 }
 
 /** "YYYY-MM-DD" → "dd/mm/aaaa". */

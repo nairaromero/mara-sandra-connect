@@ -24,7 +24,7 @@ import { Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { fimDoDiaBR, inputDateBRParaIso, isoParaInputDateBR } from "@/lib/fuso";
 import { TIPOS_DOCUMENTO_OPTIONS } from "@/lib/documentos/tipos";
-import { DocTypeCombobox } from "@/components/doc-type-combobox";
+import { Selecao } from "@/components/ui/selecao";
 import { listarInternosAtivos } from "@/lib/tarefas/queries";
 import {
   SEM_PROCESSO,
@@ -43,13 +43,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 const ORIGEM_LABEL: Record<string, string> = {
   interna: "Interna (escritório)",
@@ -226,8 +219,8 @@ export function EditarSolicitacaoDialog(props: {
         <div className="space-y-3">
           <div>
             <Label className="text-xs">Tipo de documento</Label>
-            <DocTypeCombobox
-              options={TIPOS_DOCUMENTO_OPTIONS}
+            <Selecao
+              opcoes={TIPOS_DOCUMENTO_OPTIONS}
               value={tipo}
               onChange={setTipo}
               placeholder="Selecione ou busque o tipo..."
@@ -246,15 +239,14 @@ export function EditarSolicitacaoDialog(props: {
           <div>
             <Label className="text-xs">Quem vai providenciar?</Label>
             {origemEditavel ? (
-              <Select value={origem} onValueChange={setOrigem}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="externa">Externa - parceiro ou cliente envia</SelectItem>
-                  <SelectItem value="interna">Interna - escritório providencia</SelectItem>
-                </SelectContent>
-              </Select>
+              <Selecao
+  value={origem}
+  onChange={setOrigem}
+  opcoes={[
+    { value: "externa", label: "Externa - parceiro ou cliente envia" },
+    { value: "interna", label: "Interna - escritório providencia" },
+  ]}
+/>
             ) : (
               <p className="text-sm text-muted-foreground mt-1">
                 {ORIGEM_LABEL[origem] || origem} — veio de template, a origem não muda.
@@ -264,18 +256,15 @@ export function EditarSolicitacaoDialog(props: {
           {origem === "interna" && (
             <div>
               <Label className="text-xs">Responsável na equipe (obrigatório)</Label>
-              <Select value={responsavelId} onValueChange={setResponsavelId}>
-                <SelectTrigger aria-label="Responsável na equipe">
-                  <SelectValue placeholder="Quem vai providenciar" />
-                </SelectTrigger>
-                <SelectContent>
-                  {internos.map((u) => (
-                    <SelectItem key={u.id} value={u.id}>
-                      {u.nome || u.email || u.id}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Selecao
+  value={responsavelId}
+  aria-label="Responsável na equipe"
+  onChange={setResponsavelId}
+  opcoes={[
+    ...internos.map((u) => ({ value: u.id, label: u.nome || u.email || u.id })),
+  ]}
+  placeholder="Quem vai providenciar"
+/>
               <p className="text-xs text-muted-foreground mt-1">
                 A tarefa "Providenciar documentos" passa para o nome dessa pessoa.
               </p>
@@ -284,19 +273,16 @@ export function EditarSolicitacaoDialog(props: {
           {temFrentes && (
             <div>
               <Label className="text-xs">Processo *</Label>
-              <Select value={processoToken} onValueChange={setProcessoToken}>
-                <SelectTrigger aria-label="Processo do pedido">
-                  <SelectValue placeholder="Escolha o processo" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={SEM_PROCESSO}>Cliente sem processo</SelectItem>
-                  {(frentes ?? []).map((f) => (
-                    <SelectItem key={f.token} value={f.token}>
-                      {f.rotulo}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Selecao
+  value={processoToken}
+  aria-label="Processo do pedido"
+  onChange={setProcessoToken}
+  opcoes={[
+    { value: SEM_PROCESSO, label: "Cliente sem processo" },
+    ...(frentes ?? []).map((f) => ({ value: f.token, label: f.rotulo })),
+  ]}
+  placeholder="Escolha o processo"
+/>
               <p className="text-xs text-muted-foreground mt-1">
                 É o processo que decide em qual coluna o parceiro vê o pedido: requerimento
                 vai para Administrativo, ação para Judiciais.
@@ -306,22 +292,16 @@ export function EditarSolicitacaoDialog(props: {
           {origem === "externa" && internos.length > 0 && (
             <div>
               <Label className="text-xs">Quem cuida quando o documento voltar (opcional)</Label>
-              <Select
-                value={responsavelId || "auto"}
-                onValueChange={(v) => setResponsavelId(v === "auto" ? "" : v)}
-              >
-                <SelectTrigger aria-label="Quem cuida quando o documento voltar">
-                  <SelectValue placeholder="Definir automaticamente" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="auto">Definir automaticamente</SelectItem>
-                  {internos.map((u) => (
-                    <SelectItem key={u.id} value={u.id}>
-                      {u.nome || u.email || u.id}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Selecao
+  value={responsavelId || "auto"}
+  aria-label="Quem cuida quando o documento voltar"
+  onChange={(v) => setResponsavelId(v === "auto" ? "" : v)}
+  opcoes={[
+    { value: "auto", label: "Definir automaticamente" },
+    ...internos.map((u) => ({ value: u.id, label: u.nome || u.email || u.id })),
+  ]}
+  placeholder="Definir automaticamente"
+/>
               <p className="text-xs text-muted-foreground mt-1">
                 A tarefa que nascer com o documento — analisar o que chegou ou cumprir a
                 exigência — abre no nome dessa pessoa.

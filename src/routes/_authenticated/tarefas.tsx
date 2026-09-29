@@ -10,6 +10,7 @@
 // ao concluir.
 
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { Selecao } from "@/components/ui/selecao";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -37,13 +38,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 import { TarefaCard } from "@/components/tarefas/tarefa-card";
 import { TarefasParceiro } from "@/components/parceiro/tarefas-parceiro";
@@ -405,39 +399,39 @@ function TarefasPage() {
             Só minhas
           </Button>
 
-          <Select value={filtroResp} onValueChange={setFiltroResp}>
-            <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Todos responsáveis</SelectItem>
-              <SelectItem value="sem">Sem responsável</SelectItem>
-              {internos.map((u) => (
-                <SelectItem key={u.id} value={u.id}>
-                  {u.nome ?? "(sem nome)"}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Selecao
+  value={filtroResp}
+  onChange={setFiltroResp}
+  opcoes={[
+    { value: "todos", label: "Todos responsáveis" },
+    { value: "sem", label: "Sem responsável" },
+    ...internos.map((u) => ({ value: u.id, label: u.nome ?? "(sem nome)" })),
+  ]}
+  className="w-44"
+/>
 
-          <Select value={filtroTipo} onValueChange={(v) => setFiltroTipo(v as TarefaTipo | "todos")}>
-            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Todos tipos</SelectItem>
-              {TIPOS.map((t) => (
-                <SelectItem key={t} value={t}>{TIPO_LABEL[t]}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Selecao
+  value={filtroTipo}
+  onChange={(v) => setFiltroTipo(v as TarefaTipo | "todos")}
+  opcoes={[
+    { value: "todos", label: "Todos tipos" },
+    ...TIPOS.map((t) => ({ value: t, label: TIPO_LABEL[t] })),
+  ]}
+  className="w-40"
+/>
 
-          <Select value={filtroPri} onValueChange={setFiltroPri}>
-            <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Toda prioridade</SelectItem>
-              <SelectItem value="1">Urgente</SelectItem>
-              <SelectItem value="2">Alta</SelectItem>
-              <SelectItem value="3">Normal</SelectItem>
-              <SelectItem value="4">Baixa</SelectItem>
-            </SelectContent>
-          </Select>
+          <Selecao
+  value={filtroPri}
+  onChange={setFiltroPri}
+  opcoes={[
+    { value: "todos", label: "Toda prioridade" },
+    { value: "1", label: "Urgente" },
+    { value: "2", label: "Alta" },
+    { value: "3", label: "Normal" },
+    { value: "4", label: "Baixa" },
+  ]}
+  className="w-36"
+/>
 
           {(busca || filtroResp !== "todos" || filtroTipo !== "todos" || filtroPri !== "todos" || somenteMinhas) && (
             <Button variant="ghost" size="sm" onClick={limparFiltros}>

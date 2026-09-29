@@ -650,7 +650,10 @@ revoke all on function public.pedir_prorrogacao(uuid, date, text) from public, a
 revoke all on function public.decidir_prorrogacao(uuid, boolean, text) from public, anon;
 grant execute on function public.pedir_prorrogacao(uuid, date, text) to authenticated;
 grant execute on function public.decidir_prorrogacao(uuid, boolean, text) to authenticated;
-revoke all on function public.relogio_etapas(text, date) from anon;
+-- PUBLIC e nao so anon: o `create function` concede EXECUTE a PUBLIC por
+-- padrao, e revogar so de anon nao tira nada — anon continua herdando por PUBLIC.
+-- Foi assim que o EXECUTE voltou sozinho em permissoes_do_membro (#426).
+revoke all on function public.relogio_etapas(text, date) from public, anon;
 
 -- ---------------------------------------------------------------------------
 -- 8. Radar da Mara: relógios abertos, com o sinal de cada um

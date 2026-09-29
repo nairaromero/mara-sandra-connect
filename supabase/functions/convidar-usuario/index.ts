@@ -15,6 +15,7 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { exigirUsuario } from "../_shared/auth.ts";
+import { auditar } from "../_shared/auditoria.ts";
 import { marcaDoEscritorio } from "../_shared/marca.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
@@ -218,6 +219,18 @@ serve(async (req) => {
         .eq("escritorio_id", escritorioId).eq("usuario_id", newId);
       if (papelErr) console.error("papel do convidado não aplicado:", papelErr.message);
     }
+  }
+
+  // Trilha do convite (gap 5 do planning/AUDITABILIDADE.md): `membros.convidado_por`
+  // guarda quem convidou, mas e ESTADO — apagou o vinculo, o convite desaparece
+  // com ele. A linha na trilha fica.
+  if (newId) {
+    await auditar(quem, {
+      acao: tipo === "interno" ? "equipe.convidado" : "parceiro.convidado",
+      recurso: "usuarios",
+      recurso_id: newId,
+      detalhes: { nome, email, papel },
+    });
   }
 
   return jsonResponse({ ok: true, id: newId, nome, email, tipo, papel });

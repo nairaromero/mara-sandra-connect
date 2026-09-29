@@ -6,6 +6,7 @@
 // os campos extras na tela).
 
 import { supabase } from "@/lib/supabase";
+import { lerLista } from "@/lib/leitura";
 import { instanteBR, partesBR } from "@/lib/fuso";
 import { substituirPlaceholders } from "@/lib/tarefas/helpers";
 
@@ -61,10 +62,22 @@ export async function aplicarTemplateProgramatico(input: {
 
   // Dedup cruzado: o mesmo template pode chegar por DOIS caminhos (botão de
   // desfecho aqui × inss-email-processor quando o e-mail da decisão chega).
-  // Se o MESMO PROCESSO já tem tarefa aberta desta corrente — de qualquer
-  // origem —, não abre de novo. Outro requerimento/processo do caso é outra
-  // corrente (#397: um processo não bloqueia o outro). O processor grava
-  // metadata.template; nós, metadata.template_aplicado.
+  // Os dois lados do conflito consertavam coisas DIFERENTES, e as duas valem:
+  //
+  // (#397) o escopo da trava é o MESMO PROCESSO, não o caso inteiro. Outro
+  // requerimento — ou o processo judicial — do mesmo caso é outra corrente:
+  // um não pode bloquear o outro, que era como a segunda frente ficava sem a
+  // tarefa que devia nascer.
+  //
+  // (túnel de leitura) a consulta passa por `lerLista`. Com `const { data }`,
+  // uma falha devolvia `data` nulo, a trava não disparava e o template era
+  // aplicado DUAS vezes — a proteção sumia em silêncio, que é o pior jeito de
+  // sumir.
+  //
+  // Juntas: a trava enxerga só a corrente DESTE processo, e falha de consulta
+  // estoura em vez de virar "não tem corrente".
+  //
+  // O processor grava metadata.template; nós, metadata.template_aplicado.
   let dedup = supabase
     .from("tarefas")
     .select("id")
@@ -79,10 +92,11 @@ export async function aplicarTemplateProgramatico(input: {
   dedup = input.processoJudicialId
     ? dedup.eq("processo_judicial_id", input.processoJudicialId)
     : dedup.is("processo_judicial_id", null);
-  const { data: correnteJa, error: errDedup } = await dedup.limit(1);
-  // Falha da consulta não pode virar "não tem corrente" e duplicar.
-  if (errDedup) throw errDedup;
-  if (correnteJa && correnteJa.length > 0) {
+  const correnteJa = await lerLista<{ id: string }>(
+    dedup.limit(1),
+    `tarefas abertas da corrente "${input.nomeTemplate}" neste processo`,
+  );
+  if (correnteJa.length > 0) {
     throw new Error(
       `A corrente do template "${input.nomeTemplate}" já está aberta neste processo — não vou duplicar.`,
     );
@@ -96,12 +110,17 @@ export async function aplicarTemplateProgramatico(input: {
   // ativos — herda o responsável passado pelo widget.
   const emailParaId = new Map<string, string>();
   if (itens.some((i) => i.executor_email)) {
-    const { data: internos } = await supabase
-      .from("usuarios_escritorio")
-      .select("id, email")
-      .eq("tipo", "interno")
-      .eq("ativo", true);
-    for (const u of internos ?? []) {
+    // idem: falha aqui deixava o mapa vazio e TODA tarefa ia para o
+    // responsável de fallback, em vez de quem devia executar — sem aviso.
+    const internos = await lerLista<{ id: string; email: string | null }>(
+      supabase
+        .from("usuarios_escritorio")
+        .select("id, email")
+        .eq("tipo", "interno")
+        .eq("ativo", true),
+      "internos ativos para rotear a tarefa",
+    );
+    for (const u of internos) {
       if (u.email) emailParaId.set(u.email.toLowerCase(), u.id);
     }
   }

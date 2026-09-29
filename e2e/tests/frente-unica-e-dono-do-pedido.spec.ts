@@ -316,6 +316,9 @@ test("caso finalizado: tarefa de robô não reabre; pedido de gente reabre", asy
     .single();
   expect(aindaFinalizado!.fase, "robô não reabre caso encerrado").toBe("finalizado");
 
+  // `created_by` é o que separa gente de robô: `_tarefas_set_created_by` o
+  // preenche com auth.uid() quando vem nulo, e o service_role (este cliente,
+  // como os sincronizadores) deixa nulo. Aqui a pessoa vai explícita.
   const manual = await admin.from("tarefas").insert({
     caso_id: casoId,
     tipo: "interna",
@@ -323,6 +326,7 @@ test("caso finalizado: tarefa de robô não reabre; pedido de gente reabre", asy
     prioridade: 2,
     titulo: "[E2E] pedido de gente",
     origem: "manual",
+    created_by: internoQuePediu,
   });
   expect(manual.error).toBeFalsy();
   await expect
@@ -334,4 +338,76 @@ test("caso finalizado: tarefa de robô não reabre; pedido de gente reabre", asy
       { timeout: 10_000 },
     )
     .toBe("admin");
+});
+
+// A porta que o filtro por `origem` não fechava: publicação do DJEN/DataJud
+// entra em `andamentos`, `tg_rascunho_pericia_andamento` cria a tarefa do
+// rascunho com origem 'manual' — e o caso encerrado reabria sozinho. Aqui o
+// andamento entra pelo service_role, como o sincronizador faz.
+test("caso finalizado: publicação de robô cria rascunho mas NÃO reabre", async () => {
+  const { casoId } = await seedClienteCaso(admin, { sufixo: `Reabrir robo ${Date.now()}` });
+  await admin.from("casos").update({ fase: "finalizado" }).eq("id", casoId);
+
+  const { error } = await admin.from("andamentos").insert({
+    caso_id: casoId,
+    origem: "djen",
+    titulo: "[E2E] Perícia médica designada para o próximo mês",
+    data_evento: new Date().toISOString(),
+  });
+  expect(error, "seed andamento do robô").toBeFalsy();
+
+  // O gatilho do rascunho precisa ter rodado, senão o teste passaria à toa.
+  await expect
+    .poll(
+      async () => {
+        const { count } = await admin
+          .from("tarefas")
+          .select("id", { count: "exact", head: true })
+          .eq("caso_id", casoId);
+        return count ?? 0;
+      },
+      { timeout: 10_000 },
+    )
+    .toBeGreaterThan(0);
+
+  const { data: caso } = await admin.from("casos").select("fase").eq("id", casoId).single();
+  expect(caso!.fase, "publicação de robô não ressuscita caso encerrado").toBe("finalizado");
+});
+
+// Evento de agenda reabre SEMPRE (decisão da Naira, 2026-09-23): audiência
+// marcada é trabalho, encerrado ou não. O gatilho roda em três tabelas com
+// colunas diferentes e o handler dele engole qualquer erro em silêncio — sem
+// este teste, uma referência a coluna inexistente mataria a reabertura por
+// evento sem ninguém perceber (foi o que aconteceu com o pedido, e o spec do
+// kanban pegou).
+test("caso finalizado: audiência nova reabre o caso", async () => {
+  const { casoId } = await seedClienteCaso(admin, { sufixo: `Reabrir evento ${Date.now()}` });
+  const { data: proc, error: erroProc } = await admin
+    .from("processos_judiciais")
+    .insert({ caso_id: casoId, numero_processo: numero("E2E-PROC") })
+    .select("id")
+    .single();
+  if (erroProc) throw new Error(`seed processo judicial: ${erroProc.message}`);
+  await admin.from("casos").update({ fase: "finalizado" }).eq("id", casoId);
+
+  const inicio = new Date(Date.now() + 5 * 86400_000);
+  const { error } = await admin.from("agenda_eventos").insert({
+    caso_id: casoId,
+    tipo: "audiencia",
+    titulo: "[E2E] Audiência em caso encerrado",
+    start_at: inicio.toISOString(),
+    end_at: new Date(inicio.getTime() + 3600_000).toISOString(),
+    processo_judicial_id: proc!.id,
+  });
+  expect(error, "seed audiência").toBeFalsy();
+
+  await expect
+    .poll(
+      async () => {
+        const { data } = await admin.from("casos").select("fase").eq("id", casoId).single();
+        return data?.fase;
+      },
+      { timeout: 10_000 },
+    )
+    .toBe("judicial");
 });

@@ -54,6 +54,7 @@
 //        1 erro de configuração ou algo que não deu para conferir.
 
 import { execFileSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -100,6 +101,7 @@ function tokenGitHub() {
 let TOKEN;
 
 async function gql(query, variables = {}) {
+  TOKEN ??= tokenGitHub();
   const resp = await fetch("https://api.github.com/graphql", {
     method: "POST",
     headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
@@ -227,7 +229,7 @@ async function cardsNaColuna(board, coluna) {
 const CAMPOS_PR = `
   number merged state baseRefName
   mergeCommit { oid }
-  files(first: 100) { totalCount nodes { path changeType } }
+  files(first: 100) { totalCount pageInfo { hasNextPage endCursor } nodes { path changeType } }
 `;
 
 // Os PRs ligados a uma issue, com os `campos` pedidos (tem que incluir
@@ -247,6 +249,7 @@ async function prsLigadosAIssue(issueNumero, campos) {
     { o: REPO_OWNER, r: REPO_NAME, n: issueNumero },
   );
   const porNumero = new Map(d.repository.issue.closedByPullRequestsReferences.nodes.map((p) => [p.number, p]));
+  const apenasCitam = new Map();
 
   let cursor = null;
   do {
@@ -274,13 +277,82 @@ async function prsLigadosAIssue(issueNumero, campos) {
       if (!pr?.number || porNumero.has(pr.number)) continue;
       if (pr.repository.nameWithOwner !== REPO || pr.baseRefName !== "staging") continue;
       if (issuesFechadasPeloCorpo(pr.body, REPO).includes(issueNumero)) porNumero.set(pr.number, pr);
+      // Citou a issue mas não a fecha. NÃO vira vínculo — só um PR que fala da
+      // issue moveria o card sozinho, e "menciona" não é "resolve". Mas é a
+      // pista de quem esqueceu o `Closes`, e quem diagnostica precisa dela.
+      else if (pr.merged) apenasCitam.set(pr.number, pr);
     }
     cursor = pagina.pageInfo.hasNextPage ? pagina.pageInfo.endCursor : null;
   } while (cursor);
-  return [...porNumero.values()];
+  return { ligados: [...porNumero.values()], apenasCitam: [...apenasCitam.values()] };
+}
+
+// O GitHub entrega os arquivos do PR em páginas de 100. O lote do RBAC (#396)
+// tem 195, e até aqui o script parava na primeira e segurava o card com
+// "migrations não conferidas".
+//
+// A recusa estava CERTA — não dá para afirmar que não há migration no que não
+// se leu, e "não consegui conferir" é resposta diferente de "está tudo certo".
+// Errado era ser um beco sem saída: bastava pedir a página seguinte.
+//
+// Se a paginação falhar, o erro sobe e o card continua segurado (quem chama
+// transforma em "não consegui ler o card no GitHub"). A recusa segue de pé
+// como última linha; o que mudou é que agora ela é o caso raro, não a regra.
+async function completarArquivos(pr) {
+  let info = pr.files.pageInfo;
+  while (info?.hasNextPage) {
+    const d = await gql(
+      `query($o: String!, $r: String!, $n: Int!, $c: String) {
+        repository(owner: $o, name: $r) {
+          pullRequest(number: $n) {
+            files(first: 100, after: $c) {
+              pageInfo { hasNextPage endCursor }
+              nodes { path changeType }
+            }
+          }
+        }
+      }`,
+      { o: REPO_OWNER, r: REPO_NAME, n: pr.number, c: info.endCursor },
+    );
+    const pagina = d.repository.pullRequest.files;
+    pr.files.nodes.push(...pagina.nodes);
+    info = pagina.pageInfo;
+  }
+  return pr;
+}
+
+// Por que o card fica quando NENHUM PR vinculado foi mergeado. Três situações
+// moravam numa frase só ("nenhum PR mergeado vinculado à issue"): não existe
+// vínculo, existe e está aberto, existe e foi abandonado. A frase era
+// literalmente verdadeira nas três e não ajudava em nenhuma — quem lê precisa
+// saber o que FAZER.
+//
+// Fica em função própria (e exportada) porque é a redação que responde "por
+// que este card não andou": um lugar só, conferível sem passar pelo release
+// inteiro.
+function motivoSemMerge(tipo, prs, apenasCitam) {
+  if (tipo !== "Issue") return "PR não mergeado";
+  const numeros = (lista) => lista.map((p) => `#${p.number}`).join(", ");
+  const abertos = prs.filter((p) => p.state === "OPEN");
+  const fechados = prs.filter((p) => p.state === "CLOSED");
+  // O vínculo existe: o trabalho é esperar o merge, não caçar ligação — por
+  // isso a pista não entra aqui, viraria ruído.
+  if (abertos.length) return `PR vinculado ${numeros(abertos)} ainda aberto`;
+  if (fechados.length) return `PR vinculado ${numeros(fechados)} foi fechado sem merge`;
+  // Nenhum vínculo. "Cita" não é "resolve", e mover por menção faria um PR que
+  // só comenta a issue empurrar o card — por isso a menção não vira vínculo.
+  // Mas ela é a pista de quem esqueceu o `Closes`, e sem ela a recusa é um beco
+  // sem saída. Foi o caso do #357: o #391 cita no título e o corpo fecha só o
+  // #364.
+  const pista = apenasCitam.length
+    ? ` — ${numeros(apenasCitam)} cita${apenasCitam.length > 1 ? "m" : ""} a issue sem \`Closes\` no corpo`
+    : "";
+  return `nenhum PR vinculado à issue${pista}`;
 }
 
 // Os PRs que decidem um card: o próprio PR, ou os PRs vinculados à issue.
+// Sempre com a lista de arquivos INTEIRA — quem chama não precisa saber que
+// existe paginação.
 async function prsDoCard(card) {
   if (card.tipo === "PullRequest") {
     const d = await gql(
@@ -289,9 +361,10 @@ async function prsDoCard(card) {
       }`,
       { o: REPO_OWNER, r: REPO_NAME, n: card.numero },
     );
-    return [d.repository.pullRequest];
+    return { prs: [await completarArquivos(d.repository.pullRequest)], apenasCitam: [] };
   }
-  return prsLigadosAIssue(card.numero, CAMPOS_PR);
+  const { ligados, apenasCitam } = await prsLigadosAIssue(card.numero, CAMPOS_PR);
+  return { prs: await Promise.all(ligados.map(completarArquivos)), apenasCitam };
 }
 
 function migrationsDoPr(pr) {
@@ -442,7 +515,8 @@ async function itemDoConteudo(board, contentId) {
 // Os outros PRs ligados à issue (fora o `exceto`): quais seguem abertos e se
 // algum já foi mergeado. PR fechado sem merge não conta pra nada.
 async function outrosPrsDaIssue(issueNumero, exceto) {
-  const outros = (await prsLigadosAIssue(issueNumero, "number state merged")).filter((p) => p.number !== exceto);
+  const { ligados } = await prsLigadosAIssue(issueNumero, "number state merged");
+  const outros = ligados.filter((p) => p.number !== exceto);
   return {
     abertos: outros.filter((p) => p.state === "OPEN").map((p) => p.number),
     algumMergeado: outros.some((p) => p.merged),
@@ -573,9 +647,9 @@ async function release({ dryRun, alvo, registroStaging }) {
   for (const card of cards) {
     card.motivos = [];
     card.migrations = [];
-    let prs;
+    let prs, apenasCitam;
     try {
-      prs = await prsDoCard(card);
+      ({ prs, apenasCitam } = await prsDoCard(card));
     } catch (e) {
       card.motivos.push("não consegui ler o card no GitHub");
       erros.push(`#${card.numero}: ${e.message}`);
@@ -590,7 +664,7 @@ async function release({ dryRun, alvo, registroStaging }) {
     }
     const mergeados = prs.filter((p) => p.merged);
     if (!mergeados.length) {
-      card.motivos.push(card.tipo === "Issue" ? "nenhum PR mergeado vinculado à issue" : "PR não mergeado");
+      card.motivos.push(motivoSemMerge(card.tipo, prs, apenasCitam));
       continue;
     }
     // Issue resolvida por mais de um PR: um ainda aberto quer dizer que o
@@ -700,7 +774,7 @@ async function release({ dryRun, alvo, registroStaging }) {
 
 async function main() {
   const [modo, ...resto] = process.argv.slice(2);
-  TOKEN = tokenGitHub();
+  TOKEN = tokenGitHub();   // cedo, para faltar token falhar antes de qualquer efeito
 
   if (modo === "em-revisao" || modo === "fechado") {
     const numero = Number(resto[0]);
@@ -721,7 +795,12 @@ async function main() {
   );
 }
 
-main().catch((e) => {
-  console.error(`ERRO: ${e.message}`);
-  process.exit(1);
-});
+const chamadoDireto = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (chamadoDireto) {
+  main().catch((e) => {
+    console.error(`ERRO: ${e.message}`);
+    process.exit(1);
+  });
+}
+
+export { prsDoCard, completarArquivos, migrationsDoPr, motivoSemMerge, CAMPOS_PR };

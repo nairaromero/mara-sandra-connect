@@ -23,6 +23,7 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { escopado, exigirUsuario } from "../_shared/auth.ts";
+import { auditar } from "../_shared/auditoria.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -121,6 +122,24 @@ serve(async (req) => {
   // 3) Cascade preservando historico
   // ---------------------------------------------------------------------------
   const erros: string[] = [];
+
+  // Trilha ANTES do cascade: depois dele o nome do parceiro nao existe mais, e
+  // quantos casos ele indicava deixa de ser calculavel — gap 4 do
+  // planning/AUDITABILIDADE.md.
+  {
+    const { count: casosIndicados } = await supabase
+      .from("casos").select("id", { count: "exact", head: true }).eq("parceiro_id", usuarioId);
+    await auditar(quem, {
+      acao: "parceiro.excluido",
+      recurso: "usuarios",
+      recurso_id: usuarioId,
+      detalhes: {
+        nome: (alvo as { nome?: string }).nome ?? null,
+        casos_desvinculados: casosIndicados ?? 0,
+        outros_vinculos: outrosVinculos,
+      },
+    });
+  }
 
   // 3.1) Desvincula casos (parceiro_id = NULL)
   const casosResp = await supabase

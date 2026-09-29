@@ -188,6 +188,10 @@ SQL
     -f "$dir/coleta.sql" >/dev/null
 
   credencial_staging
+  # `private` entra junto: desde o lote do RBAC o `public` DEPENDE dele — o
+  # default de `acessos_suporte.ticket` chama `private.novo_ticket_suporte()` e
+  # as policies `perm_*` chamam `private.tem_permissao`. Sem ele a restauração
+  # morre em "schema private does not exist" (27/09).
   pg_dump "$STG_CONN" --role=postgres --schema-only -n public -n ops -n private --no-owner -f "$dir/esquema.sql"
   credencial_staging
   # Dump só de dados avisa das FKs circulares (comentarios, usuarios…); o

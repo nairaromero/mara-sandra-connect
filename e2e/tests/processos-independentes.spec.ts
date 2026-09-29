@@ -156,3 +156,58 @@ test("montagem aberta no requerimento 1 não impede ajuizar o requerimento 2", a
     .like("titulo", "Montagem da inicial%");
   expect(montagens!.map((m) => m.processo_admin_id).sort()).toEqual([req1, req2].sort());
 });
+
+// A outra metade da mesma trava. O teste acima prova que ela não é LARGA
+// demais (o requerimento 1 não bloqueia o 2). Este prova que ela não ficou
+// ESTREITA demais: no MESMO processo, a corrente não abre duas vezes.
+//
+// Os dois lados importam e falham de formas opostas: larga demais faz sumir
+// tarefa que devia nascer, estreita demais faz nascer em dobro. Escopar a
+// trava por processo (#397) mexeu exatamente nessa linha.
+//
+// Requerimento PRÓPRIO, e não o req1: a spec roda em modo serial sobre o mesmo
+// caso, e o teste anterior já deixa uma montagem aberta no req1 — partir dali
+// mediria o estado do vizinho em vez da trava. (A 1ª volta deste teste falhou
+// exatamente assim, com a trava agindo certo.)
+test("a mesma corrente não abre duas vezes no MESMO processo", async ({ page }) => {
+  const { data: p3, error: errP3 } = await admin
+    .from("processos_admin")
+    .insert({ caso_id: casoId, numero_requerimento: "3333333333" })
+    .select("id")
+    .single();
+  if (errP3) throw new Error(`requerimento 3: ${errP3.message}`);
+  const req3 = p3.id as string;
+
+  const montagensR3 = async () => {
+    const { data, error } = await admin
+      .from("tarefas")
+      .select("id")
+      .eq("caso_id", casoId)
+      .eq("processo_admin_id", req3)
+      .eq("status", "a_fazer")
+      .like("titulo", "Montagem da inicial%");
+    if (error) throw new Error(error.message);
+    return data!.length;
+  };
+
+  const primeira = `Analise de Indeferimento - ${nomeCliente} R3`;
+  await tarefa(primeira, {
+    processo_admin_id: req3,
+    metadata: { template: "indeferido", analise_indeferimento: true },
+  });
+  await abrirTarefaNoCaso(page, casoId, primeira);
+  await page.getByRole("dialog").getByRole("button", { name: "Ajuizar (montagem de inicial)" }).click();
+  await expect(page.getByText("Vamos ajuizar — corrente de montagem da inicial aberta.")).toBeVisible();
+  expect(await montagensR3(), "a 1ª aplicação devia abrir a montagem").toBe(1);
+
+  // 2ª vez, no MESMO requerimento: a trava tem que recusar.
+  const segunda = `Analise de Indeferimento - ${nomeCliente} R3 bis`;
+  await tarefa(segunda, {
+    processo_admin_id: req3,
+    metadata: { template: "indeferido", analise_indeferimento: true },
+  });
+  await abrirTarefaNoCaso(page, casoId, segunda);
+  await page.getByRole("dialog").getByRole("button", { name: "Ajuizar (montagem de inicial)" }).click();
+  await expect(page.getByText(/já está aberta neste processo/i)).toBeVisible();
+  expect(await montagensR3(), "a 2ª aplicação não podia duplicar a montagem").toBe(1);
+});

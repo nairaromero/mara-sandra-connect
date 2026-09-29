@@ -16,6 +16,7 @@ import { createClient, type Session } from "@supabase/supabase-js";
 import { ENV, PROJECT_REF } from "../env";
 import { adminClient } from "../supabase-admin";
 import { cursorVisivel } from "../cursor";
+import { limpezaLocal } from "../rbac";
 
 const admin = adminClient();
 const DOM = "marasandraconnect.com";
@@ -77,9 +78,9 @@ test.describe.serial("telas: só o que o papel pode", () => {
     });
     if (eDoc) throw new Error(`documento de teste: ${eDoc.message}`);
   });
-  test.afterAll(async () => {
+  test.afterAll(limpezaLocal(async () => {
     if (ESC2) await limpar();
-  });
+  }));
 
   test("financeiro: consulta o caso sem ações, contato ou documentos; gestão fecha", async ({ browser, baseURL }) => {
     const ctx = await contexto(browser, baseURL!, `canario+financeiro@${DOM}`, ESC2);

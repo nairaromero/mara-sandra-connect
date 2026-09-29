@@ -26,14 +26,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Selecao } from "@/components/ui/selecao";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Sheet,
   SheetContent,
@@ -53,8 +47,10 @@ import { ehTokenJudicial, processoDoToken, tokenDoProcesso } from "@/lib/process
 import { calcularDueAtRelativo } from "@/lib/agenda/helpers";
 import {
   comoLocalBR,
+  dataHoraBR,
   deLocalBR,
   formatarBR,
+  horaBR,
   hojeChaveBR,
   inputDateTimeBRParaIso,
   isoParaInputDateTimeBR,
@@ -575,14 +571,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
         if (!pularAvisos) {
           const avisos: string[] = [];
           if (new Date(startIso).getTime() < Date.now()) {
-            const quando = new Date(startIso).toLocaleString("pt-BR", {
-              day: "2-digit",
-              month: "2-digit",
-              year: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-              timeZone: "America/Sao_Paulo",
-            });
+            const quando = dataHoraBR(startIso);
             avisos.push(
               `A data do agendamento (${quando}) JÁ PASSOU — o evento não aparece entre os próximos.`,
             );
@@ -590,11 +579,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
           if (casoId) {
             const jaExiste = await buscarEventoMesmoDia(casoId, tipo, startIso);
             if (jaExiste) {
-              const hora = new Date(jaExiste.start_at).toLocaleTimeString("pt-BR", {
-                hour: "2-digit",
-                minute: "2-digit",
-                timeZone: "America/Sao_Paulo",
-              });
+              const hora = horaBR(jaExiste.start_at);
               avisos.push(
                 `Este cliente já tem ${TIPO_LABEL[tipo].toLowerCase()} neste dia (às ${hora}).`,
               );
@@ -828,78 +813,69 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
             {/* Rótulo "Cliente" — mesma regra do TarefaSheet: grava caso_id,
                 mas as opções são nomes de cliente (1:1 hoje). */}
             <Label>Cliente</Label>
-            <Select
+            {/* Eram 466 opções para rolar, sem busca — a mesma escolha que o
+                sheet de tarefa já deixava buscar. O <Selecao> liga a busca
+                sozinho a partir de LIMITE_BUSCA opções. */}
+            <Selecao
               value={casoId ?? "sem"}
-              onValueChange={(v) => {
+              onChange={(v) => {
                 setCasoId(v === "sem" ? null : v);
                 setProcessoToken("");
               }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Sem cliente" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="sem">Sem cliente</SelectItem>
-                {casos.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.cliente_nome ?? "(sem nome)"}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              opcoes={[
+                { value: "sem", label: "Sem cliente" },
+                ...casos.map((c) => ({ value: c.id, label: c.cliente_nome ?? "(sem nome)" })),
+              ]}
+              placeholder="Sem cliente"
+              buscaPlaceholder="Buscar cliente..."
+              vazio="Nenhum cliente encontrado."
+              data-selecao="cliente"
+            />
           </div>
 
           {casoId && processosDoCaso.length > 0 && (
             <div className="space-y-1.5">
               <Label>{processoObrigatorio ? "Processo *" : "Processo (opcional)"}</Label>
-              <Select
-                // Obrigatório e ainda sem escolha: `undefined` deixa o
-                // placeholder aparecer. Com "sem" (item que nem é renderizado
-                // nesse modo) o campo ficava em branco, marcado com * e sem
-                // dizer o que falta — achado 12 da revisão do Yuri.
-                value={processoObrigatorio ? processoToken || undefined : processoToken || "sem"}
-                onValueChange={(v) => setProcessoToken(v === "sem" ? "" : v)}
-              >
-                <SelectTrigger aria-label="Processo do compromisso">
-                  <SelectValue placeholder={processoObrigatorio ? "Escolha o processo" : "Nenhum"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {!processoObrigatorio && (
-                    <SelectItem value="sem">Sem processo específico</SelectItem>
-                  )}
-                  {processosDoCaso.map((p) => (
-                    <SelectItem key={`${p.natureza}:${p.id}`} value={`${p.natureza}:${p.id}`}>
-                      {p.rotulo}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Selecao
+  value={processoObrigatorio ? processoToken || undefined : processoToken || "sem"}
+  aria-label="Processo do compromisso"
+  onChange={(v) => setProcessoToken(v === "sem" ? "" : v)}
+  opcoes={[
+    { value: "sem", label: "Sem processo específico" },
+    ...processosDoCaso.map((p) => ({ value: `${p.natureza}:${p.id}`, label: p.rotulo })),
+  ]}
+  placeholder={processoObrigatorio ? "Escolha o processo" : "Nenhum"}
+/>
             </div>
           )}
 
           {!editando && templatesVisiveis.length > 0 && (
             <div className="space-y-1.5 rounded-md border border-dashed p-3 bg-muted/30">
               <Label>Template (atalho)</Label>
-              <Select value={templateSelecionado} onValueChange={setTemplateSelecionado}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Escolha um template" />
-                </SelectTrigger>
-                <SelectContent>
-                  {templatesVisiveis.map((t) => {
-                    const tarefasExtras = t.itens.filter((i) => i.destino === "tarefa").length;
-                    return (
-                      <SelectItem key={t.id} value={t.nome}>
-                        {t.rotulo ?? t.nome}{" "}
-                        <span className="text-muted-foreground">
-                          {tarefasExtras === 0
-                            ? "(só evento)"
-                            : `(evento + ${tarefasExtras} tarefa${tarefasExtras === 1 ? "" : "s"})`}
-                        </span>
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
+              <Selecao
+                value={templateSelecionado}
+                onChange={setTemplateSelecionado}
+                placeholder="Escolha um template"
+                opcoes={templatesVisiveis.map((t) => {
+                  const tarefasExtras = t.itens.filter((i) => i.destino === "tarefa").length;
+                  const resumo =
+                    tarefasExtras === 0
+                      ? "(só evento)"
+                      : `(evento + ${tarefasExtras} tarefa${tarefasExtras === 1 ? "" : "s"})`;
+                  const nome = t.rotulo ?? t.nome;
+                  // `label` é texto puro porque é nele que a busca procura;
+                  // `conteudo` só muda a exibição.
+                  return {
+                    value: t.nome,
+                    label: `${nome} ${resumo}`,
+                    conteudo: (
+                      <>
+                        {nome} <span className="text-muted-foreground">{resumo}</span>
+                      </>
+                    ),
+                  };
+                })}
+              />
               <p className="text-xs text-muted-foreground">
                 {templateSelecionado ? (
                   <>
@@ -1021,18 +997,13 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
 
           <div className="space-y-1.5">
             <Label>Tipo</Label>
-            <Select value={tipo} onValueChange={(v) => setTipo(v as AgendaTipo)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {TIPOS.map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {TIPO_LABEL[t]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Selecao
+  value={tipo}
+  onChange={(v) => setTipo(v as AgendaTipo)}
+  opcoes={[
+    ...TIPOS.map((t) => ({ value: t, label: TIPO_LABEL[t] })),
+  ]}
+/>
           </div>
 
           <div className="space-y-1.5">
@@ -1084,22 +1055,14 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
 
           <div className="space-y-1.5">
             <Label>Responsável</Label>
-            <Select
-              value={responsavelId ?? "sem"}
-              onValueChange={(v) => setResponsavelId(v === "sem" ? null : v)}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="sem">Sem responsável</SelectItem>
-                {internos.map((u) => (
-                  <SelectItem key={u.id} value={u.id}>
-                    {u.nome ?? "(sem nome)"}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Selecao
+  value={responsavelId ?? "sem"}
+  onChange={(v) => setResponsavelId(v === "sem" ? null : v)}
+  opcoes={[
+    { value: "sem", label: "Sem responsável" },
+    ...internos.map((u) => ({ value: u.id, label: u.nome ?? "(sem nome)" })),
+  ]}
+/>
           </div>
 
           <div className="space-y-1.5">

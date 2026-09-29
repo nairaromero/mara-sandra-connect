@@ -14,13 +14,7 @@ import { CheckCircle2, FileX2, Gavel, Loader2, Undo2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Selecao } from "@/components/ui/selecao";
 import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/lib/supabase";
 import { aplicarTemplateProgramatico } from "@/lib/tarefas/aplicador";
@@ -255,18 +249,13 @@ export function AnaliseIndeferimento({
       {modo === "recurso" && (
         <div className="space-y-1.5">
           <Label className="text-xs">Quem prepara o recurso?</Label>
-          <Select value={respRecurso} onValueChange={setRespRecurso}>
-            <SelectTrigger aria-label="Responsável pelo recurso">
-              <SelectValue placeholder="Escolha o responsável" />
-            </SelectTrigger>
-            <SelectContent>
-              {internos.map((u) => (
-                <SelectItem key={u.id} value={u.id}>
-                  {u.nome ?? "(sem nome)"}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Selecao
+            value={respRecurso}
+            onChange={setRespRecurso}
+            opcoes={internos.map((u) => ({ value: u.id, label: u.nome ?? "(sem nome)" }))}
+            placeholder="Escolha o responsável"
+            aria-label="Responsável pelo recurso"
+          />
           <Button type="button" size="sm" disabled={agindo || !respRecurso} onClick={recursoAdm}>
             {agindo ? (
               <Loader2 className="mr-1 h-4 w-4 animate-spin" />
