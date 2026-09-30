@@ -21,6 +21,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { supabase } from "@/lib/supabase";
 import { RelogioDoCaso } from "@/components/tarefas/relogio-prazo";
 import { dataBR, diaDoEventoBR } from "@/lib/fuso";
+import { usePreferenciaLocal } from "@/hooks/use-preferencia-local";
 import { buscarRelogiosDoCaso, type RelogioPrazo } from "@/lib/tarefas/relogio";
 
 interface ProcessoAdminDatas {
@@ -55,27 +56,6 @@ const RE_DESARQUIVA = /desarquiv/i;
 const RE_TRANSITO = /tr[aâ]nsito em julgado/i;
 
 const CHAVE_RECOLHIDO = "msc:painel_datas_caso:recolhido";
-
-/** Aberto/recolhido lembrado no navegador. Guardar/ler pode falhar (privado, bloqueado): ignora. */
-function usePainelAberto(): [boolean, (aberto: boolean) => void] {
-  const [aberto, setAbertoState] = useState(() => {
-    try {
-      return window.localStorage.getItem(CHAVE_RECOLHIDO) !== "1";
-    } catch {
-      return true;
-    }
-  });
-  const setAberto = (v: boolean) => {
-    setAbertoState(v);
-    try {
-      if (v) window.localStorage.removeItem(CHAVE_RECOLHIDO);
-      else window.localStorage.setItem(CHAVE_RECOLHIDO, "1");
-    } catch {
-      /* sem armazenamento: só nesta visita */
-    }
-  };
-  return [aberto, setAberto];
-}
 
 export function PainelDatasCaso({
   casoId,
@@ -180,12 +160,14 @@ export function PainelDatasCaso({
   // do mais novo para o mais antigo).
   const relogioDe = (adminId: string | null, judicialId: string | null) =>
     relogios.find(
-      (r) =>
-        (r.processo_admin_id ?? null) === adminId &&
-        (r.processo_judicial_id ?? null) === judicialId,
+      (r) => (r.processo_admin_id ?? null) === adminId && (r.processo_judicial_id ?? null) === judicialId,
     ) ?? null;
   const relogioSemProcesso = relogioDe(null, null);
-  const [aberto, setAberto] = usePainelAberto();
+  const [recolhido, setRecolhido] = usePreferenciaLocal(CHAVE_RECOLHIDO);
+  const aberto = recolhido !== "1";
+  // Só com algo abaixo da entrada o painel tem o que recolher.
+  const temDetalhe =
+    processosAdmin.length > 0 || processosJudiciais.length > 0 || !!relogioSemProcesso;
 
   // O que fica escondido quando recolhido, para quem olha saber que tem mais.
   const resumo = [
@@ -200,22 +182,25 @@ export function PainelDatasCaso({
   return (
     <Collapsible
       open={aberto}
-      onOpenChange={setAberto}
+      onOpenChange={(v) => setRecolhido(v ? null : "1")}
       className="rounded-lg border bg-card p-3"
       data-testid="painel-datas-caso"
     >
       <CollapsibleTrigger
         className="flex w-full items-end justify-between gap-3 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         data-testid="painel-datas-alternar"
+        disabled={!temDetalhe}
         aria-label={aberto ? "Recolher datas do caso" : "Expandir datas do caso"}
       >
         <Dado rotulo="Entrada do caso" valor={dataBR(entradaEm)} />
-        <span className="flex items-center gap-2 text-xs text-muted-foreground">
-          {!aberto && resumo}
-          <ChevronDown
-            className={"h-4 w-4 shrink-0 transition-transform " + (aberto ? "rotate-180" : "")}
-          />
-        </span>
+        {temDetalhe && (
+          <span className="flex items-center gap-2 text-xs text-muted-foreground">
+            {!aberto && resumo}
+            <ChevronDown
+              className={"h-4 w-4 shrink-0 transition-transform " + (aberto ? "rotate-180" : "")}
+            />
+          </span>
+        )}
       </CollapsibleTrigger>
 
       <CollapsibleContent className="mt-3 space-y-3">
@@ -311,15 +296,15 @@ export function PainelDatasCaso({
                 </div>
               );
             })}
-            {erroSinais && (
-              <p className="text-xs text-destructive">
-                Não consegui ler as movimentações dos processos judiciais.
-              </p>
-            )}
           </div>
         )}
       </CollapsibleContent>
       {/* Fora do conteúdo: falha de leitura não some quando o painel está recolhido. */}
+      {erroSinais && (
+        <p className="mt-3 text-xs text-destructive">
+          Não consegui ler as movimentações dos processos judiciais.
+        </p>
+      )}
       {erro && (
         <p className="mt-3 text-xs text-destructive">
           Não consegui carregar o prazo do caso. Recarregue a página.
