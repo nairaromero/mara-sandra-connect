@@ -17,7 +17,7 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { encryptSecret, decryptSecret, hintFor } from "../_shared/crypto.ts";
-import { chatWith, PROVIDERS } from "../_shared/ia-providers.ts";
+import { chatWith, modeloAposentado, PROVIDERS } from "../_shared/ia-providers.ts";
 import { carregarIntegracao } from "../_shared/ia-integracao.ts";
 import { generateToken, sha256Hex } from "../_shared/tokens.ts";
 import { exigirUsuario } from "../_shared/auth.ts";
@@ -117,6 +117,8 @@ serve(async (req) => {
       const modelo = String(body.modelo || "").trim();
       if (!PROVIDERS[provider]) return jsonResponse({ ok: false, error: "provider invalido" }, 400);
       if (!modelo) return jsonResponse({ ok: false, error: "modelo obrigatorio" }, 400);
+      const aposentadoT = modeloAposentado(provider, modelo);
+      if (aposentadoT) return jsonResponse({ ok: false, error: aposentadoT }, 400);
       // Usa a chave enviada; se ausente, testa a ja salva.
       let apiKey = String(body.api_key || "").trim();
       if (!apiKey) {
@@ -139,6 +141,8 @@ serve(async (req) => {
       if (!PROVIDERS[provider]) return jsonResponse({ error: "provider invalido" }, 400);
       if (!modelo) return jsonResponse({ error: "modelo obrigatorio" }, 400);
       if (apiKey.length < 12) return jsonResponse({ error: "api_key invalida" }, 400);
+      const aposentadoS = modeloAposentado(provider, modelo);
+      if (aposentadoS) return jsonResponse({ error: aposentadoS }, 400);
 
       const { cipher, iv } = await encryptSecret(apiKey);
       const ativo = body.ativo === false ? false : true;
