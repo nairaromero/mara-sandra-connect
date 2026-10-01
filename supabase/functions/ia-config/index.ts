@@ -1,37 +1,28 @@
 // =============================================================================
-// Edge Function: ia-config  (Plugin de IA — cofre BYOK por usuario)
+// Edge Function: ia-config  (Plugin de IA)
 //
 // Acoes (body.action):
-//   - "status"  : devolve a config MASCARADA do usuario (nunca o cipher/chave).
-//   - "salvar"  : cifra a api_key (AES-GCM via IA_MASTER_KEY) e faz upsert.
-//   - "testar"  : faz um ping barato no provider p/ validar a chave (nao grava).
-//   - "ativar"  : liga/desliga o assistente do usuario (sem reenviar a chave).
+//   - "status"  : a IA está disponível para esta pessoa? (chave do escritório
+//                 ativo, provedor e modelo) + lista de modelos sugeridos.
+//   - "token_*" : tokens do MCP (Claude/ChatGPT) — ver adiante.
+// A chave de IA é do ESCRITÓRIO desde #451 (parte 2) e é gravada pela function
+// integracoes-escritorio (tipo "ia"). salvar/testar/ativar/compartilhar da
+// antiga chave pessoal respondem 410 apontando para lá.
 //
-// Auth: JWT do usuario (Authorization: Bearer ...). Opera so sobre a PROPRIA
-// linha (usuario_id = auth.uid()).
-//
-// Secrets: IA_MASTER_KEY (base64 32 bytes), SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
+// Auth: JWT do usuario (Authorization: Bearer ...).
+// Secrets: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
 // =============================================================================
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
-import { encryptSecret, decryptSecret, hintFor } from "../_shared/crypto.ts";
-import { chatWith, modeloAposentado, PROVIDERS } from "../_shared/ia-providers.ts";
+import { PROVIDERS } from "../_shared/ia-providers.ts";
 import { carregarIntegracao } from "../_shared/ia-integracao.ts";
 import { generateToken, sha256Hex } from "../_shared/tokens.ts";
 import { exigirUsuario } from "../_shared/auth.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-
-async function ping(provider: string, apiKey: string, modelo: string): Promise<void> {
-  await chatWith(provider, apiKey, modelo, {
-    system: "Responda apenas: ok",
-    messages: [{ role: "user", content: "ping" }],
-    tools: [],
-  });
-}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -63,7 +54,7 @@ serve(async (req) => {
   }
   const action = String(body.action || "");
 
-  // Cofre de IA: exige ser interno e ter `ia:usar` (decisão de 24/09 — antes
+  // Status da IA: exige ser interno e ter `ia:usar` (decisão de 24/09 — antes
   // bastava estar autenticado, e a tela era o único freio).
   const ACOES_DE_IA = ["status", "testar", "salvar", "ativar", "compartilhar"];
   if (ACOES_DE_IA.includes(action)) {
@@ -74,147 +65,28 @@ serve(async (req) => {
 
   try {
     if (action === "status") {
-      const { data } = await admin
-        .from("ia_integracoes")
-        .select("provider,modelo,ativo,api_key_hint,atualizado_em,compartilhada")
-        .eq("usuario_id", uid)
-        .maybeSingle();
-
-      // `disponivel` != `configurado`: quem nao tem chave propria pode estar
-      // usando a compartilhada do escritorio. E o que decide se a UI mostra o
-      // launcher da IA — sem isso, quem usa a compartilhada nao veria a IA.
-      const efetiva = await carregarIntegracao(admin, uid);
-      const disponivel = efetiva.ok;
-
-      // Existe alguma chave compartilhada no escritorio? A UI usa pra explicar
-      // ao usuario de onde a IA dele vem (ou por que ele nao tem).
-      const { data: comp } = await admin
-        .from("ia_integracoes")
-        .select("usuario_id")
-        .eq("compartilhada", true)
-        .eq("ativo", true)
-        .maybeSingle();
-
+      // A chave é do ESCRITÓRIO (#451, parte 2): quem gerencia integrações
+      // cadastra em Configurações › Integrações (integracoes-escritorio).
+      // `disponivel` decide se a tela mostra a IA para esta pessoa.
+      const efetiva = await carregarIntegracao(admin, escritorioId);
+      const integ = efetiva.ok ? efetiva.integ : null;
       return jsonResponse({
-        configurado: !!data,
-        provider: data?.provider ?? null,
-        modelo: data?.modelo ?? null,
-        ativo: data?.ativo ?? false,
-        hint: data?.api_key_hint ?? null,
-        compartilhada: data?.compartilhada ?? false,
-        disponivel,
-        // true quando a IA dele vem da chave de outra pessoa
-        usando_compartilhada: disponivel && !data,
-        existe_compartilhada: !!comp,
+        disponivel: efetiva.ok,
+        motivo: efetiva.ok ? null : efetiva.code,
+        provider: integ?.provider ?? null,
+        modelo: integ?.modelo ?? null,
         providers_suportados: Object.fromEntries(
           Object.entries(PROVIDERS).map(([k, v]) => [k, { label: v.label, models: v.models }]),
         ),
       });
     }
 
-    if (action === "testar") {
-      const provider = String(body.provider || "");
-      const modelo = String(body.modelo || "").trim();
-      if (!PROVIDERS[provider]) return jsonResponse({ ok: false, error: "provider invalido" }, 400);
-      if (!modelo) return jsonResponse({ ok: false, error: "modelo obrigatorio" }, 400);
-      const aposentadoT = modeloAposentado(provider, modelo);
-      if (aposentadoT) return jsonResponse({ ok: false, error: aposentadoT }, 400);
-      // Usa a chave enviada; se ausente, testa a ja salva.
-      let apiKey = String(body.api_key || "").trim();
-      if (!apiKey) {
-        const { data } = await admin
-          .from("ia_integracoes")
-          .select("api_key_cipher,api_key_iv")
-          .eq("usuario_id", uid)
-          .maybeSingle();
-        if (!data) return jsonResponse({ ok: false, error: "sem chave salva" }, 400);
-        apiKey = await decryptSecret(data.api_key_cipher, data.api_key_iv);
-      }
-      await ping(provider, apiKey, modelo);
-      return jsonResponse({ ok: true });
-    }
-
-    if (action === "salvar") {
-      const provider = String(body.provider || "");
-      const modelo = String(body.modelo || "").trim();
-      const apiKey = String(body.api_key || "").trim();
-      if (!PROVIDERS[provider]) return jsonResponse({ error: "provider invalido" }, 400);
-      if (!modelo) return jsonResponse({ error: "modelo obrigatorio" }, 400);
-      if (apiKey.length < 12) return jsonResponse({ error: "api_key invalida" }, 400);
-      const aposentadoS = modeloAposentado(provider, modelo);
-      if (aposentadoS) return jsonResponse({ error: aposentadoS }, 400);
-
-      const { cipher, iv } = await encryptSecret(apiKey);
-      const ativo = body.ativo === false ? false : true;
-      // `escritorio_id` só no INSERT: depois de gravado ele não muda (a chave é
-      // do escritório onde foi configurada), e mandar no UPDATE seria recusado.
-      const { data: jaTem } = await admin.from("ia_integracoes").select("usuario_id").eq("usuario_id", uid).maybeSingle();
-      const { error } = await admin.from("ia_integracoes").upsert(
-        {
-          usuario_id: uid,
-          provider,
-          modelo,
-          api_key_cipher: cipher,
-          api_key_iv: iv,
-          api_key_hint: hintFor(apiKey),
-          ativo,
-          ...(!jaTem && escritorioId ? { escritorio_id: escritorioId } : {}),
-        },
-        { onConflict: "usuario_id" },
-      );
-      if (error) return jsonResponse({ error: error.message }, 400);
-      return jsonResponse({ ok: true, ativo, hint: hintFor(apiKey) });
-    }
-
-    if (action === "ativar") {
-      const ativo = body.ativo === true;
-      const { error } = await admin
-        .from("ia_integracoes")
-        .update({ ativo })
-        .eq("usuario_id", uid);
-      if (error) return jsonResponse({ error: error.message }, 400);
-      return jsonResponse({ ok: true, ativo });
-    }
-
-    // ---- Compartilhar a propria chave com a equipe interna ----
-    // Só interno pode compartilhar, e o índice único garante uma de cada vez —
-    // por isso desmarcamos a anterior antes de marcar a nova, em vez de deixar
-    // o insert falhar com erro de banco na cara do usuário.
-    if (action === "compartilhar") {
-      const compartilhada = body.compartilhada === true;
-
-      if (quem.perfil.tipo !== "interno") {
-        return jsonResponse({ error: "apenas interno pode compartilhar a chave" }, 403);
-      }
-
-      const { data: propria } = await admin
-        .from("ia_integracoes")
-        .select("usuario_id")
-        .eq("usuario_id", uid)
-        .maybeSingle();
-      if (!propria) {
-        return jsonResponse({ error: "configure sua chave antes de compartilhar" }, 412);
-      }
-
-      if (compartilhada) {
-        // Uma compartilhada POR ESCRITÓRIO: sem o filtro, compartilhar a chave
-        // aqui descompartilhava a de todos os outros escritórios.
-        let limpa = admin
-          .from("ia_integracoes")
-          .update({ compartilhada: false })
-          .eq("compartilhada", true)
-          .neq("usuario_id", uid);
-        if (escritorioId) limpa = limpa.eq("escritorio_id", escritorioId);
-        const { error: errLimpa } = await limpa;
-        if (errLimpa) return jsonResponse({ error: errLimpa.message }, 400);
-      }
-
-      const { error } = await admin
-        .from("ia_integracoes")
-        .update({ compartilhada })
-        .eq("usuario_id", uid);
-      if (error) return jsonResponse({ error: error.message }, 400);
-      return jsonResponse({ ok: true, compartilhada });
+    // Cofre de chave PESSOAL: saiu (#451). Resposta clara para tela antiga em cache.
+    if (["testar", "salvar", "ativar", "compartilhar"].includes(action)) {
+      return jsonResponse({
+        error: "a chave de IA agora é do escritório: Configurações › Integrações › IA do escritório",
+        code: "chave_do_escritorio",
+      }, 410);
     }
 
     // ---- Tokens da Superficie B (Claude/ChatGPT) ----

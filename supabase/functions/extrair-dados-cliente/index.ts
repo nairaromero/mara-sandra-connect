@@ -24,7 +24,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { exigirUsuario } from "../_shared/auth.ts";
 import { decryptSecret } from "../_shared/crypto.ts";
-import { carregarIntegracao } from "../_shared/ia-integracao.ts";
+import { carregarIntegracao, registroDeUso } from "../_shared/ia-integracao.ts";
 import { chatWith, type Attachment } from "../_shared/ia-providers.ts";
 import { extrairJson, montarCampos } from "../_shared/documento-campos.ts";
 
@@ -99,7 +99,7 @@ serve(async (req) => {
   const uid = quem.uid;
 
   // Chave própria; sem ela, cai na compartilhada do escritório (se houver).
-  const resIntegracao = await carregarIntegracao(admin, uid);
+  const resIntegracao = await carregarIntegracao(admin, quem.perfil.escritorio_id);
   if (!resIntegracao.ok) {
     return jsonResponse(
       { error: resIntegracao.error, code: resIntegracao.code },
@@ -174,6 +174,12 @@ serve(async (req) => {
   let res: { text: string; usage: { input: number; output: number } };
   try {
     res = await chatWith(integ.provider, apiKey, integ.modelo, {
+      registro: registroDeUso(admin, {
+        escritorioId: quem.perfil.escritorio_id,
+        usuarioId: uid,
+        funcao: "extrair-dados-cliente",
+        origem: integ.origem,
+      }),
       system: SYSTEM,
       maxTokens: 1200,
       tools: [],

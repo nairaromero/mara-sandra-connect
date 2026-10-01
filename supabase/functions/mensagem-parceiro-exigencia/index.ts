@@ -23,7 +23,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
 import { chatWith } from "../_shared/ia-providers.ts";
 import { decryptSecret } from "../_shared/crypto.ts";
-import { carregarIntegracao } from "../_shared/ia-integracao.ts";
+import { carregarIntegracao, registroDeUso } from "../_shared/ia-integracao.ts";
 import { MARCADOR_PRAZO, montarMensagem } from "./prazo.ts";
 import { exigirUsuario } from "../_shared/auth.ts";
 
@@ -113,7 +113,7 @@ serve(async (req) => {
     return jsonResponse({ error: "prazo_parceiro deve ser aaaa-mm-dd" }, 400);
   }
 
-  const resIntegracao = await carregarIntegracao(admin, quem.uid);
+  const resIntegracao = await carregarIntegracao(admin, quem.perfil.escritorio_id);
   if (!resIntegracao.ok) {
     // Sem IA configurada não é erro do fluxo: o template segue com o texto padrão.
     return jsonResponse({ mensagem: null, motivo: resIntegracao.code });
@@ -129,6 +129,12 @@ serve(async (req) => {
       apiKey,
       resIntegracao.integ.modelo,
       {
+        registro: registroDeUso(admin, {
+          escritorioId: quem.perfil.escritorio_id,
+          usuarioId: quem.uid,
+          funcao: "mensagem-parceiro-exigencia",
+          origem: resIntegracao.integ.origem,
+        }),
         system: PROMPT_JUDICIAL,
         tools: [],
         maxTokens: 900,
