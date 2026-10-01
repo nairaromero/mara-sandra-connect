@@ -23,7 +23,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { exigirUsuario } from "../_shared/auth.ts";
 import { decryptSecret, signPayload, verifyPayload } from "../_shared/crypto.ts";
-import { carregarIntegracao } from "../_shared/ia-integracao.ts";
+import { carregarIntegracao, registroDeUso } from "../_shared/ia-integracao.ts";
 import { chatWith, type NormMsg } from "../_shared/ia-providers.ts";
 import { findTool, toolsForRole } from "../_shared/ia-tools.ts";
 import { redactArgs } from "../_shared/ia-redact.ts";
@@ -100,7 +100,7 @@ serve(async (req) => {
 
   // ---- Integracao BYOK ----
   // Chave própria; sem ela, cai na compartilhada do escritório (se houver).
-  const resIntegracao = await carregarIntegracao(admin, uid);
+  const resIntegracao = await carregarIntegracao(admin, quem.perfil.escritorio_id);
   if (!resIntegracao.ok) {
     return jsonResponse(
       { error: resIntegracao.error, code: resIntegracao.code },
@@ -211,6 +211,12 @@ serve(async (req) => {
   try {
     for (let i = 0; i < MAX_ITER; i++) {
       const res = await chatWith(integ.provider, apiKey, integ.modelo, {
+        registro: registroDeUso(admin, {
+          escritorioId: quem.perfil.escritorio_id,
+          usuarioId: uid,
+          funcao: "ia-assistant",
+          origem: integ.origem,
+        }),
         system,
         messages: norm,
         tools: toolDefs,

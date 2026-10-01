@@ -20,7 +20,7 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { decryptSecret } from "../_shared/crypto.ts";
-import { carregarIntegracao } from "../_shared/ia-integracao.ts";
+import { carregarIntegracao, registroDeUso } from "../_shared/ia-integracao.ts";
 import { chatWith, type Attachment } from "../_shared/ia-providers.ts";
 import { extrairJson } from "../_shared/documento-campos.ts";
 import { exigirUsuario } from "../_shared/auth.ts";
@@ -106,7 +106,7 @@ serve(async (req) => {
   const admin = quem.admin;
 
 
-  const resIntegracao = await carregarIntegracao(admin, quem.uid);
+  const resIntegracao = await carregarIntegracao(admin, quem.perfil.escritorio_id);
   if (!resIntegracao.ok) {
     return jsonResponse(
       { error: resIntegracao.error, code: resIntegracao.code },
@@ -132,6 +132,12 @@ serve(async (req) => {
       apiKey,
       resIntegracao.integ.modelo,
       {
+        registro: registroDeUso(admin, {
+          escritorioId: quem.perfil.escritorio_id,
+          usuarioId: quem.uid,
+          funcao: "extrair-agendamento-pericia",
+          origem: resIntegracao.integ.origem,
+        }),
         system: SYSTEM,
         maxTokens: 700,
         tools: [],
