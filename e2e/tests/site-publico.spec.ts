@@ -76,4 +76,25 @@ test.describe("site institucional (publico)", () => {
     expect(resp?.status()).toBe(200);
     await expect(page.getByText(/privacidade/i).first()).toBeVisible();
   });
+
+  test("card Aposentadorias leva para a landing /aposentadoria", async ({ page }) => {
+    await page.goto("/");
+
+    // O card e LINK puro, sem UTM: UTM em link interno apagaria a origem da
+    // visita (anuncio) no GA4. Os outros cards continuam sem link.
+    const card = page.getByRole("link", { name: /^Aposentadorias/ });
+    await expect(card).toBeVisible();
+    await expect(card).toHaveAttribute("href", "/aposentadoria");
+
+    // A landing e um asset estatico (public/aposentadoria.html) servido pelo
+    // Workers Static Assets em /aposentadoria. O vite dev nao faz esse
+    // mapeamento (so serve /aposentadoria.html), entao a navegacao so e
+    // conferida contra um build de verdade (staging ou wrangler dev).
+    test.skip(!process.env.PLAYWRIGHT_BASE_URL, "navegacao so contra build real");
+    const resp = await page.goto("/aposentadoria");
+    expect(resp?.status()).toBe(200);
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(
+      "Análise previdenciária individual",
+    );
+  });
 });
