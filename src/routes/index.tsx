@@ -60,6 +60,9 @@ const AREAS = [
     icon: Scale,
     title: "Aposentadorias",
     desc: "Por idade, tempo de contribuição, especial e da pessoa com deficiência (LC 142).",
+    // Landing page estática (public/aposentadoria.html). Link puro, sem UTM: UTM em
+    // link interno apagaria a origem da visita (anúncio) no GA4.
+    href: "/aposentadoria",
   },
   {
     icon: Stethoscope,
@@ -484,18 +487,28 @@ function HomePage() {
             }
           />
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {AREAS.map(({ icon: Icon, title, desc }) => (
-              <div
-                key={title}
-                className="group rounded-2xl border border-border bg-card p-7 transition-all hover:-translate-y-1 hover:border-gold hover:shadow-[0_10px_40px_-12px_rgba(42,37,27,.18)]"
-              >
-                <div className="mb-4 flex h-[52px] w-[52px] items-center justify-center rounded-xl bg-gold-soft">
-                  <Icon className="h-6 w-6 text-gold" />
+            {AREAS.map(({ icon: Icon, title, desc, href }) => {
+              const cardClass =
+                "group block rounded-2xl border border-border bg-card p-7 transition-all hover:-translate-y-1 hover:border-gold hover:shadow-[0_10px_40px_-12px_rgba(42,37,27,.18)]";
+              const conteudo = (
+                <>
+                  <div className="mb-4 flex h-[52px] w-[52px] items-center justify-center rounded-xl bg-gold-soft">
+                    <Icon className="h-6 w-6 text-gold" />
+                  </div>
+                  <h3 className="font-serif text-xl font-semibold">{title}</h3>
+                  <p className="mt-2 text-[14.5px] text-muted-foreground">{desc}</p>
+                </>
+              );
+              return href ? (
+                <a key={title} href={href} className={cardClass}>
+                  {conteudo}
+                </a>
+              ) : (
+                <div key={title} className={cardClass}>
+                  {conteudo}
                 </div>
-                <h3 className="font-serif text-xl font-semibold">{title}</h3>
-                <p className="mt-2 text-[14.5px] text-muted-foreground">{desc}</p>
-              </div>
-            ))}
+              );
+            })}
           </div>
           {/* faixa: não encontrou seu caso */}
           <div className="mt-8 flex flex-wrap items-center justify-between gap-5 rounded-2xl border border-border bg-gold-soft px-6 py-6 sm:px-8">
