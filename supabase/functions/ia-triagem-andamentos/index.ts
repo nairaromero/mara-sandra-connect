@@ -29,7 +29,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { chatWith, type ToolDef } from "../_shared/ia-providers.ts";
 import { decryptSecret } from "../_shared/crypto.ts";
 import { exigirUsuario } from "../_shared/auth.ts";
-import { carregarIntegracao } from "../_shared/ia-integracao.ts";
+import { carregarIntegracao, registroDeUso } from "../_shared/ia-integracao.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -165,7 +165,7 @@ serve(async (req) => {
 
   // --- Integração de IA do usuário (mesma do assistente) --------------------
   // Chave própria; sem ela, cai na compartilhada do escritório (se houver).
-  const resIntegracao = await carregarIntegracao(admin, usuarioId);
+  const resIntegracao = await carregarIntegracao(admin, quem.perfil.escritorio_id);
   if (!resIntegracao.ok) {
     return jsonResponse(
       { error: resIntegracao.error, code: resIntegracao.code },
@@ -230,6 +230,12 @@ serve(async (req) => {
   let itens: TriagemItem[];
   try {
     const res = await chatWith(integ.provider, apiKey, integ.modelo, {
+      registro: registroDeUso(admin, {
+        escritorioId: quem.perfil.escritorio_id,
+        usuarioId: usuarioId,
+        funcao: "ia-triagem-andamentos",
+        origem: integ.origem,
+      }),
       system: SYSTEM_PROMPT,
       messages: [
         {

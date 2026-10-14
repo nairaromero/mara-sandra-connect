@@ -206,7 +206,49 @@ export type ChatOpts = {
   // Aborta o fetch do provider (ex.: AbortSignal.timeout). Diferente de um
   // Promise.race, a requisicao para de verdade — nao fica pendurada gastando token.
   signal?: AbortSignal;
+  /**
+   * Registro de uso (tabela ia_uso). Toda chamada passa um — monte com
+   * `registroDeUso` (_shared/ia-integracao.ts). A regua
+   * e2e/unit/ia-registro-de-uso.test.ts acusa chamada sem registro.
+   */
+  registro?: RegistroUso;
 };
+
+/** Uma linha de uso — sem conteudo: so numeros, nomes e a classe da falha. */
+export type LinhaUso = {
+  provider: string;
+  modelo: string;
+  tokens_entrada: number;
+  tokens_saida: number;
+  tokens_raciocinio: number | null;
+  parada: string | null;
+  cortada: boolean;
+  erro: string | null;
+  duracao_ms: number;
+};
+
+export type RegistroUso = { gravar: (linha: LinhaUso) => Promise<void> };
+
+/** Classe da falha para o registro (nunca o texto do provider, que pode ecoar conteudo). */
+export function classeDoErro(e: unknown): string {
+  if (e instanceof IaRespostaCortada) return "cortada";
+  if (e instanceof DOMException && (e.name === "TimeoutError" || e.name === "AbortError")) return "timeout";
+  const m = String((e as Error)?.message ?? e);
+  const http = m.match(/^(anthropic|openai) (\d{3}):/);
+  if (http) return "http_" + http[2];
+  if (m.includes("aposentado")) return "modelo_aposentado";
+  return "outro";
+}
+
+async function registrar(reg: RegistroUso | undefined, linha: LinhaUso): Promise<void> {
+  if (!reg) return;
+  try {
+    await reg.gravar(linha);
+  } catch (e) {
+    // O registro nunca derruba a chamada: perder a linha e ruim, travar a IA e pior.
+    console.warn("[ia] registro de uso falhou:", String((e as Error)?.message ?? e));
+  }
+}
 
 function tamanhoDe(opts: ChatOpts, pedido: number): TamanhoResposta {
   return opts.tamanho ?? (pedido <= 2000 ? "curta" : "longa");
@@ -278,11 +320,34 @@ export async function chatWith(
   modelo: string,
   opts: ChatOpts,
 ): Promise<ChatResult> {
-  const aposentado = modeloAposentado(provider, modelo);
-  if (aposentado) throw new Error(aposentado);
-  if (provider === "anthropic") return fecharResultado(provider, modelo, await anthropicChat(apiKey, modelo, opts));
-  if (provider === "openai") return fecharResultado(provider, modelo, await openaiChat(apiKey, modelo, opts));
-  throw new Error("provider nao suportado: " + provider);
+  const inicio = Date.now();
+  let r: ChatResult | null = null;
+  try {
+    const aposentado = modeloAposentado(provider, modelo);
+    if (aposentado) throw new Error(aposentado);
+    if (provider === "anthropic") r = await anthropicChat(apiKey, modelo, opts);
+    else if (provider === "openai") r = await openaiChat(apiKey, modelo, opts);
+    else throw new Error("provider nao suportado: " + provider);
+    const fechado = fecharResultado(provider, modelo, r);
+    await registrar(opts.registro, {
+      provider, modelo,
+      tokens_entrada: r.usage.input, tokens_saida: r.usage.output,
+      tokens_raciocinio: r.usage.raciocinio ?? null,
+      parada: r.parada, cortada: r.cortada, erro: null,
+      duracao_ms: Date.now() - inicio,
+    });
+    return fechado;
+  } catch (e) {
+    // Corte sem conteudo chega aqui com `r` preenchido: os tokens gastos contam.
+    await registrar(opts.registro, {
+      provider, modelo,
+      tokens_entrada: r?.usage.input ?? 0, tokens_saida: r?.usage.output ?? 0,
+      tokens_raciocinio: r?.usage.raciocinio ?? null,
+      parada: r?.parada ?? null, cortada: r?.cortada ?? false, erro: classeDoErro(e),
+      duracao_ms: Date.now() - inicio,
+    });
+    throw e;
+  }
 }
 
 // ---------------------------------------------------------------------------

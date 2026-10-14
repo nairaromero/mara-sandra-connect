@@ -49,7 +49,7 @@ import { escopado, escritorioDoSistema, exigirUsuarioOuSistema, fetchT } from ".
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { decryptSecret } from "../_shared/crypto.ts";
 import { chatWith } from "../_shared/ia-providers.ts";
-import { carregarIntegracao, type IntegracaoIA } from "../_shared/ia-integracao.ts";
+import { carregarIntegracao, type IntegracaoIA, registroDeUso } from "../_shared/ia-integracao.ts";
 
 // Sobrescritos so no ambiente LOCAL (mock de e2e/demo/mocks); fora dele, Google.
 const GOOGLE_TOKEN_URL = Deno.env.get("GOOGLE_TOKEN_URL") ?? "https://oauth2.googleapis.com/token";
@@ -641,6 +641,8 @@ function substituir(s: string | undefined, c: CamposEmail): string {
 }
 
 interface Lookups {
+  /** escritório dono da caixa: a chave de IA é a DELE (#451) */
+  escritorioId: string;
   emailParaUsuarioId: Map<string, string>;
   nairaUsuarioId: string | null;
 }
@@ -677,31 +679,41 @@ Regras de formato (importante — o texto é exibido como texto puro):
 - Sem markdown além dos asteriscos da data (nada de #, **, listas com -, blocos de código).
 - Responda SOMENTE com a mensagem final, sem comentários.`;
 
-let integIACache: { integ: IntegracaoIA; apiKey: string } | null | undefined;
+// Uma por escritório: a execução percorre várias caixas, e a chave de um
+// escritório não pode atender a caixa de outro (antes era UMA para a execução
+// inteira, resolvida pela Naira — #451).
+const integIACache = new Map<string, { integ: IntegracaoIA; apiKey: string } | null>();
 
 async function redigirMensagemParceiro(
   sb: SupabaseClient,
   lookups: Lookups,
   c: CamposEmail,
 ): Promise<string | null> {
-  if (!c.despacho || !lookups.nairaUsuarioId) return null;
+  if (!c.despacho) return null;
   try {
-    if (integIACache === undefined) {
-      const r = await carregarIntegracao(sb, lookups.nairaUsuarioId);
+    if (!integIACache.has(lookups.escritorioId)) {
+      const r = await carregarIntegracao(sb, lookups.escritorioId);
       if (!r.ok) {
         console.warn("[inss] IA nao configurada p/ mensagem ao parceiro:", r.error);
-        integIACache = null;
+        integIACache.set(lookups.escritorioId, null);
       } else {
-        integIACache = {
+        integIACache.set(lookups.escritorioId, {
           integ: r.integ,
           apiKey: await decryptSecret(r.integ.api_key_cipher, r.integ.api_key_iv),
-        };
+        });
       }
     }
-    if (!integIACache) return null;
+    const ia = integIACache.get(lookups.escritorioId);
+    if (!ia) return null;
 
     const hoje = new Date(Date.now() - 3 * 3600_000).toLocaleDateString("pt-BR");
-    const res = await chatWith(integIACache.integ.provider, integIACache.apiKey, integIACache.integ.modelo, {
+    const res = await chatWith(ia.integ.provider, ia.apiKey, ia.integ.modelo, {
+      registro: registroDeUso(sb, {
+        escritorioId: lookups.escritorioId,
+        usuarioId: null,
+        funcao: "inss-email-processor",
+        origem: ia.integ.origem,
+      }),
       system: PROMPT_MENSAGEM_PARCEIRO,
       tools: [],
       maxTokens: 900,
@@ -724,7 +736,7 @@ async function redigirMensagemParceiro(
   }
 }
 
-async function carregarLookups(sb: SupabaseClient): Promise<Lookups> {
+async function carregarLookups(sb: SupabaseClient, escritorioId: string): Promise<Lookups> {
   // Equipe DO ESCRITÓRIO (vínculo ativo, acesso interno), não `usuarios.tipo`:
   // `usuarios` é global. `membros` tem escritorio_id, então o client escopado
   // já filtra. O responsável padrão é a Naira quando ela é membro (escritório
@@ -744,6 +756,7 @@ async function carregarLookups(sb: SupabaseClient): Promise<Lookups> {
     if (!primeiroAdmin && p?.chave === "admin") primeiroAdmin = m.usuario_id as string;
   }
   return {
+    escritorioId,
     emailParaUsuarioId: map,
     nairaUsuarioId: map.get(NAIRA_EMAIL_DEFAULT) ?? primeiroAdmin,
   };
@@ -1260,7 +1273,7 @@ serve(async (req) => {
   const dryRun = body.dry_run === true;
   // Integração de IA é resolvida de novo a cada execução (a isolate pode
   // ficar quente entre chamadas do cron; chave trocada não pode ficar presa).
-  integIACache = undefined;
+  integIACache.clear();
   const label = body.label ?? DEFAULT_LABEL;
   const onlyIds = body.message_id
     ? [body.message_id]
@@ -1298,7 +1311,7 @@ serve(async (req) => {
 
   if (body.preview_mensagem_parceiro) {
     const pv = body.preview_mensagem_parceiro;
-    const lookups = await carregarLookups(sb);
+    const lookups = await carregarLookups(sb, escritorios[0]);
     const texto = await redigirMensagemParceiro(sb, lookups, {
       nome_cliente: pv.nome_cliente ?? "",
       protocolo: "",
@@ -1323,7 +1336,7 @@ serve(async (req) => {
     // listar). Caso contrário, lista pela label/janela.
     const ids = onlyIds ?? await gmailListMessages(token, gmailAddress, query, limite);
 
-    const lookups = await carregarLookups(sbEsc);
+    const lookups = await carregarLookups(sbEsc, escritorioId);
     if (!lookups.nairaUsuarioId) {
       throw new Error("nenhum administrador ativo no escritório — pré-condição falhou");
     }

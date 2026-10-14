@@ -6,7 +6,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   chatWith,
+  classeDoErro,
   IaRespostaCortada,
+  type LinhaUso,
   modeloAposentado,
   perfilDoModelo,
   planoDaChamada,
@@ -162,5 +164,44 @@ describe("chatWith", () => {
     const enviados = provedor(RESP_ANTHROPIC);
     await expect(chatWith("anthropic", "k", "claude-opus-4-1", opts())).rejects.toThrow("aposentado");
     expect(enviados.length).toBe(0);
+  });
+
+  test("registro de uso: uma linha por chamada, com tokens e sem conteúdo", async () => {
+    provedor({ ...RESP_ANTHROPIC, usage: { input_tokens: 12, output_tokens: 7, output_tokens_details: { thinking_tokens: 3 } } });
+    const linhas: LinhaUso[] = [];
+    await chatWith("anthropic", "k", "claude-sonnet-5-5", opts({ registro: { gravar: async (l) => { linhas.push(l); } } }));
+    expect(linhas).toHaveLength(1);
+    expect(linhas[0]).toMatchObject({
+      provider: "anthropic", modelo: "claude-sonnet-5-5",
+      tokens_entrada: 12, tokens_saida: 7, tokens_raciocinio: 3,
+      parada: "end_turn", cortada: false, erro: null,
+    });
+    // Só números, nomes e a classe da falha: nenhum campo carrega texto da conversa.
+    expect(Object.keys(linhas[0]).sort()).toEqual([
+      "cortada", "duracao_ms", "erro", "modelo", "parada", "provider",
+      "tokens_entrada", "tokens_raciocinio", "tokens_saida",
+    ]);
+  });
+
+  test("registro de uso: corte e erro HTTP viram classe, nunca o texto do provedor", async () => {
+    const linhas: LinhaUso[] = [];
+    const registro = { gravar: async (l: LinhaUso) => { linhas.push(l); } };
+    provedor({ content: [], stop_reason: "max_tokens", usage: { input_tokens: 1, output_tokens: 4000 } });
+    await expect(chatWith("anthropic", "k", "claude-opus-5-5", opts({ registro }))).rejects.toBeInstanceOf(IaRespostaCortada);
+    expect(linhas[0]).toMatchObject({ erro: "cortada", cortada: true, tokens_saida: 4000 });
+
+    globalThis.fetch = (async () => new Response("segredo do cliente no eco", { status: 400 })) as unknown as typeof fetch;
+    await expect(chatWith("anthropic", "k", "claude-haiku-4-5", opts({ registro }))).rejects.toThrow("anthropic 400");
+    expect(linhas[1].erro).toBe("http_400");
+    expect(JSON.stringify(linhas[1])).not.toContain("segredo do cliente");
+    expect(classeDoErro(new DOMException("t", "TimeoutError"))).toBe("timeout");
+  });
+
+  test("registro que falha não derruba a chamada", async () => {
+    provedor(RESP_ANTHROPIC);
+    const r = await chatWith("anthropic", "k", "claude-haiku-4-5", opts({
+      registro: { gravar: async () => { throw new Error("banco fora"); } },
+    }));
+    expect(r.text).toBe("{\"ok\":true}");
   });
 });

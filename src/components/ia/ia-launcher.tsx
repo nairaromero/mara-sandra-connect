@@ -1,6 +1,6 @@
 // Botao flutuante que abre o painel do assistente de IA.
-// So aparece se o usuario tem IA disponivel — chave propria ativa OU a chave
-// compartilhada do escritorio (ver migration_ia_chave_compartilhada).
+// So aparece se o escritorio ativo tem IA ligada (chave do escritorio,
+// migration_ia_chave_escritorio / #451).
 // O hook fica AQUI (nao dentro do painel) para a conversa PERSISTIR ao fechar e
 // reabrir o painel. Tambem detecta o caso aberto (/casos/$id) e passa como
 // contexto para o assistente saber do que "este caso"/"aqui" se trata.
@@ -31,9 +31,8 @@ function LauncherInner() {
   useEffect(() => {
     let vivo = true;
     iaConfig.status().then(({ data }) => {
-      // `disponivel` cobre também quem usa a chave compartilhada do escritório;
-      // `ativo` sozinho só enxergaria quem tem chave própria.
-      if (vivo && data) setAtivo(data.disponivel ?? data.ativo);
+      // `disponivel`: o escritório ativo tem chave de IA ligada (#451).
+      if (vivo && data) setAtivo(data.disponivel);
     });
     return () => {
       vivo = false;

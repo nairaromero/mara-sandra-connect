@@ -11,23 +11,15 @@ export type IaProviderInfo = { label: string; models: string[] };
 // antiga ficou vencida junto com a original (#451).
 
 export type IaConfigStatus = {
-  /** Tem chave PRÓPRIA cadastrada. */
-  configurado: boolean;
-  provider: string | null;
-  modelo: string | null;
-  ativo: boolean;
-  hint: string | null;
-  /** Esta chave é a compartilhada com a equipe interna. */
-  compartilhada: boolean;
   /**
-   * Tem IA utilizável — própria OU compartilhada do escritório. É isto que
-   * decide se a UI mostra a IA, não `configurado`.
+   * A IA está disponível para esta pessoa: o escritório ativo tem chave de IA
+   * ligada (#451). É isto que decide se a tela mostra o assistente.
    */
   disponivel: boolean;
-  /** A IA deste usuário vem da chave de outra pessoa. */
-  usando_compartilhada: boolean;
-  /** Existe alguma chave compartilhada ativa no escritório. */
-  existe_compartilhada: boolean;
+  /** Por que não está: "nao_configurado" | "desativado". */
+  motivo: string | null;
+  provider: string | null;
+  modelo: string | null;
   providers_suportados: Record<string, IaProviderInfo>;
 };
 
@@ -75,34 +67,12 @@ async function callFn<T>(name: string, body: Record<string, unknown>): Promise<F
   return { data: data as T };
 }
 
-export type IaSalvarInput = {
-  provider: string;
-  modelo: string;
-  api_key: string;
-  ativo?: boolean;
-};
 
-export type IaTestarInput = {
-  provider: string;
-  modelo: string;
-  api_key?: string;
-};
 
+// A chave de IA é do escritório (Configurações › Integrações, function
+// integracoes-escritorio). Aqui só o status, para a tela saber se mostra a IA.
 export const iaConfig = {
   status: () => callFn<IaConfigStatus>("ia-config", { action: "status" }),
-  salvar: (p: IaSalvarInput) =>
-    callFn<{ ok: boolean; ativo: boolean; hint: string }>("ia-config", {
-      action: "salvar",
-      ...p,
-    }),
-  testar: (p: IaTestarInput) => callFn<{ ok: boolean }>("ia-config", { action: "testar", ...p }),
-  ativar: (ativo: boolean) =>
-    callFn<{ ok: boolean; ativo: boolean }>("ia-config", { action: "ativar", ativo }),
-  compartilhar: (compartilhada: boolean) =>
-    callFn<{ ok: boolean; compartilhada: boolean }>("ia-config", {
-      action: "compartilhar",
-      compartilhada,
-    }),
 };
 
 export type IaContexto = { caso_id?: string };
