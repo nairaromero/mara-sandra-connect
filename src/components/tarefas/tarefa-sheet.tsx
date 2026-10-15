@@ -540,7 +540,15 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   // Carrega listas auxiliares uma vez (ao abrir).
   useEffect(() => {
     if (!aberto) return;
-    listarCasosResumo().then(setCasos).catch(() => {});
+    // Falha aqui era `.catch(() => {})`: seletor de cliente vazio, sem aviso (#300).
+    listarCasosResumo()
+      .then(setCasos)
+      .catch((e: unknown) => {
+        console.error("listarCasosResumo:", e);
+        toast.error("Não consegui carregar a lista de clientes", {
+          description: (e as { message?: string })?.message || "Feche e abra o painel de novo.",
+        });
+      });
     listarInternosAtivos().then(setInternos).catch(() => {});
     // Mostra TODOS os templates ativos não-ocultos. Quando o template tem
     // item destino=agenda (ex: "Perícia (com parceiro)"), o salvar() cria
@@ -1552,6 +1560,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                   placeholder="Sem cliente"
                   buscaPlaceholder="Buscar cliente..."
                   vazio="Nenhum cliente encontrado."
+                  data-selecao="cliente"
                 />
                 {editando && trocandoCaso && (
                   <div className="flex items-center gap-2">
