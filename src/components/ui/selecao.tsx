@@ -123,8 +123,13 @@ export function Selecao({
     return [...mapa.entries()].filter(([, itens]) => itens.length > 0);
   }, [opcoes]);
 
+  // `modal` (#300): dentro de Sheet/Dialog, o react-remove-scroll do painel
+  // cancela wheel/touchmove em tudo que está FORA do conteúdo dele — e esta
+  // lista vive num portal, fora. Roda do mouse, trackpad e toque não rolavam.
+  // Com `modal` o próprio Popover vira a trava ativa e a lista dele rola. Um
+  // ponto só, vale para todos os usos. Prova: e2e/tests/selecao-rolagem.spec.ts.
   return (
-    <Popover open={aberto} onOpenChange={setAberto}>
+    <Popover modal open={aberto} onOpenChange={setAberto}>
       <PopoverTrigger asChild>
         <Button
           type="button"
