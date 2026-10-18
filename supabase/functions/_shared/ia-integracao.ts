@@ -11,16 +11,30 @@
 // depois; o erro da RPC era ignorado e virava "não configurado".)
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
-import type { LinhaUso, RegistroUso } from "./ia-providers.ts";
+import { decryptSecret } from "./crypto.ts";
+import type { Credencial, LinhaUso, RegistroUso } from "./ia-providers.ts";
 
 export interface IntegracaoIA {
   provider: string;
   modelo: string;
   api_key_cipher: string;
   api_key_iv: string;
+  /** Workspace da Anthropic (`wrkspc_…`), para chave que vale para mais de um. */
+  workspace_id: string | null;
   ativo: boolean;
   /** de quem é a chave cobrada (hoje sempre o escritório) */
   origem: "escritorio";
+}
+
+/**
+ * A credencial pronta para o adaptador: chave decifrada + workspace. UM lugar
+ * decifra a chave de IA (régua: e2e/unit/ia-registro-de-uso.test.ts).
+ */
+export async function abrirCredencial(integ: IntegracaoIA): Promise<Credencial> {
+  return {
+    chave: await decryptSecret(integ.api_key_cipher, integ.api_key_iv),
+    workspaceId: integ.workspace_id,
+  };
 }
 
 export type ResultadoIntegracao =
@@ -53,26 +67,35 @@ export async function carregarIntegracao(
     .maybeSingle();
   if (error) throw new Error(`lendo a IA do escritório: ${error.message}`);
 
-  const config = (esc?.config ?? {}) as Record<string, unknown>;
-
   if (!esc || !esc.segredo_cipher || !esc.segredo_iv) return NAO_CONFIGURADO;
   if (!esc.ativo) {
     return { ok: false, code: "desativado", status: 412, error: "a IA do escritório está desligada" };
   }
-  const provider = typeof config.provider === "string" ? config.provider : "";
-  const modelo = typeof config.modelo === "string" ? config.modelo : "";
-  if (!provider || !modelo) return NAO_CONFIGURADO;
+  const integ = integracaoDaLinha(esc);
+  if (!integ || !integ.provider || !integ.modelo) return NAO_CONFIGURADO;
+  return { ok: true, integ };
+}
 
+/**
+ * Linha de `escritorio_integracoes` (tipo 'ia') → IntegracaoIA. UM lugar faz
+ * esse mapeamento; `sobrepor` troca campos de config (o que está na tela
+ * antes de salvar, no Testar/Ver modelos). Sem segredo, null.
+ */
+export function integracaoDaLinha(
+  linha: { config: unknown; ativo: boolean; segredo_cipher: string | null; segredo_iv: string | null },
+  sobrepor: Record<string, unknown> = {},
+): IntegracaoIA | null {
+  if (!linha.segredo_cipher || !linha.segredo_iv) return null;
+  const config = { ...((linha.config ?? {}) as Record<string, unknown>), ...sobrepor };
+  const texto = (v: unknown) => (typeof v === "string" ? v.trim() : "");
   return {
-    ok: true,
-    integ: {
-      provider,
-      modelo,
-      api_key_cipher: String(esc.segredo_cipher),
-      api_key_iv: String(esc.segredo_iv),
-      ativo: true,
-      origem: "escritorio",
-    },
+    provider: texto(config.provider),
+    modelo: texto(config.modelo),
+    api_key_cipher: linha.segredo_cipher,
+    api_key_iv: linha.segredo_iv,
+    workspace_id: texto(config.workspace_id) || null,
+    ativo: linha.ativo,
+    origem: "escritorio",
   };
 }
 

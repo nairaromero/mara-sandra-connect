@@ -22,9 +22,9 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { exigirUsuario } from "../_shared/auth.ts";
-import { decryptSecret, signPayload, verifyPayload } from "../_shared/crypto.ts";
-import { carregarIntegracao, registroDeUso } from "../_shared/ia-integracao.ts";
-import { chatWith, mensagemDoErro, type NormMsg } from "../_shared/ia-providers.ts";
+import { signPayload, verifyPayload } from "../_shared/crypto.ts";
+import { abrirCredencial, carregarIntegracao, registroDeUso } from "../_shared/ia-integracao.ts";
+import { chatWith, mensagemDoErro, type NormMsg, type Credencial } from "../_shared/ia-providers.ts";
 import { findTool, toolsForRole } from "../_shared/ia-tools.ts";
 import { redactArgs } from "../_shared/ia-redact.ts";
 
@@ -161,9 +161,9 @@ serve(async (req) => {
     return jsonResponse({ error: "ultima mensagem deve ser do usuario" }, 400);
   }
 
-  let apiKey: string;
+  let apiKey: Credencial;
   try {
-    apiKey = await decryptSecret(integ.api_key_cipher, integ.api_key_iv);
+    apiKey = await abrirCredencial(integ);
   } catch {
     return jsonResponse({ error: "falha ao abrir a chave configurada" }, 500);
   }

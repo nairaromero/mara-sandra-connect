@@ -1,4 +1,5 @@
 // integracoes-escritorio — configuração de integrações POR ESCRITÓRIO
+//   (tipo "ia" também tem: modelos { config?, segredo? } — os modelos que a chave enxerga)
 // (WhatsApp/Evolution, Legalmail, Tramitação Inteligente e a IA), gravada pela function porque
 // o segredo (chave da API) é cifrado com a master key antes de ir ao banco e
 // nunca volta ao navegador. Quem chama: quem gerencia integrações no
@@ -13,8 +14,11 @@ import { exigirUsuario, fetchT } from "../_shared/auth.ts";
 import { auditar, type AcaoAuditada } from "../_shared/auditoria.ts";
 import { encryptSecret, decryptSecret } from "../_shared/crypto.ts";
 import { baseLegalmail, baseTI } from "../_shared/integracoes.ts";
-import { chatWith, classeDoErro, mensagemDoErro, modeloAposentado, PROVIDERS } from "../_shared/ia-providers.ts";
-import { registroDeUso } from "../_shared/ia-integracao.ts";
+import { chatWith, classeDoErro, type Credencial, listarModelos, mensagemDoErro, modeloAposentado, PROVIDERS } from "../_shared/ia-providers.ts";
+import { abrirCredencial, integracaoDaLinha, registroDeUso } from "../_shared/ia-integracao.ts";
+
+/** ID de workspace da Anthropic: `wrkspc_` + letras e números. */
+const WORKSPACE_RE = /^wrkspc_[A-Za-z0-9]+$/;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -31,8 +35,9 @@ const CAMPOS: Record<string, string[]> = {
   legalmail: ["usuario"],
   ti: ["base_url", "usuario"],
   djen: [],
-  // IA (#451): provedor e modelo; a chave vai no segredo.
-  ia: ["provider", "modelo"],
+  // IA (#451): provedor, modelo e — para chave da Anthropic que vale para mais
+  // de um workspace — o ID do workspace; a chave vai no segredo.
+  ia: ["provider", "modelo", "workspace_id"],
 };
 
 /** Lista da tela para a IA: sai dos perfis de modelo (uma fonte só). */
@@ -113,6 +118,10 @@ serve(async (req) => {
       const seg = typeof body.segredo === "string" ? body.segredo.trim() : "";
       if (seg) configNova.hint = seg.length > 8 ? "…" + seg.slice(-4) : "…";
       if (!seg && !atual?.segredo_cipher) return json({ error: "informe a chave da API" }, 400);
+      const ws = String(configNova.workspace_id ?? "").trim();
+      if (!ws || provider !== "anthropic") delete configNova.workspace_id;
+      else if (!WORKSPACE_RE.test(ws)) return json({ error: "ID do workspace inválido: começa com wrkspc_" }, 400);
+      else configNova.workspace_id = ws;
       delete configNova.origem;
     }
     const linha: Record<string, unknown> = {
@@ -153,6 +162,36 @@ serve(async (req) => {
     return json({ ok: true, ...semSegredo(salvo) });
   }
 
+  /**
+   * Credencial do que está na tela (chave colada agora) ou do que está salvo,
+   * com o workspace — pelo túnel (abrirCredencial). Texto = motivo de não ter.
+   */
+  async function credencialDaTela(cfg: Record<string, unknown>): Promise<Credencial | string> {
+    const ws = String(cfg.workspace_id ?? "").trim();
+    if (ws && !WORKSPACE_RE.test(ws)) return "ID do workspace inválido: começa com wrkspc_";
+    const colada = typeof body.segredo === "string" ? body.segredo.trim() : "";
+    if (colada) return { chave: colada, workspaceId: ws || null };
+    const integ = atual ? integracaoDaLinha(atual, { ...cfg, workspace_id: ws }) : null;
+    if (!integ) return "informe a chave da API";
+    return await abrirCredencial(integ);
+  }
+
+  if (body.action === "modelos" && tipo === "ia") {
+    // Quais modelos ESTA chave enxerga — a lista da tela passa a ser a dela.
+    const cfg = { ...(atual?.config ?? {}), ...(body.config ?? {}) } as Record<string, unknown>;
+    const provider = String(cfg.provider ?? "");
+    if (!PROVIDERS[provider]) return json({ ok: false, erro: "provedor de IA desconhecido" });
+    const credencial = await credencialDaTela(cfg);
+    if (typeof credencial === "string") return json({ ok: false, erro: credencial });
+    try {
+      const modelos = await listarModelos(provider, credencial);
+      return json({ ok: true, modelos });
+    } catch (e) {
+      console.warn("[integracoes-escritorio] modelos IA:", String((e as Error)?.message ?? e).slice(0, 300));
+      return json({ ok: false, erro: mensagemDoErro(e, "Não consegui listar os modelos desta chave.") });
+    }
+  }
+
   if (body.action === "testar" && tipo === "ia") {
     // Testa o que está na tela (chave colada agora) ou o que está salvo.
     const cfg = { ...(atual?.config ?? {}), ...(body.config ?? {}) } as Record<string, unknown>;
@@ -162,14 +201,10 @@ serve(async (req) => {
     if (!modelo) return json({ ok: false, erro: "informe o modelo" });
     const aposentado = modeloAposentado(provider, modelo);
     if (aposentado) return json({ ok: false, erro: aposentado });
-    const colada = typeof body.segredo === "string" ? body.segredo.trim() : "";
-    let chave = colada;
-    if (!chave) {
-      if (!atual?.segredo_cipher || !atual.segredo_iv) return json({ ok: false, erro: "informe a chave da API" });
-      chave = await decryptSecret(atual.segredo_cipher, atual.segredo_iv);
-    }
+    const credencial = await credencialDaTela(cfg);
+    if (typeof credencial === "string") return json({ ok: false, erro: credencial });
     try {
-      await chatWith(provider, chave, modelo, {
+      await chatWith(provider, credencial, modelo, {
         system: "Responda apenas: ok",
         messages: [{ role: "user", content: "ping" }],
         tools: [],

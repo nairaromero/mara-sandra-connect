@@ -60,6 +60,13 @@ describe("túnel da IA", () => {
     expect(sem, "chatWith sem `registro: registroDeUso(...)`").toEqual([]);
   });
 
+  test("ninguém decifra a chave de IA por fora (abrirCredencial)", () => {
+    const fora = TODOS.filter(
+      (p) => !p.endsWith("_shared/ia-integracao.ts") && /api_key_cipher/.test(semComentarios(readFileSync(p, "utf8"))),
+    ).map((p) => p.replace(RAIZ + "/", ""));
+    expect(fora).toEqual([]);
+  });
+
   test("ninguém escolhe a chave por fora de _shared/ia-integracao.ts", () => {
     const fora = TODOS.filter(
       (p) => !p.endsWith("_shared/ia-integracao.ts") && /from\(\s*["']ia_integracoes["']\s*\)/.test(readFileSync(p, "utf8")),

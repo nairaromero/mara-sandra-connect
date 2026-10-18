@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Selecao } from "@/components/ui/selecao";
 import { toast } from "sonner";
-import { Loader2, Sparkles, Save, Plug, ShieldCheck, Globe } from "lucide-react";
+import { Loader2, Sparkles, Save, Plug, ShieldCheck, Globe, ListChecks } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -17,15 +17,25 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { supabase } from "@/lib/supabase";
-import { dataHoraBR } from "@/lib/fuso";
+import { dataBR, dataHoraBR } from "@/lib/fuso";
 import type { IaProviderInfo } from "@/lib/ia/client";
 
 interface StatusIa {
-  config: { provider?: string; modelo?: string; hint?: string };
+  config: { provider?: string; modelo?: string; hint?: string; workspace_id?: string };
   ativo: boolean;
   segredo_definido_em: string | null;
   updated_at: string | null;
   providers: Record<string, IaProviderInfo>;
+}
+
+/** Um modelo que a chave enxerga (resposta da ação "modelos"). */
+interface ModeloDaChave {
+  id: string;
+  nome: string;
+  situacao: "ativo" | "descontinuado";
+  lePdf: boolean | null;
+  saiEm: string | null;
+  recomendado: boolean;
 }
 
 async function chamar(body: Record<string, unknown>): Promise<unknown> {
@@ -54,6 +64,12 @@ export function IntegracaoIaCard() {
   const [testando, setTestando] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [teste, setTeste] = useState<{ ok: boolean; erro?: string } | null>(null);
+  const [workspace, setWorkspace] = useState("");
+  // Modelos que ESTA chave enxerga (botão "Ver modelos desta chave"). Enquanto
+  // não pede, vale a lista recomendada do servidor.
+  const [daChave, setDaChave] = useState<ModeloDaChave[] | null>(null);
+  const [listando, setListando] = useState(false);
+  const [erroLista, setErroLista] = useState<string | null>(null);
 
   const carregar = useCallback(async () => {
     setErroCarga(null);
@@ -62,6 +78,7 @@ export function IntegracaoIaCard() {
       setStatus(r);
       if (r.config?.provider) setProvider(r.config.provider);
       setModelo(r.config?.modelo ?? "");
+      setWorkspace(r.config?.workspace_id ?? "");
     } catch (e) {
       // Falha de leitura não pode virar "não configurado" calado.
       setErroCarga(e instanceof Error ? e.message : String(e));
@@ -73,7 +90,39 @@ export function IntegracaoIaCard() {
   }, [carregar]);
 
   const providers = status?.providers ?? {};
-  const modelosSugeridos = providers[provider]?.models ?? [];
+  const modelosSugeridos = daChave
+    ? daChave.map((m) => m.id)
+    : (providers[provider]?.models ?? []);
+
+  /** O que vai à function: o workspace só existe para a Anthropic. */
+  const configDaTela = () => ({
+    provider,
+    modelo: modelo.trim(),
+    workspace_id: provider === "anthropic" ? workspace.trim() : "",
+  });
+
+  async function verModelos() {
+    setListando(true);
+    setErroLista(null);
+    try {
+      const r = (await chamar({
+        action: "modelos",
+        config: configDaTela(),
+        segredo: apiKey.trim() || undefined,
+      })) as { ok: boolean; erro?: string; modelos?: ModeloDaChave[] };
+      if (!r.ok) {
+        setDaChave(null);
+        setErroLista(r.erro ?? "Não consegui listar os modelos desta chave.");
+        return;
+      }
+      setDaChave(r.modelos ?? []);
+    } catch (e) {
+      setDaChave(null);
+      setErroLista(e instanceof Error ? e.message : String(e));
+    } finally {
+      setListando(false);
+    }
+  }
   const configurada = !!status?.segredo_definido_em;
 
   async function testar() {
@@ -86,7 +135,7 @@ export function IntegracaoIaCard() {
     try {
       const r = (await chamar({
         action: "testar",
-        config: { provider, modelo: modelo.trim() },
+        config: configDaTela(),
         segredo: apiKey.trim() || undefined,
       })) as { ok: boolean; erro?: string };
       setTeste(r);
@@ -110,7 +159,7 @@ export function IntegracaoIaCard() {
     try {
       await chamar({
         action: "salvar",
-        config: { provider, modelo: modelo.trim() },
+        config: configDaTela(),
         segredo: apiKey.trim() || undefined,
         ...extra,
       });
@@ -178,7 +227,11 @@ export function IntegracaoIaCard() {
                 <Label className="text-xs">Provedor</Label>
                 <Selecao
                   value={provider}
-                  onChange={setProvider}
+                  onChange={(v) => {
+                    setProvider(v);
+                    setDaChave(null);
+                    setErroLista(null);
+                  }}
                   opcoes={Object.entries(providers).map(([key, info]) => ({
                     value: key,
                     label: info.label,
@@ -220,6 +273,70 @@ export function IntegracaoIaCard() {
                 a tela.
                 {status.segredo_definido_em && <> Definida em {dataHoraBR(status.segredo_definido_em)}.</>}
               </p>
+            </div>
+
+            {provider === "anthropic" && (
+              <div>
+                <Label className="text-xs" htmlFor="ia-workspace">
+                  ID do workspace da Anthropic (opcional)
+                </Label>
+                <Input
+                  id="ia-workspace"
+                  value={workspace}
+                  onChange={(e) => setWorkspace(e.target.value)}
+                  placeholder="wrkspc_…"
+                  autoComplete="off"
+                />
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Só para chave que vale para mais de um workspace. Chave criada dentro de um
+                  workspace (Console da Anthropic › Workspaces) não precisa disto.
+                </p>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void verModelos()}
+                disabled={listando}
+                data-ia-ver-modelos
+              >
+                {listando ? <Loader2 className="h-3 w-3 mr-2 animate-spin" /> : <ListChecks className="h-3 w-3 mr-2" />}
+                Ver modelos desta chave
+              </Button>
+              {erroLista && <p className="text-xs text-destructive">{erroLista}</p>}
+              {daChave && (
+                <div className="rounded-md border p-2" data-ia-modelos-da-chave>
+                  <p className="mb-1 text-xs text-muted-foreground">
+                    {daChave.length} modelo(s) disponível(is) nesta chave. Clique para escolher.
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {daChave.map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => setModelo(m.id)}
+                        title={m.nome}
+                        className={
+                          "rounded-full border px-2 py-0.5 text-xs " +
+                          (m.id === modelo.trim()
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "hover:bg-muted")
+                        }
+                        data-modelo={m.id}
+                      >
+                        {m.id}
+                        {m.recomendado && " · recomendado"}
+                        {m.lePdf === false && " · não lê PDF"}
+                        {m.situacao === "descontinuado" &&
+                          ` · sai do ar${m.saiEm ? " em " + dataBR(m.saiEm) : ""}`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
