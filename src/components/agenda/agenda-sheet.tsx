@@ -27,6 +27,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Selecao } from "@/components/ui/selecao";
+import { AvisoDeCarga } from "@/components/aviso-de-carga";
+import { useCargaDoPainel } from "@/hooks/use-carga-do-painel";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Sheet,
@@ -141,10 +143,12 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
   const [processoToken, setProcessoToken] = useState("");
   const [responsavelId, setResponsavelId] = useState<string | null>(null);
 
-  const [casos, setCasos] = useState<Array<{ id: string; cliente_nome: string | null }>>([]);
-  const [internos, setInternos] = useState<
-    Array<{ id: string; nome: string | null; email: string | null }>
-  >([]);
+  // Clientes e responsáveis: carregados ao abrir, com a falha visível no
+  // painel (useCargaDoPainel — antes, duas cópias e `.catch(() => {})`).
+  const cargaCasos = useCargaDoPainel(aberto, listarCasosResumo, "a lista de clientes");
+  const cargaInternos = useCargaDoPainel(aberto, listarInternosAtivos, "a lista de responsáveis");
+  const casos = cargaCasos.dados;
+  const internos = cargaInternos.dados;
   const [processosDoCaso, setProcessosDoCaso] = useState<ProcessoDoCasoOpcao[]>([]);
   // Falha/atraso ao ler os processos NÃO pode virar "caso sem processo": com o
   // processo obrigatório em perícia e audiência (card #357), lista vazia por
@@ -335,18 +339,6 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
 
   useEffect(() => {
     if (!aberto) return;
-    // Falha aqui era `.catch(() => {})`: seletor de cliente vazio, sem aviso (#300).
-    listarCasosResumo()
-      .then(setCasos)
-      .catch((e: unknown) => {
-        console.error("listarCasosResumo:", e);
-        toast.error("Não consegui carregar a lista de clientes", {
-          description: (e as { message?: string })?.message || "Feche e abra o painel de novo.",
-        });
-      });
-    listarInternosAtivos()
-      .then(setInternos)
-      .catch(() => {});
     // AgendaSheet só mostra templates que criam evento de agenda
     // (ex: pericia_parceiro). Tarefa-only fica no TarefaSheet.
     listarTemplates()
@@ -837,6 +829,11 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
               vazio="Nenhum cliente encontrado."
               data-selecao="cliente"
             />
+            <AvisoDeCarga
+              erro={cargaCasos.erro}
+              carregando={cargaCasos.carregando}
+              onTentar={cargaCasos.recarregar}
+            />
           </div>
 
           {casoId && processosDoCaso.length > 0 && (
@@ -1069,6 +1066,11 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
     ...internos.map((u) => ({ value: u.id, label: u.nome ?? "(sem nome)" })),
   ]}
 />
+            <AvisoDeCarga
+              erro={cargaInternos.erro}
+              carregando={cargaInternos.carregando}
+              onTentar={cargaInternos.recarregar}
+            />
           </div>
 
           <div className="space-y-1.5">
