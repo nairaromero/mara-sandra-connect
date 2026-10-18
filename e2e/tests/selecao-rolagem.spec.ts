@@ -135,12 +135,21 @@ async function ultimaOpcao(page: Page): Promise<Locator> {
  * sem filtro de id) e só a ela — a tela do caso lê `casos` com outro `select`
  * e o enriquecimento das tarefas filtra por `id`; os dois precisam continuar.
  */
+const consultaDeCasos = (url: URL) =>
+  url.pathname.endsWith("/rest/v1/casos") &&
+  (url.searchParams.get("select") ?? "").startsWith("id,cliente:clientes") &&
+  !url.searchParams.has("id");
+
+/** A consulta de responsáveis (`listarInternosAtivos`). */
+const consultaDeInternos = (url: URL) => url.pathname.endsWith("/rest/v1/usuarios_escritorio");
+
 async function derrubarConsultaDeCasos(page: Page) {
+  await derrubar(page, consultaDeCasos);
+}
+
+async function derrubar(page: Page, alvo: (url: URL) => boolean) {
   await page.route(
-    (url) =>
-      url.pathname.endsWith("/rest/v1/casos") &&
-      (url.searchParams.get("select") ?? "").startsWith("id,cliente:clientes") &&
-      !url.searchParams.has("id"),
+    alvo,
     async (route) => {
       const cors = {
         "access-control-allow-origin": "*",
@@ -267,10 +276,23 @@ test.describe("o conserto não quebra o resto do seletor", () => {
     test("AC-4: abrir o seletor foca a busca e não rola o painel", async ({ page }) => {
       await abrirNovaTarefaNoCaso(page, casoId);
       const painel = page.locator('[role="dialog"]').filter({ hasText: "Nova tarefa" });
+      // O painel entra deslizando pela direita. Medido durante a animação, o
+      // campo ainda está fora da tela e o próprio clique do Playwright rola o
+      // painel para alcançá-lo — era o que zerava a rolagem: o teste media a
+      // rolagem do teste, não a do app. Espera a animação acabar.
+      await painel.evaluate((el) =>
+        Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)),
+      );
       const antes = await painel.evaluate((el) => {
         const campo = el.querySelector('[data-selecao="cliente"]');
         if (!campo) throw new Error("seletor de cliente ausente no painel");
-        el.scrollTop += campo.getBoundingClientRect().top - el.getBoundingClientRect().top - 12;
+        el.scrollTop = 8;
+        const r = campo.getBoundingClientRect();
+        // À vista e sem nada por cima: o clique não precisa rolar nada.
+        const noPonto = document.elementFromPoint(r.left + 10, r.top + r.height / 2);
+        if (noPonto?.closest('[data-selecao="cliente"]') !== campo) {
+          throw new Error("o campo não está à vista: o clique rolaria o painel");
+        }
         return el.scrollTop;
       });
       expect(antes, "o painel precisa estar rolado para o teste valer").toBeGreaterThan(0);
@@ -291,11 +313,24 @@ test.describe("o conserto não quebra o resto do seletor", () => {
   });
 });
 
+/** O aviso que FICA no painel (o toast some): diz o que falhou e oferece tentar de novo. */
+const avisoDeCarga = (page: Page, texto: RegExp) =>
+  page.locator("[data-aviso-carga]").filter({ hasText: texto });
+
 test.describe("quando a consulta de casos falha, o painel avisa", () => {
-  test("AC-5: painel de tarefa", async ({ page }) => {
+  test("AC-5: painel de tarefa — aviso no lugar e 'Tentar de novo' carrega a lista", async ({ page }) => {
     await derrubarConsultaDeCasos(page);
     await abrirNovaTarefaNoCaso(page, casoId);
     await expect(toastDeErroDeClientes(page)).toBeVisible({ timeout: 20_000 });
+    const aviso = avisoDeCarga(page, /lista de clientes/);
+    await expect(aviso).toBeVisible();
+
+    // A consulta volta: "Tentar de novo" carrega e o aviso some.
+    await page.unroute(consultaDeCasos);
+    await aviso.getByRole("button", { name: "Tentar de novo" }).click();
+    await expect(aviso).toBeHidden({ timeout: 20_000 });
+    await abrirSeletorDeCliente(page);
+    await expect(page.getByRole("option", { name: nomeOutroCliente, exact: true })).toBeAttached();
   });
 
   test("AC-6: painel da Agenda", async ({ page }) => {
@@ -304,5 +339,31 @@ test.describe("quando a consulta de casos falha, o painel avisa", () => {
     await page.getByRole("button", { name: /Novo evento/ }).click();
     await expect(page.locator('[role="dialog"]').first()).toBeVisible();
     await expect(toastDeErroDeClientes(page)).toBeVisible({ timeout: 20_000 });
+    await expect(avisoDeCarga(page, /lista de clientes/)).toBeVisible();
+  });
+
+  test("responsáveis: a falha também aparece no painel (antes era `.catch(() => {})`)", async ({ page }) => {
+    await derrubar(page, consultaDeInternos);
+    await abrirNovaTarefaNoCaso(page, casoId);
+    await expect(avisoDeCarga(page, /lista de responsáveis/)).toBeVisible({ timeout: 20_000 });
+  });
+});
+
+test.describe("fora de painel, o seletor não trava a página (revisão do #460)", () => {
+  test("com a lista aberta a página segue clicável e acessível", async ({ page }) => {
+    await page.goto("/publicacoes");
+    const contagem = page.locator("[data-contagem]").first();
+    await expect(contagem).toBeVisible({ timeout: 20_000 });
+    await page.getByRole("combobox", { name: "Itens por página" }).first().click();
+    await expect(page.getByRole("listbox")).toBeVisible();
+
+    // `modal` travaria o body e esconderia o resto da tela do leitor de tela.
+    const corpo = await page.evaluate(() => ({
+      pointer: getComputedStyle(document.body).pointerEvents,
+      overflow: getComputedStyle(document.body).overflow,
+    }));
+    expect(corpo.pointer).not.toBe("none");
+    expect(corpo.overflow).not.toBe("hidden");
+    await expect(page.getByRole("button", { name: "Próxima página" }).first()).toBeVisible();
   });
 });
