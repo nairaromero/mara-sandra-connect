@@ -240,6 +240,26 @@ export function classeDoErro(e: unknown): string {
   return "outro";
 }
 
+/**
+ * Frase para a PESSOA a partir de uma falha do provedor (mesma classe que vai
+ * para o registro de uso). O texto cru do provedor (JSON em inglês, request
+ * id…) fica para o log de quem chamou — nunca na tela.
+ */
+export function mensagemDoErro(e: unknown): string {
+  const classe = classeDoErro(e);
+  if (classe === "modelo_aposentado") return String((e as Error)?.message ?? e);
+  if (classe === "http_401" || classe === "http_403") {
+    return "O provedor recusou a chave de API (inválida, revogada ou sem permissão para este modelo).";
+  }
+  if (classe === "http_404") return "O provedor não reconhece este modelo. Confira o nome do modelo.";
+  if (classe === "http_429") return "O provedor limitou as chamadas desta chave (cota ou excesso de uso). Tente de novo em instantes.";
+  if (classe === "http_400") return "O provedor recusou a chamada. Confira o modelo escolhido.";
+  if (/^http_5\d\d$/.test(classe)) return "O provedor está com problema agora. Tente de novo em instantes.";
+  if (classe === "timeout") return "O provedor não respondeu a tempo. Tente de novo.";
+  if (classe === "cortada") return "A resposta do provedor veio cortada.";
+  return "Não consegui falar com o provedor de IA.";
+}
+
 async function registrar(reg: RegistroUso | undefined, linha: LinhaUso): Promise<void> {
   if (!reg) return;
   try {

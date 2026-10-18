@@ -8,6 +8,7 @@ import {
   chatWith,
   classeDoErro,
   IaRespostaCortada,
+  mensagemDoErro,
   type LinhaUso,
   modeloAposentado,
   perfilDoModelo,
@@ -203,5 +204,19 @@ describe("chatWith", () => {
       registro: { gravar: async () => { throw new Error("banco fora"); } },
     }));
     expect(r.text).toBe("{\"ok\":true}");
+  });
+
+  test("mensagem do erro para a tela: frase em português, sem o texto cru do provedor", () => {
+    const cru = new Error('anthropic 401: {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"},"request_id":"req_x"}');
+    const m = mensagemDoErro(cru);
+    expect(m).toContain("recusou a chave");
+    expect(m).not.toContain("x-api-key");
+    expect(m).not.toContain("req_");
+    expect(mensagemDoErro(new Error("openai 404: model not found"))).toContain("não reconhece este modelo");
+    expect(mensagemDoErro(new Error("openai 429: rate limit"))).toContain("limitou as chamadas");
+    expect(mensagemDoErro(new Error("anthropic 529: overloaded"))).toContain("com problema agora");
+    expect(mensagemDoErro(new DOMException("t", "TimeoutError"))).toContain("não respondeu a tempo");
+    expect(mensagemDoErro(new Error("o modelo claude-opus-4-1 foi aposentado pelo provedor em 05/08/2026."))).toContain("05/08/2026");
+    expect(mensagemDoErro(new Error("qualquer outra coisa"))).toBe("Não consegui falar com o provedor de IA.");
   });
 });

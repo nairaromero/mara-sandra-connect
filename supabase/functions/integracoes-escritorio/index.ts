@@ -13,7 +13,7 @@ import { exigirUsuario, fetchT } from "../_shared/auth.ts";
 import { auditar, type AcaoAuditada } from "../_shared/auditoria.ts";
 import { encryptSecret, decryptSecret } from "../_shared/crypto.ts";
 import { baseLegalmail, baseTI } from "../_shared/integracoes.ts";
-import { chatWith, modeloAposentado, PROVIDERS } from "../_shared/ia-providers.ts";
+import { chatWith, classeDoErro, mensagemDoErro, modeloAposentado, PROVIDERS } from "../_shared/ia-providers.ts";
 import { registroDeUso } from "../_shared/ia-integracao.ts";
 
 const corsHeaders = {
@@ -180,9 +180,11 @@ serve(async (req) => {
       await registrar("integracao.testar", { ok: true, provider, modelo });
       return json({ ok: true });
     } catch (e) {
-      const msg = String((e as Error)?.message ?? e);
-      await registrar("integracao.testar", { ok: false, provider, modelo });
-      return json({ ok: false, erro: msg.slice(0, 200) });
+      // O texto cru do provedor (JSON, request id) fica no log; a tela recebe
+      // uma frase que diz o que fazer.
+      console.warn("[integracoes-escritorio] testar IA:", String((e as Error)?.message ?? e).slice(0, 300));
+      await registrar("integracao.testar", { ok: false, provider, modelo, erro: classeDoErro(e) });
+      return json({ ok: false, erro: mensagemDoErro(e) });
     }
   }
 
