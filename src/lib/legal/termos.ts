@@ -26,7 +26,7 @@ export const ESCRITORIO = {
   // indicar Encarregado/DPO formal (Resolução CD/ANPD nº 2/2022), mas deve manter
   // um canal de comunicação com o titular.
   privacidadeContato: "Mara Sandra",
-  privacidadeEmail: "marasandravian.advocacia@gmail.com",
+  privacidadeEmail: "contato.maravian@advocaciaprevi.com",
   privacidadeTel: "",
 };
 

@@ -756,7 +756,7 @@ function HomePage() {
                 title: "WhatsApp",
                 sub: "(17) 99773-3081 — atendimento em horário comercial",
               },
-              { icon: Mail, title: "E-mail", sub: "contato@marasandravian.com.br" },
+              { icon: Mail, title: "E-mail", sub: "contato.maravian@advocaciaprevi.com" },
               { icon: MapPin, title: "Atuação", sub: "São Paulo e Mato Grosso" },
             ].map(({ icon: Icon, title, sub }) => (
               <div key={title} className="mb-4 flex items-center gap-3.5">
