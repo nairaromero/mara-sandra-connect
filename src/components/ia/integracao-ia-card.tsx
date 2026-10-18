@@ -1,63 +1,80 @@
-// Card "Integracao de IA" da tela de Configuracoes.
-// Cada usuario (interno ou parceiro) escolhe provider + modelo e cola a propria
-// chave (BYOK). A chave e cifrada na edge function; aqui nunca recebemos de volta
-// a chave em claro, so um "hint" mascarado.
+// Card "IA do escritório" (Configurações › Integrações). Desde #451 (parte 2)
+// a chave de IA é do ESCRITÓRIO, como Legalmail e TI: provedor + modelo em
+// config e a chave cifrada na function `integracoes-escritorio` (tipo "ia"),
+// que valida o modelo, audita a troca e nunca devolve a chave. A lista de
+// provedores e modelos vem do status da function (uma fonte só, os perfis de
+// modelo do servidor).
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Selecao } from "@/components/ui/selecao";
 import { toast } from "sonner";
-import { Loader2, Sparkles, Save, Plug, ShieldCheck } from "lucide-react";
+import { Loader2, Sparkles, Save, Plug, ShieldCheck, Globe } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { iaConfig, type IaProviderInfo } from "@/lib/ia/client";
+import { supabase } from "@/lib/supabase";
+import { dataHoraBR } from "@/lib/fuso";
+import type { IaProviderInfo } from "@/lib/ia/client";
+
+interface StatusIa {
+  config: { provider?: string; modelo?: string; hint?: string };
+  ativo: boolean;
+  segredo_definido_em: string | null;
+  updated_at: string | null;
+  providers: Record<string, IaProviderInfo>;
+}
+
+async function chamar(body: Record<string, unknown>): Promise<unknown> {
+  const resp = await supabase.functions.invoke("integracoes-escritorio", { body: { tipo: "ia", ...body } });
+  if (resp.error) {
+    let msg = resp.error.message;
+    try {
+      const ctx = (resp.error as { context?: Response }).context;
+      if (ctx) msg = ((await ctx.json()) as { error?: string }).error ?? msg;
+    } catch {
+      /* sem corpo */
+    }
+    throw new Error(msg);
+  }
+  const dados = resp.data as { error?: string } | null;
+  if (dados?.error) throw new Error(dados.error);
+  return resp.data;
+}
 
 export function IntegracaoIaCard() {
-  const [carregando, setCarregando] = useState(true);
-  const [erroCarga, setErroCarga] = useState(false);
-  const [providers, setProviders] = useState<Record<string, IaProviderInfo>>({});
-  const [configurado, setConfigurado] = useState(false);
-  const [ativo, setAtivo] = useState(false);
-  const [hint, setHint] = useState<string | null>(null);
-  const [compartilhada, setCompartilhada] = useState(false);
-  const [usandoCompartilhada, setUsandoCompartilhada] = useState(false);
-  const [compartilhando, setCompartilhando] = useState(false);
-
+  const [status, setStatus] = useState<StatusIa | null>(null);
+  const [erroCarga, setErroCarga] = useState<string | null>(null);
   const [provider, setProvider] = useState("anthropic");
   const [modelo, setModelo] = useState("");
   const [apiKey, setApiKey] = useState("");
-
   const [testando, setTestando] = useState(false);
   const [salvando, setSalvando] = useState(false);
-  const [alternando, setAlternando] = useState(false);
+  const [teste, setTeste] = useState<{ ok: boolean; erro?: string } | null>(null);
 
-  async function carregar() {
-    const { data, error } = await iaConfig.status();
-    // Falha de leitura não pode virar "nenhum provedor" calado.
-    setErroCarga(!!error || !data);
-    if (data) {
-      if (data.providers_suportados && Object.keys(data.providers_suportados).length) {
-        setProviders(data.providers_suportados);
-      }
-      setConfigurado(data.configurado);
-      setAtivo(data.ativo);
-      setHint(data.hint);
-      setCompartilhada(data.compartilhada ?? false);
-      setUsandoCompartilhada(data.usando_compartilhada ?? false);
-      if (data.provider) setProvider(data.provider);
-      if (data.modelo) setModelo(data.modelo);
+  const carregar = useCallback(async () => {
+    setErroCarga(null);
+    try {
+      const r = (await chamar({ action: "status" })) as StatusIa;
+      setStatus(r);
+      if (r.config?.provider) setProvider(r.config.provider);
+      setModelo(r.config?.modelo ?? "");
+    } catch (e) {
+      // Falha de leitura não pode virar "não configurado" calado.
+      setErroCarga(e instanceof Error ? e.message : String(e));
     }
-    setCarregando(false);
-  }
-
-  useEffect(() => {
-    carregar();
   }, []);
 
+  useEffect(() => {
+    void carregar();
+  }, [carregar]);
+
+  const providers = status?.providers ?? {};
   const modelosSugeridos = providers[provider]?.models ?? [];
+  const configurada = !!status?.segredo_definido_em;
 
   async function testar() {
     if (!modelo.trim()) {
@@ -65,109 +82,109 @@ export function IntegracaoIaCard() {
       return;
     }
     setTestando(true);
-    const { data, error } = await iaConfig.testar({
-      provider,
-      modelo: modelo.trim(),
-      api_key: apiKey.trim() || undefined,
-    });
-    setTestando(false);
-    if (data?.ok) toast.success("Conexão OK");
-    else toast.error(error?.message || "Falha ao testar");
+    setTeste(null);
+    try {
+      const r = (await chamar({
+        action: "testar",
+        config: { provider, modelo: modelo.trim() },
+        segredo: apiKey.trim() || undefined,
+      })) as { ok: boolean; erro?: string };
+      setTeste(r);
+      if (r.ok) toast.success("Conexão OK");
+      else toast.error(r.erro || "Falha ao testar");
+    } catch (e) {
+      const erro = e instanceof Error ? e.message : String(e);
+      setTeste({ ok: false, erro });
+      toast.error(erro);
+    } finally {
+      setTestando(false);
+    }
   }
 
-  async function salvar() {
+  async function salvar(extra: { ativo?: boolean } = {}) {
     if (!modelo.trim()) {
       toast.error("Informe o modelo");
       return;
     }
-    if (apiKey.trim().length < 12) {
-      toast.error("Cole uma chave de API válida");
-      return;
-    }
     setSalvando(true);
-    const { data, error } = await iaConfig.salvar({
-      provider,
-      modelo: modelo.trim(),
-      api_key: apiKey.trim(),
-      ativo: true,
-    });
-    setSalvando(false);
-    if (data?.ok) {
-      toast.success("Integração salva e ativada");
+    try {
+      await chamar({
+        action: "salvar",
+        config: { provider, modelo: modelo.trim() },
+        segredo: apiKey.trim() || undefined,
+        ...extra,
+      });
       setApiKey("");
-      await carregar();
-    } else {
-      toast.error(error?.message || "Falha ao salvar");
-    }
-  }
-
-  async function alternarAtivo(novo: boolean) {
-    setAlternando(true);
-    const { data, error } = await iaConfig.ativar(novo);
-    setAlternando(false);
-    if (data?.ok) {
-      setAtivo(data.ativo);
-      toast.success(novo ? "Assistente ativado" : "Assistente desativado");
-    } else {
-      toast.error(error?.message || "Falha ao alterar");
-    }
-  }
-
-  async function alternarCompartilhada(novo: boolean) {
-    setCompartilhando(true);
-    const { data, error } = await iaConfig.compartilhar(novo);
-    setCompartilhando(false);
-    if (data?.ok) {
-      setCompartilhada(data.compartilhada);
       toast.success(
-        novo
-          ? "Chave compartilhada com a equipe interna"
-          : "Chave não é mais compartilhada",
-        novo
-          ? { description: "Internos sem chave própria passam a usar esta conta." }
-          : undefined,
+        extra.ativo === false ? "IA do escritório desligada" : "IA do escritório salva",
       );
-    } else {
-      toast.error(error?.message || "Falha ao alterar o compartilhamento");
+      await carregar();
+    } catch (e) {
+      toast.error(`Não salvou: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setSalvando(false);
     }
   }
 
   return (
-    <Card>
+    <Card data-card-integracao="ia">
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
           <Sparkles className="h-4 w-4" />
-          Integração de IA
+          IA do escritório
+          {status && (
+            <Badge
+              variant={configurada && status.ativo ? "default" : "secondary"}
+              className="ml-1"
+              data-integracao-estado
+            >
+              {configurada ? (status.ativo ? "ativa" : "desligada") : "não configurada"}
+            </Badge>
+          )}
         </CardTitle>
         <CardDescription>
-          Conecte seu provedor de IA (cada um usa a própria chave). O assistente consulta seus dados
-          e pode criar/atualizar registros (respeitando suas permissões), sempre pedindo
-          confirmação.
+          A IA lê documentos, sugere a próxima tarefa e redige mensagens para toda a equipe. A
+          chave é do escritório: o consumo é cobrado na conta do provedor cadastrada aqui.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {carregando ? (
+        {erroCarga && (
+          <p className="text-sm text-destructive">
+            Não consegui ler a IA do escritório: {erroCarga}
+          </p>
+        )}
+        {status === null && !erroCarga && (
           <div className="flex h-20 items-center justify-center">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
-        ) : (
+        )}
+        {status && (
           <div className="space-y-4">
-            {erroCarga && (
-              <p className="text-sm text-destructive">
-                Não consegui carregar os provedores de IA. Recarregue a página.
+            <div
+              className="flex gap-2 rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/30 dark:text-amber-200"
+              data-aviso-ia-dados
+            >
+              <Globe className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <p>
+                Com a IA ligada, documentos e dados dos clientes (inclusive laudos e dados de
+                saúde) são enviados ao provedor escolhido, que processa fora do Brasil. O contrato
+                com o provedor é do escritório: confira se ele proíbe usar os dados para treinar
+                modelos e qual é o prazo de retenção.
               </p>
-            )}
+            </div>
+
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <Label className="text-xs">Provedor</Label>
                 <Selecao
-  value={provider}
-  onChange={setProvider}
-  opcoes={[
-    ...Object.entries(providers).map(([key, info]) => ({ value: key, label: info.label })),
-  ]}
-  placeholder="Escolha o provedor"
-/>
+                  value={provider}
+                  onChange={setProvider}
+                  opcoes={Object.entries(providers).map(([key, info]) => ({
+                    value: key,
+                    label: info.label,
+                  }))}
+                  placeholder="Escolha o provedor"
+                />
               </div>
               <div>
                 <Label className="text-xs">Modelo</Label>
@@ -186,25 +203,26 @@ export function IntegracaoIaCard() {
             </div>
 
             <div>
-              <Label className="text-xs">Chave de API</Label>
+              <Label className="text-xs">Chave de API do escritório</Label>
               <Input
                 type="password"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder={
-                  configurado && hint
-                    ? "Chave salva (" + hint + ") - cole para substituir"
-                    : "Cole sua chave de API"
+                  configurada
+                    ? `Chave salva${status.config.hint ? ` (${status.config.hint})` : ""} — cole para substituir`
+                    : "Cole a chave de API do escritório"
                 }
                 autoComplete="off"
               />
               <p className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
                 <ShieldCheck className="h-3 w-3" />A chave é cifrada no servidor e nunca volta para
                 a tela.
+                {status.segredo_definido_em && <> Definida em {dataHoraBR(status.segredo_definido_em)}.</>}
               </p>
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button variant="outline" size="sm" onClick={testar} disabled={testando}>
                 {testando ? (
                   <Loader2 className="h-3 w-3 mr-2 animate-spin" />
@@ -213,7 +231,7 @@ export function IntegracaoIaCard() {
                 )}
                 Testar conexão
               </Button>
-              <Button size="sm" onClick={salvar} disabled={salvando}>
+              <Button size="sm" onClick={() => void salvar({ ativo: true })} disabled={salvando}>
                 {salvando ? (
                   <Loader2 className="h-3 w-3 mr-2 animate-spin" />
                 ) : (
@@ -221,47 +239,29 @@ export function IntegracaoIaCard() {
                 )}
                 Salvar e ativar
               </Button>
+              {teste && (
+                <span
+                  className={teste.ok ? "text-xs text-emerald-700" : "text-xs text-destructive"}
+                  data-ia-teste
+                >
+                  {teste.ok ? "Conexão OK" : teste.erro}
+                </span>
+              )}
             </div>
 
-            {usandoCompartilhada && (
-              <p className="rounded-md border border-[var(--gold)]/40 bg-gold-soft/20 px-3 py-2 text-xs">
-                Você está usando a chave de IA compartilhada do escritório. Cadastre a sua
-                acima para usar a sua própria conta.
-              </p>
-            )}
-
-            {configurado && (
+            {configurada && (
               <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
                 <div>
-                  <p className="text-sm font-medium">Assistente ativo</p>
+                  <p className="text-sm font-medium">IA ligada para o escritório</p>
                   <p className="text-xs text-muted-foreground">
-                    Mostra o botão do assistente nas telas.
+                    Desligada, nenhuma tela usa IA e nada é enviado ao provedor.
                   </p>
                 </div>
                 <Switch
-                  checked={ativo}
-                  disabled={alternando}
-                  onCheckedChange={alternarAtivo}
-                  aria-label="Ativar assistente"
-                />
-              </div>
-            )}
-
-            {configurado && (
-              <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                <div className="pr-3">
-                  <p className="text-sm font-medium">Compartilhar com a equipe interna</p>
-                  <p className="text-xs text-muted-foreground">
-                    Internos sem chave própria passam a usar esta — e todo o consumo é
-                    cobrado nesta conta. Quem cadastrar a própria volta a usar a dele.
-                    Só uma chave pode ser a compartilhada.
-                  </p>
-                </div>
-                <Switch
-                  checked={compartilhada}
-                  disabled={compartilhando || !ativo}
-                  onCheckedChange={alternarCompartilhada}
-                  aria-label="Compartilhar chave com a equipe interna"
+                  checked={status.ativo}
+                  disabled={salvando}
+                  onCheckedChange={(v) => void salvar({ ativo: v })}
+                  aria-label="Ligar a IA do escritório"
                 />
               </div>
             )}
