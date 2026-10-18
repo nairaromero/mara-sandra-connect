@@ -55,6 +55,11 @@ as $$
   );
 $$;
 
+-- Criar função dá EXECUTE ao PUBLIC por padrão, e o Supabase ainda concede a
+-- anon/service_role. A regra da casa (cobrada por rbac-conferir-exigencias) é
+-- que anon só alcança helper de policy — esta não é. Revoga antes de conceder.
+revoke all on function public.responsavel_etapa(uuid, text) from public;
+revoke all on function public.responsavel_etapa(uuid, text) from anon;
 grant execute on function public.responsavel_etapa(uuid, text) to authenticated;
 
 -- ---------------------------------------------------------------------------
@@ -222,4 +227,6 @@ begin
 end;
 $$;
 
+revoke all on function public.concluir_organizacao_documentos(uuid, text[], text) from public;
+revoke all on function public.concluir_organizacao_documentos(uuid, text[], text) from anon;
 grant execute on function public.concluir_organizacao_documentos(uuid, text[], text) to authenticated;
