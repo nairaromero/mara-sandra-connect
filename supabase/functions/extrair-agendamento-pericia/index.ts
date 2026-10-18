@@ -21,7 +21,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { decryptSecret } from "../_shared/crypto.ts";
 import { carregarIntegracao, registroDeUso } from "../_shared/ia-integracao.ts";
-import { chatWith, type Attachment } from "../_shared/ia-providers.ts";
+import { chatWith, mensagemDoErro, type Attachment } from "../_shared/ia-providers.ts";
 import { extrairJson } from "../_shared/documento-campos.ts";
 import { exigirUsuario } from "../_shared/auth.ts";
 
@@ -161,6 +161,6 @@ serve(async (req) => {
     return jsonResponse({ campos });
   } catch (err) {
     console.warn("[extrair-agendamento-pericia] falha:", err);
-    return jsonResponse({ error: "falha ao ler o documento" }, 502);
+    return jsonResponse({ error: mensagemDoErro(err, "Não consegui ler o documento.") }, 502);
   }
 });

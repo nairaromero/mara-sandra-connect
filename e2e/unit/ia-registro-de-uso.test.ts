@@ -18,9 +18,10 @@ function arquivos(dir: string): string[] {
 
 /** Código sem as linhas de comentário (que citam chatWith em prosa). */
 function semComentarios(texto: string): string {
+  // Linha de comentário vira linha vazia: a numeração continua a do arquivo.
   return texto
     .split("\n")
-    .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+    .map((l) => (/^\s*(\/\/|\*|\/\*)/.test(l) ? "" : l))
     .join("\n");
 }
 
@@ -64,5 +65,33 @@ describe("túnel da IA", () => {
       (p) => !p.endsWith("_shared/ia-integracao.ts") && /from\(\s*["']ia_integracoes["']\s*\)/.test(readFileSync(p, "utf8")),
     ).map((p) => p.replace(RAIZ + "/", ""));
     expect(fora).toEqual([]);
+  });
+
+  test("erro de IA chega à tela só pela mensagemDoErro (nunca o texto cru do provedor)", () => {
+    const cru: string[] = [];
+    for (const p of TODOS) {
+      const texto = semComentarios(readFileSync(p, "utf8"));
+      let i = texto.indexOf("chatWith(");
+      while (i >= 0) {
+        // O try que ENVOLVE esta chamada (o último `try {` antes dela) e o
+        // catch dele, no mesmo recuo — não o primeiro catch que aparecer
+        // depois (no chat, esse é o da ferramenta, que volta ao modelo).
+        const t = texto.lastIndexOf("try {", i);
+        const inicioLinha = texto.lastIndexOf("\n", t) + 1;
+        const recuo = texto.slice(inicioLinha, t).match(/^\s*/)![0];
+        const c = t < 0 ? -1 : texto.indexOf("\n" + recuo + "} catch (", t);
+        if (c >= 0) {
+          const fim = texto.indexOf("\n" + recuo + "}", c + 1 + recuo.length + 1);
+          const bloco = texto.slice(c, fim < 0 ? c + 600 : fim);
+          for (const l of bloco.split("\n")) {
+            const resposta = /\b(error|erros?)\s*:/.test(l) && !l.includes("console.");
+            const comCru = /String\(\s*(e|err|erro)\s*\)|\b(e|err|erro)\.message\b|\b(m|msg)\.slice\(/.test(l);
+            if (resposta && comCru) cru.push(`${p.replace(RAIZ + "/", "")}: ${l.trim().slice(0, 80)}`);
+          }
+        }
+        i = texto.indexOf("chatWith(", i + 1);
+      }
+    }
+    expect(cru, "use mensagemDoErro(e, 'frase de quem chama') e mande o cru para o console").toEqual([]);
   });
 });

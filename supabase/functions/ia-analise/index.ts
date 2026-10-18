@@ -16,7 +16,7 @@ import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { exigirRecurso, exigirUsuario } from "../_shared/auth.ts";
 import { decryptSecret } from "../_shared/crypto.ts";
 import { carregarIntegracao, registroDeUso } from "../_shared/ia-integracao.ts";
-import { chatWith, type Attachment } from "../_shared/ia-providers.ts";
+import { chatWith, mensagemDoErro, type Attachment } from "../_shared/ia-providers.ts";
 import { maskCpf } from "../_shared/ia-redact.ts";
 import { encode as toBase64 } from "https://deno.land/std@0.177.0/encoding/base64.ts";
 import { configureUnPDF, extractText, getDocumentProxy } from "https://esm.sh/unpdf@0.12.0";
@@ -355,8 +355,8 @@ serve(async (req) => {
       tools: [],
     });
   } catch (e) {
-    const m = e instanceof Error ? e.message : String(e);
-    return jsonResponse({ error: m.slice(0, 300) }, 502);
+    console.warn("[ia-analise] IA falhou:", String((e as Error)?.message ?? e).slice(0, 300));
+    return jsonResponse({ error: mensagemDoErro(e, "A análise não pôde ser feita. Tente de novo.") }, 502);
   }
 
   // A IA responde com a analise rica (markdown) seguida de um rodape META (JSON

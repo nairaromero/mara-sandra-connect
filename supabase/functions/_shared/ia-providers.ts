@@ -241,11 +241,14 @@ export function classeDoErro(e: unknown): string {
 }
 
 /**
- * Frase para a PESSOA a partir de uma falha do provedor (mesma classe que vai
- * para o registro de uso). O texto cru do provedor (JSON em inglês, request
- * id…) fica para o log de quem chamou — nunca na tela.
+ * Frase para a PESSOA a partir de uma falha de IA (mesma classe que vai para o
+ * registro de uso). UM lugar para essas frases: toda function de IA que
+ * devolve erro à tela passa por aqui (régua: e2e/unit/ia-registro-de-uso.test.ts).
+ * O texto cru do provedor (JSON em inglês, request id…) fica no log de quem
+ * chamou — nunca na tela. `padrao`: a frase de quem chamou para a falha que
+ * NÃO veio do provedor (JSON ilegível, ferramenta não chamada…).
  */
-export function mensagemDoErro(e: unknown): string {
+export function mensagemDoErro(e: unknown, padrao = "Não consegui falar com o provedor de IA."): string {
   const classe = classeDoErro(e);
   if (classe === "modelo_aposentado") return String((e as Error)?.message ?? e);
   if (classe === "http_401" || classe === "http_403") {
@@ -256,8 +259,8 @@ export function mensagemDoErro(e: unknown): string {
   if (classe === "http_400") return "O provedor recusou a chamada. Confira o modelo escolhido.";
   if (/^http_5\d\d$/.test(classe)) return "O provedor está com problema agora. Tente de novo em instantes.";
   if (classe === "timeout") return "O provedor não respondeu a tempo. Tente de novo.";
-  if (classe === "cortada") return "A resposta do provedor veio cortada.";
-  return "Não consegui falar com o provedor de IA.";
+  if (classe === "cortada") return "A resposta da IA foi cortada antes de terminar. Tente de novo.";
+  return padrao;
 }
 
 async function registrar(reg: RegistroUso | undefined, linha: LinhaUso): Promise<void> {

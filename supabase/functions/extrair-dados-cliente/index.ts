@@ -25,7 +25,7 @@ import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { exigirUsuario } from "../_shared/auth.ts";
 import { decryptSecret } from "../_shared/crypto.ts";
 import { carregarIntegracao, registroDeUso } from "../_shared/ia-integracao.ts";
-import { chatWith, type Attachment } from "../_shared/ia-providers.ts";
+import { chatWith, mensagemDoErro, type Attachment } from "../_shared/ia-providers.ts";
 import { extrairJson, montarCampos } from "../_shared/documento-campos.ts";
 
 // Documento de identidade e comprovante sao arquivos pequenos; teto baixo de
@@ -195,7 +195,8 @@ serve(async (req) => {
       ],
     });
   } catch (e) {
-    return jsonResponse({ error: "falha ao ler o documento: " + String(e) }, 502);
+    console.warn("[extrair-dados-cliente] IA falhou:", String(e).slice(0, 300));
+    return jsonResponse({ error: mensagemDoErro(e, "Não consegui ler o documento.") }, 502);
   }
 
   const obj = extrairJson(res.text);

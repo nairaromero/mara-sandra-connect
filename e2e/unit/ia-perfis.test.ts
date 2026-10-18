@@ -218,5 +218,11 @@ describe("chatWith", () => {
     expect(mensagemDoErro(new DOMException("t", "TimeoutError"))).toContain("não respondeu a tempo");
     expect(mensagemDoErro(new Error("o modelo claude-opus-4-1 foi aposentado pelo provedor em 05/08/2026."))).toContain("05/08/2026");
     expect(mensagemDoErro(new Error("qualquer outra coisa"))).toBe("Não consegui falar com o provedor de IA.");
+    // Falha que não veio do provedor: vale a frase de quem chamou.
+    expect(mensagemDoErro(new Error("modelo nao chamou registrar_triagem"), "A IA não devolveu a triagem.")).toBe(
+      "A IA não devolveu a triagem.",
+    );
+    // …mas a do provedor continua com a frase do túnel.
+    expect(mensagemDoErro(new Error("openai 401: x"), "padrão")).toContain("recusou a chave");
   });
 });
