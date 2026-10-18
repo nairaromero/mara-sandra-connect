@@ -14,9 +14,8 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { exigirRecurso, exigirUsuario } from "../_shared/auth.ts";
-import { decryptSecret } from "../_shared/crypto.ts";
-import { carregarIntegracao, registroDeUso } from "../_shared/ia-integracao.ts";
-import { chatWith, mensagemDoErro, type Attachment } from "../_shared/ia-providers.ts";
+import { abrirCredencial, carregarIntegracao, registroDeUso } from "../_shared/ia-integracao.ts";
+import { chatWith, mensagemDoErro, type Attachment, type Credencial } from "../_shared/ia-providers.ts";
 import { maskCpf } from "../_shared/ia-redact.ts";
 import { encode as toBase64 } from "https://deno.land/std@0.177.0/encoding/base64.ts";
 import { configureUnPDF, extractText, getDocumentProxy } from "https://esm.sh/unpdf@0.12.0";
@@ -318,9 +317,9 @@ serve(async (req) => {
     andamentos: ands ?? [],
   };
 
-  let apiKey: string;
+  let apiKey: Credencial;
   try {
-    apiKey = await decryptSecret(integ.api_key_cipher, integ.api_key_iv);
+    apiKey = await abrirCredencial(integ);
   } catch {
     return jsonResponse({ error: "falha ao abrir a chave configurada" }, 500);
   }

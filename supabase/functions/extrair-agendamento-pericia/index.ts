@@ -19,8 +19,7 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
-import { decryptSecret } from "../_shared/crypto.ts";
-import { carregarIntegracao, registroDeUso } from "../_shared/ia-integracao.ts";
+import { abrirCredencial, carregarIntegracao, registroDeUso } from "../_shared/ia-integracao.ts";
 import { chatWith, mensagemDoErro, type Attachment } from "../_shared/ia-providers.ts";
 import { extrairJson } from "../_shared/documento-campos.ts";
 import { exigirUsuario } from "../_shared/auth.ts";
@@ -115,10 +114,7 @@ serve(async (req) => {
   }
 
   try {
-    const apiKey = await decryptSecret(
-      resIntegracao.integ.api_key_cipher,
-      resIntegracao.integ.api_key_iv,
-    );
+    const apiKey = await abrirCredencial(resIntegracao.integ);
     const attachments: Attachment[] = textoColado
       ? []
       : [{

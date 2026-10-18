@@ -21,9 +21,8 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
-import { decryptSecret } from "../_shared/crypto.ts";
 import { chatWith, mensagemDoErro } from "../_shared/ia-providers.ts";
-import { carregarIntegracao, registroDeUso } from "../_shared/ia-integracao.ts";
+import { abrirCredencial, carregarIntegracao, registroDeUso } from "../_shared/ia-integracao.ts";
 import { extrairJson } from "../_shared/documento-campos.ts";
 import { exigirRecurso, exigirUsuario } from "../_shared/auth.ts";
 
@@ -255,7 +254,7 @@ serve(async (req) => {
 
   let bruto: Record<string, unknown> | null = null;
   try {
-    const apiKey = await decryptSecret(chave.api_key_cipher, chave.api_key_iv);
+    const apiKey = await abrirCredencial(chave);
     const res = await chatWith(chave.provider, apiKey, chave.modelo, {
       registro: registroDeUso(admin, {
         escritorioId: quem.perfil.escritorio_id,

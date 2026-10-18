@@ -48,8 +48,8 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { escopado, escritorioDoSistema, exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { decryptSecret } from "../_shared/crypto.ts";
-import { chatWith } from "../_shared/ia-providers.ts";
-import { carregarIntegracao, type IntegracaoIA, registroDeUso } from "../_shared/ia-integracao.ts";
+import { chatWith, type Credencial } from "../_shared/ia-providers.ts";
+import { abrirCredencial, carregarIntegracao, type IntegracaoIA, registroDeUso } from "../_shared/ia-integracao.ts";
 
 // Sobrescritos so no ambiente LOCAL (mock de e2e/demo/mocks); fora dele, Google.
 const GOOGLE_TOKEN_URL = Deno.env.get("GOOGLE_TOKEN_URL") ?? "https://oauth2.googleapis.com/token";
@@ -682,7 +682,7 @@ Regras de formato (importante — o texto é exibido como texto puro):
 // Uma por escritório: a execução percorre várias caixas, e a chave de um
 // escritório não pode atender a caixa de outro (antes era UMA para a execução
 // inteira, resolvida pela Naira — #451).
-const integIACache = new Map<string, { integ: IntegracaoIA; apiKey: string } | null>();
+const integIACache = new Map<string, { integ: IntegracaoIA; apiKey: Credencial } | null>();
 
 async function redigirMensagemParceiro(
   sb: SupabaseClient,
@@ -699,7 +699,7 @@ async function redigirMensagemParceiro(
       } else {
         integIACache.set(lookups.escritorioId, {
           integ: r.integ,
-          apiKey: await decryptSecret(r.integ.api_key_cipher, r.integ.api_key_iv),
+          apiKey: await abrirCredencial(r.integ),
         });
       }
     }

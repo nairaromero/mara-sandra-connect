@@ -12,6 +12,14 @@ export type ToolDef = {
 
 export type ToolCall = { id: string; name: string; args: Record<string, unknown> };
 
+/**
+ * O que autentica no provider. `workspaceId` (Anthropic, `wrkspc_…`) só para
+ * chave que vale para mais de um workspace: sem ele a Anthropic responde 400
+ * ("not scoped to a workspace"). Montada por `abrirCredencial`
+ * (_shared/ia-integracao.ts) — ninguém decifra a chave por fora.
+ */
+export type Credencial = { chave: string; workspaceId?: string | null };
+
 // Anexo binario (PDF/imagem) enviado junto da ultima mensagem 'user'. Usado pela
 // ia-analise p/ mandar PDFs escaneados direto ao provider (OCR nativo do modelo),
 // ja que o extrator de texto nao le imagem. base64 SEM o prefixo "data:".
@@ -254,9 +262,18 @@ export function mensagemDoErro(e: unknown, padrao = "Não consegui falar com o p
   if (classe === "http_401" || classe === "http_403") {
     return "O provedor recusou a chave de API (inválida, revogada ou sem permissão para este modelo).";
   }
-  if (classe === "http_404") return "O provedor não reconhece este modelo. Confira o nome do modelo.";
   if (classe === "http_429") return "O provedor limitou as chamadas desta chave (cota ou excesso de uso). Tente de novo em instantes.";
-  if (classe === "http_400") return "O provedor recusou a chamada. Confira o modelo escolhido.";
+  if (classe === "http_400" || classe === "http_404") {
+    // O motivo vem no corpo do provider; só o TIPO de motivo vira frase.
+    const corpo = String((e as Error)?.message ?? e);
+    if (/workspace/i.test(corpo)) {
+      return "Esta chave da Anthropic vale para mais de um workspace: informe o ID do workspace (wrkspc_…) ou crie a chave dentro de um workspace no Console da Anthropic.";
+    }
+    if (classe === "http_404" || (/model/i.test(corpo) && /(not[_ ]found|does not exist|invalid model|unknown model)/i.test(corpo))) {
+      return "O provedor não reconhece este modelo. Use 'Ver modelos desta chave' para escolher um disponível.";
+    }
+    return "O provedor recusou a chamada (requisição inválida). Tente de novo; se continuar, avise o suporte.";
+  }
   if (/^http_5\d\d$/.test(classe)) return "O provedor está com problema agora. Tente de novo em instantes.";
   if (classe === "timeout") return "O provedor não respondeu a tempo. Tente de novo.";
   if (classe === "cortada") return "A resposta da IA foi cortada antes de terminar. Tente de novo.";
@@ -339,7 +356,7 @@ function appendAttachments(
 
 export async function chatWith(
   provider: string,
-  apiKey: string,
+  credencial: Credencial,
   modelo: string,
   opts: ChatOpts,
 ): Promise<ChatResult> {
@@ -348,8 +365,8 @@ export async function chatWith(
   try {
     const aposentado = modeloAposentado(provider, modelo);
     if (aposentado) throw new Error(aposentado);
-    if (provider === "anthropic") r = await anthropicChat(apiKey, modelo, opts);
-    else if (provider === "openai") r = await openaiChat(apiKey, modelo, opts);
+    if (provider === "anthropic") r = await anthropicChat(credencial, modelo, opts);
+    else if (provider === "openai") r = await openaiChat(credencial.chave, modelo, opts);
     else throw new Error("provider nao suportado: " + provider);
     const fechado = fecharResultado(provider, modelo, r);
     await registrar(opts.registro, {
@@ -376,8 +393,18 @@ export async function chatWith(
 // ---------------------------------------------------------------------------
 // Anthropic
 // ---------------------------------------------------------------------------
+function cabecalhosAnthropic(credencial: Credencial): Record<string, string> {
+  const h: Record<string, string> = {
+    "x-api-key": credencial.chave,
+    "anthropic-version": "2023-06-01",
+    "content-type": "application/json",
+  };
+  if (credencial.workspaceId) h["anthropic-workspace-id"] = credencial.workspaceId;
+  return h;
+}
+
 async function anthropicChat(
-  apiKey: string,
+  credencial: Credencial,
   modelo: string,
   opts: ChatOpts,
 ): Promise<ChatResult> {
@@ -437,11 +464,7 @@ async function anthropicChat(
 
   const resp = await fetch(PROVIDERS.anthropic.endpoint, {
     method: "POST",
-    headers: {
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
+    headers: cabecalhosAnthropic(credencial),
     body: JSON.stringify(body),
     // Timeout mesmo quando o chamador não passa `signal`: 6 dos 9 chamadores
     // não passavam, e uma chamada de LLM pendurada segurava a function até o
@@ -565,4 +588,84 @@ async function openaiChat(
     parada,
     cortada: parada === "length",
   };
+}
+
+// ---------------------------------------------------------------------------
+// Modelos que uma chave enxerga (botão "Ver modelos desta chave")
+// ---------------------------------------------------------------------------
+
+export type ModeloDisponivel = {
+  id: string;
+  nome: string;
+  /** "descontinuado": ainda responde, mas tem data para sair do ar. */
+  situacao: "ativo" | "descontinuado";
+  /** Lê PDF (quando o provider informa). */
+  lePdf: boolean | null;
+  /** Data prevista para sair do ar (ISO), quando o provider informa. */
+  saiEm: string | null;
+  /** Está entre os recomendados dos perfis (lista da tela). */
+  recomendado: boolean;
+};
+
+// Só modelos de conversa da OpenAI: o /v1/models dela traz também áudio,
+// imagem, embedding etc., que o sistema não usa.
+const OPENAI_CONVERSA = /^(gpt-|o\d|chatgpt-)/;
+const OPENAI_FORA = /(audio|realtime|tts|transcribe|image|embedding|search|moderation|instruct|codex)/;
+
+const recomendado = (provider: string, id: string) =>
+  PERFIS.some((p) => p.provider === provider && p.sugerido && p.prefixo === id);
+
+/**
+ * Pergunta ao provider quais modelos ESTA credencial pode usar. Aposentados
+ * ficam de fora. Falha estoura no mesmo formato do chatWith
+ * ("anthropic 401: …"), para a mensagemDoErro traduzir.
+ */
+export async function listarModelos(
+  provider: string,
+  credencial: Credencial,
+  signal?: AbortSignal,
+): Promise<ModeloDisponivel[]> {
+  const sinal = signal ?? AbortSignal.timeout(20_000);
+  if (provider === "anthropic") {
+    const resp = await fetch("https://api.anthropic.com/v1/models?limit=1000", {
+      headers: cabecalhosAnthropic(credencial),
+      signal: sinal,
+    });
+    if (!resp.ok) throw new Error("anthropic " + resp.status + ": " + (await resp.text()).slice(0, 300));
+    const data = await resp.json();
+    return ((data.data ?? []) as Array<Record<string, unknown>>)
+      .filter((m) => m.lifecycle !== "retired")
+      .map((m) => {
+        const caps = m.capabilities as { pdf_input?: { supported?: boolean } } | null | undefined;
+        return {
+          id: String(m.id),
+          nome: String(m.display_name ?? m.id),
+          situacao: m.lifecycle === "deprecated" ? "descontinuado" as const : "ativo" as const,
+          lePdf: typeof caps?.pdf_input?.supported === "boolean" ? caps.pdf_input.supported : null,
+          saiEm: typeof m.retires_at === "string" ? m.retires_at : null,
+          recomendado: recomendado("anthropic", String(m.id)),
+        };
+      });
+  }
+  if (provider === "openai") {
+    const resp = await fetch("https://api.openai.com/v1/models", {
+      headers: { authorization: "Bearer " + credencial.chave },
+      signal: sinal,
+    });
+    if (!resp.ok) throw new Error("openai " + resp.status + ": " + (await resp.text()).slice(0, 300));
+    const data = await resp.json();
+    return ((data.data ?? []) as Array<{ id: string }>)
+      .map((m) => String(m.id))
+      .filter((id) => OPENAI_CONVERSA.test(id) && !OPENAI_FORA.test(id))
+      .sort()
+      .map((id) => ({
+        id,
+        nome: id,
+        situacao: "ativo" as const,
+        lePdf: null,
+        saiEm: null,
+        recomendado: recomendado("openai", id),
+      }));
+  }
+  throw new Error("provider nao suportado: " + provider);
 }

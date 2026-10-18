@@ -129,6 +129,35 @@ test.describe.serial("IA: chave do escritório", () => {
     expect(desligada.json.motivo).toBe("desativado");
   });
 
+  test("workspace da Anthropic: formato conferido, salvo só para a Anthropic; 'modelos' sem chave avisa", async () => {
+    const adm = await sessao(`canario+admin@${DOM}`, ESC2);
+    const invalido = await fn("integracoes-escritorio", adm.jwt, ESC2, {
+      action: "salvar", tipo: "ia", config: { provider: "anthropic", modelo: "claude-sonnet-5-5", workspace_id: "meu-workspace" }, segredo: CHAVE_TESTE,
+    });
+    expect(invalido.status).toBe(400);
+    expect(String(invalido.json.error)).toContain("wrkspc_");
+
+    const ok = await fn("integracoes-escritorio", adm.jwt, ESC2, {
+      action: "salvar", tipo: "ia", config: { provider: "anthropic", modelo: "claude-sonnet-5-5", workspace_id: "wrkspc_01Teste" }, segredo: CHAVE_TESTE,
+    });
+    expect(ok.status, ok.texto).toBe(200);
+    expect((ok.json.config as Record<string, unknown>).workspace_id).toBe("wrkspc_01Teste");
+
+    // Na OpenAI o workspace não existe: some da configuração.
+    const oai = await fn("integracoes-escritorio", adm.jwt, ESC2, {
+      action: "salvar", tipo: "ia", config: { provider: "openai", modelo: "gpt-4.1", workspace_id: "wrkspc_01Teste" },
+    });
+    expect(oai.status, oai.texto).toBe(200);
+    expect((oai.json.config as Record<string, unknown>).workspace_id).toBeUndefined();
+
+    // 'Ver modelos' com workspace inválido não chega ao provedor.
+    const modelos = await fn("integracoes-escritorio", adm.jwt, ESC2, {
+      action: "modelos", tipo: "ia", config: { provider: "anthropic", workspace_id: "xx" },
+    });
+    expect(modelos.json.ok).toBe(false);
+    expect(String(modelos.json.erro)).toContain("wrkspc_");
+  });
+
   test("ia_uso: só quem gerencia integrações lê, e só no próprio escritório", async () => {
     const { error } = await admin.from("ia_uso").insert({
       escritorio_id: ESC2, funcao: "e2e:ia-chave-escritorio", provider: "anthropic", modelo: "claude-sonnet-5-5",
