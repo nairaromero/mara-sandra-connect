@@ -69,13 +69,15 @@ test("concluir a conferência entrega a análise com o que falta", async ({ page
   const card = page.locator("div.group").filter({ hasText: "Organizar documentos" }).first();
   await expect(card).toBeVisible({ timeout: 20_000 });
 
-  // O checklist aparece no card, com o que falta marcável. (O rótulo também
-  // aparece no resumo "vai junto para a análise", então mira o item da lista.)
-  await expect(card.getByText("• Contrato de honorários")).toBeVisible();
-  await card.getByRole("button", { name: "não se aplica" }).first().click();
+  // A conferência não é formulário: o card resume o que a IA achou e o que
+  // falta. Sem documento nenhum no caso, tudo da lista base aparece faltando.
+  await expect(card.getByText(/Falta:/)).toBeVisible();
+  await expect(card.getByText(/identificados/)).toBeVisible();
 
-  await card.getByRole("button", { name: /Concluir organização/ }).click();
-  await expect(page.getByText(/Documentos organizados/)).toBeVisible({ timeout: 20_000 });
+  await card.getByRole("button", { name: /Conferido — enviar para análise/ }).click();
+  await expect(page.getByText(/Documentos conferidos — a análise/)).toBeVisible({
+    timeout: 20_000,
+  });
 
   // Banco: conferência fechada, análise aberta com os faltantes na descrição.
   await expect
@@ -129,6 +131,9 @@ test("a conferência não se conclui pelo status, só pelo botão", async ({ pag
   await page.getByRole("option", { name: "Feito", exact: true }).click();
 
   // O popup avisa que quem conclui é o checklist — e não oferece "Concluir".
-  await expect(page.getByText(/conferência dos documentos/)).toBeVisible({ timeout: 10_000 });
+  // O popup explica que quem conclui é o checklist da tarefa.
+  await expect(page.getByText(/conferência dos documentos \(botão/)).toBeVisible({
+    timeout: 10_000,
+  });
   await expect(page.getByRole("button", { name: "Concluir tarefa" })).toHaveCount(0);
 });

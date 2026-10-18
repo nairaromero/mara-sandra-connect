@@ -231,3 +231,9 @@ max_enrolled_factors = 10
 [auth.mfa.totp]
 enroll_enabled = true
 verify_enabled = true
+
+[functions.identificar-documentos]
+# Pessoa (botão na tarefa) ou sistema (fila). Quem fecha a porta é o
+# exigirUsuario/exigirSistema dentro da função — o verify_jwt sozinho não
+# fecha nada, porque a chave publicável do site é um JWT válido.
+verify_jwt = false
