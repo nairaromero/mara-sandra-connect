@@ -12,6 +12,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { usePreferenciaLocal } from "@/hooks/use-preferencia-local";
+
 export interface PaginaResp<T> {
   data: Array<T> | null;
   error: { message: string } | null;
@@ -42,29 +44,12 @@ export interface OpcoesPaginacao {
 
 const CHAVE_LS = (nome: string) => `msc:por_pagina:${nome}`;
 
-/** Tamanho da pagina lembrado por lista. Guardar/ler pode falhar (privado, bloqueado): ignora. */
+/** Tamanho da pagina lembrado por lista (ver usePreferenciaLocal). */
 export function usePorPagina(persistencia: string | undefined, padrao = 25): [number, (n: number) => void] {
-  const [porPagina, setPorPaginaState] = useState(() => {
-    if (!persistencia || typeof window === "undefined") return padrao;
-    try {
-      const v = Number(window.localStorage.getItem(CHAVE_LS(persistencia)));
-      return Number.isInteger(v) && v > 0 && v <= 500 ? v : padrao;
-    } catch {
-      return padrao;
-    }
-  });
-  const setPorPagina = useCallback(
-    (n: number) => {
-      setPorPaginaState(n);
-      if (!persistencia || typeof window === "undefined") return;
-      try {
-        window.localStorage.setItem(CHAVE_LS(persistencia), String(n));
-      } catch {
-        /* sem armazenamento: so nesta visita */
-      }
-    },
-    [persistencia],
-  );
+  const [bruto, setBruto] = usePreferenciaLocal(persistencia && CHAVE_LS(persistencia));
+  const v = Number(bruto);
+  const porPagina = Number.isInteger(v) && v > 0 && v <= 500 ? v : padrao;
+  const setPorPagina = useCallback((n: number) => setBruto(String(n)), [setBruto]);
   return [porPagina, setPorPagina];
 }
 

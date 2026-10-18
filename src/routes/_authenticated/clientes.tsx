@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Selecao } from "@/components/ui/selecao";
 import { useEffect, useMemo, useState } from "react";
 import {
   CalendarPlus,
@@ -22,13 +23,6 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -550,23 +544,16 @@ function ClientesPage() {
               {isInterno && (
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-muted-foreground shrink-0">Parceiro:</span>
-                  <Select
-                    value={parceiroFiltro || "__todos__"}
-                    onValueChange={(v) => setParceiroFiltro(v === "__todos__" ? "" : v)}
-                  >
-                    <SelectTrigger className="w-auto min-w-[160px] h-8 text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__todos__">Todos</SelectItem>
-                      <SelectItem value="__interno__">Sem parceiro (interno)</SelectItem>
-                      {parceirosDisponiveis.map((nome) => (
-                        <SelectItem key={nome} value={nome}>
-                          {nome}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Selecao
+  value={parceiroFiltro || "__todos__"}
+  onChange={(v) => setParceiroFiltro(v === "__todos__" ? "" : v)}
+  opcoes={[
+    { value: "__todos__", label: "Todos" },
+    { value: "__interno__", label: "Sem parceiro (interno)" },
+    ...parceirosDisponiveis.map((nome) => ({ value: nome, label: nome })),
+  ]}
+  className="w-auto min-w-[160px] h-8 text-sm"
+/>
                 </div>
               )}
 
@@ -653,42 +640,28 @@ function ClientesPage() {
               {/* Filtro por status (algum caso do cliente nesse status) */}
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground shrink-0">Status:</span>
-                <Select
-                  value={statusFiltro || "__todos__"}
-                  onValueChange={(v) => setStatusFiltro(v === "__todos__" ? "" : v)}
-                >
-                  <SelectTrigger className="w-auto min-w-[150px] h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__todos__">Todos</SelectItem>
-                    {Object.entries(STATUS_VARIANT).map(([valor, cfg]) => (
-                      <SelectItem key={valor} value={valor}>
-                        {cfg.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Selecao
+  value={statusFiltro || "__todos__"}
+  onChange={(v) => setStatusFiltro(v === "__todos__" ? "" : v)}
+  opcoes={[
+    { value: "__todos__", label: "Todos" },
+    ...Object.entries(STATUS_VARIANT).map(([valor, cfg]) => ({ value: valor, label: cfg.label })),
+  ]}
+  className="w-auto min-w-[150px] h-8 text-sm"
+/>
               </div>
 
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground shrink-0">Benefício:</span>
-                <Select
-                  value={beneficioFiltro || "__todos__"}
-                  onValueChange={(v) => setBeneficioFiltro(v === "__todos__" ? "" : v)}
-                >
-                  <SelectTrigger className="w-auto min-w-[170px] h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__todos__">Todos</SelectItem>
-                    {beneficiosDisponiveis.map((b) => (
-                      <SelectItem key={b.valor} value={b.valor}>
-                        {b.rotulo}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Selecao
+  value={beneficioFiltro || "__todos__"}
+  onChange={(v) => setBeneficioFiltro(v === "__todos__" ? "" : v)}
+  opcoes={[
+    { value: "__todos__", label: "Todos" },
+    ...beneficiosDisponiveis.map((b) => ({ value: b.valor, label: b.rotulo })),
+  ]}
+  className="w-auto min-w-[170px] h-8 text-sm"
+/>
               </div>
 
               {(parceiroFiltro || etiquetaFiltro || statusFiltro || beneficioFiltro) && (

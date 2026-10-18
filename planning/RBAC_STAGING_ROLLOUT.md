@@ -157,6 +157,7 @@ gateway; `whatsapp-outbox-enviar` 401 "chamada de sistema sem assinatura"; `sync
 - **Código e banco vão juntos.** O front antigo não manda `x-escritorio-id`; com as migrations aplicadas ele não veria nada. Nunca aplicar migration em produção sem o deploy do front logo em seguida (e vice-versa).
 - **Não há "down".** As migrations criam tabelas, colunas `escritorio_id not null`, 58 policies e gatilhos. Reverter = revert do merge (`git revert -m 1 <sha>`) **e** restauração do banco (PITR do Supabase para antes da aplicação). Por isso o staging precisa de pelo menos uma semana, com o espelho no meio.
 - **Cron em produção**: `msc-djen-sync` e `msc-whatsapp-outbox` só nascem na produção; conferir `cron.job_run_details` no dia seguinte. Desligar o workflow `djen-sync` do n8n depois de aplicar (senão sincroniza em dobro).
+- **Ordem dentro do lote**: `migration_rbac_23_membro_pode.sql` **antes** do deploy do `ia-mcp` — a function passou a chamar `membro_pode`, e sem a função no banco toda chamada MCP responde 503 (a ordem padrão, migrations e depois functions, já resolve; só não inverter).
 - **Escritório padrão no legado**: Legalmail, TI e WhatsApp seguem nas variáveis de ambiente até a Mara cadastrar as credenciais pela tela; nada quebra no dia 1.
 
 ## 4. Depois: produção (`staging → main`, merge commit, label `release`)

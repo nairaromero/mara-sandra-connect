@@ -14,6 +14,7 @@ import { createClient, type Session, type SupabaseClient } from "@supabase/supab
 import { ENV, PROJECT_REF } from "../env";
 import { adminClient } from "../supabase-admin";
 import { cursorVisivel } from "../cursor";
+import { limpezaLocal } from "../rbac";
 
 const admin = adminClient();
 const DOM = "marasandraconnect.com";
@@ -63,9 +64,9 @@ test.describe.serial("suporte: lado do escritório", () => {
     ESC2 = canario!.id;
     await limpar();
   });
-  test.afterAll(async () => {
+  test.afterAll(limpezaLocal(async () => {
     if (ESC2) await limpar();
-  });
+  }));
 
   test("aviso no topo, aprovar na aba Suporte, trilha na Auditoria, encerrar", async ({ browser, baseURL }) => {
     // 1) plataforma pede (API)

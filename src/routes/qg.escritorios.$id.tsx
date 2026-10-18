@@ -4,6 +4,7 @@
 // é dado necessário para operar o contrato; os clientes do escritório, nunca.
 
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { Selecao } from "@/components/ui/selecao";
 import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, Ban, LifeBuoy, Loader2, PauseCircle, PlayCircle, Save, Search, ShieldCheck, Trash2, UserCog } from "lucide-react";
 import { toast } from "sonner";
@@ -20,7 +21,6 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -263,18 +263,19 @@ function QgEscritorio() {
                 className="pl-9"
               />
             </div>
-            <Select value={statusMembro} onValueChange={setStatusMembro}>
-              <SelectTrigger className="w-44" aria-label="Filtrar pessoas por status">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ativos">Ativos e convidados</SelectItem>
-                <SelectItem value="ativo">Só ativos</SelectItem>
-                <SelectItem value="convidado">Só convidados</SelectItem>
-                <SelectItem value="desativado">Desativados</SelectItem>
-                <SelectItem value="todos">Todos</SelectItem>
-              </SelectContent>
-            </Select>
+            <Selecao
+  value={statusMembro}
+  aria-label="Filtrar pessoas por status"
+  onChange={setStatusMembro}
+  opcoes={[
+    { value: "ativos", label: "Ativos e convidados" },
+    { value: "ativo", label: "Só ativos" },
+    { value: "convidado", label: "Só convidados" },
+    { value: "desativado", label: "Desativados" },
+    { value: "todos", label: "Todos" },
+  ]}
+  className="w-44"
+/>
           </div>
         </CardHeader>
         <CardContent className="p-0">

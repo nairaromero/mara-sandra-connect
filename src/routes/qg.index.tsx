@@ -1,6 +1,7 @@
 // QG · Escritórios: a lista, os alertas e a criação de escritório.
 
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { Selecao } from "@/components/ui/selecao";
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Building2, Loader2, Plus, Search, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
@@ -17,7 +18,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -148,19 +148,16 @@ function QgEscritorios() {
             className="bg-white pl-9"
           />
         </div>
-        <Select value={status || "todos"} onValueChange={(v) => setStatus(v === "todos" ? "" : v)}>
-          <SelectTrigger className="w-44 bg-white" aria-label="Filtrar por status">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todos">Todos os status</SelectItem>
-            {(Object.keys(ROTULO_STATUS) as Array<QgEscritorio["status"]>).map((s) => (
-              <SelectItem key={s} value={s}>
-                {ROTULO_STATUS[s]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <Selecao
+  value={status || "todos"}
+  aria-label="Filtrar por status"
+  onChange={(v) => setStatus(v === "todos" ? "" : v)}
+  opcoes={[
+    { value: "todos", label: "Todos os status" },
+    ...(Object.keys(ROTULO_STATUS) as Array<QgEscritorio["status"]>).map((s) => ({ value: s, label: ROTULO_STATUS[s] })),
+  ]}
+  className="w-44 bg-white"
+/>
       </div>
 
       <Card>

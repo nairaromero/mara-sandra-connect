@@ -7,6 +7,11 @@
 // que é exatamente como nasceram os ~40 botões da auditoria de 24/09
 // (planning/RBAC_AUDITORIA_TELAS.md).
 //
+// Desde 27/09 o mesmo verificador confere uma quarta coisa: quem MUDA ACESSO
+// tem de auditar (planning/AUDITABILIDADE.md) — as funções da lista
+// `DEVEM_AUDITAR`, as edge que registram elas mesmas, e os gatilhos das trilhas
+// de exclusão.
+//
 // Este teste roda o mesmo verificador da linha de comando
 // (`node scripts/rbac-conferir-exigencias.mjs --local`) contra o banco do
 // ambiente. Falhou? A saída diz o que sobra e o que falta.
@@ -30,5 +35,9 @@ test("o espelho de exigências do front bate com o banco", () => {
     const err = e as { stdout?: string; stderr?: string };
     throw new Error(`espelho divergente do banco:\n${err.stdout ?? ""}${err.stderr ?? ""}`);
   }
-  expect(saida).toContain("OK: o espelho do front bate com o servidor.");
+  // sem o ponto final: a frase já mudou uma vez (quando o verificador passou a
+  // conferir a auditoria) e quebrou este teste por causa da pontuação.
+  expect(saida).toContain("OK: o espelho do front bate com o servidor");
+  expect(saida, "o verificador tem de conferir também quem muda acesso").toContain("quem muda acesso audita");
+  expect(saida, "a lista de quem deve auditar não pode chegar vazia").toMatch(/funções que devem auditar: [1-9]\d* no banco \+ [1-9]\d* edge/);
 });

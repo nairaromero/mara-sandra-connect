@@ -10,6 +10,7 @@
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { exigirUsuario, fetchT } from "../_shared/auth.ts";
+import { auditar, type AcaoAuditada } from "../_shared/auditoria.ts";
 import { encryptSecret, decryptSecret } from "../_shared/crypto.ts";
 import { baseLegalmail, baseTI } from "../_shared/integracoes.ts";
 
@@ -68,12 +69,13 @@ serve(async (req) => {
       ? { tipo, config: row.config ?? {}, ativo: row.ativo, segredo_definido_em: row.segredo_definido_em, updated_at: row.updated_at }
       : { tipo, config: {}, ativo: false, segredo_definido_em: null, updated_at: null };
 
-  async function auditar(acao: string, detalhes: Record<string, unknown> = {}) {
-    await admin.from("auditoria").insert({
-      escritorio_id: escritorioId, ator_id: quem.uid, tipo_ator: "membro",
-      acao, recurso: "escritorio_integracoes", recurso_id: tipo, detalhes,
-    });
-  }
+  /**
+   * Atalho desta function: o recurso é sempre a integração desta chamada. O
+   * resto (escritório, ator, tipo de ator, tratamento de erro) fica no túnel
+   * `_shared/auditoria.ts`, que é quem sabe montar a linha.
+   */
+  const registrar = (acao: AcaoAuditada, detalhes: Record<string, unknown> = {}) =>
+    auditar(quem, { acao, recurso: "escritorio_integracoes", recurso_id: tipo, detalhes });
 
   if (body.action === "status" || !body.action) return json(semSegredo(atual));
 
@@ -116,7 +118,7 @@ serve(async (req) => {
       .select("config, ativo, segredo_cipher, segredo_iv, segredo_definido_em, updated_at")
       .single();
     if (error) return json({ error: `salvando: ${error.message}` }, 500);
-    await auditar(body.action === "gerar_token" ? "integracao.token" : "integracao.salvar", {
+    await registrar(body.action === "gerar_token" ? "integracao.token" : "integracao.salvar", {
       campos: Object.keys(body.config ?? {}), segredo: !!segredo, ativo: linha.ativo,
     });
     return json({ ok: true, ...semSegredo(salvo) });
@@ -140,7 +142,7 @@ serve(async (req) => {
         const j = JSON.parse(texto) as Record<string, unknown>;
         ok = r.ok && (tipo === "legalmail" ? Array.isArray(j.lawsuits) : Array.isArray(j.customers ?? j.clientes));
       } catch { ok = false; }
-      await auditar("integracao.testar", { http: r.status, ok });
+      await registrar("integracao.testar", { http: r.status, ok });
       return json({ ok, http: r.status, detalhe: ok ? null : texto.slice(0, 200) });
     } catch (e) {
       return json({ ok: false, erro: `não alcancei o ${tipo === "legalmail" ? "Legalmail" : "Tramitação Inteligente"}: ${String((e as Error)?.message ?? e)}` });
@@ -165,7 +167,7 @@ serve(async (req) => {
         const j = JSON.parse(texto) as { instance?: { state?: string }; state?: string };
         estado = j.instance?.state ?? j.state ?? null;
       } catch { /* resposta sem JSON */ }
-      await auditar("integracao.testar", { http: r.status, estado });
+      await registrar("integracao.testar", { http: r.status, estado });
       return json({ ok: r.ok, http: r.status, estado, detalhe: r.ok ? null : texto.slice(0, 200) });
     } catch (e) {
       return json({ ok: false, erro: `não alcancei o Evolution: ${String((e as Error)?.message ?? e)}` });

@@ -72,10 +72,17 @@ tela "Você não tem acesso a nenhum escritório" — é o esperado.
 O lote seguiu com duas rodadas que mexeram em muita coisa. Para conferir tudo de uma vez:
 
 ```bash
-bun run e2e:local                                        # 126 passam, 1 pulado, 1 falha conhecida do kanban
+bun run e2e:local                                        # 147 passam, 1 pulado, 0 falhas (27/09)
 node e2e/demo/roteiros/conferencia-lote-rbac.cjs         # 47 itens, com os provedores simulados
-node scripts/rbac-conferir-exigencias.mjs --local        # espelho do front x banco
+node scripts/rbac-conferir-exigencias.mjs --local        # espelho do front x banco + quem muda acesso audita
 ```
+
+> Montar o ambiente local pede os DOIS passos, nesta ordem:
+> `bun run local:copiar && bun run local:rbac`. Sem o segundo, as specs do QG
+> batem na carência de 30 dias (que é a regra real de produção — o seed é quem a
+> zera no local). Os dois scripts foram consertados em 27/09: a cópia passou a
+> trazer o schema `private` e o setup deixou de reaplicar migrations que a cópia
+> já traz.
 
 O que essas rodadas mudaram, em uma linha cada:
 

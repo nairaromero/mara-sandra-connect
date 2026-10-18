@@ -269,6 +269,9 @@ export function checklistPendente(t: {
   if (m.analise_indeferimento === true) {
     return "o desfecho do indeferimento (ajuizar / recurso / não prosseguir)";
   }
+  if (m.analise_deferimento === true) {
+    return "o desfecho da análise do deferimento (está tudo certo / revisão)";
+  }
   if (m.enviar_aviso) {
     return "o envio do aviso ao parceiro (botão Enviar na tarefa)";
   }

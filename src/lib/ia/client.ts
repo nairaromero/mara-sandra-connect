@@ -5,18 +5,10 @@ import { supabase, SUPABASE_URL } from "@/lib/supabase";
 
 export type IaProviderInfo = { label: string; models: string[] };
 
-// Lista estatica de provedores (espelha PROVIDERS do backend). Usada como
-// fallback para o dropdown nao depender de uma chamada de rede.
-export const IA_PROVIDERS: Record<string, IaProviderInfo> = {
-  anthropic: {
-    label: "Anthropic (Claude)",
-    models: ["claude-sonnet-4-5", "claude-opus-4-1", "claude-haiku-4-5"],
-  },
-  openai: {
-    label: "OpenAI (GPT)",
-    models: ["gpt-4.1", "gpt-4.1-mini", "gpt-4o", "gpt-4o-mini"],
-  },
-};
+// A lista de provedores e modelos sugeridos vem SÓ do servidor
+// (`providers_suportados` do status, montada a partir dos perfis de modelo em
+// supabase/functions/_shared/ia-providers.ts). Não manter cópia aqui: a cópia
+// antiga ficou vencida junto com a original (#451).
 
 export type IaConfigStatus = {
   /** Tem chave PRÓPRIA cadastrada. */

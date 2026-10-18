@@ -12,6 +12,7 @@ import { CalendarDays, CheckCircle2, User as UserIcon, XCircle } from "lucide-re
 import { Badge } from "@/components/ui/badge";
 import { DESTAQUE_CLASSE_GLOBAL, useDestaqueAtivo } from "@/lib/destaque/destaque-context";
 import { cn } from "@/lib/utils";
+import { dataHoraBR, formatarBR } from "@/lib/fuso";
 import { EtapasAcompanhamento } from "@/components/tarefas/etapas-acompanhamento";
 import { AcompanhamentoPericia } from "@/components/tarefas/acompanhamento-pericia";
 import { AcompanhamentoImplementacao } from "@/components/tarefas/acompanhamento-implementacao";
@@ -19,6 +20,7 @@ import { MontagemInicial } from "@/components/tarefas/montagem-inicial";
 import { ComparecimentoPericia } from "@/components/tarefas/comparecimento-pericia";
 import { AnaliseCasoNovo } from "@/components/tarefas/analise-caso-novo";
 import { AnaliseIndeferimento } from "@/components/tarefas/analise-indeferimento";
+import { AguardandoExigencia, AnaliseDeferimento } from "@/components/tarefas/decisoes-janela";
 import { EnviarAvisoParceiro } from "@/components/tarefas/enviar-aviso-parceiro";
 import { EtapaCumprimentoExigencia } from "@/components/tarefas/etapa-cumprimento-exigencia";
 import { EtapaProtocoloRealizado } from "@/components/tarefas/etapa-protocolo-realizado";
@@ -78,6 +80,11 @@ export function TarefaCard({
   const ehAnaliseCasoNovo = ehAnaliseInicial(tarefa.metadata);
   const ehAnaliseIndeferimento =
     (tarefa.metadata as { analise_indeferimento?: boolean })?.analise_indeferimento === true;
+  // Janelas de prazo (#397): decisão no teto (dilação) / desfecho do deferimento.
+  const ehAguardandoExigencia =
+    (tarefa.metadata as { aguardando_exigencia?: boolean })?.aguardando_exigencia === true;
+  const ehAnaliseDeferimento =
+    (tarefa.metadata as { analise_deferimento?: boolean })?.analise_deferimento === true;
   const ehAcompImplementacao =
     (tarefa.metadata as { acompanhamento_implementacao?: boolean })
       ?.acompanhamento_implementacao === true;
@@ -224,16 +231,10 @@ export function TarefaCard({
                       ? "border-blue-500/50 text-blue-700 dark:text-blue-300"
                       : "border-emerald-500/50 text-emerald-700 dark:text-emerald-300",
                   )}
-                  title={new Date(periciaEm).toLocaleString("pt-BR", {
-                    timeZone: "America/Sao_Paulo",
-                  })}
+                  title={dataHoraBR(periciaEm)}
                 >
                   {refAudiencia ? "Audiência" : "Perícia"} ·{" "}
-                  {new Date(periciaEm).toLocaleDateString("pt-BR", {
-                    day: "2-digit",
-                    month: "2-digit",
-                    timeZone: "America/Sao_Paulo",
-                  })}
+                  {formatarBR(periciaEm, { day: "2-digit", month: "2-digit" })}
                 </Badge>
               )}
               {tarefa.processo_judicial && (
@@ -333,6 +334,22 @@ export function TarefaCard({
         )}
         {podeMexerEmTarefa && ehAnaliseIndeferimento && (
           <AnaliseIndeferimento
+            tarefa={tarefa}
+            onUpdated={onChanged ?? (() => {})}
+            compacto
+            stopPropagation
+          />
+        )}
+        {podeMexerEmTarefa && ehAguardandoExigencia && (
+          <AguardandoExigencia
+            tarefa={tarefa}
+            onUpdated={onChanged ?? (() => {})}
+            compacto
+            stopPropagation
+          />
+        )}
+        {podeMexerEmTarefa && ehAnaliseDeferimento && (
+          <AnaliseDeferimento
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}
             compacto

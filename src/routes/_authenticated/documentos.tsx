@@ -1,4 +1,5 @@
 import { createFileRoute, Link, Navigate } from "@tanstack/react-router";
+import { Selecao } from "@/components/ui/selecao";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -48,13 +49,6 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -575,52 +569,44 @@ function DocumentosPendentesPage() {
             </div>
             <div>
               <Label className="text-xs">Status</Label>
-              <Select value={filtroStatus} onValueChange={setFiltroStatus}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="pendente">Pendentes</SelectItem>
-                  <SelectItem value="atendido">Atendidas</SelectItem>
-                  <SelectItem value="dispensado">Dispensadas</SelectItem>
-                  <SelectItem value="todos">Todas</SelectItem>
-                </SelectContent>
-              </Select>
+              <Selecao
+  value={filtroStatus}
+  onChange={setFiltroStatus}
+  opcoes={[
+    { value: "pendente", label: "Pendentes" },
+    { value: "atendido", label: "Atendidas" },
+    { value: "dispensado", label: "Dispensadas" },
+    { value: "todos", label: "Todas" },
+  ]}
+/>
             </div>
             <div>
               <Label className="text-xs">Origem</Label>
-              <Select value={filtroOrigem} onValueChange={setFiltroOrigem}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todas">Todas</SelectItem>
-                  <SelectItem value="interna">Interna</SelectItem>
-                  <SelectItem value="externa">Externa</SelectItem>
-                </SelectContent>
-              </Select>
+              <Selecao
+  value={filtroOrigem}
+  onChange={setFiltroOrigem}
+  opcoes={[
+    { value: "todas", label: "Todas" },
+    { value: "interna", label: "Interna" },
+    { value: "externa", label: "Externa" },
+  ]}
+/>
             </div>
             {isInterno && (
               <div>
                 <Label className="text-xs">Solicitado por</Label>
-                <Select value={filtroPessoa} onValueChange={setFiltroPessoa}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__eu__">Eu</SelectItem>
-                    <SelectItem value="__todos__">Todos do escritório</SelectItem>
-                    {internos
+                <Selecao
+  value={filtroPessoa}
+  onChange={setFiltroPessoa}
+  opcoes={[
+    { value: "__eu__", label: "Eu" },
+    { value: "__todos__", label: "Todos do escritório" },
+    ...internos
                       // Fora os usuários de teste ([E2E], [TESTE]) — existem
                       // em produção e não são gente do escritório.
-                      .filter((u) => u.id !== usuario?.id && !(u.nome ?? "").startsWith("["))
-                      .map((u) => (
-                        <SelectItem key={u.id} value={u.id}>
-                          {u.nome ?? "(sem nome)"}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
+                      .filter((u) => u.id !== usuario?.id && !(u.nome ?? "").startsWith("[")).map((u) => ({ value: u.id, label: u.nome ?? "(sem nome)" })),
+  ]}
+/>
               </div>
             )}
           </CardContent>

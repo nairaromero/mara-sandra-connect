@@ -15,6 +15,7 @@ import { createClient, type Session } from "@supabase/supabase-js";
 import { ENV, PROJECT_REF } from "../env";
 import { adminClient } from "../supabase-admin";
 import { cursorVisivel } from "../cursor";
+import { limpezaLocal } from "../rbac";
 
 const admin = adminClient();
 const DOM = "marasandraconnect.com";
@@ -72,9 +73,9 @@ test.describe.serial("Legalmail e TI por escritório", () => {
     mockVivo = await fetch(`${MOCK}/_health`).then((r) => r.ok).catch(() => false);
     await limpar();
   });
-  test.afterAll(async () => {
+  test.afterAll(limpezaLocal(async () => {
     if (ESC2) await limpar();
-  });
+  }));
 
   test("sem credencial: functions respondem 412 e a RPC diz 'não configurada' — o escritório 1 (padrão) não vaza para o Canário", async () => {
     const adv = await sessao(`canario+advogado@${DOM}`, ESC2);

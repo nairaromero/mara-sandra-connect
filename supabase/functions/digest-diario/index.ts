@@ -23,7 +23,7 @@
 //   para    — override de destinatário (string ou array; teste)
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
-import { escritorioDoSistema, exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
+import { escopado, escritorioDoSistema, exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
 import { marcaDoEscritorio, remetente } from "../_shared/marca.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
@@ -146,23 +146,26 @@ serve(async (req) => {
     return jsonResponse({ error: "body invalido", detail: String(err) }, 400);
   }
 
-  const supabase = createClient(SUPABASE_URL, SERVICE_ROLE);
+  const cru = createClient(SUPABASE_URL, SERVICE_ROLE);
   // O resumo é de UM escritório: o de quem pediu, ou — no cron — o do sistema.
   // Service role lê tudo; sem este filtro o e-mail juntaria todos os escritórios.
   const escritorioId = quem.tipo === "pessoa"
     ? quem.perfil.escritorio_id
     : await escritorioDoSistema(supabase);
-  // deno-lint-ignore no-explicit-any
-  const doEscritorio = <Q extends { eq: (c: string, v: string) => any }>(q: Q): Q =>
-    escritorioId ? q.eq("escritorio_id", escritorioId) : q;
+  // Client ESCOPADO no túnel `escopado` (_shared/auth.ts): toda leitura já sai
+  // com `escritorio_id` filtrado, sem depender de alguém lembrar de embrulhar a
+  // query. Antes daqui havia um `doEscritorio` local, aplicado à mão em cada
+  // consulta — e o digest MANDA E-MAIL: uma consulta nova sem o embrulho
+  // colocaria dado de outro escritório na caixa de alguém.
+  const supabase = escopado(cru, escritorioId);
   const marca = await marcaDoEscritorio(supabase, escritorioId);
   const cutoff = new Date(Date.now() - horas * 3600000).toISOString();
   const hoje = hojeBrasilia();
 
   // --- 1. Movimentações DataJud novas -------------------------------------
-  const { data: movs, error: movErr } = await doEscritorio(supabase
+  const { data: movs, error: movErr } = await supabase
     .from("andamentos")
-    .select("id, titulo, data_evento, caso_id, metadata, casos:caso_id(clientes(nome))"))
+    .select("id, titulo, data_evento, caso_id, metadata, casos:caso_id(clientes(nome))")
     .eq("origem", "datajud")
     .gt("created_at", cutoff)
     .order("data_evento", { ascending: false })
@@ -182,11 +185,11 @@ serve(async (req) => {
   });
 
   // --- 2. Publicações DJEN novas (vinculadas) ------------------------------
-  const { data: pubs, error: pubErr } = await doEscritorio(supabase
+  const { data: pubs, error: pubErr } = await supabase
     .from("publicacoes_dje")
     .select(
       "id, numero_processo, sigla_tribunal, tipo_comunicacao, status, caso_id, andamento_id, created_at, casos:caso_id(clientes(nome))",
-    ))
+    )
     .gt("created_at", cutoff)
     .order("created_at", { ascending: false })
     .limit(200);
@@ -225,9 +228,9 @@ serve(async (req) => {
   }));
 
   // --- 4. Tarefas atrasadas / vencendo hoje --------------------------------
-  const { data: tarefas, error: tarErr } = await doEscritorio(supabase
+  const { data: tarefas, error: tarErr } = await supabase
     .from("tarefas")
-    .select("id, titulo, due_at, status, caso_id, casos:caso_id(clientes(nome))"))
+    .select("id, titulo, due_at, status, caso_id, casos:caso_id(clientes(nome))")
     .eq("status", "a_fazer")
     .not("due_at", "is", null)
     .lte("due_at", hoje + "T23:59:59-03:00")

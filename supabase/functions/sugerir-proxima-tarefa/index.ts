@@ -22,7 +22,7 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { decryptSecret } from "../_shared/crypto.ts";
-import { chatWith } from "../_shared/ia-providers.ts";
+import { chatWith, IaRespostaCortada } from "../_shared/ia-providers.ts";
 import { extrairJson } from "../_shared/documento-campos.ts";
 import { exigirRecurso, exigirUsuario } from "../_shared/auth.ts";
 
@@ -170,13 +170,14 @@ serve(async (req) => {
       .select("id, titulo, descricao, tipo, caso_id, responsavel_id, processo_admin_id, processo_judicial_id, metadata")
       .eq("id", tarefaId)
       .maybeSingle(),
-    // A chave compartilhada é por escritório: a equipe de um não gasta a do outro.
-    (quem.perfil.escritorio_id
+    // A chave compartilhada é por escritório: a equipe de um não gasta a do
+    // outro. Sem escritório ativo não há chave — antes caía em QUALQUER
+    // compartilhada ativa, de qualquer escritório (#451).
+    quem.perfil.escritorio_id
       ? admin.from("ia_integracoes").select("provider, modelo, api_key_cipher, api_key_iv")
           .eq("compartilhada", true).eq("ativo", true).eq("escritorio_id", quem.perfil.escritorio_id)
-      : admin.from("ia_integracoes").select("provider, modelo, api_key_cipher, api_key_iv")
-          .eq("compartilhada", true).eq("ativo", true)
-    ).limit(1).maybeSingle(),
+          .limit(1).maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
   ]);
   if (resTarefa.error) return jsonResponse({ error: "falha ao ler a tarefa" }, 500);
   const tarefa = resTarefa.data;
@@ -261,6 +262,7 @@ serve(async (req) => {
   } catch (err) {
     console.warn("[sugerir-proxima-tarefa] IA falhou:", err);
     const estourou = err instanceof DOMException && err.name === "TimeoutError";
+    if (err instanceof IaRespostaCortada) return semSugestao("A resposta da IA foi cortada antes de terminar.");
     return semSugestao(estourou ? "A IA não respondeu a tempo." : "A IA falhou ao sugerir a próxima tarefa.");
   }
   if (!bruto) return semSugestao("A IA não devolveu uma sugestão válida.");

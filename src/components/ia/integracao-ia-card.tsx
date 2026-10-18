@@ -4,6 +4,7 @@
 // a chave em claro, so um "hint" mascarado.
 
 import { useEffect, useState } from "react";
+import { Selecao } from "@/components/ui/selecao";
 import { toast } from "sonner";
 import { Loader2, Sparkles, Save, Plug, ShieldCheck } from "lucide-react";
 
@@ -12,18 +13,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { iaConfig, IA_PROVIDERS, type IaProviderInfo } from "@/lib/ia/client";
+import { iaConfig, type IaProviderInfo } from "@/lib/ia/client";
 
 export function IntegracaoIaCard() {
   const [carregando, setCarregando] = useState(true);
-  const [providers, setProviders] = useState<Record<string, IaProviderInfo>>(IA_PROVIDERS);
+  const [erroCarga, setErroCarga] = useState(false);
+  const [providers, setProviders] = useState<Record<string, IaProviderInfo>>({});
   const [configurado, setConfigurado] = useState(false);
   const [ativo, setAtivo] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
@@ -40,7 +35,9 @@ export function IntegracaoIaCard() {
   const [alternando, setAlternando] = useState(false);
 
   async function carregar() {
-    const { data } = await iaConfig.status();
+    const { data, error } = await iaConfig.status();
+    // Falha de leitura não pode virar "nenhum provedor" calado.
+    setErroCarga(!!error || !data);
     if (data) {
       if (data.providers_suportados && Object.keys(data.providers_suportados).length) {
         setProviders(data.providers_suportados);
@@ -155,28 +152,29 @@ export function IntegracaoIaCard() {
           </div>
         ) : (
           <div className="space-y-4">
+            {erroCarga && (
+              <p className="text-sm text-destructive">
+                Não consegui carregar os provedores de IA. Recarregue a página.
+              </p>
+            )}
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <Label className="text-xs">Provedor</Label>
-                <Select value={provider} onValueChange={setProvider}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Escolha o provedor" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(providers).map(([key, info]) => (
-                      <SelectItem key={key} value={key}>
-                        {info.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Selecao
+  value={provider}
+  onChange={setProvider}
+  opcoes={[
+    ...Object.entries(providers).map(([key, info]) => ({ value: key, label: info.label })),
+  ]}
+  placeholder="Escolha o provedor"
+/>
               </div>
               <div>
                 <Label className="text-xs">Modelo</Label>
                 <Input
                   value={modelo}
                   onChange={(e) => setModelo(e.target.value)}
-                  placeholder="ex.: claude-sonnet-4-5"
+                  placeholder="ex.: claude-sonnet-5-5"
                   list="ia-modelos"
                 />
                 <datalist id="ia-modelos">

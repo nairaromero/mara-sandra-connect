@@ -15,6 +15,7 @@ import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { ENV } from "../env";
 import { adminClient } from "../supabase-admin";
+import { limpezaLocal } from "../rbac";
 
 const admin = adminClient();
 const DOM = "marasandraconnect.com";
@@ -66,7 +67,7 @@ test.describe.serial("saída de WhatsApp por escritório (sem n8n)", () => {
     test.skip(!vivo, "mock dos provedores (:8787) fora do ar");
     await limpar();
   });
-  test.afterAll(async () => { if (ESC2) await limpar(); });
+  test.afterAll(limpezaLocal(async () => { if (ESC2) await limpar(); }));
 
   test("a fila sai pela instância DO escritório; escritório sem integração falha com erro claro; assinatura errada → 401", async () => {
     // Canário configura o Evolution (simulado) pela function de integrações

@@ -9,7 +9,8 @@
 // SHA-1, 30 s) a partir da chave que a tela mostra — nunca digitamos senha.
 //
 // Só no banco local. Usa um usuário descartável no Canário e o qg+suporte
-// (fatores removidos no fim; a config volta a 'false').
+// (fatores removidos no fim; a config volta ao valor que ESTAVA — fixar 'false'
+// desligava a trava do QG no staging quando a suíte rodava lá, ver limpezaLocal).
 
 import { test, expect, type Browser, type BrowserContext } from "@playwright/test";
 import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
@@ -17,6 +18,7 @@ import { createHmac } from "node:crypto";
 import { ENV, PROJECT_REF } from "../env";
 import { adminClient } from "../supabase-admin";
 import { cursorVisivel } from "../cursor";
+import { limpezaLocal } from "../rbac";
 
 const admin = adminClient();
 const DOM = "marasandraconnect.com";
@@ -88,6 +90,8 @@ let ESC2: string;
 const EMAIL = `e2e+mfa-${Date.now()}@${DOM}`;
 let usuarioId: string | null = null;
 let suporteId: string | null = null;
+// valor de qg_exigir_aal2 antes da spec: a limpeza devolve ESTE, não um fixo
+let aal2Antes: string | null = null;
 
 test.describe.serial("verificação em duas etapas", () => {
   test.beforeAll(async () => {
@@ -105,12 +109,14 @@ test.describe.serial("verificação em duas etapas", () => {
     const { data: papel } = await admin.from("papeis").select("id").is("escritorio_id", null).eq("chave", "advogado").single();
     const { error: eM } = await admin.from("membros").insert({ escritorio_id: ESC2, usuario_id: usuarioId, papel_id: papel!.id, status: "ativo" });
     if (eM) throw new Error(`membros: ${eM.message}`);
+    const { data: cfgAal2 } = await admin.from("app_config").select("valor").eq("chave", "qg_exigir_aal2").maybeSingle();
+    aal2Antes = (cfgAal2?.valor as string | undefined) ?? null;
     const { data: sup } = await admin.from("usuarios").select("id").eq("email", `qg+suporte@${DOM}`).single();
     suporteId = sup!.id;
     await apagarFatores(suporteId);
   });
-  test.afterAll(async () => {
-    await admin.from("app_config").upsert({ chave: "qg_exigir_aal2", valor: "false" });
+  test.afterAll(limpezaLocal(async () => {
+    if (aal2Antes !== null) await admin.from("app_config").upsert({ chave: "qg_exigir_aal2", valor: aal2Antes });
     if (suporteId) await apagarFatores(suporteId);
     if (usuarioId) {
       await apagarFatores(usuarioId);
@@ -118,7 +124,7 @@ test.describe.serial("verificação em duas etapas", () => {
       await admin.from("usuarios").delete().eq("id", usuarioId);
       await admin.auth.admin.deleteUser(usuarioId);
     }
-  });
+  }));
 
   test("produto: cadastro por API, código no login, desativar em Segurança", async ({ browser, baseURL }) => {
     // 1) cadastra o autenticador pela API (como a tela faria)

@@ -10,44 +10,19 @@
 // todas são barradas antes.
 
 import { test, expect } from "@playwright/test";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { ENV } from "../env";
 import { adminClient } from "../supabase-admin";
+import { chamadorComo, clienteComo, contaDoCanario, contaDoQg, DOMINIO } from "../rbac";
 
 const admin = adminClient();
-const DOM = "marasandraconnect.com";
-const SENHA = ENV.internoPassword;
+const DOM = DOMINIO;
 const FN = `${ENV.supabaseUrl}/functions/v1`;
 
 let ESC1: string;
 let ESC2: string;
 
-async function sessao(email: string, escritorio?: string) {
-  const sb: SupabaseClient = createClient(ENV.supabaseUrl, ENV.anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
-  const { data, error } = await sb.auth.signInWithPassword({ email, password: SENHA });
-  if (error) throw new Error(`login ${email}: ${error.message}`);
-  const jwt = data.session!.access_token;
-  return async (fn: string, body: unknown) => {
-    const r = await fetch(`${FN}/${fn}`, {
-      method: "POST",
-      headers: {
-        apikey: ENV.anonKey,
-        Authorization: `Bearer ${jwt}`,
-        "Content-Type": "application/json",
-        ...(escritorio ? { "x-escritorio-id": escritorio } : {}),
-      },
-      body: JSON.stringify(body),
-    });
-    const texto = await r.text();
-    let json: Record<string, unknown> | null = null;
-    try {
-      json = JSON.parse(texto);
-    } catch {
-      json = null;
-    }
-    return { status: r.status, json, texto };
-  };
-}
+// Login + os três headers da chamada de function vêm do túnel `e2e/rbac.ts`.
+const sessao = chamadorComo;
 
 test.describe.serial("RBAC nas edge functions", () => {
   test.beforeAll(async () => {
@@ -143,11 +118,7 @@ test.describe.serial("RBAC nas edge functions", () => {
     expect(conta, "a conta não pode ter sido apagada").toBeTruthy();
 
     // repõe o vínculo (o seed e os outros specs contam com ele) — pelo caminho oficial
-    const sb = createClient(ENV.supabaseUrl, ENV.anonKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-      global: { headers: { "x-escritorio-id": ESC2 } },
-    });
-    await sb.auth.signInWithPassword({ email: `canario+admin@${DOM}`, password: SENHA });
+    const sb = await clienteComo(contaDoCanario("admin"), ESC2);
     expect((await sb.rpc("vincular_pessoa", { p_email: `rbac+duplo@${DOM}`, p_papel: "parceiro" })).error).toBeNull();
     // os casos dele no canário foram desvinculados pela exclusão: religa
     await admin.from("casos").update({ parceiro_id: duplo!.id }).eq("escritorio_id", ESC2).is("parceiro_id", null)
@@ -192,10 +163,10 @@ test.describe.serial("RBAC nas edge functions", () => {
     expect((await dono("qg-escritorios", { action: "criar_escritorio", nome: "Repetido", slug, admin_nome: "Fulano de Tal", admin_email: email })).status).toBe(409);
 
     // limpeza: encerra e elimina pelo caminho oficial (duas pessoas)
-    const sbDono = createClient(ENV.supabaseUrl, ENV.anonKey, { auth: { persistSession: false } });
-    await sbDono.auth.signInWithPassword({ email: `qg+dono@${DOM}`, password: SENHA });
-    const sbDono2 = createClient(ENV.supabaseUrl, ENV.anonKey, { auth: { persistSession: false } });
-    await sbDono2.auth.signInWithPassword({ email: `qg+dono2@${DOM}`, password: SENHA });
+    // pelo túnel: erro de login estoura, em vez de seguir com client anônimo e
+    // a limpeza falhar em silêncio
+    const sbDono = await clienteComo(contaDoQg("dono"));
+    const sbDono2 = await clienteComo(contaDoQg("dono2"));
     expect((await sbDono.rpc("qg_encerrar_escritorio", { p_id: escId, p_motivo: "limpeza do teste E2E" })).error).toBeNull();
     const ped = await sbDono.rpc("qg_pedir_eliminacao", { p_id: escId });
     expect((await sbDono2.rpc("qg_aprovar_eliminacao", { p_aprovacao_id: ped.data })).error).toBeNull();

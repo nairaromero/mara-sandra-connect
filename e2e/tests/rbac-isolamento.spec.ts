@@ -22,6 +22,7 @@ import { test, expect } from "@playwright/test";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { ENV } from "../env";
 import { adminClient } from "../supabase-admin";
+import { clienteComo } from "../rbac";
 
 const admin = adminClient();
 const DOM = "marasandraconnect.com";
@@ -31,15 +32,9 @@ let ESC1: string;
 let ESC2: string;
 let dominio: string[] = [];
 
-async function como(email: string, escritorio?: string | null): Promise<SupabaseClient> {
-  const sb = createClient(ENV.supabaseUrl, ENV.anonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: escritorio ? { headers: { "x-escritorio-id": escritorio } } : {},
-  });
-  const { error } = await sb.auth.signInWithPassword({ email, password: SENHA });
-  if (error) throw new Error(`login ${email}: ${error.message}`);
-  return sb;
-}
+// O login com header vive em `e2e/rbac.ts` (túnel): erro de login estoura lá,
+// em vez de virar client anônimo e "0 linhas" com cara de RLS.
+const como = clienteComo;
 
 /** Linhas visíveis por tabela de domínio. Erro de query NÃO é zero: aparece. */
 async function visiveis(sb: SupabaseClient, filtroEscritorio?: string) {

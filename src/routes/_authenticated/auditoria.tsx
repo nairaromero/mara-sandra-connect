@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Selecao } from "@/components/ui/selecao";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { LifeBuoy, Loader2, ShieldCheck, ShieldAlert, RefreshCw } from "lucide-react";
@@ -22,13 +23,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 const POR_PAGINA_PADRAO = 25;
 
@@ -119,12 +113,13 @@ function TipoUsuarioBadge({ tipo }: { tipo: string | null | undefined }) {
 // ===========================================================================
 
 function AuditoriaPage() {
-  const { usuario, isAdmin, pode } = useAuth();
+  const { usuario, pode } = useAuth();
   const navigate = useNavigate();
   // Só admin (Naira/Mara) entra aqui. Os demais internos nem veem o item
   // na sidebar; se caírem pela URL, levam aviso + redirect.
-  // a trilha é de quem pode ler auditoria (auditoria:ler)
-  const isInterno = isAdmin && pode("auditoria:ler");
+  // A trilha é de quem pode LER AUDITORIA. Sem somar `isAdmin`: a permissão
+  // pode ser concedida a uma pessoa específica (migration_rbac_20).
+  const isInterno = pode("auditoria:ler");
 
   const [rows, setRows] = useState<AcessoRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -327,32 +322,30 @@ function AuditoriaPage() {
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">Ação</label>
-                <Select value={filtroAcao} onValueChange={setFiltroAcao}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="todas">Todas as ações</SelectItem>
-                    <SelectItem value="leitura">Leitura</SelectItem>
-                    <SelectItem value="escrita">Escrita</SelectItem>
-                    <SelectItem value="escrita_remocao">Remoção</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Selecao
+  value={filtroAcao}
+  onChange={setFiltroAcao}
+  opcoes={[
+    { value: "todas", label: "Todas as ações" },
+    { value: "leitura", label: "Leitura" },
+    { value: "escrita", label: "Escrita" },
+    { value: "escrita_remocao", label: "Remoção" },
+  ]}
+/>
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">Período</label>
-                <Select value={filtroDias} onValueChange={setFiltroDias}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="7">Últimos 7 dias</SelectItem>
-                    <SelectItem value="30">Últimos 30 dias</SelectItem>
-                    <SelectItem value="90">Últimos 90 dias</SelectItem>
-                    <SelectItem value="365">Último ano</SelectItem>
-                    <SelectItem value="todos">Todo o histórico</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Selecao
+  value={filtroDias}
+  onChange={setFiltroDias}
+  opcoes={[
+    { value: "7", label: "Últimos 7 dias" },
+    { value: "30", label: "Últimos 30 dias" },
+    { value: "90", label: "Últimos 90 dias" },
+    { value: "365", label: "Último ano" },
+    { value: "todos", label: "Todo o histórico" },
+  ]}
+/>
               </div>
             </div>
           </CardContent>
@@ -489,11 +482,12 @@ function TrilhaPlataforma() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <LifeBuoy className="h-5 w-5 text-[var(--gold)]" />
-          Plataforma e suporte neste escritório
+          Trilha do escritório
         </CardTitle>
         <CardDescription>
-          Cada pedido, aprovação e encerramento de acesso de suporte, cada tela que uma sessão de suporte abriu e
-          cada ação da equipe da plataforma sobre o escritório. Nada disso acontece sem ficar aqui.
+          Ajustes de permissão (quem mexeu, em quem, o que era e o que ficou), integrações salvas, e cada pedido,
+          aprovação e encerramento de acesso de suporte — com cada tela que uma sessão de suporte abriu. Nada disso
+          acontece sem ficar aqui.
         </CardDescription>
       </CardHeader>
       <CardContent className="p-0">

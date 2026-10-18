@@ -6,6 +6,7 @@
 // os campos extras na tela).
 
 import { supabase } from "@/lib/supabase";
+import { lerLista } from "@/lib/leitura";
 import { instanteBR, partesBR } from "@/lib/fuso";
 import { substituirPlaceholders } from "@/lib/tarefas/helpers";
 
@@ -43,6 +44,9 @@ export async function aplicarTemplateProgramatico(input: {
   autorId: string | null;
   processoAdminId?: string | null;
   processoJudicialId?: string | null;
+  /** Vai no metadata das TAREFAS (ex.: relogio_id, para a corrente seguir o
+   *  relógio do processo de onde veio — #397). */
+  metadataTarefas?: Record<string, unknown>;
 }): Promise<ResultadoAplicacao> {
   const { data: tpl, error } = await supabase
     .from("tarefa_templates")
@@ -58,21 +62,43 @@ export async function aplicarTemplateProgramatico(input: {
 
   // Dedup cruzado: o mesmo template pode chegar por DOIS caminhos (botão de
   // desfecho aqui × inss-email-processor quando o e-mail da decisão chega).
-  // Se o caso já tem tarefa aberta desta corrente — de qualquer origem —,
-  // não abre de novo. O processor grava metadata.template; nós,
-  // metadata.template_aplicado.
-  const { data: correnteJa } = await supabase
+  // Os dois lados do conflito consertavam coisas DIFERENTES, e as duas valem:
+  //
+  // (#397) o escopo da trava é o MESMO PROCESSO, não o caso inteiro. Outro
+  // requerimento — ou o processo judicial — do mesmo caso é outra corrente:
+  // um não pode bloquear o outro, que era como a segunda frente ficava sem a
+  // tarefa que devia nascer.
+  //
+  // (túnel de leitura) a consulta passa por `lerLista`. Com `const { data }`,
+  // uma falha devolvia `data` nulo, a trava não disparava e o template era
+  // aplicado DUAS vezes — a proteção sumia em silêncio, que é o pior jeito de
+  // sumir.
+  //
+  // Juntas: a trava enxerga só a corrente DESTE processo, e falha de consulta
+  // estoura em vez de virar "não tem corrente".
+  //
+  // O processor grava metadata.template; nós, metadata.template_aplicado.
+  let dedup = supabase
     .from("tarefas")
     .select("id")
     .eq("caso_id", input.casoId)
     .eq("status", "a_fazer")
     .or(
       `metadata->>template_aplicado.eq.${input.nomeTemplate},metadata->>template.eq.${input.nomeTemplate}`,
-    )
-    .limit(1);
-  if (correnteJa && correnteJa.length > 0) {
+    );
+  dedup = input.processoAdminId
+    ? dedup.eq("processo_admin_id", input.processoAdminId)
+    : dedup.is("processo_admin_id", null);
+  dedup = input.processoJudicialId
+    ? dedup.eq("processo_judicial_id", input.processoJudicialId)
+    : dedup.is("processo_judicial_id", null);
+  const correnteJa = await lerLista<{ id: string }>(
+    dedup.limit(1),
+    `tarefas abertas da corrente "${input.nomeTemplate}" neste processo`,
+  );
+  if (correnteJa.length > 0) {
     throw new Error(
-      `A corrente do template "${input.nomeTemplate}" já está aberta neste caso — não vou duplicar.`,
+      `A corrente do template "${input.nomeTemplate}" já está aberta neste processo — não vou duplicar.`,
     );
   }
 
@@ -84,12 +110,17 @@ export async function aplicarTemplateProgramatico(input: {
   // ativos — herda o responsável passado pelo widget.
   const emailParaId = new Map<string, string>();
   if (itens.some((i) => i.executor_email)) {
-    const { data: internos } = await supabase
-      .from("usuarios_escritorio")
-      .select("id, email")
-      .eq("tipo", "interno")
-      .eq("ativo", true);
-    for (const u of internos ?? []) {
+    // idem: falha aqui deixava o mapa vazio e TODA tarefa ia para o
+    // responsável de fallback, em vez de quem devia executar — sem aviso.
+    const internos = await lerLista<{ id: string; email: string | null }>(
+      supabase
+        .from("usuarios_escritorio")
+        .select("id, email")
+        .eq("tipo", "interno")
+        .eq("ativo", true),
+      "internos ativos para rotear a tarefa",
+    );
+    for (const u of internos) {
       if (u.email) emailParaId.set(u.email.toLowerCase(), u.id);
     }
   }
@@ -148,6 +179,7 @@ export async function aplicarTemplateProgramatico(input: {
           template_aplicado: tpl.nome,
           template_item_index: i,
           aplicado_por_desfecho: true,
+          ...(input.metadataTarefas ?? {}),
           ...(item.meta ?? {}),
         },
       })

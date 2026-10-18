@@ -9,7 +9,7 @@ import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { DocTypeCombobox } from "@/components/doc-type-combobox";
+import { Selecao } from "@/components/ui/selecao";
 import { TIPOS_DOCUMENTO_OPTIONS } from "@/lib/documentos/tipos";
 import { MAX_FILE_SIZE_MB } from "@/lib/upload-limits";
 import {
@@ -94,8 +94,8 @@ export function ArquivosCumprimento({
             <div key={i} className="rounded-md border p-2 space-y-1.5">
               <div className="flex items-center gap-2">
                 <div className="min-w-0 flex-1">
-                  <DocTypeCombobox
-                    options={TIPOS_DOCUMENTO_OPTIONS}
+                  <Selecao
+                    opcoes={TIPOS_DOCUMENTO_OPTIONS}
                     value={a.tipo}
                     onChange={(t) => trocarTipo(i, t)}
                     placeholder="Tipo do documento..."

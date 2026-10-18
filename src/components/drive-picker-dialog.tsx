@@ -49,10 +49,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  DocTypeCombobox,
-  type DocTypeOption,
-} from "@/components/doc-type-combobox";
+import { Selecao, type OpcaoSelecao } from "@/components/ui/selecao";
 
 /** Estrutura entregue ao onConfirmar - 1 item por arquivo escolhido. */
 export interface DriveImportedFile {
@@ -74,7 +71,7 @@ interface DrivePickerDialogProps {
   arquivosSelecionados: Array<DrivePickedFile> | null;
   accessToken: string;
   onFechar: () => void;
-  tiposDocumento: Array<DocTypeOption>;
+  tiposDocumento: Array<OpcaoSelecao>;
   /**
    * Nome da pasta raiz vinculada ao caso. Usado como label do grupo de
    * arquivos que estao "na raiz" da pasta (sem subpasta).
@@ -493,8 +490,8 @@ export function DrivePickerDialog(props: DrivePickerDialogProps) {
                           </div>
                           {it.selecionado && (
                             <div className="ml-6 space-y-2">
-                              <DocTypeCombobox
-                                options={tiposDocumento}
+                              <Selecao
+                                opcoes={tiposDocumento}
                                 value={it.tipo}
                                 onChange={(v) => atualizarTipo(i, v)}
                                 disabled={importando}

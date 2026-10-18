@@ -223,7 +223,8 @@ serve(async (req) => {
         break;
       }
 
-      norm.push({ role: "assistant", content: res.text, toolCalls: res.toolCalls });
+      // `bruto` devolve o turno intacto (com os blocos de raciocínio) na próxima rodada.
+      norm.push({ role: "assistant", content: res.text, toolCalls: res.toolCalls, bruto: res.bruto });
       let temEscrita = false;
 
       for (const tc of res.toolCalls) {

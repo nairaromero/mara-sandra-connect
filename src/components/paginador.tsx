@@ -3,8 +3,8 @@
 // listas locais) — nada de acumular "mostrar mais".
 
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Loader2 } from "lucide-react";
+import { Selecao } from "@/components/ui/selecao";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const OPCOES_POR_PAGINA = [10, 25, 50, 100];
 
@@ -103,18 +103,15 @@ export function Paginador(props: PaginadorProps) {
           <ChevronsRight className="h-4 w-4" />
         </Button>
       </div>
-      <Select value={String(porPagina)} onValueChange={(v) => onPorPagina(Number(v))}>
-        <SelectTrigger className="h-8 w-[4.75rem]" aria-label="Itens por página">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {opcoes.map((n) => (
-            <SelectItem key={n} value={String(n)}>
-              {n}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <Selecao
+  value={String(porPagina)}
+  aria-label="Itens por página"
+  onChange={(v) => onPorPagina(Number(v))}
+  opcoes={[
+    ...opcoes.map((n) => ({ value: String(n), label: String(n) })),
+  ]}
+  className="h-8 w-[4.75rem]"
+/>
     </nav>
   );
 }

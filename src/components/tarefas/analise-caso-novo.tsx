@@ -15,19 +15,13 @@
 // é um desfecho concreto.
 
 import { useEffect, useState } from "react";
+import { Selecao } from "@/components/ui/selecao";
 import { toast } from "sonner";
 import { CheckCircle2, FileClock, FileX2, Loader2, PlayCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { supabase } from "@/lib/supabase";
 import { listarInternosAtivos } from "@/lib/tarefas/queries";
 import { aplicarTemplateProgramatico } from "@/lib/tarefas/aplicador";
@@ -104,6 +98,8 @@ export function AnaliseCasoNovo({
         clienteNome,
         responsavelId,
         autorId: usuario?.id ?? null,
+        processoAdminId: tarefa.processo_admin_id,
+        processoJudicialId: tarefa.processo_judicial_id,
       });
       if (r.primeiraTarefaId) marcarDestaque(r.primeiraTarefaId);
       await concluirAnalise();
@@ -126,6 +122,8 @@ export function AnaliseCasoNovo({
         .from("tarefas")
         .insert({
           caso_id: tarefa.caso_id,
+          processo_admin_id: tarefa.processo_admin_id,
+          processo_judicial_id: tarefa.processo_judicial_id,
           // Sem responsável a tarefa some de "Minhas tarefas" e vira órfã:
           // herda quem estava na análise, ou quem clicou.
           responsavel_id: tarefa.responsavel_id ?? usuario?.id ?? null,
@@ -154,6 +152,8 @@ export function AnaliseCasoNovo({
         .from("andamentos")
         .insert({
           caso_id: tarefa.caso_id,
+          processo_admin_id: tarefa.processo_admin_id,
+          processo_judicial_id: tarefa.processo_judicial_id,
           origem: "interno",
           titulo: "Análise concluída — aguardando documentação complementar",
           descricao:
@@ -196,6 +196,8 @@ export function AnaliseCasoNovo({
         .from("andamentos")
         .insert({
           caso_id: tarefa.caso_id,
+          processo_admin_id: tarefa.processo_admin_id,
+          processo_judicial_id: tarefa.processo_judicial_id,
           origem: "interno",
           titulo: "Análise concluída — não vamos requerer agora",
           descricao: "Motivo: " + motivo.trim(),
@@ -277,18 +279,15 @@ export function AnaliseCasoNovo({
       {modo === "requerimento" && (
         <div className="space-y-1.5">
           <Label className="text-xs">Responsável pela montagem (obrigatório)</Label>
-          <Select value={responsavelId} onValueChange={setResponsavelId}>
-            <SelectTrigger aria-label="Responsável pela montagem">
-              <SelectValue placeholder="Quem monta o requerimento" />
-            </SelectTrigger>
-            <SelectContent>
-              {internos.map((u) => (
-                <SelectItem key={u.id} value={u.id}>
-                  {u.nome || u.email || u.id}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Selecao
+  value={responsavelId}
+  aria-label="Responsável pela montagem"
+  onChange={setResponsavelId}
+  opcoes={[
+    ...internos.map((u) => ({ value: u.id, label: u.nome || u.email || u.id })),
+  ]}
+  placeholder="Quem monta o requerimento"
+/>
           <Button type="button" size="sm" disabled={agindo || !responsavelId} onClick={fazerRequerimento}>
             {agindo ? (
               <Loader2 className="mr-1 h-4 w-4 animate-spin" />

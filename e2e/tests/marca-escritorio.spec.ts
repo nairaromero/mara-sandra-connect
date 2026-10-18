@@ -13,6 +13,7 @@ import { STORAGE_ADMIN } from "../auth.setup";
 import { cursorVisivel } from "../cursor";
 import { ENV, PROJECT_REF } from "../env";
 import { adminClient } from "../supabase-admin";
+import { limpezaLocal } from "../rbac";
 
 const admin = adminClient();
 const DOM = "marasandraconnect.com";
@@ -57,7 +58,7 @@ test.describe.serial("marca por escritório", () => {
     const { data: cfg } = await admin.from("escritorio_config").select("marca").eq("escritorio_id", ESC2).maybeSingle();
     marcaOriginal = (cfg?.marca as Record<string, unknown>) ?? null;
   });
-  test.afterAll(async () => {
+  test.afterAll(limpezaLocal(async () => {
     if (!ESC2) return;
     // devolve a marca do seed e apaga o convidado de teste
     if (marcaOriginal) await admin.from("escritorio_config").update({ marca: marcaOriginal }).eq("escritorio_id", ESC2);
@@ -66,7 +67,7 @@ test.describe.serial("marca por escritório", () => {
       await admin.from("usuarios").delete().eq("id", convidadoId);
       await admin.auth.admin.deleteUser(convidadoId);
     }
-  });
+  }));
 
   test("admin do Canário troca nome, cor e logo; o topo acompanha", async ({ browser, baseURL }) => {
     const { session } = await como(`canario+admin@${DOM}`, ESC2);
