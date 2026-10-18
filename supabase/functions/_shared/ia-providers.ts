@@ -12,6 +12,14 @@ export type ToolDef = {
 
 export type ToolCall = { id: string; name: string; args: Record<string, unknown> };
 
+/**
+ * O que autentica no provider. `workspaceId` (Anthropic, `wrkspc_…`) só para
+ * chave que vale para mais de um workspace: sem ele a Anthropic responde 400
+ * ("not scoped to a workspace"). Montada por `abrirCredencial`
+ * (_shared/ia-integracao.ts) — ninguém decifra a chave por fora.
+ */
+export type Credencial = { chave: string; workspaceId?: string | null };
+
 // Anexo binario (PDF/imagem) enviado junto da ultima mensagem 'user'. Usado pela
 // ia-analise p/ mandar PDFs escaneados direto ao provider (OCR nativo do modelo),
 // ja que o extrator de texto nao le imagem. base64 SEM o prefixo "data:".
@@ -22,20 +30,158 @@ export type Attachment = {
   name?: string;
 };
 
-// Mensagem normalizada (interna ao agente).
+// Mensagem normalizada (interna ao agente). `bruto` guarda o conteudo da
+// resposta do provider como veio (Anthropic: blocos, inclusive os de raciocinio)
+// para ser devolvido INTACTO na rodada seguinte de ferramentas: nos modelos que
+// raciocinam, a API recusa o turno do assistente sem os blocos de raciocinio.
 export type NormMsg =
   | { role: "user"; content: string }
-  | { role: "assistant"; content: string; toolCalls?: ToolCall[] }
+  | { role: "assistant"; content: string; toolCalls?: ToolCall[]; bruto?: unknown }
   | { role: "tool"; toolCallId: string; name: string; content: string };
 
 export type ChatResult = {
   text: string;
   toolCalls: ToolCall[];
-  usage: { input: number; output: number };
+  /** `raciocinio`: parte da saida gasta no rascunho do modelo (quando o provider informa). */
+  usage: { input: number; output: number; raciocinio?: number };
+  /** Motivo da parada, como o provider devolveu (end_turn, max_tokens, stop, length...). */
+  parada: string | null;
+  /** O teto de tokens acabou antes do fim: o texto pode estar incompleto. */
+  cortada: boolean;
+  /** Conteudo cru da resposta, para devolver no proximo turno (ver NormMsg). */
+  bruto?: unknown;
 };
 
-// Endpoints e modelos sugeridos. base_url FIXO. `models` sao sugestoes p/ a UI
-// (datalist) — o backend nao trava o modelo, mas o provider rejeita se invalido.
+// ---------------------------------------------------------------------------
+// Perfil por modelo — UMA fonte de verdade para o que cada modelo aceita.
+//
+// Nos modelos que raciocinam, o raciocinio conta dentro do teto de saida
+// (Anthropic `max_tokens`, OpenAI `max_completion_tokens`): com teto baixo o
+// modelo pensa, o teto acaba e a resposta sai cortada ou vazia (#328). Por isso
+// a funcao nao escolhe numero: diz o tamanho da resposta (curta ou longa) e o
+// perfil traduz em raciocinio, esforco e teto.
+//
+// Fontes (conferidas em 01/10/2026):
+//   https://platform.claude.com/docs/en/build-with-claude/thinking-troubleshooting
+//   https://platform.claude.com/docs/en/about-claude/model-deprecations
+//   https://developers.openai.com/api/docs/deprecations
+// Modelo novo: acrescentar aqui (a lista da tela sai daqui).
+// ---------------------------------------------------------------------------
+
+/** sempre: nao desliga · ligado: pensa por padrao e desliga · desligado: so pensa se pedir · nenhum: nao raciocina */
+export type Raciocinio = "sempre" | "ligado" | "desligado" | "nenhum";
+
+export type PerfilModelo = {
+  provider: "anthropic" | "openai";
+  /** id do modelo, ou prefixo da familia (casa com o id e com versoes datadas: `<prefixo>-2026...`). */
+  prefixo: string;
+  raciocinio: Raciocinio;
+  /** Anthropic: `thinking` que desliga o raciocinio antecipado, quando o modelo aceita. */
+  desligar?: Record<string, unknown>;
+  /** Anthropic: aceita `output_config.effort` (modo adaptativo). */
+  esforco?: boolean;
+  /** Aparece na lista sugerida da tela. */
+  sugerido?: boolean;
+  /** Data (AAAA-MM-DD) em que o provider aposentou o modelo: chamadas falham. */
+  aposentadoEm?: string;
+};
+
+// Ordem importa: o mais especifico antes (claude-opus-5-5 antes de claude-opus-5).
+export const PERFIS: PerfilModelo[] = [
+  // Anthropic — Fable/Mythos nao entram na lista sugerida: nao estao disponiveis
+  // com retencao zero sem autorizacao expressa da Anthropic (dado de saude).
+  { provider: "anthropic", prefixo: "claude-fable-5-1", raciocinio: "sempre", esforco: true },
+  { provider: "anthropic", prefixo: "claude-fable-5", raciocinio: "sempre", esforco: true },
+  { provider: "anthropic", prefixo: "claude-mythos", raciocinio: "sempre", esforco: true },
+  { provider: "anthropic", prefixo: "claude-opus-5-5", raciocinio: "sempre", esforco: true, sugerido: true },
+  { provider: "anthropic", prefixo: "claude-opus-5", raciocinio: "ligado", esforco: true, desligar: { type: "disabled" } },
+  { provider: "anthropic", prefixo: "claude-opus-4-8", raciocinio: "desligado", esforco: true },
+  { provider: "anthropic", prefixo: "claude-opus-4-7", raciocinio: "desligado", esforco: true },
+  { provider: "anthropic", prefixo: "claude-opus-4-6", raciocinio: "desligado" },
+  { provider: "anthropic", prefixo: "claude-opus-4-5", raciocinio: "desligado" },
+  { provider: "anthropic", prefixo: "claude-opus-4-1", raciocinio: "desligado", aposentadoEm: "2026-08-05" },
+  { provider: "anthropic", prefixo: "claude-opus-4", raciocinio: "desligado", aposentadoEm: "2026-06-15" },
+  { provider: "anthropic", prefixo: "claude-sonnet-5-5", raciocinio: "ligado", esforco: true, desligar: { type: "between_tools" }, sugerido: true },
+  { provider: "anthropic", prefixo: "claude-sonnet-5", raciocinio: "ligado", esforco: true, desligar: { type: "disabled" } },
+  { provider: "anthropic", prefixo: "claude-sonnet-4-6", raciocinio: "desligado" },
+  // Sai do ar em 30/11/2026 (substituto oficial: claude-sonnet-5-5).
+  { provider: "anthropic", prefixo: "claude-sonnet-4-5", raciocinio: "desligado" },
+  { provider: "anthropic", prefixo: "claude-sonnet-4", raciocinio: "desligado", aposentadoEm: "2026-06-15" },
+  { provider: "anthropic", prefixo: "claude-haiku-4-5", raciocinio: "desligado", sugerido: true },
+  // OpenAI — gpt-4.1 e gpt-4o sem data de desligamento publicada (01/10/2026).
+  { provider: "openai", prefixo: "gpt-4.1-nano", raciocinio: "nenhum" },
+  { provider: "openai", prefixo: "gpt-4.1-mini", raciocinio: "nenhum", sugerido: true },
+  { provider: "openai", prefixo: "gpt-4.1", raciocinio: "nenhum", sugerido: true },
+  { provider: "openai", prefixo: "gpt-4o-mini", raciocinio: "nenhum", sugerido: true },
+  { provider: "openai", prefixo: "gpt-4o", raciocinio: "nenhum", sugerido: true },
+  { provider: "openai", prefixo: "gpt-5", raciocinio: "sempre" },
+  { provider: "openai", prefixo: "o1", raciocinio: "sempre" },
+  { provider: "openai", prefixo: "o3", raciocinio: "sempre" },
+  { provider: "openai", prefixo: "o4", raciocinio: "sempre" },
+];
+
+/**
+ * Perfil do modelo. Modelo fora da tabela: trata como "raciocina sempre"
+ * (sem desligar e com teto folgado) — e o lado seguro para modelo novo, que
+ * quase sempre raciocina e recusa parametro que nao conhece.
+ */
+export function perfilDoModelo(provider: string, modelo: string): PerfilModelo {
+  const m = modelo.trim().toLowerCase();
+  const achado = PERFIS.find(
+    (p) => p.provider === provider && (m === p.prefixo || m.startsWith(p.prefixo + "-")),
+  );
+  return achado ?? {
+    provider: provider === "openai" ? "openai" : "anthropic",
+    prefixo: m,
+    raciocinio: "sempre",
+  };
+}
+
+/** Motivo legivel quando o modelo ja foi aposentado pelo provider; null se nao. */
+export function modeloAposentado(provider: string, modelo: string): string | null {
+  const p = perfilDoModelo(provider, modelo);
+  if (!p.aposentadoEm) return null;
+  const [a, mes, d] = p.aposentadoEm.split("-");
+  return `o modelo ${modelo} foi aposentado pelo provedor em ${d}/${mes}/${a}. Escolha outro modelo na Integração de IA.`;
+}
+
+/** Tamanho da resposta que a funcao espera. */
+export type TamanhoResposta = "curta" | "longa";
+
+// Teto minimo quando o modelo raciocina: sobra espaco para o rascunho E a resposta.
+const PISO_RACIOCINIO: Record<TamanhoResposta, number> = { curta: 4000, longa: 16000 };
+
+/** O que vai na requisicao: teto, raciocinio e esforco — derivados do perfil. */
+export function planoDaChamada(
+  perfil: PerfilModelo,
+  tamanho: TamanhoResposta,
+  pedido: number,
+): { teto: number; thinking?: Record<string, unknown>; esforco?: "low" } {
+  if (perfil.raciocinio === "nenhum" || perfil.raciocinio === "desligado") {
+    return { teto: pedido };
+  }
+  // Resposta curta num modelo que deixa desligar: desliga (mais rapido e barato).
+  if (tamanho === "curta" && perfil.desligar) {
+    return { teto: pedido, thinking: perfil.desligar };
+  }
+  // Nao desliga (ou resposta longa): teto com folga; na curta, pede pouco esforco.
+  return {
+    teto: Math.max(pedido, PISO_RACIOCINIO[tamanho]),
+    esforco: tamanho === "curta" && perfil.esforco ? "low" : undefined,
+  };
+}
+
+/** A resposta foi cortada pelo teto e nao sobrou nada aproveitavel. */
+export class IaRespostaCortada extends Error {
+  constructor(provider: string, modelo: string) {
+    super(
+      `a resposta da IA (${provider} ${modelo}) foi cortada pelo limite de tokens antes de terminar`,
+    );
+    this.name = "IaRespostaCortada";
+  }
+}
+
+// Endpoints fixos. `models` (lista sugerida da tela) sai dos PERFIS.
 export const PROVIDERS: Record<
   string,
   { label: string; endpoint: string; models: string[] }
@@ -43,12 +189,12 @@ export const PROVIDERS: Record<
   anthropic: {
     label: "Anthropic (Claude)",
     endpoint: "https://api.anthropic.com/v1/messages",
-    models: ["claude-sonnet-4-5", "claude-opus-4-1", "claude-haiku-4-5"],
+    models: PERFIS.filter((p) => p.provider === "anthropic" && p.sugerido).map((p) => p.prefixo),
   },
   openai: {
     label: "OpenAI (GPT)",
     endpoint: "https://api.openai.com/v1/chat/completions",
-    models: ["gpt-4.1", "gpt-4.1-mini", "gpt-4o", "gpt-4o-mini"],
+    models: PERFIS.filter((p) => p.provider === "openai" && p.sugerido).map((p) => p.prefixo),
   },
 };
 
@@ -58,12 +204,109 @@ export type ChatOpts = {
   system: string;
   messages: NormMsg[];
   tools: ToolDef[];
-  maxTokens?: number; // teto de saida; default MAX_TOKENS (chat). Analise usa mais.
+  maxTokens?: number; // teto pedido pela funcao; default MAX_TOKENS (chat). O perfil pode subir.
+  /**
+   * Tamanho da resposta esperada. Sem ele, vale "curta" ate 2000 tokens pedidos
+   * e "longa" acima — que e o que os tetos de cada funcao ja diziam.
+   */
+  tamanho?: TamanhoResposta;
   attachments?: Attachment[]; // anexados a ULTIMA mensagem 'user' (PDF/imagem).
   // Aborta o fetch do provider (ex.: AbortSignal.timeout). Diferente de um
   // Promise.race, a requisicao para de verdade — nao fica pendurada gastando token.
   signal?: AbortSignal;
+  /**
+   * Registro de uso (tabela ia_uso). Toda chamada passa um — monte com
+   * `registroDeUso` (_shared/ia-integracao.ts). A regua
+   * e2e/unit/ia-registro-de-uso.test.ts acusa chamada sem registro.
+   */
+  registro?: RegistroUso;
 };
+
+/** Uma linha de uso — sem conteudo: so numeros, nomes e a classe da falha. */
+export type LinhaUso = {
+  provider: string;
+  modelo: string;
+  tokens_entrada: number;
+  tokens_saida: number;
+  tokens_raciocinio: number | null;
+  parada: string | null;
+  cortada: boolean;
+  erro: string | null;
+  duracao_ms: number;
+};
+
+export type RegistroUso = { gravar: (linha: LinhaUso) => Promise<void> };
+
+/** Classe da falha para o registro (nunca o texto do provider, que pode ecoar conteudo). */
+export function classeDoErro(e: unknown): string {
+  if (e instanceof IaRespostaCortada) return "cortada";
+  if (e instanceof DOMException && (e.name === "TimeoutError" || e.name === "AbortError")) return "timeout";
+  const m = String((e as Error)?.message ?? e);
+  const http = m.match(/^(anthropic|openai) (\d{3}):/);
+  if (http) return "http_" + http[2];
+  if (m.includes("aposentado")) return "modelo_aposentado";
+  return "outro";
+}
+
+/**
+ * Frase para a PESSOA a partir de uma falha de IA (mesma classe que vai para o
+ * registro de uso). UM lugar para essas frases: toda function de IA que
+ * devolve erro à tela passa por aqui (régua: e2e/unit/ia-registro-de-uso.test.ts).
+ * O texto cru do provedor (JSON em inglês, request id…) fica no log de quem
+ * chamou — nunca na tela. `padrao`: a frase de quem chamou para a falha que
+ * NÃO veio do provedor (JSON ilegível, ferramenta não chamada…).
+ */
+export function mensagemDoErro(e: unknown, padrao = "Não consegui falar com o provedor de IA."): string {
+  const classe = classeDoErro(e);
+  if (classe === "modelo_aposentado") return String((e as Error)?.message ?? e);
+  if (classe === "http_401" || classe === "http_403") {
+    return "O provedor recusou a chave de API (inválida, revogada ou sem permissão para este modelo).";
+  }
+  if (classe === "http_429") return "O provedor limitou as chamadas desta chave (cota ou excesso de uso). Tente de novo em instantes.";
+  if (classe === "http_400" || classe === "http_404") {
+    // O motivo vem no corpo do provider; só o TIPO de motivo vira frase.
+    const corpo = String((e as Error)?.message ?? e);
+    if (/workspace/i.test(corpo)) {
+      return "Esta chave da Anthropic vale para mais de um workspace: informe o ID do workspace (wrkspc_…) ou crie a chave dentro de um workspace no Console da Anthropic.";
+    }
+    if (classe === "http_404" || (/model/i.test(corpo) && /(not[_ ]found|does not exist|invalid model|unknown model)/i.test(corpo))) {
+      return "O provedor não reconhece este modelo. Use 'Ver modelos desta chave' para escolher um disponível.";
+    }
+    return "O provedor recusou a chamada (requisição inválida). Tente de novo; se continuar, avise o suporte.";
+  }
+  if (/^http_5\d\d$/.test(classe)) return "O provedor está com problema agora. Tente de novo em instantes.";
+  if (classe === "timeout") return "O provedor não respondeu a tempo. Tente de novo.";
+  if (classe === "cortada") return "A resposta da IA foi cortada antes de terminar. Tente de novo.";
+  return padrao;
+}
+
+async function registrar(reg: RegistroUso | undefined, linha: LinhaUso): Promise<void> {
+  if (!reg) return;
+  try {
+    await reg.gravar(linha);
+  } catch (e) {
+    // O registro nunca derruba a chamada: perder a linha e ruim, travar a IA e pior.
+    console.warn("[ia] registro de uso falhou:", String((e as Error)?.message ?? e));
+  }
+}
+
+function tamanhoDe(opts: ChatOpts, pedido: number): TamanhoResposta {
+  return opts.tamanho ?? (pedido <= 2000 ? "curta" : "longa");
+}
+
+/**
+ * Fecha o resultado: corte sem nada aproveitavel vira erro legivel; corte com
+ * texto ou ferramenta segue, mas fica no log (antes passava calado).
+ */
+function fecharResultado(provider: string, modelo: string, r: ChatResult): ChatResult {
+  if (r.cortada) {
+    if (!r.text.trim() && !r.toolCalls.length) throw new IaRespostaCortada(provider, modelo);
+    console.warn(
+      `[ia] resposta cortada pelo teto (${provider} ${modelo}, parada=${r.parada}, saida=${r.usage.output})`,
+    );
+  }
+  return r;
+}
 
 // Blocos de anexo por provider. Anthropic le PDF/imagem nativamente (document/
 // image); OpenAI usa 'file' (file_data data URL) p/ PDF e 'image_url' p/ imagem.
@@ -113,20 +356,55 @@ function appendAttachments(
 
 export async function chatWith(
   provider: string,
-  apiKey: string,
+  credencial: Credencial,
   modelo: string,
   opts: ChatOpts,
 ): Promise<ChatResult> {
-  if (provider === "anthropic") return anthropicChat(apiKey, modelo, opts);
-  if (provider === "openai") return openaiChat(apiKey, modelo, opts);
-  throw new Error("provider nao suportado: " + provider);
+  const inicio = Date.now();
+  let r: ChatResult | null = null;
+  try {
+    const aposentado = modeloAposentado(provider, modelo);
+    if (aposentado) throw new Error(aposentado);
+    if (provider === "anthropic") r = await anthropicChat(credencial, modelo, opts);
+    else if (provider === "openai") r = await openaiChat(credencial.chave, modelo, opts);
+    else throw new Error("provider nao suportado: " + provider);
+    const fechado = fecharResultado(provider, modelo, r);
+    await registrar(opts.registro, {
+      provider, modelo,
+      tokens_entrada: r.usage.input, tokens_saida: r.usage.output,
+      tokens_raciocinio: r.usage.raciocinio ?? null,
+      parada: r.parada, cortada: r.cortada, erro: null,
+      duracao_ms: Date.now() - inicio,
+    });
+    return fechado;
+  } catch (e) {
+    // Corte sem conteudo chega aqui com `r` preenchido: os tokens gastos contam.
+    await registrar(opts.registro, {
+      provider, modelo,
+      tokens_entrada: r?.usage.input ?? 0, tokens_saida: r?.usage.output ?? 0,
+      tokens_raciocinio: r?.usage.raciocinio ?? null,
+      parada: r?.parada ?? null, cortada: r?.cortada ?? false, erro: classeDoErro(e),
+      duracao_ms: Date.now() - inicio,
+    });
+    throw e;
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Anthropic
 // ---------------------------------------------------------------------------
+function cabecalhosAnthropic(credencial: Credencial): Record<string, string> {
+  const h: Record<string, string> = {
+    "x-api-key": credencial.chave,
+    "anthropic-version": "2023-06-01",
+    "content-type": "application/json",
+  };
+  if (credencial.workspaceId) h["anthropic-workspace-id"] = credencial.workspaceId;
+  return h;
+}
+
 async function anthropicChat(
-  apiKey: string,
+  credencial: Credencial,
   modelo: string,
   opts: ChatOpts,
 ): Promise<ChatResult> {
@@ -153,6 +431,9 @@ async function anthropicChat(
     flushTools();
     if (m.role === "user") {
       msgs.push({ role: "user", content: m.content });
+    } else if (Array.isArray(m.bruto)) {
+      // Devolve o turno exatamente como veio (inclui blocos de raciocinio).
+      msgs.push({ role: "assistant", content: m.bruto });
     } else {
       const blocks: Array<Record<string, unknown>> = [];
       if (m.content) blocks.push({ type: "text", text: m.content });
@@ -165,9 +446,11 @@ async function anthropicChat(
   flushTools();
   appendAttachments(msgs, opts.attachments, anthropicAttBlock);
 
-  const body = {
+  const pedido = opts.maxTokens ?? MAX_TOKENS;
+  const plano = planoDaChamada(perfilDoModelo("anthropic", modelo), tamanhoDe(opts, pedido), pedido);
+  const body: Record<string, unknown> = {
     model: modelo,
-    max_tokens: opts.maxTokens ?? MAX_TOKENS,
+    max_tokens: plano.teto,
     system: opts.system,
     messages: msgs,
     tools: opts.tools.map((t) => ({
@@ -176,14 +459,12 @@ async function anthropicChat(
       input_schema: t.schema,
     })),
   };
+  if (plano.thinking) body.thinking = plano.thinking;
+  if (plano.esforco) body.output_config = { effort: plano.esforco };
 
   const resp = await fetch(PROVIDERS.anthropic.endpoint, {
     method: "POST",
-    headers: {
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
+    headers: cabecalhosAnthropic(credencial),
     body: JSON.stringify(body),
     // Timeout mesmo quando o chamador não passa `signal`: 6 dos 9 chamadores
     // não passavam, e uma chamada de LLM pendurada segurava a function até o
@@ -204,13 +485,18 @@ async function anthropicChat(
       toolCalls.push({ id: block.id, name: block.name, args: block.input ?? {} });
     }
   }
+  const parada = typeof data.stop_reason === "string" ? data.stop_reason : null;
   return {
     text,
     toolCalls,
     usage: {
       input: data.usage?.input_tokens ?? 0,
       output: data.usage?.output_tokens ?? 0,
+      raciocinio: data.usage?.output_tokens_details?.thinking_tokens,
     },
+    parada,
+    cortada: parada === "max_tokens",
+    bruto: Array.isArray(data.content) ? data.content : undefined,
   };
 }
 
@@ -243,9 +529,15 @@ async function openaiChat(
   }
   appendAttachments(msgs, opts.attachments, openaiAttPart);
 
+  const pedido = opts.maxTokens ?? MAX_TOKENS;
+  const perfil = perfilDoModelo("openai", modelo);
+  const plano = planoDaChamada(perfil, tamanhoDe(opts, pedido), pedido);
+  // Modelos que raciocinam recusam `max_tokens`: o teto (raciocinio incluso)
+  // vai em `max_completion_tokens`.
+  const campoTeto = perfil.raciocinio === "nenhum" ? "max_tokens" : "max_completion_tokens";
   const body = {
     model: modelo,
-    max_tokens: opts.maxTokens ?? MAX_TOKENS,
+    [campoTeto]: plano.teto,
     messages: msgs,
     tools: opts.tools.map((t) => ({
       type: "function",
@@ -282,12 +574,98 @@ async function openaiChat(
     }
     toolCalls.push({ id: tc.id, name: tc.function?.name ?? "", args: parsed });
   }
+  const parada = typeof data.choices?.[0]?.finish_reason === "string"
+    ? data.choices[0].finish_reason
+    : null;
   return {
     text: choice.content ?? "",
     toolCalls,
     usage: {
       input: data.usage?.prompt_tokens ?? 0,
       output: data.usage?.completion_tokens ?? 0,
+      raciocinio: data.usage?.completion_tokens_details?.reasoning_tokens,
     },
+    parada,
+    cortada: parada === "length",
   };
+}
+
+// ---------------------------------------------------------------------------
+// Modelos que uma chave enxerga (botão "Ver modelos desta chave")
+// ---------------------------------------------------------------------------
+
+export type ModeloDisponivel = {
+  id: string;
+  nome: string;
+  /** "descontinuado": ainda responde, mas tem data para sair do ar. */
+  situacao: "ativo" | "descontinuado";
+  /** Lê PDF (quando o provider informa). */
+  lePdf: boolean | null;
+  /** Data prevista para sair do ar (ISO), quando o provider informa. */
+  saiEm: string | null;
+  /** Está entre os recomendados dos perfis (lista da tela). */
+  recomendado: boolean;
+};
+
+// Só modelos de conversa da OpenAI: o /v1/models dela traz também áudio,
+// imagem, embedding etc., que o sistema não usa.
+const OPENAI_CONVERSA = /^(gpt-|o\d|chatgpt-)/;
+const OPENAI_FORA = /(audio|realtime|tts|transcribe|image|embedding|search|moderation|instruct|codex)/;
+
+const recomendado = (provider: string, id: string) =>
+  PERFIS.some((p) => p.provider === provider && p.sugerido && p.prefixo === id);
+
+/**
+ * Pergunta ao provider quais modelos ESTA credencial pode usar. Aposentados
+ * ficam de fora. Falha estoura no mesmo formato do chatWith
+ * ("anthropic 401: …"), para a mensagemDoErro traduzir.
+ */
+export async function listarModelos(
+  provider: string,
+  credencial: Credencial,
+  signal?: AbortSignal,
+): Promise<ModeloDisponivel[]> {
+  const sinal = signal ?? AbortSignal.timeout(20_000);
+  if (provider === "anthropic") {
+    const resp = await fetch("https://api.anthropic.com/v1/models?limit=1000", {
+      headers: cabecalhosAnthropic(credencial),
+      signal: sinal,
+    });
+    if (!resp.ok) throw new Error("anthropic " + resp.status + ": " + (await resp.text()).slice(0, 300));
+    const data = await resp.json();
+    return ((data.data ?? []) as Array<Record<string, unknown>>)
+      .filter((m) => m.lifecycle !== "retired")
+      .map((m) => {
+        const caps = m.capabilities as { pdf_input?: { supported?: boolean } } | null | undefined;
+        return {
+          id: String(m.id),
+          nome: String(m.display_name ?? m.id),
+          situacao: m.lifecycle === "deprecated" ? "descontinuado" as const : "ativo" as const,
+          lePdf: typeof caps?.pdf_input?.supported === "boolean" ? caps.pdf_input.supported : null,
+          saiEm: typeof m.retires_at === "string" ? m.retires_at : null,
+          recomendado: recomendado("anthropic", String(m.id)),
+        };
+      });
+  }
+  if (provider === "openai") {
+    const resp = await fetch("https://api.openai.com/v1/models", {
+      headers: { authorization: "Bearer " + credencial.chave },
+      signal: sinal,
+    });
+    if (!resp.ok) throw new Error("openai " + resp.status + ": " + (await resp.text()).slice(0, 300));
+    const data = await resp.json();
+    return ((data.data ?? []) as Array<{ id: string }>)
+      .map((m) => String(m.id))
+      .filter((id) => OPENAI_CONVERSA.test(id) && !OPENAI_FORA.test(id))
+      .sort()
+      .map((id) => ({
+        id,
+        nome: id,
+        situacao: "ativo" as const,
+        lePdf: null,
+        saiEm: null,
+        recomendado: recomendado("openai", id),
+      }));
+  }
+  throw new Error("provider nao suportado: " + provider);
 }

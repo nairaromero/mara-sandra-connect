@@ -19,9 +19,8 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
-import { decryptSecret } from "../_shared/crypto.ts";
-import { carregarIntegracao } from "../_shared/ia-integracao.ts";
-import { chatWith, type Attachment } from "../_shared/ia-providers.ts";
+import { abrirCredencial, carregarIntegracao, registroDeUso } from "../_shared/ia-integracao.ts";
+import { chatWith, mensagemDoErro, type Attachment } from "../_shared/ia-providers.ts";
 import { extrairJson } from "../_shared/documento-campos.ts";
 import { exigirUsuario } from "../_shared/auth.ts";
 
@@ -106,7 +105,7 @@ serve(async (req) => {
   const admin = quem.admin;
 
 
-  const resIntegracao = await carregarIntegracao(admin, quem.uid);
+  const resIntegracao = await carregarIntegracao(admin, quem.perfil.escritorio_id);
   if (!resIntegracao.ok) {
     return jsonResponse(
       { error: resIntegracao.error, code: resIntegracao.code },
@@ -115,10 +114,7 @@ serve(async (req) => {
   }
 
   try {
-    const apiKey = await decryptSecret(
-      resIntegracao.integ.api_key_cipher,
-      resIntegracao.integ.api_key_iv,
-    );
+    const apiKey = await abrirCredencial(resIntegracao.integ);
     const attachments: Attachment[] = textoColado
       ? []
       : [{
@@ -132,6 +128,12 @@ serve(async (req) => {
       apiKey,
       resIntegracao.integ.modelo,
       {
+        registro: registroDeUso(admin, {
+          escritorioId: quem.perfil.escritorio_id,
+          usuarioId: quem.uid,
+          funcao: "extrair-agendamento-pericia",
+          origem: resIntegracao.integ.origem,
+        }),
         system: SYSTEM,
         maxTokens: 700,
         tools: [],
@@ -155,6 +157,6 @@ serve(async (req) => {
     return jsonResponse({ campos });
   } catch (err) {
     console.warn("[extrair-agendamento-pericia] falha:", err);
-    return jsonResponse({ error: "falha ao ler o documento" }, 502);
+    return jsonResponse({ error: mensagemDoErro(err, "Não consegui ler o documento.") }, 502);
   }
 });

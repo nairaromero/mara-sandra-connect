@@ -1,5 +1,6 @@
 // integracoes-escritorio — configuração de integrações POR ESCRITÓRIO
-// (WhatsApp/Evolution, Legalmail e Tramitação Inteligente), gravada pela function porque
+//   (tipo "ia" também tem: modelos { config?, segredo? } — os modelos que a chave enxerga)
+// (WhatsApp/Evolution, Legalmail, Tramitação Inteligente e a IA), gravada pela function porque
 // o segredo (chave da API) é cifrado com a master key antes de ir ao banco e
 // nunca volta ao navegador. Quem chama: quem gerencia integrações no
 // escritório ativo (admin). Ações:
@@ -13,6 +14,11 @@ import { exigirUsuario, fetchT } from "../_shared/auth.ts";
 import { auditar, type AcaoAuditada } from "../_shared/auditoria.ts";
 import { encryptSecret, decryptSecret } from "../_shared/crypto.ts";
 import { baseLegalmail, baseTI } from "../_shared/integracoes.ts";
+import { chatWith, classeDoErro, type Credencial, listarModelos, mensagemDoErro, modeloAposentado, PROVIDERS } from "../_shared/ia-providers.ts";
+import { abrirCredencial, integracaoDaLinha, registroDeUso } from "../_shared/ia-integracao.ts";
+
+/** ID de workspace da Anthropic: `wrkspc_` + letras e números. */
+const WORKSPACE_RE = /^wrkspc_[A-Za-z0-9]+$/;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -22,14 +28,22 @@ const corsHeaders = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-const TIPOS = new Set(["whatsapp", "legalmail", "ti", "djen"]);
+const TIPOS = new Set(["whatsapp", "legalmail", "ti", "djen", "ia"]);
 // campos de config aceitos por tipo (o resto é descartado: nada de segredo em config)
 const CAMPOS: Record<string, string[]> = {
   whatsapp: ["base_url", "instance", "inbound_token", "numero"],
   legalmail: ["usuario"],
   ti: ["base_url", "usuario"],
   djen: [],
+  // IA (#451): provedor, modelo e — para chave da Anthropic que vale para mais
+  // de um workspace — o ID do workspace; a chave vai no segredo.
+  ia: ["provider", "modelo", "workspace_id"],
 };
+
+/** Lista da tela para a IA: sai dos perfis de modelo (uma fonte só). */
+const PROVIDERS_IA = Object.fromEntries(
+  Object.entries(PROVIDERS).map(([k, v]) => [k, { label: v.label, models: v.models }]),
+);
 
 function tokenAleatorio(): string {
   const arr = new Uint8Array(24);
@@ -64,10 +78,11 @@ serve(async (req) => {
     .maybeSingle();
   if (eAtual) return json({ error: `lendo integração: ${eAtual.message}` }, 500);
 
+  const extra = tipo === "ia" ? { providers: PROVIDERS_IA } : {};
   const semSegredo = (row: typeof atual) =>
     row
-      ? { tipo, config: row.config ?? {}, ativo: row.ativo, segredo_definido_em: row.segredo_definido_em, updated_at: row.updated_at }
-      : { tipo, config: {}, ativo: false, segredo_definido_em: null, updated_at: null };
+      ? { tipo, config: row.config ?? {}, ativo: row.ativo, segredo_definido_em: row.segredo_definido_em, updated_at: row.updated_at, ...extra }
+      : { tipo, config: {}, ativo: false, segredo_definido_em: null, updated_at: null, ...extra };
 
   /**
    * Atalho desta function: o recurso é sempre a integração desta chamada. O
@@ -91,6 +106,23 @@ serve(async (req) => {
     if (body.action === "gerar_token") {
       if (tipo !== "whatsapp") return json({ error: "token de entrada só existe para whatsapp" }, 400);
       configNova.inbound_token = tokenAleatorio();
+    }
+    if (tipo === "ia") {
+      const provider = String(configNova.provider ?? "");
+      const modelo = String(configNova.modelo ?? "");
+      if (!PROVIDERS[provider]) return json({ error: "provedor de IA desconhecido" }, 400);
+      if (!modelo) return json({ error: "informe o modelo" }, 400);
+      const aposentado = modeloAposentado(provider, modelo);
+      if (aposentado) return json({ error: aposentado }, 400);
+      // A dica (últimos caracteres) ajuda a reconhecer a chave sem mostrá-la.
+      const seg = typeof body.segredo === "string" ? body.segredo.trim() : "";
+      if (seg) configNova.hint = seg.length > 8 ? "…" + seg.slice(-4) : "…";
+      if (!seg && !atual?.segredo_cipher) return json({ error: "informe a chave da API" }, 400);
+      const ws = String(configNova.workspace_id ?? "").trim();
+      if (!ws || provider !== "anthropic") delete configNova.workspace_id;
+      else if (!WORKSPACE_RE.test(ws)) return json({ error: "ID do workspace inválido: começa com wrkspc_" }, 400);
+      else configNova.workspace_id = ws;
+      delete configNova.origem;
     }
     const linha: Record<string, unknown> = {
       escritorio_id: escritorioId,
@@ -118,10 +150,77 @@ serve(async (req) => {
       .select("config, ativo, segredo_cipher, segredo_iv, segredo_definido_em, updated_at")
       .single();
     if (error) return json({ error: `salvando: ${error.message}` }, 500);
+    const antesDepois = tipo === "ia"
+      ? {
+          antes: { provider: atual?.config?.provider ?? null, modelo: atual?.config?.modelo ?? null, ativo: atual?.ativo ?? null },
+          depois: { provider: configNova.provider, modelo: configNova.modelo, ativo: linha.ativo },
+        }
+      : {};
     await registrar(body.action === "gerar_token" ? "integracao.token" : "integracao.salvar", {
-      campos: Object.keys(body.config ?? {}), segredo: !!segredo, ativo: linha.ativo,
+      campos: Object.keys(body.config ?? {}), segredo: !!segredo, ativo: linha.ativo, ...antesDepois,
     });
     return json({ ok: true, ...semSegredo(salvo) });
+  }
+
+  /**
+   * Credencial do que está na tela (chave colada agora) ou do que está salvo,
+   * com o workspace — pelo túnel (abrirCredencial). Texto = motivo de não ter.
+   */
+  async function credencialDaTela(cfg: Record<string, unknown>): Promise<Credencial | string> {
+    const ws = String(cfg.workspace_id ?? "").trim();
+    if (ws && !WORKSPACE_RE.test(ws)) return "ID do workspace inválido: começa com wrkspc_";
+    const colada = typeof body.segredo === "string" ? body.segredo.trim() : "";
+    if (colada) return { chave: colada, workspaceId: ws || null };
+    const integ = atual ? integracaoDaLinha(atual, { ...cfg, workspace_id: ws }) : null;
+    if (!integ) return "informe a chave da API";
+    return await abrirCredencial(integ);
+  }
+
+  if (body.action === "modelos" && tipo === "ia") {
+    // Quais modelos ESTA chave enxerga — a lista da tela passa a ser a dela.
+    const cfg = { ...(atual?.config ?? {}), ...(body.config ?? {}) } as Record<string, unknown>;
+    const provider = String(cfg.provider ?? "");
+    if (!PROVIDERS[provider]) return json({ ok: false, erro: "provedor de IA desconhecido" });
+    const credencial = await credencialDaTela(cfg);
+    if (typeof credencial === "string") return json({ ok: false, erro: credencial });
+    try {
+      const modelos = await listarModelos(provider, credencial);
+      return json({ ok: true, modelos });
+    } catch (e) {
+      console.warn("[integracoes-escritorio] modelos IA:", String((e as Error)?.message ?? e).slice(0, 300));
+      return json({ ok: false, erro: mensagemDoErro(e, "Não consegui listar os modelos desta chave.") });
+    }
+  }
+
+  if (body.action === "testar" && tipo === "ia") {
+    // Testa o que está na tela (chave colada agora) ou o que está salvo.
+    const cfg = { ...(atual?.config ?? {}), ...(body.config ?? {}) } as Record<string, unknown>;
+    const provider = String(cfg.provider ?? "");
+    const modelo = String(cfg.modelo ?? "").trim();
+    if (!PROVIDERS[provider]) return json({ ok: false, erro: "provedor de IA desconhecido" });
+    if (!modelo) return json({ ok: false, erro: "informe o modelo" });
+    const aposentado = modeloAposentado(provider, modelo);
+    if (aposentado) return json({ ok: false, erro: aposentado });
+    const credencial = await credencialDaTela(cfg);
+    if (typeof credencial === "string") return json({ ok: false, erro: credencial });
+    try {
+      await chatWith(provider, credencial, modelo, {
+        system: "Responda apenas: ok",
+        messages: [{ role: "user", content: "ping" }],
+        tools: [],
+        maxTokens: 20,
+        signal: AbortSignal.timeout(20_000),
+        registro: registroDeUso(admin, { escritorioId, usuarioId: quem.uid, funcao: "integracoes-escritorio:testar", origem: "teste" }),
+      });
+      await registrar("integracao.testar", { ok: true, provider, modelo });
+      return json({ ok: true });
+    } catch (e) {
+      // O texto cru do provedor (JSON, request id) fica no log; a tela recebe
+      // uma frase que diz o que fazer.
+      console.warn("[integracoes-escritorio] testar IA:", String((e as Error)?.message ?? e).slice(0, 300));
+      await registrar("integracao.testar", { ok: false, provider, modelo, erro: classeDoErro(e) });
+      return json({ ok: false, erro: mensagemDoErro(e) });
+    }
   }
 
   if (body.action === "testar" && (tipo === "legalmail" || tipo === "ti")) {
@@ -150,7 +249,7 @@ serve(async (req) => {
   }
 
   if (body.action === "testar") {
-    if (tipo !== "whatsapp") return json({ error: "teste só existe para whatsapp, legalmail e ti" }, 400);
+    if (tipo !== "whatsapp") return json({ error: "teste só existe para whatsapp, legalmail, ti e ia" }, 400);
     if (!atual) return json({ ok: false, erro: "integração ainda não configurada" });
     const cfg = (atual.config ?? {}) as { base_url?: string; instance?: string };
     if (!cfg.base_url || !cfg.instance) return json({ ok: false, erro: "informe a URL e a instância" });

@@ -21,8 +21,8 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
-import { decryptSecret } from "../_shared/crypto.ts";
-import { chatWith } from "../_shared/ia-providers.ts";
+import { chatWith, mensagemDoErro } from "../_shared/ia-providers.ts";
+import { abrirCredencial, carregarIntegracao, registroDeUso } from "../_shared/ia-integracao.ts";
 import { extrairJson } from "../_shared/documento-campos.ts";
 import { exigirRecurso, exigirUsuario } from "../_shared/auth.ts";
 
@@ -170,21 +170,28 @@ serve(async (req) => {
       .select("id, titulo, descricao, tipo, caso_id, responsavel_id, processo_admin_id, processo_judicial_id, metadata")
       .eq("id", tarefaId)
       .maybeSingle(),
-    // A chave compartilhada é por escritório: a equipe de um não gasta a do outro.
-    (quem.perfil.escritorio_id
-      ? admin.from("ia_integracoes").select("provider, modelo, api_key_cipher, api_key_iv")
-          .eq("compartilhada", true).eq("ativo", true).eq("escritorio_id", quem.perfil.escritorio_id)
-      : admin.from("ia_integracoes").select("provider, modelo, api_key_cipher, api_key_iv")
-          .eq("compartilhada", true).eq("ativo", true)
-    ).limit(1).maybeSingle(),
+    // A chave do escritório ativo, pelo túnel (_shared/ia-integracao.ts):
+    // sem escritório não há chave, e nunca a de outro escritório (#451).
+    carregarIntegracao(admin, quem.perfil.escritorio_id)
+      .then((r) => ({ data: r, error: null as string | null }))
+      .catch((e) => ({ data: null, error: String((e as Error)?.message ?? e) })),
   ]);
   if (resTarefa.error) return jsonResponse({ error: "falha ao ler a tarefa" }, 500);
   const tarefa = resTarefa.data;
   if (!tarefa) return jsonResponse({ error: "tarefa nao encontrada" }, 404);
   if (!tarefa.caso_id) return semSugestao("A tarefa não tem caso ligado.");
-  if (resChave.error) return semSugestao("Não consegui carregar a IA do escritório.");
-  const chave = resChave.data;
-  if (!chave) return semSugestao("A IA do escritório não está configurada.");
+  if (resChave.error || !resChave.data) {
+    console.warn("[sugerir-proxima-tarefa] lendo a IA do escritório:", resChave.error);
+    return semSugestao("Não consegui carregar a IA do escritório.");
+  }
+  if (!resChave.data.ok) {
+    return semSugestao(
+      resChave.data.code === "desativado"
+        ? "A IA do escritório está desligada."
+        : "A IA do escritório não está configurada.",
+    );
+  }
+  const chave = resChave.data.integ;
 
   // Responsável: a escada do caso, preferindo quem cuidava da concluída. Não
   // depende da IA, então roda junto com o contexto. Falha aqui não derruba a
@@ -247,8 +254,14 @@ serve(async (req) => {
 
   let bruto: Record<string, unknown> | null = null;
   try {
-    const apiKey = await decryptSecret(chave.api_key_cipher, chave.api_key_iv);
+    const apiKey = await abrirCredencial(chave);
     const res = await chatWith(chave.provider, apiKey, chave.modelo, {
+      registro: registroDeUso(admin, {
+        escritorioId: quem.perfil.escritorio_id,
+        usuarioId: quem.uid,
+        funcao: "sugerir-proxima-tarefa",
+        origem: chave.origem,
+      }),
       system: SYSTEM,
       maxTokens: MAX_TOKENS_SAIDA,
       tools: [],
@@ -260,8 +273,7 @@ serve(async (req) => {
     bruto = extrairJson(res.text || "");
   } catch (err) {
     console.warn("[sugerir-proxima-tarefa] IA falhou:", err);
-    const estourou = err instanceof DOMException && err.name === "TimeoutError";
-    return semSugestao(estourou ? "A IA não respondeu a tempo." : "A IA falhou ao sugerir a próxima tarefa.");
+    return semSugestao(mensagemDoErro(err, "A IA falhou ao sugerir a próxima tarefa."));
   }
   if (!bruto) return semSugestao("A IA não devolveu uma sugestão válida.");
 

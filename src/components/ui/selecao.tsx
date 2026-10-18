@@ -15,7 +15,7 @@
 // quem quiser manda: `busca` força ligado ou desligado.
 //
 // Migração do resto (os 23 `Select` e os 2 nativos) é lote à parte.
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -99,6 +99,10 @@ export function Selecao({
   ...resto
 }: SelecaoProps) {
   const [aberto, setAberto] = useState(false);
+  // `modal` só dentro de painel (Sheet/Dialog): decidido ao abrir, olhando onde
+  // o botão está. Ver o comentário no <Popover>.
+  const [dentroDePainel, setDentroDePainel] = useState(false);
+  const gatilho = useRef<HTMLButtonElement>(null);
   const escolhida = opcoes.find((o) => o.value === value);
   const comBusca = busca ?? opcoes.length >= LIMITE_BUSCA;
 
@@ -123,10 +127,26 @@ export function Selecao({
     return [...mapa.entries()].filter(([, itens]) => itens.length > 0);
   }, [opcoes]);
 
+  // `modal` (#300): dentro de Sheet/Dialog, o react-remove-scroll do painel
+  // cancela wheel/touchmove em tudo que está FORA do conteúdo dele — e esta
+  // lista vive num portal, fora. Roda do mouse, trackpad e toque não rolavam.
+  // Com `modal` o próprio Popover vira a trava ativa e a lista dele rola.
+  // SÓ dentro de painel (revisão do #460): `modal` também trava a página
+  // (overflow hidden, pointer-events none) e esconde o resto da tela do leitor
+  // de tela — fora de painel, isso quebrava filtros e paginadores (o primeiro
+  // clique fora só fechava a lista). Prova: e2e/tests/selecao-rolagem.spec.ts.
+  const alternar = (abrir: boolean) => {
+    if (abrir) {
+      setDentroDePainel(!!gatilho.current?.closest('[role="dialog"], [role="alertdialog"]'));
+    }
+    setAberto(abrir);
+  };
+
   return (
-    <Popover open={aberto} onOpenChange={setAberto}>
+    <Popover modal={dentroDePainel} open={aberto} onOpenChange={alternar}>
       <PopoverTrigger asChild>
         <Button
+          ref={gatilho}
           type="button"
           variant="outline"
           role="combobox"

@@ -167,6 +167,17 @@ o sistema em produção. Quando chegar, vale o seguinte:
   escrita; trava as migrations de EXECUTE e o conferidor acusa).
   O `scripts/rbac-conferir-exigencias.mjs` cobra o túnel da auditoria: insert
   direto na tabela vira divergência.
+  Túneis da IA (#451): `carregarIntegracao` em `_shared/ia-integracao.ts` (qual
+  chave vale: a do escritório ativo), `integracaoDaLinha` (linha de
+  `escritorio_integracoes` → integração), `abrirCredencial` (decifra a chave e
+  junta o workspace da Anthropic — ninguém decifra por fora),
+  `listarModelos` (os modelos que a chave enxerga), `chatWith` com `registro:
+  registroDeUso(...)` (toda chamada vira linha em `ia_uso`), os perfis de modelo
+  em `_shared/ia-providers.ts` (teto, raciocínio, lista da tela) e
+  `mensagemDoErro(e, padrão)` (a frase de erro de IA que chega à tela; o texto
+  cru do provedor vai só para o log). A régua
+  `e2e/unit/ia-registro-de-uso.test.ts` acusa chamada sem registro, chave lida
+  ou decifrada fora do túnel e erro cru de IA devolvido à tela.
 - **Quem muda ACESSO audita** (desde 2026-09-27, `migration_rbac_25`/`26`; desenho em
   planning/AUDITABILIDADE.md): papel, permissão, status do vínculo, titularidade e staff
   chamam `private.auditar` com o antes e o depois; apagar cliente, documento ou andamento

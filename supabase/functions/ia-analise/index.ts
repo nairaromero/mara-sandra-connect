@@ -14,9 +14,8 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { exigirRecurso, exigirUsuario } from "../_shared/auth.ts";
-import { decryptSecret } from "../_shared/crypto.ts";
-import { carregarIntegracao } from "../_shared/ia-integracao.ts";
-import { chatWith, type Attachment } from "../_shared/ia-providers.ts";
+import { abrirCredencial, carregarIntegracao, registroDeUso } from "../_shared/ia-integracao.ts";
+import { chatWith, mensagemDoErro, type Attachment, type Credencial } from "../_shared/ia-providers.ts";
 import { maskCpf } from "../_shared/ia-redact.ts";
 import { encode as toBase64 } from "https://deno.land/std@0.177.0/encoding/base64.ts";
 import { configureUnPDF, extractText, getDocumentProxy } from "https://esm.sh/unpdf@0.12.0";
@@ -131,7 +130,7 @@ serve(async (req) => {
   const uid = quem.uid;
 
   // Chave própria; sem ela, cai na compartilhada do escritório (se houver).
-  const resIntegracao = await carregarIntegracao(admin, uid);
+  const resIntegracao = await carregarIntegracao(admin, quem.perfil.escritorio_id);
   if (!resIntegracao.ok) {
     return jsonResponse(
       { error: resIntegracao.error, code: resIntegracao.code },
@@ -318,9 +317,9 @@ serve(async (req) => {
     andamentos: ands ?? [],
   };
 
-  let apiKey: string;
+  let apiKey: Credencial;
   try {
-    apiKey = await decryptSecret(integ.api_key_cipher, integ.api_key_iv);
+    apiKey = await abrirCredencial(integ);
   } catch {
     return jsonResponse({ error: "falha ao abrir a chave configurada" }, 500);
   }
@@ -328,6 +327,12 @@ serve(async (req) => {
   let res: { text: string; usage: { input: number; output: number } };
   try {
     res = await chatWith(integ.provider, apiKey, integ.modelo, {
+      registro: registroDeUso(admin, {
+        escritorioId: quem.perfil.escritorio_id,
+        usuarioId: uid,
+        funcao: "ia-analise",
+        origem: integ.origem,
+      }),
       system: SYSTEM,
       maxTokens: 8000,
       attachments,
@@ -349,8 +354,8 @@ serve(async (req) => {
       tools: [],
     });
   } catch (e) {
-    const m = e instanceof Error ? e.message : String(e);
-    return jsonResponse({ error: m.slice(0, 300) }, 502);
+    console.warn("[ia-analise] IA falhou:", String((e as Error)?.message ?? e).slice(0, 300));
+    return jsonResponse({ error: mensagemDoErro(e, "A análise não pôde ser feita. Tente de novo.") }, 502);
   }
 
   // A IA responde com a analise rica (markdown) seguida de um rodape META (JSON

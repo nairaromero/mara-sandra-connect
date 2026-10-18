@@ -23,9 +23,8 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { exigirUsuario } from "../_shared/auth.ts";
-import { decryptSecret } from "../_shared/crypto.ts";
-import { carregarIntegracao } from "../_shared/ia-integracao.ts";
-import { chatWith, type Attachment } from "../_shared/ia-providers.ts";
+import { abrirCredencial, carregarIntegracao, registroDeUso } from "../_shared/ia-integracao.ts";
+import { chatWith, mensagemDoErro, type Attachment, type Credencial } from "../_shared/ia-providers.ts";
 import { extrairJson, montarCampos } from "../_shared/documento-campos.ts";
 
 // Documento de identidade e comprovante sao arquivos pequenos; teto baixo de
@@ -99,7 +98,7 @@ serve(async (req) => {
   const uid = quem.uid;
 
   // Chave própria; sem ela, cai na compartilhada do escritório (se houver).
-  const resIntegracao = await carregarIntegracao(admin, uid);
+  const resIntegracao = await carregarIntegracao(admin, quem.perfil.escritorio_id);
   if (!resIntegracao.ok) {
     return jsonResponse(
       { error: resIntegracao.error, code: resIntegracao.code },
@@ -164,9 +163,9 @@ serve(async (req) => {
     );
   }
 
-  let apiKey: string;
+  let apiKey: Credencial;
   try {
-    apiKey = await decryptSecret(integ.api_key_cipher, integ.api_key_iv);
+    apiKey = await abrirCredencial(integ);
   } catch {
     return jsonResponse({ error: "falha ao abrir a chave configurada" }, 500);
   }
@@ -174,6 +173,12 @@ serve(async (req) => {
   let res: { text: string; usage: { input: number; output: number } };
   try {
     res = await chatWith(integ.provider, apiKey, integ.modelo, {
+      registro: registroDeUso(admin, {
+        escritorioId: quem.perfil.escritorio_id,
+        usuarioId: uid,
+        funcao: "extrair-dados-cliente",
+        origem: integ.origem,
+      }),
       system: SYSTEM,
       maxTokens: 1200,
       tools: [],
@@ -189,7 +194,8 @@ serve(async (req) => {
       ],
     });
   } catch (e) {
-    return jsonResponse({ error: "falha ao ler o documento: " + String(e) }, 502);
+    console.warn("[extrair-dados-cliente] IA falhou:", String(e).slice(0, 300));
+    return jsonResponse({ error: mensagemDoErro(e, "Não consegui ler o documento.") }, 502);
   }
 
   const obj = extrairJson(res.text);

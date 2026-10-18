@@ -9,6 +9,8 @@ import { Loader2, Trash2, ExternalLink, AlarmClock } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Selecao } from "@/components/ui/selecao";
+import { AvisoDeCarga } from "@/components/aviso-de-carga";
+import { useCargaDoPainel } from "@/hooks/use-carga-do-painel";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -337,10 +339,12 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
     }
   }
 
-  const [casos, setCasos] = useState<Array<{ id: string; cliente_nome: string | null }>>([]);
-  const [internos, setInternos] = useState<
-    Array<{ id: string; nome: string | null; email: string | null }>
-  >([]);
+  // Clientes e responsáveis: carregados ao abrir, com a falha visível no
+  // painel (useCargaDoPainel — antes, duas cópias e `.catch(() => {})`).
+  const cargaCasos = useCargaDoPainel(aberto, listarCasosResumo, "a lista de clientes");
+  const cargaInternos = useCargaDoPainel(aberto, listarInternosAtivos, "a lista de responsáveis");
+  const casos = cargaCasos.dados;
+  const internos = cargaInternos.dados;
   const [templates, setTemplates] = useState<TarefaTemplateRow[]>([]);
   const [templateSelecionado, setTemplateSelecionado] = useState<string>("");
   // Responsável POR ITEM quando o template cria mais de uma tarefa. index =
@@ -540,8 +544,6 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   // Carrega listas auxiliares uma vez (ao abrir).
   useEffect(() => {
     if (!aberto) return;
-    listarCasosResumo().then(setCasos).catch(() => {});
-    listarInternosAtivos().then(setInternos).catch(() => {});
     // Mostra TODOS os templates ativos não-ocultos. Quando o template tem
     // item destino=agenda (ex: "Perícia (com parceiro)"), o salvar() cria
     // o agenda_evento + tarefas extras com datas relativas.
@@ -1552,6 +1554,12 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                   placeholder="Sem cliente"
                   buscaPlaceholder="Buscar cliente..."
                   vazio="Nenhum cliente encontrado."
+                  data-selecao="cliente"
+                />
+                <AvisoDeCarga
+                  erro={cargaCasos.erro}
+                  carregando={cargaCasos.carregando}
+                  onTentar={cargaCasos.recarregar}
                 />
                 {editando && trocandoCaso && (
                   <div className="flex items-center gap-2">
@@ -2105,6 +2113,11 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
     ...internos.map((u) => ({ value: u.id, label: u.nome ?? "(sem nome)" })),
   ]}
 />
+            <AvisoDeCarga
+              erro={cargaInternos.erro}
+              carregando={cargaInternos.carregando}
+              onTentar={cargaInternos.recarregar}
+            />
           </div>
           )}
 

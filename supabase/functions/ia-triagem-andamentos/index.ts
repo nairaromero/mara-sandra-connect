@@ -26,10 +26,9 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
-import { chatWith, type ToolDef } from "../_shared/ia-providers.ts";
-import { decryptSecret } from "../_shared/crypto.ts";
+import { chatWith, mensagemDoErro, type ToolDef, type Credencial } from "../_shared/ia-providers.ts";
 import { exigirUsuario } from "../_shared/auth.ts";
-import { carregarIntegracao } from "../_shared/ia-integracao.ts";
+import { abrirCredencial, carregarIntegracao, registroDeUso } from "../_shared/ia-integracao.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -165,7 +164,7 @@ serve(async (req) => {
 
   // --- Integração de IA do usuário (mesma do assistente) --------------------
   // Chave própria; sem ela, cai na compartilhada do escritório (se houver).
-  const resIntegracao = await carregarIntegracao(admin, usuarioId);
+  const resIntegracao = await carregarIntegracao(admin, quem.perfil.escritorio_id);
   if (!resIntegracao.ok) {
     return jsonResponse(
       { error: resIntegracao.error, code: resIntegracao.code },
@@ -219,9 +218,9 @@ serve(async (req) => {
     };
   });
 
-  let apiKey: string;
+  let apiKey: Credencial;
   try {
-    apiKey = await decryptSecret(integ.api_key_cipher, integ.api_key_iv);
+    apiKey = await abrirCredencial(integ);
   } catch {
     return jsonResponse({ error: "falha ao decriptar a chave de IA" }, 500);
   }
@@ -230,6 +229,12 @@ serve(async (req) => {
   let itens: TriagemItem[];
   try {
     const res = await chatWith(integ.provider, apiKey, integ.modelo, {
+      registro: registroDeUso(admin, {
+        escritorioId: quem.perfil.escritorio_id,
+        usuarioId: usuarioId,
+        funcao: "ia-triagem-andamentos",
+        origem: integ.origem,
+      }),
       system: SYSTEM_PROMPT,
       messages: [
         {
@@ -246,7 +251,9 @@ serve(async (req) => {
     if (!call) throw new Error("modelo nao chamou registrar_triagem");
     itens = (call.args.itens as TriagemItem[]) || [];
   } catch (err) {
-    return jsonResponse({ error: "ia: " + String(err).slice(0, 300) }, 502);
+    // Texto cru no log; a tela recebe a frase do túnel (mensagemDoErro).
+    console.warn("[ia-triagem-andamentos] IA falhou:", String(err).slice(0, 300));
+    return jsonResponse({ error: mensagemDoErro(err, "A IA não devolveu a triagem. Tente de novo.") }, 502);
   }
 
   if (dryRun) {

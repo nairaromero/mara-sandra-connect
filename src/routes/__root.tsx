@@ -135,7 +135,9 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <Outlet />
-        <Toaster richColors position="top-right" />
+        {/* Abaixo do cabeçalho fixo (h-14 = 56px) e da faixa de aviso do topo:
+            no canto, a notificação cobria "Administrador" e o avatar. */}
+        <Toaster richColors position="top-right" offset={{ top: 72, right: 16 }} mobileOffset={{ top: 64 }} />
       </AuthProvider>
     </QueryClientProvider>
   );
