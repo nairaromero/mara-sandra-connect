@@ -26,7 +26,7 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
-import { chatWith, type ToolDef } from "../_shared/ia-providers.ts";
+import { chatWith, mensagemDoErro, type ToolDef } from "../_shared/ia-providers.ts";
 import { decryptSecret } from "../_shared/crypto.ts";
 import { exigirUsuario } from "../_shared/auth.ts";
 import { carregarIntegracao, registroDeUso } from "../_shared/ia-integracao.ts";
@@ -252,7 +252,9 @@ serve(async (req) => {
     if (!call) throw new Error("modelo nao chamou registrar_triagem");
     itens = (call.args.itens as TriagemItem[]) || [];
   } catch (err) {
-    return jsonResponse({ error: "ia: " + String(err).slice(0, 300) }, 502);
+    // Texto cru no log; a tela recebe a frase do túnel (mensagemDoErro).
+    console.warn("[ia-triagem-andamentos] IA falhou:", String(err).slice(0, 300));
+    return jsonResponse({ error: mensagemDoErro(err, "A IA não devolveu a triagem. Tente de novo.") }, 502);
   }
 
   if (dryRun) {

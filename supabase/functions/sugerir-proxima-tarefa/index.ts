@@ -22,7 +22,7 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { decryptSecret } from "../_shared/crypto.ts";
-import { chatWith, IaRespostaCortada } from "../_shared/ia-providers.ts";
+import { chatWith, mensagemDoErro } from "../_shared/ia-providers.ts";
 import { carregarIntegracao, registroDeUso } from "../_shared/ia-integracao.ts";
 import { extrairJson } from "../_shared/documento-campos.ts";
 import { exigirRecurso, exigirUsuario } from "../_shared/auth.ts";
@@ -274,9 +274,7 @@ serve(async (req) => {
     bruto = extrairJson(res.text || "");
   } catch (err) {
     console.warn("[sugerir-proxima-tarefa] IA falhou:", err);
-    const estourou = err instanceof DOMException && err.name === "TimeoutError";
-    if (err instanceof IaRespostaCortada) return semSugestao("A resposta da IA foi cortada antes de terminar.");
-    return semSugestao(estourou ? "A IA não respondeu a tempo." : "A IA falhou ao sugerir a próxima tarefa.");
+    return semSugestao(mensagemDoErro(err, "A IA falhou ao sugerir a próxima tarefa."));
   }
   if (!bruto) return semSugestao("A IA não devolveu uma sugestão válida.");
 

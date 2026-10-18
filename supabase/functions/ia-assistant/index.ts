@@ -24,7 +24,7 @@ import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { exigirUsuario } from "../_shared/auth.ts";
 import { decryptSecret, signPayload, verifyPayload } from "../_shared/crypto.ts";
 import { carregarIntegracao, registroDeUso } from "../_shared/ia-integracao.ts";
-import { chatWith, type NormMsg } from "../_shared/ia-providers.ts";
+import { chatWith, mensagemDoErro, type NormMsg } from "../_shared/ia-providers.ts";
 import { findTool, toolsForRole } from "../_shared/ia-tools.ts";
 import { redactArgs } from "../_shared/ia-redact.ts";
 
@@ -294,7 +294,7 @@ serve(async (req) => {
       tools_usadas: usadas,
     });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return jsonResponse({ error: msg.slice(0, 300) }, 502);
+    console.warn("[ia-assistant] IA falhou:", String((e as Error)?.message ?? e).slice(0, 300));
+    return jsonResponse({ error: mensagemDoErro(e, "O assistente não conseguiu responder. Tente de novo.") }, 502);
   }
 });
