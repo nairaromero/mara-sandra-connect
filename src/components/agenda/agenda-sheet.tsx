@@ -335,9 +335,15 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
 
   useEffect(() => {
     if (!aberto) return;
+    // Falha aqui era `.catch(() => {})`: seletor de cliente vazio, sem aviso (#300).
     listarCasosResumo()
       .then(setCasos)
-      .catch(() => {});
+      .catch((e: unknown) => {
+        console.error("listarCasosResumo:", e);
+        toast.error("Não consegui carregar a lista de clientes", {
+          description: (e as { message?: string })?.message || "Feche e abra o painel de novo.",
+        });
+      });
     listarInternosAtivos()
       .then(setInternos)
       .catch(() => {});
