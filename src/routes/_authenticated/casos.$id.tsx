@@ -125,6 +125,7 @@ import { EtiquetasCliente } from "@/components/etiquetas-cliente";
 import { Markdown } from "@/components/markdown";
 import { listarInternosAtivos } from "@/lib/tarefas/queries";
 import { ArquivosCumprimento } from "@/components/documentos/arquivos-cumprimento";
+import { PastasExternas } from "@/components/documentos/pastas-externas";
 import {
   rotuloSolicitacao,
   subirArquivosCumprimento,
@@ -5304,6 +5305,10 @@ function TabDocumentos(props: TabDocumentosProps) {
 
   return (
     <div className="space-y-4">
+      {/* #434: a pasta que o parceiro manda por link fica em cima de tudo — é
+          onde os arquivos ainda estão quando o caso parece vazio. */}
+      <PastasExternas casoId={casoId} onChange={onChange} />
+
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">

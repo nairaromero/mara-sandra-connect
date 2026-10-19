@@ -10,8 +10,8 @@
 //
 // Cada tool declara `papeis` (quem pode ver/usar). Writes entram na Fase 1.
 
-import {
 import { TIPOS_DOCUMENTO } from "./tipos-documento.ts";
+import {
   maskCpf,
   maskEmail,
   maskEndereco,

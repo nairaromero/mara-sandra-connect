@@ -11,11 +11,19 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { CheckCircle2, FileQuestion, Loader2, Sparkles } from "lucide-react";
+import {
+  CheckCircle2,
+  ExternalLink,
+  FileQuestion,
+  FolderOpen,
+  Loader2,
+  Sparkles,
+} from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
 import { TIPOS_DOCUMENTO_LABEL, TIPOS_DOCUMENTO_OPTIONS } from "@/lib/documentos/tipos";
 import { CHECKLIST_BASE } from "@/lib/documentos/checklist";
+import { provedorDaPasta, type PastaExterna } from "@/lib/documentos/pasta-externa";
 import { useDestaque } from "@/lib/destaque/destaque-context";
 import type { TarefaComJoins } from "@/lib/tarefas/types";
 import { Button } from "@/components/ui/button";
@@ -53,6 +61,9 @@ export function OrganizacaoDocumentos({
   stopPropagation = false,
 }: Props) {
   const [docs, setDocs] = useState<DocDoCaso[] | null>(null);
+  // Pasta por link (#434): quando o parceiro não anexa nada, é aqui que os
+  // arquivos estão — a tarefa não pode parecer um caso vazio.
+  const [pastas, setPastas] = useState<PastaExterna[]>([]);
   const [erro, setErro] = useState(false);
   const [lendo, setLendo] = useState(false);
   const [observacao, setObservacao] = useState("");
@@ -78,6 +89,22 @@ export function OrganizacaoDocumentos({
         }
         setErro(false);
         setDocs((data ?? []) as DocDoCaso[]);
+      });
+    supabase
+      .from("caso_pastas_externas")
+      .select("id, caso_id, url, rotulo, criado_por, created_at, atualizado_em")
+      .eq("caso_id", tarefa.caso_id)
+      .order("created_at")
+      .then(({ data, error }) => {
+        if (!vivo) return;
+        // Falhar aqui não pode virar "não tem pasta": a tela diria que o
+        // parceiro não mandou nada quando mandou.
+        if (error) {
+          console.error("pastas por link do caso:", error);
+          setErro(true);
+          return;
+        }
+        setPastas((data ?? []) as PastaExterna[]);
       });
     return () => {
       vivo = false;
@@ -113,6 +140,9 @@ export function OrganizacaoDocumentos({
         n === 0 ? "Nada novo para ler." : `${n} arquivo${n > 1 ? "s" : ""} identificado${n > 1 ? "s" : ""}.`,
       );
       carregar();
+      // O card da lista lê os documentos por conta própria: sem avisar o pai,
+      // ele segue dizendo "0 de 3 identificados" depois que a IA já leu.
+      onUpdated();
     } catch (e) {
       console.error(e);
       toast.error((e as { message?: string })?.message || "Não consegui ler os documentos agora.");
@@ -183,6 +213,14 @@ export function OrganizacaoDocumentos({
               (duvidosos.length > 0 ? ` · ${duvidosos.length} em dúvida` : "") +
               (semLeitura.length > 0 ? ` · ${semLeitura.length} por ler` : "")}
         </p>
+        {docs !== null && pastas.length > 0 && (
+          <p className="flex items-center gap-1 text-xs text-muted-foreground">
+            <FolderOpen className="h-3.5 w-3.5 text-[var(--gold)]" />
+            {lista.length === 0
+              ? "sem arquivos aqui — o parceiro deixou uma pasta por link"
+              : "há também uma pasta por link"}
+          </p>
+        )}
         {faltantes.length > 0 && docs !== null && (
           <p className="text-xs text-muted-foreground">
             Falta: {faltantes.map((t) => TIPOS_DOCUMENTO_LABEL[t] ?? t).join(", ")}
@@ -228,8 +266,44 @@ export function OrganizacaoDocumentos({
 
       {erro && (
         <p className="rounded-md border border-amber-400/50 bg-amber-50 p-2 text-xs text-amber-900">
-          Não consegui ler os documentos do caso. Recarregue antes de concluir — senão você pede o
-          que já chegou.
+          Não consegui ler o que já chegou neste caso (arquivos ou pasta por link). Recarregue antes
+          de concluir — senão você pede o que já chegou.
+        </p>
+      )}
+
+      {docs !== null && pastas.length > 0 && (
+        <div className="rounded-md border border-[var(--gold)]/40 bg-[var(--gold)]/5 p-2">
+          <p className="flex items-center gap-2 text-xs font-medium">
+            <FolderOpen className="h-3.5 w-3.5 text-[var(--gold)]" />
+            {lista.length === 0
+              ? "O parceiro não juntou arquivos — deixou uma pasta por link"
+              : "Também há uma pasta por link neste caso"}
+          </p>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Baixe de lá e suba na aba Documentos do caso; depois a IA lê o que subiu.
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {pastas.map((p) => (
+              <li key={p.id}>
+                <a
+                  href={p.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs font-medium hover:underline"
+                >
+                  {p.rotulo?.trim() || `Pasta no ${provedorDaPasta(p.url)}`}
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {docs !== null && !erro && lista.length === 0 && pastas.length === 0 && (
+        <p className="rounded-md border border-amber-400/50 bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+          Nenhum arquivo e nenhuma pasta por link neste caso. Peça os documentos ao parceiro na aba
+          Documentos antes de mandar para análise.
         </p>
       )}
 

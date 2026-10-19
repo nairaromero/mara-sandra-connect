@@ -8,6 +8,7 @@
 import { test, expect } from "@playwright/test";
 import { STORAGE_INTERNO } from "../auth.setup";
 import { ENV } from "../env";
+import { clienteComo, escritorioPadrao } from "../rbac";
 import { adminClient, cleanupE2E, seedClienteCaso } from "../supabase-admin";
 import { abrirAtividadesDoCaso } from "../tarefas";
 
@@ -136,4 +137,110 @@ test("a conferência não se conclui pelo status, só pelo botão", async ({ pag
     timeout: 10_000,
   });
   await expect(page.getByRole("button", { name: "Concluir tarefa" })).toHaveCount(0);
+});
+
+test("o parceiro cola o link da pasta e a conferência diz isso", async ({ page }) => {
+  const { casoId: casoLink } = await seedClienteCaso(admin, {
+    sufixo: `Pasta por link ${Date.now()}`,
+    parceiroId,
+  });
+  await admin
+    .from("tarefas")
+    .update({ responsavel_id: internoId })
+    .eq("caso_id", casoLink)
+    .eq("metadata->>etapa", "organizacao_documentos");
+
+  // Cola pela SESSÃO DO PARCEIRO: o que precisa aceitar é a RLS dele, não a do
+  // service_role. Com admin aqui o teste passaria mesmo com a policy fechada.
+  const comoParceiro = await clienteComo(ENV.parceiroEmail, await escritorioPadrao());
+  const url = `https://1drv.ms/f/s!e2e-${Date.now()}`;
+  const { error } = await comoParceiro
+    .from("caso_pastas_externas")
+    .insert({ caso_id: casoLink, url, rotulo: "Pasta do cliente" });
+  expect(error, "o parceiro deveria poder colar o link no caso que ele indicou").toBeFalsy();
+
+  // O rastro no caso nasce do gatilho (o parceiro não escreve em `andamentos`)
+  // e é visível para ele: foi ele quem fez.
+  const { data: andamentos } = await admin
+    .from("andamentos")
+    .select("titulo, descricao, visivel_parceiro")
+    .eq("caso_id", casoLink)
+    .eq("titulo", "Pasta de documentos por link");
+  expect(andamentos?.length, "link colado vira andamento").toBe(1);
+  expect(andamentos![0].visivel_parceiro).toBe(true);
+  expect(andamentos![0].descricao).toContain(url);
+
+  // Na conferência, o caso não parece vazio: diz onde estão os arquivos.
+  await abrirAtividadesDoCaso(page, casoLink);
+  const card = page.locator("div.group").filter({ hasText: "Organizar documentos" }).first();
+  await expect(card).toBeVisible({ timeout: 20_000 });
+  await expect(card.getByText(/o parceiro deixou uma pasta por link/)).toBeVisible();
+});
+
+test("o parceiro não cola link em caso que não é dele", async () => {
+  const { casoId: casoDeOutro } = await seedClienteCaso(admin, {
+    sufixo: `Pasta de outro ${Date.now()}`,
+    parceiroId: null,
+  });
+  const comoParceiro = await clienteComo(ENV.parceiroEmail, await escritorioPadrao());
+  const r = await comoParceiro
+    .from("caso_pastas_externas")
+    .insert({ caso_id: casoDeOutro, url: "https://1drv.ms/f/s!nao-e-meu" })
+    .select();
+  expect(r.data ?? [], "caso sem o parceiro não aceita link dele").toHaveLength(0);
+  expect(r.error?.code, "a recusa é da RLS").toBe("42501");
+});
+
+test("documento junto com a criação do caso não abre uma segunda tarefa", async () => {
+  const { casoId: casoComDoc } = await seedClienteCaso(admin, {
+    sufixo: `Docs na criacao ${Date.now()}`,
+    parceiroId,
+  });
+  // O parceiro sobe o arquivo no mesmo ato de indicar o caso. Antes da #434 o
+  // gatilho só segurava a tarefa velha quando a etapa era a análise inicial —
+  // com a organização no lugar dela, vinham DUAS tarefas para o mesmo lote.
+  const { error } = await admin.from("documentos").insert({
+    caso_id: casoComDoc,
+    tipo: "outro",
+    nome_arquivo: "[E2E] procuracao.pdf",
+    storage_path: `e2e-organizacao/${casoComDoc}/procuracao.pdf`,
+    uploaded_by: parceiroId,
+  });
+  expect(error, "erro ao semear o documento do parceiro").toBeFalsy();
+
+  const { data } = await admin
+    .from("tarefas")
+    .select("titulo, metadata")
+    .eq("caso_id", casoComDoc);
+  expect(data?.length, "uma tarefa só: a conferência").toBe(1);
+  expect((data![0].metadata as { etapa?: string }).etapa).toBe("organizacao_documentos");
+});
+
+test("o parceiro não apaga o link que a equipe colou", async () => {
+  const { casoId: caso } = await seedClienteCaso(admin, {
+    sufixo: `Pasta da equipe ${Date.now()}`,
+    parceiroId,
+  });
+  const { data: linha } = await admin
+    .from("caso_pastas_externas")
+    .insert({ caso_id: caso, url: "https://1drv.ms/f/s!da-equipe", criado_por: internoId })
+    .select("id")
+    .single();
+
+  const comoParceiro = await clienteComo(ENV.parceiroEmail, await escritorioPadrao());
+  // Ele VÊ o link (é o caso dele) e não mexe: a tela esconde o lápis pela
+  // mesma regra, e a policy é quem garante.
+  const { data: visto } = await comoParceiro
+    .from("caso_pastas_externas")
+    .select("id")
+    .eq("id", linha!.id);
+  expect(visto?.length, "o parceiro enxerga o link do caso dele").toBe(1);
+
+  const r = await comoParceiro.from("caso_pastas_externas").delete().eq("id", linha!.id).select();
+  expect(r.data ?? [], "link da equipe não é dele para apagar").toHaveLength(0);
+  const { count } = await admin
+    .from("caso_pastas_externas")
+    .select("id", { count: "exact", head: true })
+    .eq("id", linha!.id);
+  expect(count, "a linha continua lá").toBe(1);
 });

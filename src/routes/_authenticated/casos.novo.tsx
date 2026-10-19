@@ -18,6 +18,7 @@ import { useTiposBeneficio } from "@/hooks/use-tipos-beneficio";
 import { supabase } from "@/lib/supabase";
 import { TIPOS_DOCUMENTO_OPTIONS } from "@/lib/documentos/tipos";
 import { MAX_FILE_SIZE_MB, validateFileSizes } from "@/lib/upload-limits";
+import { normalizarLinkPasta } from "@/lib/documentos/pasta-externa";
 import { ClientOnly } from "@/components/client-only";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -174,6 +175,9 @@ function NovoCasoPage() {
   // vem o nome — o resto do cadastro fica pra equipe completar.
   const [processosLegalmail, setProcessosLegalmail] = useState<Array<number>>([]);
   const [docs, setDocs] = useState<Array<DocUpload>>([]);
+  // #434: a pasta que vem por link. Quem indica o caso muitas vezes tem tudo
+  // numa pasta do OneDrive e não anexa nada — o link vale tanto quanto o anexo.
+  const [linkPasta, setLinkPasta] = useState("");
   // Dialog do Google Drive Picker. O parente chama abrirDrivePicker direto
   // antes de abrir o dialog, e so abre o dialog quando o Picker retorna com
   // arquivos selecionados. Isso evita race conditions onde o dialog fechava
@@ -682,6 +686,27 @@ function NovoCasoPage() {
         }
       }
 
+      // 3b) A pasta que veio por LINK (#434). Link torto não derruba o caso:
+      // avisa e segue — dá para colar de novo na aba Documentos.
+      const urlPasta = linkPasta.trim() ? normalizarLinkPasta(linkPasta) : null;
+      if (linkPasta.trim() && !urlPasta) {
+        toast.warning(
+          "Caso criado, mas o link da pasta não parecia um endereço. Cole de novo na aba Documentos.",
+        );
+      } else if (urlPasta) {
+        const { error: errPasta } = await supabase.from("caso_pastas_externas").insert({
+          caso_id: casoId,
+          url: urlPasta,
+          criado_por: usuario.id,
+        });
+        if (errPasta) {
+          console.error("Falha ao salvar o link da pasta:", errPasta);
+          toast.warning(
+            "Caso criado, mas o link da pasta não foi salvo. Cole de novo na aba Documentos.",
+          );
+        }
+      }
+
       // Se quem cadastrou foi o PARCEIRO, avisa o sino da equipe (interno):
       // caso novo pronto para analise (com a contagem de documentos anexados).
       if (!isInterno) {
@@ -691,7 +716,11 @@ function NovoCasoPage() {
           titulo: `Novo caso para análise: ${values.nome.trim()}`,
           descricao:
             `${values.tipo_beneficio}` +
-            (qtdDocs > 0 ? ` · ${qtdDocs} documento(s)` : " · sem documentos") +
+            (qtdDocs > 0
+              ? ` · ${qtdDocs} documento(s)`
+              : urlPasta
+                ? " · documentos em pasta por link"
+                : " · sem documentos") +
             ` · por ${usuario.nome || "parceiro"}`,
           caso_id: casoId,
         });
@@ -1150,6 +1179,21 @@ function NovoCasoPage() {
                       e.target.value = "";
                     }}
                   />
+                </div>
+                {/* #434: quem tem tudo numa pasta do OneDrive cola o link aqui
+                    em vez de anexar. O link fica no topo da aba Documentos. */}
+                <div>
+                  <Label className="text-xs">
+                    Ou o link da pasta (OneDrive, Google Drive, Dropbox…)
+                  </Label>
+                  <Input
+                    value={linkPasta}
+                    onChange={(e) => setLinkPasta(e.target.value)}
+                    placeholder="https://1drv.ms/f/…"
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    A equipe baixa de lá e organiza aqui. O link fica guardado no caso.
+                  </p>
                 </div>
                 {/* Importar do Google Drive - so aparece pra interno e se
                     as env vars estiverem configuradas. Util pra migrar

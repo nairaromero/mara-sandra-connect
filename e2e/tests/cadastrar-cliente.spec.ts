@@ -28,6 +28,9 @@ test("cadastrar cliente cria cliente e caso", async ({ page }) => {
   await page.getByLabel("Tipo de benefício *").click();
   await page.getByRole("option").first().click();
 
+  // #434: a pasta que vem por link, colada já na criação do caso.
+  await page.getByPlaceholder("https://1drv.ms/f/…").fill("https://1drv.ms/f/s!e2e-cadastro");
+
   // Sem parceiro e sem "cliente interno" o formulário não pode gravar: antes
   // o caso virava "sem parceiro" (interno) calado.
   await page.getByRole("button", { name: "Cadastrar caso" }).click();
@@ -51,4 +54,11 @@ test("cadastrar cliente cria cliente e caso", async ({ page }) => {
   const casos = cliente!.casos as Array<{ id: string; parceiro_id: string | null }>;
   expect(casos.length).toBeGreaterThan(0);
   expect(casos[0].parceiro_id).toBeNull();
+
+  // O link colado no formulário vira a pasta por link do caso (#434).
+  const { data: pastas } = await admin
+    .from("caso_pastas_externas")
+    .select("url")
+    .eq("caso_id", casos[0].id);
+  expect(pastas?.map((p) => p.url)).toEqual(["https://1drv.ms/f/s!e2e-cadastro"]);
 });
