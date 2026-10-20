@@ -58,6 +58,11 @@ export const ESCRITA: Record<string, { todas?: Exigencia } & Partial<Record<Oper
   processos_admin: { todas: { permissao: "casos:editar" } },
   processos_judiciais: { todas: { permissao: "casos:editar" } },
 
+  // pasta que o parceiro manda por link (#434): é dado do caso, e o parceiro
+  // tem `casos:editar` no escopo `indicados` — por isso a mesma exigência.
+  // Quem só mexe na linha que colou é a policy permissiva, não a permissão.
+  caso_pastas_externas: { todas: { permissao: "casos:editar" } },
+
   // documentos: enviar e excluir são permissões DIFERENTES (o assistente envia
   // e não apaga) — foi aqui que a tela errou o gate em dois lugares.
   documentos: {
@@ -133,6 +138,9 @@ export const FUNCTION: Record<string, Exigencia> = {
   // por AÇÃO (status/testar/salvar/ativar/compartilhar), enquanto as ações de
   // token do MCP são da dona do token, que pode ser parceira (#385).
   "ia-triagem-andamentos": { permissao: "ia:usar" },
+  // leitura dos documentos pela IA (#434): a pessoa pede pela conferência; a
+  // fila do cron entra pela via de sistema, que não passa por permissão.
+  "identificar-documentos": { permissao: "ia:usar" },
   "sugerir-proxima-tarefa": { permissao: "ia:usar" },
   "mensagem-parceiro-exigencia": { permissao: "ia:usar" },
   "extrair-agendamento-pericia": { permissao: "ia:usar" },

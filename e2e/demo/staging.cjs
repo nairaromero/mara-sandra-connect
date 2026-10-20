@@ -40,6 +40,9 @@ if (!ANON || !SERVICE) throw new Error("STAGING_PUBLISHABLE_KEY/STAGING_SERVICE_
 if (!SENHA) throw new Error("STAGING_SYNTH_PASSWORD ausente no .env.local");
 
 const admin = createClient(URL_SB, SERVICE, { auth: { persistSession: false, autoRefreshToken: false } });
+// O estúdio varre o rastro em caso emprestado no fim do filme (#445) usando
+// este alvo — o staging, nunca produção (a varredura recusa o ref de produção).
+require("./helpers.cjs").definirAlvoDaVarredura(admin, URL_SB);
 
 /** Sessão de uma conta sintética do staging (senha = STAGING_SYNTH_PASSWORD). */
 async function sessao(email, escritorio) {

@@ -24,6 +24,7 @@ import { AguardandoExigencia, AnaliseDeferimento } from "@/components/tarefas/de
 import { EnviarAvisoParceiro } from "@/components/tarefas/enviar-aviso-parceiro";
 import { EtapaCumprimentoExigencia } from "@/components/tarefas/etapa-cumprimento-exigencia";
 import { EtapaProtocoloRealizado } from "@/components/tarefas/etapa-protocolo-realizado";
+import { OrganizacaoDocumentos } from "@/components/tarefas/organizacao-documentos";
 import { EtapaProvidenciarDocumento } from "@/components/tarefas/etapa-providenciar-documento";
 import {
   descreverAutoriaStatus,
@@ -90,6 +91,9 @@ export function TarefaCard({
   const ehComparecimento =
     (tarefa.metadata as { confirmar_comparecimento?: boolean })?.confirmar_comparecimento === true;
   const ehEnviarAviso = !!(tarefa.metadata as { enviar_aviso?: object })?.enviar_aviso;
+  // Card #434: a conferência dos documentos também resolve no card, sem abrir.
+  const ehOrganizacaoDocs =
+    (tarefa.metadata as { organizacao_documentos?: boolean })?.organizacao_documentos === true;
   // Pedido de documento interno: cumprir direto do card, sem abrir a tarefa
   // (Naira, 2026-09-18).
   const ehProvidenciarDoc =
@@ -381,6 +385,15 @@ export function TarefaCard({
 
         {podeMexerEmTarefa && ehEnviarAviso && (
           <EnviarAvisoParceiro
+            tarefa={tarefa}
+            onUpdated={onChanged ?? (() => {})}
+            compacto
+            stopPropagation
+          />
+        )}
+
+        {podeMexerEmTarefa && ehOrganizacaoDocs && (
+          <OrganizacaoDocumentos
             tarefa={tarefa}
             onUpdated={onChanged ?? (() => {})}
             compacto

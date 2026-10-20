@@ -10,6 +10,7 @@
 //
 // Cada tool declara `papeis` (quem pode ver/usar). Writes entram na Fase 1.
 
+import { TIPOS_DOCUMENTO } from "./tipos-documento.ts";
 import {
   maskCpf,
   maskEmail,
@@ -63,14 +64,7 @@ function oneOf(v: unknown, allowed: string[]): string | null {
   return allowed.includes(s) ? s : null;
 }
 
-const TIPOS_DOC = [
-  "cnis", "ppp", "ctps", "ctc", "rg_cpf", "comprovante_residencia", "laudo_medico",
-  "procuracao", "contrato_honorarios", "cat", "carta_concessao_inss", "hiscre",
-  "holerite", "ltcat", "carne_gps", "certidao_casamento", "certidao_obito",
-  "certidao_nascimento", "declaracao_uniao_estavel", "declaracao_atividade_rural",
-  "atestado_medico", "outro", "substabelecimento", "declaracao_hipossuficiencia",
-  "declaracao_ausencia_duplicidade",
-];
+const TIPOS_DOC = TIPOS_DOCUMENTO;
 
 function reqStr(v: unknown, campo: string, max = 4000): string {
   const s = String(v ?? "").trim();

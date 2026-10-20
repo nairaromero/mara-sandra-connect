@@ -108,7 +108,8 @@ import { EnviarAvisoParceiro } from "@/components/tarefas/enviar-aviso-parceiro"
 import { EtapaProvidenciarDocumento } from "@/components/tarefas/etapa-providenciar-documento";
 import { EtapaCumprimentoExigencia } from "@/components/tarefas/etapa-cumprimento-exigencia";
 import { EtapaProtocoloRealizado } from "@/components/tarefas/etapa-protocolo-realizado";
-import { chaveDiaBR, dataHoraBR, horaBR, hojeChaveBR } from "@/lib/fuso";
+import { OrganizacaoDocumentos } from "@/components/tarefas/organizacao-documentos";
+import { chaveDiaBR, dataHoraBR, horaBR, hojeChaveBR } from "@/lib/fuso"
 import { useDestaque } from "@/lib/destaque/destaque-context";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
@@ -1493,6 +1494,12 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
           {editando && podeMexer && tarefa &&
             (tarefa.metadata as { protocolo_realizado?: boolean })?.protocolo_realizado && (
               <EtapaProtocoloRealizado tarefa={tarefa} onUpdated={onSaved} />
+            )}
+
+          {editando && podeMexer && tarefa &&
+            (tarefa.metadata as { organizacao_documentos?: boolean })
+              ?.organizacao_documentos === true && (
+              <OrganizacaoDocumentos tarefa={tarefa} onUpdated={onSaved} />
             )}
 
           {/* etapa nova do lote do kanban (#357): anexa documento e cumpre o

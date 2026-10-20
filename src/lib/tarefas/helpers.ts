@@ -275,6 +275,11 @@ export function checklistPendente(t: {
   if (m.enviar_aviso) {
     return "o envio do aviso ao parceiro (botão Enviar na tarefa)";
   }
+  // Card #434: concluir a organização por fora pularia a análise — a corrente
+  // morreria calada e o caso ficaria parado sem ninguém perceber.
+  if (m.organizacao_documentos === true) {
+    return 'a conferência dos documentos (botão "Conferido — enviar para análise")';
+  }
   return null;
 }
 
