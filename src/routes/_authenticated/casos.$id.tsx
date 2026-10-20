@@ -126,6 +126,7 @@ import { Markdown } from "@/components/markdown";
 import { listarInternosAtivos } from "@/lib/tarefas/queries";
 import { ArquivosCumprimento } from "@/components/documentos/arquivos-cumprimento";
 import { PastasExternas } from "@/components/documentos/pastas-externas";
+import { quemJuntou } from "@/lib/documentos/autor";
 import { VisualizadorDocumento } from "@/components/documentos/visualizador-documento";
 import { useVisualizadorDocumento } from "@/hooks/use-visualizador-documento";
 import {
@@ -244,6 +245,8 @@ interface Documento {
   storage_path: string;
   tamanho_bytes: number | null;
   uploaded_by: string | null;
+  /** Quem juntou o arquivo (join por `uploaded_by`). */
+  autor?: { id: string; nome: string | null; email: string | null; tipo: string | null } | null;
   visivel_parceiro: boolean;
   // Parceiro pode VISUALIZAR docs com visivel_parceiro=true. Mas so BAIXAR
   // quando o interno autoriza (download_parceiro=true). Default false.
@@ -749,7 +752,10 @@ function CasoDetalhePage() {
           .order("data_evento", { ascending: false }),
         supabase
           .from("documentos")
-          .select("*")
+          // `autor`: quem juntou (Naira, 20/10) — a equipe precisa distinguir o
+          // que veio do parceiro do que ela mesma subiu. `uploaded_by` sempre
+          // foi gravado; faltava mostrar.
+          .select("*, autor:usuarios!documentos_uploaded_by_fkey(id, nome, email, tipo)")
           .eq("caso_id", casoId)
           .order("created_at", { ascending: false }),
         supabase
@@ -5565,6 +5571,23 @@ function TabDocumentos(props: TabDocumentosProps) {
                               ? d.tipo_personalizado
                               : TIPOS_DOCUMENTO_LABEL[d.tipo] || d.tipo}{" "}
                             - {formatBytes(d.tamanho_bytes)} - {formatDate(d.created_at)}
+                            {/* quem juntou: a etiqueta só no parceiro — numa
+                                pasta grande, "equipe" em toda linha é ruído */}
+                            {(() => {
+                              const quem = quemJuntou(d.autor);
+                              if (!quem) return null;
+                              return (
+                                <>
+                                  {" "}
+                                  - por {quem.nome}
+                                  {quem.ehParceiro && (
+                                    <span className="ml-1 rounded bg-[var(--gold)]/15 px-1 text-[10px] text-foreground">
+                                      parceiro
+                                    </span>
+                                  )}
+                                </>
+                              );
+                            })()}
                           </p>
                         </div>
                       </div>

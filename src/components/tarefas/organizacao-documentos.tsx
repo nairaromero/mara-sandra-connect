@@ -28,6 +28,7 @@ import { TIPOS_DOCUMENTO_LABEL, TIPOS_DOCUMENTO_OPTIONS } from "@/lib/documentos
 import { CHECKLIST_BASE } from "@/lib/documentos/checklist";
 import { provedorDaPasta, type PastaExterna } from "@/lib/documentos/pasta-externa";
 import { abreNoNavegador, iaConsegueLer, rotuloDaExtensao } from "@/lib/documentos/arquivo";
+import { quemJuntou, type AutorDocumento } from "@/lib/documentos/autor";
 import { useVisualizadorDocumento } from "@/hooks/use-visualizador-documento";
 import { VisualizadorDocumento } from "@/components/documentos/visualizador-documento";
 import { useDestaque } from "@/lib/destaque/destaque-context";
@@ -41,6 +42,8 @@ interface DocDoCaso {
   id: string;
   nome_arquivo: string | null;
   storage_path: string;
+  /** Quem juntou (join por `uploaded_by`) — parceiro ou equipe. */
+  autor?: AutorDocumento | null;
   tipo: string | null;
   ia_tipo: string | null;
   ia_confianca: "alta" | "media" | "baixa" | null;
@@ -87,7 +90,9 @@ export function OrganizacaoDocumentos({
     let vivo = true;
     supabase
       .from("documentos")
-      .select("id, nome_arquivo, storage_path, tipo, ia_tipo, ia_confianca, ia_resumo, ia_lido_em")
+      // Uma string só: partida em duas, o supabase-js não consegue inferir o
+      // tipo do retorno e o `as DocDoCaso[]` passa a mentir.
+      .select("id, nome_arquivo, storage_path, tipo, ia_tipo, ia_confianca, ia_resumo, ia_lido_em, autor:usuarios!documentos_uploaded_by_fkey(nome, email, tipo)")
       .eq("caso_id", tarefa.caso_id)
       .order("created_at")
       .then(({ data, error }) => {
@@ -433,6 +438,9 @@ function LinhaDoc({
   // navegador não renderiza — para esses o botão baixa, em vez de abrir um
   // quadro vazio.
   const abreNaTela = abreNoNavegador(doc.nome_arquivo);
+  // Quem juntou (Naira, 20/10): na conferência isso muda a leitura do arquivo
+  // — documento do parceiro é o que chegou de fora, não o que a equipe subiu.
+  const quem = quemJuntou(doc.autor);
   return (
     <div
       className={
@@ -466,6 +474,16 @@ function LinhaDoc({
           </Button>
         </div>
       </div>
+      {quem && (
+        <p className="text-[11px] text-muted-foreground">
+          juntado por {quem.nome}
+          {quem.ehParceiro && (
+            <span className="ml-1 rounded bg-[var(--gold)]/15 px-1 text-[10px] text-foreground">
+              parceiro
+            </span>
+          )}
+        </p>
+      )}
       {doc.ia_resumo && (
         <p className="mb-1 text-[11px] text-muted-foreground line-clamp-2">{doc.ia_resumo}</p>
       )}

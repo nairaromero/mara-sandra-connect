@@ -244,3 +244,55 @@ test("o parceiro não apaga o link que a equipe colou", async () => {
     .eq("id", linha!.id);
   expect(count, "a linha continua lá").toBe(1);
 });
+
+test("a conferência diz quem juntou cada arquivo", async ({ page }) => {
+  const { casoId: caso } = await seedClienteCaso(admin, {
+    sufixo: `Quem juntou ${Date.now()}`,
+    parceiroId,
+  });
+  await admin
+    .from("tarefas")
+    .update({ responsavel_id: internoId })
+    .eq("caso_id", caso)
+    .eq("metadata->>etapa", "organizacao_documentos");
+
+  // Um arquivo de cada lado: o que o parceiro mandou e o que a equipe subiu.
+  const { error } = await admin.from("documentos").insert([
+    {
+      caso_id: caso,
+      tipo: "outro",
+      nome_arquivo: "[E2E] do-parceiro.pdf",
+      storage_path: `e2e-quem-juntou/${caso}/do-parceiro.pdf`,
+      uploaded_by: parceiroId,
+    },
+    {
+      caso_id: caso,
+      tipo: "outro",
+      nome_arquivo: "[E2E] da-equipe.pdf",
+      storage_path: `e2e-quem-juntou/${caso}/da-equipe.pdf`,
+      uploaded_by: internoId,
+    },
+  ]);
+  expect(error, "erro ao semear os documentos").toBeFalsy();
+
+  await abrirAtividadesDoCaso(page, caso);
+  await page.getByText("Organizar documentos", { exact: false }).first().click();
+  const folha = page.locator('[role="dialog"]').last();
+  await expect(folha.getByRole("heading", { name: "Editar tarefa" })).toBeVisible({
+    timeout: 20_000,
+  });
+
+  // O nome aparece nos dois; a etiqueta "parceiro" só em quem é parceiro —
+  // e o join passa pela RLS de `usuarios` da pessoa logada.
+  // `div.rounded-md.p-2` é a CAIXA do arquivo; sem a classe, o filtro por nome
+  // sobe até o container da conferência, que contém os dois arquivos.
+  const caixa = (nome: string) => folha.locator("div.rounded-md.p-2").filter({ hasText: nome });
+
+  const doParceiro = caixa("[E2E] do-parceiro.pdf");
+  await expect(doParceiro.getByText(/juntado por/)).toBeVisible();
+  await expect(doParceiro.getByText("parceiro", { exact: true })).toBeVisible();
+
+  const daEquipe = caixa("[E2E] da-equipe.pdf");
+  await expect(daEquipe.getByText(/juntado por/)).toBeVisible();
+  await expect(daEquipe.getByText("parceiro", { exact: true })).toHaveCount(0);
+});
