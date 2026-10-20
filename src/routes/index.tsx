@@ -28,7 +28,7 @@ export const Route = createFileRoute("/")({
       {
         property: "og:description",
         content:
-          "Seu benefício foi negado pelo INSS? A gente luta pelo seu direito. Análise gratuita pelo WhatsApp.",
+          "Benefício negado, aposentadoria ou revisão? Entenda a sua situação junto ao INSS. Atendimento humano e online.",
       },
       { property: "og:type", content: "website" },
       { property: "og:image", content: "/logo.png" },
@@ -50,7 +50,6 @@ const NAV = [
   { href: "#sobre", label: "Sobre" },
   { href: "#areas", label: "Áreas de atuação" },
   { href: "#como", label: "Como funciona" },
-  { href: "#depoimentos", label: "Depoimentos" },
   { href: "#parceiro", label: "Parceiros" },
   { href: "#contato", label: "Contato" },
 ];
@@ -100,7 +99,7 @@ const STEPS = [
   {
     n: "02",
     title: "Análise jurídica",
-    desc: "Avaliamos seu direito gratuitamente e explicamos as opções.",
+    desc: "Analisamos o seu caso e explicamos as opções. Honorários informados antes de qualquer contratação.",
   },
   {
     n: "03",
@@ -114,28 +113,6 @@ const STEPS = [
   },
 ];
 
-const DEPOIMENTOS = [
-  {
-    inicial: "M",
-    nome: "Maria S.",
-    caso: "Aposentadoria por idade",
-    texto:
-      "Meu auxílio tinha sido negado e eu já tinha perdido as esperanças. A Dra. resolveu tudo com muita atenção.",
-  },
-  {
-    inicial: "J",
-    nome: "João P.",
-    caso: "BPC/LOAS",
-    texto: "Atendimento humano de verdade. Explicaram cada passo numa linguagem que eu entendi.",
-  },
-  {
-    inicial: "A",
-    nome: "Antônia R.",
-    caso: "Revisão de benefício",
-    texto: "Recebi minha revisão com valores atrasados. Profissionalismo do começo ao fim.",
-  },
-];
-
 const PARCEIRO_BENEFITS = [
   "Você mantém o relacionamento com o seu cliente",
   "Cuidamos de tudo: administrativo no INSS e judicial",
@@ -143,40 +120,10 @@ const PARCEIRO_BENEFITS = [
   "Acompanhe cada andamento em tempo real pelo portal",
 ];
 
-const PARCEIRO_LOGOS = [
-  { nome: "Escritório Parceiro 1" },
-  { nome: "Escritório Parceiro 2" },
-  { nome: "Escritório Parceiro 3" },
-  { nome: "Escritório Parceiro 4" },
-  { nome: "Escritório Parceiro 5" },
-  { nome: "Escritório Parceiro 6" },
-];
-
-const PARCEIRO_DEPOIMENTOS = [
-  {
-    inicial: "R",
-    nome: "Dr. Nome Sobrenome",
-    escritorio: "Escritório Exemplo — OAB/XX 00.000",
-    texto: "Depoimento do parceiro aqui. Substituir pelo texto real.",
-  },
-  {
-    inicial: "C",
-    nome: "Dra. Nome Sobrenome",
-    escritorio: "Escritório Exemplo — OAB/XX 00.000",
-    texto: "Depoimento do parceiro aqui. Substituir pelo texto real.",
-  },
-  {
-    inicial: "F",
-    nome: "Dr. Nome Sobrenome",
-    escritorio: "Escritório Exemplo — OAB/XX 00.000",
-    texto: "Depoimento do parceiro aqui. Substituir pelo texto real.",
-  },
-];
-
 const FAQ = [
   {
     q: "O INSS negou meu pedido. Ainda tenho chance?",
-    a: "Sim. Muitos benefícios negados administrativamente são conquistados na via judicial. Fazemos uma análise gratuita do seu caso.",
+    a: "Sim. Um pedido negado pelo INSS pode ser revisto na via administrativa ou discutido na Justiça, conforme o caso. Analisamos a sua situação e indicamos o caminho possível, sem promessa de resultado.",
   },
   {
     q: "Preciso ir até o escritório?",
@@ -184,7 +131,7 @@ const FAQ = [
   },
   {
     q: "Quanto custa?",
-    a: "A análise inicial é gratuita. Os honorários são combinados com transparência antes de qualquer passo.",
+    a: "Os honorários dependem do serviço (análise, pedido administrativo ou processo) e são informados por escrito antes de qualquer contratação, conforme o Código de Ética da OAB.",
   },
   {
     q: "Quanto tempo demora?",
@@ -262,12 +209,6 @@ function HomePage() {
   const irParaFormParceiro = () => setContatoTab("parceiro");
   return (
     <div className="bg-background font-sans text-foreground">
-      <style>{`
-        @keyframes scroll-left {
-          from { transform: translateX(0); }
-          to { transform: translateX(-50%); }
-        }
-      `}</style>
       {/* ===== HEADER ===== */}
       <header className="sticky top-0 z-50 border-b border-border bg-background/90 backdrop-blur-md">
         <div className="mx-auto flex h-[72px] max-w-[1140px] items-center justify-between px-5 sm:px-6">
@@ -324,8 +265,7 @@ function HomePage() {
           <div className="max-w-3xl">
             <Eyebrow light>Direito Previdenciário</Eyebrow>
             <h1 className="mt-5 font-serif text-4xl font-semibold leading-[1.08] sm:text-5xl lg:text-[54px]">
-              Seu benefício foi <span className="text-[#caa14e]">negado pelo INSS</span>? A gente
-              luta pelo seu direito.
+              Entenda a sua situação <span className="text-[#caa14e]">junto ao INSS</span>.
             </h1>
             <p className="mt-6 max-w-xl text-lg text-[#d9d2c2]">
               Aposentadoria, auxílio-doença, BPC/LOAS, pensão por morte e revisões. Atendimento
@@ -338,7 +278,7 @@ function HomePage() {
                 rel="noopener noreferrer"
                 className={`${btn} bg-gold text-white shadow-[0_6px_20px_-6px_rgba(184,134,46,.6)] hover:bg-[#a3741f]`}
               >
-                Analisar meu caso grátis
+                Falar com a equipe
               </a>
               <a
                 href="#sobre"
@@ -350,7 +290,6 @@ function HomePage() {
             <div className="mt-12 flex flex-wrap gap-9 border-t border-white/10 pt-8">
               {[
                 { n: "+10", l: "anos de atuação" },
-                { n: "+700", l: "clientes atendidos" },
                 { n: "100%", l: "online e seguro" },
               ].map((t) => (
                 <div key={t.l}>
@@ -551,34 +490,6 @@ function HomePage() {
         </div>
       </section>
 
-      {/* ===== DEPOIMENTOS ===== */}
-      <section id="depoimentos" className="py-20 sm:py-24">
-        <div className="mx-auto max-w-[1140px] px-5 sm:px-6">
-          <SectionHead
-            eyebrow="Depoimentos"
-            title="Quem confiou, recomenda"
-            subtitle="Histórias reais de quem conquistou seus direitos."
-          />
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {DEPOIMENTOS.map((d) => (
-              <div key={d.nome} className="rounded-2xl border border-border bg-card p-7">
-                <div className="tracking-[2px] text-gold">★★★★★</div>
-                <p className="mt-3.5 text-[15px] italic text-foreground">"{d.texto}"</p>
-                <div className="mt-4 flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gold-soft font-bold text-gold">
-                    {d.inicial}
-                  </div>
-                  <div>
-                    <b className="block text-sm">{d.nome}</b>
-                    <small className="text-[12.5px] text-muted-foreground">{d.caso}</small>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
       {/* ===== PARCEIRO ===== */}
       <section
         id="parceiro"
@@ -671,49 +582,6 @@ function HomePage() {
           </div>
         </div>
 
-        {/* logos parceiros */}
-        <div className="mx-auto max-w-[1140px] px-5 pb-10 pt-4 sm:px-6">
-          <p className="mb-8 text-center text-xs font-semibold uppercase tracking-[0.14em] text-[#caa14e]">
-            Escritórios que confiam no nosso trabalho
-          </p>
-          <div className="relative overflow-hidden [mask-image:linear-gradient(to_right,transparent,black_10%,black_90%,transparent)]">
-            <div
-              className="flex w-max gap-10"
-              style={{ animation: "scroll-left 25s linear infinite" }}
-            >
-              {[...PARCEIRO_LOGOS, ...PARCEIRO_LOGOS].map((p, i) => (
-                <div
-                  key={i}
-                  className="flex h-14 w-44 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.06] px-4"
-                >
-                  <span className="text-sm font-medium text-white/50">{p.nome}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* depoimentos parceiros */}
-          <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {PARCEIRO_DEPOIMENTOS.map((d, i) => (
-              <div
-                key={i}
-                className="rounded-xl border border-[#caa14e]/20 bg-white/[0.04] p-6"
-              >
-                <div className="tracking-[2px] text-[#caa14e]">★★★★★</div>
-                <p className="mt-3 text-[15px] italic text-[#e4ddcd]">"{d.texto}"</p>
-                <div className="mt-4 flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#caa14e]/15 font-bold text-[#caa14e]">
-                    {d.inicial}
-                  </div>
-                  <div>
-                    <b className="block text-sm text-white">{d.nome}</b>
-                    <small className="text-[12.5px] text-[#cfc8b8]">{d.escritorio}</small>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
       </section>
 
       {/* ===== FAQ ===== */}
@@ -781,11 +649,15 @@ function HomePage() {
         <div className="mx-auto max-w-[1140px] px-5 sm:px-6">
           <div className="grid gap-10 border-b border-white/10 pb-9 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr]">
             <div>
-              <img
-                src="/logo.png"
-                alt="Mara Sandra Vian Advocacia"
-                className="mb-4 h-14 w-auto object-contain brightness-0 invert"
-              />
+              {/* O logo tem texto preto e selo dourado: invertido vira um borrão branco.
+                  Fica na versão original, sobre um cartão claro, como no cabeçalho. */}
+              <div className="mb-4 inline-flex rounded-xl bg-[#fbfaf7] px-4 py-3">
+                <img
+                  src="/logo.png"
+                  alt="Mara Sandra Vian Advocacia"
+                  className="h-14 w-auto object-contain"
+                />
+              </div>
               <p className="max-w-xs text-sm">
                 Advocacia especializada em Direito Previdenciário. Atendimento humano e online em
                 São Paulo e Mato Grosso.
