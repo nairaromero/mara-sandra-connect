@@ -649,11 +649,15 @@ function HomePage() {
         <div className="mx-auto max-w-[1140px] px-5 sm:px-6">
           <div className="grid gap-10 border-b border-white/10 pb-9 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr]">
             <div>
-              <img
-                src="/logo.png"
-                alt="Mara Sandra Vian Advocacia"
-                className="mb-4 h-14 w-auto object-contain brightness-0 invert"
-              />
+              {/* O logo tem texto preto e selo dourado: invertido vira um borrão branco.
+                  Fica na versão original, sobre um cartão claro, como no cabeçalho. */}
+              <div className="mb-4 inline-flex rounded-xl bg-[#fbfaf7] px-4 py-3">
+                <img
+                  src="/logo.png"
+                  alt="Mara Sandra Vian Advocacia"
+                  className="h-14 w-auto object-contain"
+                />
+              </div>
               <p className="max-w-xs text-sm">
                 Advocacia especializada em Direito Previdenciário. Atendimento humano e online em
                 São Paulo e Mato Grosso.
