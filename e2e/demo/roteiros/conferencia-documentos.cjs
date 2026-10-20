@@ -307,13 +307,19 @@ async function cartao(page, titulo, sub, ms = 3800) {
       await tentar("ler com a IA", async () => {
         await clicar(page, folha.getByRole("button", { name: /Ler \d+ novo/ }));
         await narrar(page, "A IA abre cada arquivo e diz o que ele é.", 4000);
-        await folha.getByText(/Identificados pela IA/).waitFor({ timeout: 120000 });
+        // O que a IA resolveu some da lista (fica a contagem, que abre no
+        // clique) — é essa linha que diz que a leitura terminou.
+        await folha.getByText(/identificad[oa]s? pela IA/i).waitFor({ timeout: 120000 });
         await ler(page, 3000);
         await estudio.still(page, "ato3-02-identificados");
       });
 
       await narrar(page, "Procuração, contrato de honorários e CNIS — sem ninguém abrir arquivo.");
-      await ler(page, 3600);
+      await ler(page, 2600);
+      await tentar("abrir a lista do que a IA resolveu", async () => {
+        await clicar(page, folha.getByText(/identificad[oa]s? pela IA/i));
+        await ler(page, 2600);
+      });
       await estudio.still(page, "ato3-03-lista");
 
       await narrar(page, "A IA erra, então a conferência continua existindo: a pessoa corrige aqui.");

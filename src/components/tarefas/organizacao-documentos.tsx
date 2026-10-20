@@ -13,7 +13,10 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   CheckCircle2,
+  ChevronDown,
+  Download,
   ExternalLink,
+  Eye,
   FileQuestion,
   FolderOpen,
   Loader2,
@@ -24,6 +27,9 @@ import { supabase } from "@/lib/supabase";
 import { TIPOS_DOCUMENTO_LABEL, TIPOS_DOCUMENTO_OPTIONS } from "@/lib/documentos/tipos";
 import { CHECKLIST_BASE } from "@/lib/documentos/checklist";
 import { provedorDaPasta, type PastaExterna } from "@/lib/documentos/pasta-externa";
+import { abreNoNavegador, iaConsegueLer, rotuloDaExtensao } from "@/lib/documentos/arquivo";
+import { useVisualizadorDocumento } from "@/hooks/use-visualizador-documento";
+import { VisualizadorDocumento } from "@/components/documentos/visualizador-documento";
 import { useDestaque } from "@/lib/destaque/destaque-context";
 import type { TarefaComJoins } from "@/lib/tarefas/types";
 import { Button } from "@/components/ui/button";
@@ -34,6 +40,7 @@ import { Selecao } from "@/components/ui/selecao";
 interface DocDoCaso {
   id: string;
   nome_arquivo: string | null;
+  storage_path: string;
   tipo: string | null;
   ia_tipo: string | null;
   ia_confianca: "alta" | "media" | "baixa" | null;
@@ -67,15 +74,20 @@ export function OrganizacaoDocumentos({
   const [erro, setErro] = useState(false);
   const [lendo, setLendo] = useState(false);
   const [observacao, setObservacao] = useState("");
+  // Lista do que a IA já resolveu: fechada por padrão.
+  const [verIdentificados, setVerIdentificados] = useState(false);
   const [concluindo, setConcluindo] = useState(false);
   const { marcar: marcarDestaque } = useDestaque();
+  // Ver o arquivo sem sair da conferência (pedido da Naira, 2026-10-19): é
+  // olhando que se escolhe o tipo certo quando a IA ficou em dúvida.
+  const visualizador = useVisualizadorDocumento();
 
   const carregar = useCallback(() => {
     if (!tarefa.caso_id) return;
     let vivo = true;
     supabase
       .from("documentos")
-      .select("id, nome_arquivo, tipo, ia_tipo, ia_confianca, ia_resumo, ia_lido_em")
+      .select("id, nome_arquivo, storage_path, tipo, ia_tipo, ia_confianca, ia_resumo, ia_lido_em")
       .eq("caso_id", tarefa.caso_id)
       .order("created_at")
       .then(({ data, error }) => {
@@ -115,10 +127,17 @@ export function OrganizacaoDocumentos({
 
   const concluida = tarefa.status === "feito";
   const lista = docs ?? [];
-  const semLeitura = lista.filter((d) => !d.ia_lido_em);
+  // "Por ler" é só o que a IA CONSEGUE ler: um .docx nunca vai ser lido, e
+  // oferecer "Ler 1 novo" para ele é um botão que não faz nada, para sempre.
+  const semLeitura = lista.filter((d) => !d.ia_lido_em && iaConsegueLer(d.nome_arquivo));
+  const foraDoAlcanceDaIA = lista.filter((d) => !d.ia_lido_em && !iaConsegueLer(d.nome_arquivo));
   const lidos = lista.filter((d) => d.ia_lido_em);
-  // Exceção: a IA leu e não soube dizer, ou ficou em dúvida.
-  const duvidosos = lidos.filter((d) => d.ia_tipo === "outro" || d.ia_confianca !== "alta");
+  // Exceção: a IA leu e não soube dizer, ficou em dúvida — ou nem leu ainda
+  // (sem chave, falha, acabou de chegar). Arquivo que a IA não resolveu é
+  // trabalho da pessoa, e por isso ele PRECISA aparecer: antes, o não lido
+  // não entrava em lista nenhuma e só existia como número no cabeçalho.
+  const emDuvida = lidos.filter((d) => d.ia_tipo === "outro" || d.ia_confianca !== "alta");
+  const duvidosos = [...semLeitura, ...foraDoAlcanceDaIA, ...emDuvida];
   const reconhecidos = lidos.filter((d) => d.ia_tipo !== "outro" && d.ia_confianca === "alta");
 
   const tiposPresentes = new Set(
@@ -210,8 +229,11 @@ export function OrganizacaoDocumentos({
           {docs === null
             ? "conferindo o que chegou…"
             : `${reconhecidos.length} de ${lista.length} identificados` +
-              (duvidosos.length > 0 ? ` · ${duvidosos.length} em dúvida` : "") +
-              (semLeitura.length > 0 ? ` · ${semLeitura.length} por ler` : "")}
+              (emDuvida.length > 0 ? ` · ${emDuvida.length} em dúvida` : "") +
+              (semLeitura.length > 0 ? ` · ${semLeitura.length} por ler` : "") +
+              (foraDoAlcanceDaIA.length > 0
+                ? ` · ${foraDoAlcanceDaIA.length} a IA não lê`
+                : "")}
         </p>
         {docs !== null && pastas.length > 0 && (
           <p className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -252,8 +274,13 @@ export function OrganizacaoDocumentos({
           <p className="text-xs text-muted-foreground">
             {docs === null
               ? "Carregando…"
-              : `A IA leu ${lidos.length} de ${lista.length} arquivos. Confira o que ela disse e` +
-                " corrija o que estiver errado."}
+              : duvidosos.length === 0 && lista.length > 0
+                ? `A IA identificou ${reconhecidos.length === 1 ? "o arquivo" : `os ${reconhecidos.length} arquivos`}. Nada pendente.`
+                : `A IA leu ${lidos.length} de ${lidos.length + semLeitura.length} arquivos` +
+                  (foraDoAlcanceDaIA.length > 0
+                    ? ` (${foraDoAlcanceDaIA.length} em formato que ela não lê)`
+                    : "") +
+                  ". Abaixo, só o que ela não resolveu."}
           </p>
         </div>
         {semLeitura.length > 0 && (
@@ -320,19 +347,45 @@ export function OrganizacaoDocumentos({
             Preciso da sua ajuda nestes
           </p>
           {duvidosos.map((d) => (
-            <LinhaDoc key={d.id} doc={d} onTipo={(t) => corrigirTipo(d, t)} destaque />
+            <LinhaDoc
+              key={d.id}
+              doc={d}
+              onTipo={(t) => corrigirTipo(d, t)}
+              visualizador={visualizador}
+              destaque
+            />
           ))}
         </section>
       )}
 
+      {/* O que a IA resolveu fica FORA da lista (Naira, 20/10): numa pasta de
+          30 arquivos, a tarefa viraria uma lista enorme de coisas prontas. Vale
+          a contagem — e um clique para quem quiser conferir mesmo assim. */}
       {reconhecidos.length > 0 && (
         <section className="space-y-2">
-          <p className="text-xs font-medium text-muted-foreground">
-            Identificados pela IA ({reconhecidos.length})
-          </p>
-          {reconhecidos.map((d) => (
-            <LinhaDoc key={d.id} doc={d} onTipo={(t) => corrigirTipo(d, t)} />
-          ))}
+          <button
+            type="button"
+            onClick={() => setVerIdentificados((v) => !v)}
+            className="flex w-full items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+            <span>
+              {reconhecidos.length} identificado{reconhecidos.length > 1 ? "s" : ""} pela IA — nada
+              a fazer
+            </span>
+            <ChevronDown
+              className={"h-3.5 w-3.5 transition-transform " + (verIdentificados ? "rotate-180" : "")}
+            />
+          </button>
+          {verIdentificados &&
+            reconhecidos.map((d) => (
+              <LinhaDoc
+                key={d.id}
+                doc={d}
+                onTipo={(t) => corrigirTipo(d, t)}
+                visualizador={visualizador}
+              />
+            ))}
         </section>
       )}
 
@@ -358,6 +411,8 @@ export function OrganizacaoDocumentos({
         {concluindo && <Loader2 className="mr-2 h-3 w-3 animate-spin" />}
         Conferido — enviar para análise
       </Button>
+
+      <VisualizadorDocumento aberto={visualizador.aberto} onFechar={visualizador.fechar} />
     </div>
   );
 }
@@ -365,26 +420,51 @@ export function OrganizacaoDocumentos({
 function LinhaDoc({
   doc,
   onTipo,
+  visualizador,
   destaque = false,
 }: {
   doc: DocDoCaso;
   onTipo: (tipo: string) => void;
+  visualizador: ReturnType<typeof useVisualizadorDocumento>;
   destaque?: boolean;
 }) {
   const corrigido = doc.ia_tipo && doc.tipo && doc.tipo !== doc.ia_tipo;
+  // A extensão decide: PDF e imagem abrem na tela; DOCX, XLSX e companhia o
+  // navegador não renderiza — para esses o botão baixa, em vez de abrir um
+  // quadro vazio.
+  const abreNaTela = abreNoNavegador(doc.nome_arquivo);
   return (
     <div
       className={
         "rounded-md border p-2 " + (destaque ? "border-amber-400/60 bg-amber-50/50" : "bg-muted/20")
       }
     >
-      <div className="flex items-baseline justify-between gap-2">
+      <div className="flex items-center justify-between gap-2">
         <span className="truncate text-xs font-medium">{doc.nome_arquivo}</span>
-        {doc.ia_confianca && (
-          <span className="shrink-0 text-[11px] text-muted-foreground">
-            {ROTULO_CONFIANCA[doc.ia_confianca] ?? doc.ia_confianca}
+        <div className="flex shrink-0 items-center gap-1">
+          <span className="text-[11px] text-muted-foreground">
+            {doc.ia_lido_em
+              ? (doc.ia_confianca && (ROTULO_CONFIANCA[doc.ia_confianca] ?? doc.ia_confianca)) || ""
+              : iaConsegueLer(doc.nome_arquivo)
+                ? "por ler"
+                : "a IA não lê"}
           </span>
-        )}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-1.5"
+            disabled={visualizador.carregando}
+            title={
+              abreNaTela
+                ? "Ver o documento"
+                : `Prévia não abre ${rotuloDaExtensao(doc.nome_arquivo)} — baixar para ver`
+            }
+            aria-label={abreNaTela ? "Ver o documento" : "Baixar o documento"}
+            onClick={() => (abreNaTela ? visualizador.abrir(doc) : visualizador.baixar(doc))}
+          >
+            {abreNaTela ? <Eye className="h-3.5 w-3.5" /> : <Download className="h-3.5 w-3.5" />}
+          </Button>
+        </div>
       </div>
       {doc.ia_resumo && (
         <p className="mb-1 text-[11px] text-muted-foreground line-clamp-2">{doc.ia_resumo}</p>

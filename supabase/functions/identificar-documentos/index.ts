@@ -22,6 +22,7 @@
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { escopado, exigirSistema, exigirUsuario } from "../_shared/auth.ts";
 import { carregarIntegracao } from "../_shared/ia-integracao.ts";
+import { iaConsegueLer, mediaTypeIA } from "../_shared/arquivo-ia.ts";
 import { decryptSecret } from "../_shared/crypto.ts";
 import { type Attachment, chatWith } from "../_shared/ia-providers.ts";
 import { TIPOS_DOCUMENTO } from "../_shared/tipos-documento.ts";
@@ -33,6 +34,13 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const MAX_BYTES = 8 * 1024 * 1024;
 /** Teto por caso: pasta de cliente antigo não segura a fila inteira. */
 const MAX_POR_RODADA = 15;
+// Quantos arquivos são lidos ao mesmo tempo. Sequencial, 15 arquivos a ~15s
+// cada estouram o relógio de parede da edge function e o runtime MATA a
+// chamada no meio (visto no local: "early termination has been triggered").
+const PARALELO = 3;
+// E, mesmo em paralelo, a rodada devolve o que conseguiu antes de ser morta:
+// o que sobrar volta na próxima (a fila do cron passa de 10 em 10 minutos).
+const ORCAMENTO_MS = 90_000;
 /** Teto de casos por rodada do cron. */
 const MAX_CASOS = 10;
 
@@ -113,15 +121,6 @@ function base64(buf: ArrayBuffer): string {
     s += String.fromCharCode(...bytes.subarray(i, i + 8192));
   }
   return btoa(s);
-}
-
-function mediaType(nome: string): string {
-  const ext = nome.toLowerCase().split(".").pop() ?? "";
-  if (ext === "pdf") return "application/pdf";
-  if (ext === "png") return "image/png";
-  if (ext === "webp") return "image/webp";
-  if (ext === "heic" || ext === "heif") return "image/heic";
-  return "image/jpeg";
 }
 
 /** Prompt do escritório (banco), com um padrão neutro de reserva. */
@@ -208,27 +207,39 @@ async function processarCaso(
     .limit(MAX_POR_RODADA);
   if (errPend) return { erro: errPend.message };
 
-  const alvos = documentoIds?.length
+  const escolhidos = documentoIds?.length
     ? (pendentes ?? []).filter((d) => documentoIds.includes(d.id as string))
     : (pendentes ?? []);
 
+  // O que a IA não lê não entra na rodada: tentar de novo não muda o
+  // resultado, e a fila do cron voltaria a este caso a cada 10 minutos.
+  const alvos = escolhidos.filter((d) => iaConsegueLer(d.nome_arquivo as string | null));
+  const semLeitor = escolhidos.filter((d) => !iaConsegueLer(d.nome_arquivo as string | null));
+
   const prompt = await promptDoEscritorio(admin, caso.escritorio_id as string);
   const lidos: Resultado["lidos"] = [];
-  const pulados: Resultado["pulados"] = [];
+  const pulados: Resultado["pulados"] = semLeitor.map((d) => ({
+    id: d.id as string,
+    nome: String(d.nome_arquivo ?? "arquivo"),
+    motivo: "formato que a IA não lê — abrir para conferir",
+  }));
 
-  for (const doc of alvos) {
+  const inicio = Date.now();
+
+  /** Lê UM arquivo. Nunca estoura: problema vira linha em `pulados`. */
+  async function lerUm(doc: { id: unknown; nome_arquivo: unknown; storage_path: unknown }) {
     const nome = String(doc.nome_arquivo ?? "arquivo");
     const id = doc.id as string;
     try {
       const baixado = await admin.storage.from("documentos").download(String(doc.storage_path));
       if (baixado.error || !baixado.data) {
         pulados.push({ id, nome, motivo: "arquivo não encontrado" });
-        continue;
+        return;
       }
       const bytes = await baixado.data.arrayBuffer();
       if (bytes.byteLength > MAX_BYTES) {
         pulados.push({ id, nome, motivo: "arquivo acima de 8MB" });
-        continue;
+        return;
       }
 
       // Duplicata herda a leitura de quem já foi lido — sem gastar modelo.
@@ -253,8 +264,8 @@ async function processarCaso(
 
       if (!leitura) {
         const anexo: Attachment = {
-          kind: mediaType(nome) === "application/pdf" ? "pdf" : "image",
-          mediaType: mediaType(nome),
+          kind: mediaTypeIA(nome) === "application/pdf" ? "pdf" : "image",
+          mediaType: mediaTypeIA(nome),
           base64: base64(bytes),
           name: nome,
         };
@@ -278,7 +289,7 @@ async function processarCaso(
 
       if (!leitura) {
         pulados.push({ id, nome, motivo: "não entendi a resposta do modelo" });
-        continue;
+        return;
       }
 
       // A IA organiza: confiança alta grava o tipo de verdade. Média e baixa
@@ -297,7 +308,7 @@ async function processarCaso(
       const { error: errUp } = await admin.from("documentos").update(patch).eq("id", id);
       if (errUp) {
         pulados.push({ id, nome, motivo: errUp.message });
-        continue;
+        return;
       }
       lidos.push({ id, nome, tipo: leitura.tipo, confianca: leitura.confianca });
     } catch (e) {
@@ -309,6 +320,28 @@ async function processarCaso(
       });
     }
   }
+
+  // Três de cada vez, com orçamento de tempo. O que não couber nesta rodada
+  // continua pendente e a fila volta nele — melhor do que ser morto no meio.
+  const fila = [...alvos];
+  await Promise.all(
+    Array.from({ length: Math.min(PARALELO, fila.length) }, async () => {
+      while (fila.length > 0) {
+        if (Date.now() - inicio > ORCAMENTO_MS) {
+          for (const d of fila.splice(0)) {
+            pulados.push({
+              id: d.id as string,
+              nome: String(d.nome_arquivo ?? "arquivo"),
+              motivo: "tempo da rodada esgotado — fica para a próxima leitura",
+            });
+          }
+          return;
+        }
+        const proximo = fila.shift();
+        if (proximo) await lerUm(proximo);
+      }
+    }),
+  );
 
   const { count } = await admin
     .from("documentos")
