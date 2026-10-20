@@ -5,6 +5,7 @@
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { ENV } from "./env";
+import { varrerRastroEmCasosEmprestados as varrerRastro } from "./varredura-rastro.mjs";
 
 export function adminClient(): SupabaseClient {
   return createClient(ENV.supabaseUrl, ENV.serviceRoleKey, {
@@ -104,117 +105,16 @@ export async function seedSolicitacao(
  */
 const INICIO_DA_SUITE = new Date().toISOString();
 
-/** Projeto de PRODUÇÃO. A varredura por autor nunca pode rodar contra ele. */
-const REF_PRODUCAO = "llugytkdsfsrciavhrfw";
-
 /**
  * O rastro que o cleanup por cliente NÃO alcança.
  *
- * A convenção é que todo dado de teste pendura num cliente `[E2E]`. Ela falha
- * quando a tela cria algo num caso que o teste não semeou — a tarefa nasce de
- * um template e leva o nome do CLIENTE REAL ("Analise de Indeferimento -
- * Cliente 001327"), sem marcador nenhum. Encontrei cinco dessas no staging em
- * 29/09, além de um relógio aberto por uma delas; é o que a Naira veria ao
- * validar.
- *
- * Segurança, porque isto apaga em caso de cliente real:
- *  - só em caso que RECEBEU escrita de conta de teste (`created_by`) DEPOIS do
- *    início da suíte — não varre caso que a suíte nem tocou;
- *  - a janela de tempo exclui o que já existia e o que vier depois;
- *  - recusa rodar contra o projeto de produção, com erro alto.
+ * A implementação mora em `e2e/varredura-rastro.mjs` desde o #445: os FILMES
+ * (`e2e/demo/**` em CommonJS) precisam da mesma varredura, e duplicar código
+ * que apaga dado em cliente real é o que não se quer em dois lugares. Aqui fica
+ * só o que é da suíte: o projeto-alvo e a janela de tempo.
  */
 export async function varrerRastroEmCasosEmprestados(admin: SupabaseClient): Promise<number> {
-  if (ENV.supabaseUrl.includes(REF_PRODUCAO)) {
-    throw new Error("varredura por autor NUNCA roda contra produção — alvo: " + ENV.supabaseUrl);
-  }
-  const { data: contas, error: eC } = await admin
-    .from("usuarios")
-    .select("id")
-    .or("email.like.e2e+%,email.like.canario+%");
-  if (eC) throw new Error(`contas de teste: ${eC.message}`);
-  const contaIds = (contas ?? []).map((c) => c.id as string);
-  if (contaIds.length === 0) return 0;
-
-  // 1. casos que receberam escrita de conta de teste nesta rodada
-  const casos = new Set<string>();
-  for (const tabela of ["tarefas", "agenda_eventos", "relogios_prazo"]) {
-    const { data, error } = await admin
-      .from(tabela)
-      .select("caso_id")
-      .in("created_by", contaIds)
-      .gte("created_at", INICIO_DA_SUITE);
-    if (error) throw new Error(`rastro em ${tabela}: ${error.message}`);
-    for (const l of data ?? []) if (l.caso_id) casos.add(l.caso_id as string);
-  }
-  if (casos.size === 0) return 0;
-
-  // 2. desses, fica só o que NÃO é de cliente [E2E] (o cleanup normal já pega)
-  const ids = [...casos];
-  const { data: doTeste, error: eT } = await admin
-    .from("casos")
-    .select("id, cliente:cliente_id(nome)")
-    .in("id", ids);
-  if (eT) throw new Error(`casos do rastro: ${eT.message}`);
-  const emprestados = (doTeste ?? [])
-    .filter((c) => !String((c.cliente as { nome?: string } | null)?.nome ?? "").startsWith(MARCADOR))
-    .map((c) => c.id as string);
-  if (emprestados.length === 0) return 0;
-
-  // 3. some SÓ com o que tem autor de teste. A primeira versão apagava tudo
-  //    que nascesse na janela naquele caso — e a sabotagem provou o excesso:
-  //    ela levou junto uma linha de OUTRA pessoa, criada no mesmo minuto. Num
-  //    caso de cliente real isso seria apagar trabalho de gente. As três
-  //    tabelas abaixo são as que têm `created_by`, e foram as três que
-  //    vazaram de verdade no staging.
-  let apagados = 0;
-  const achados: Array<string> = [];
-  const tarefasApagadas: Array<string> = [];
-  for (const tabela of ["tarefas", "agenda_eventos", "relogios_prazo"]) {
-    // `titulo` junto: sem ele o aviso diz QUANTAS linhas e não QUAIS, e aí
-    // descobrir a spec culpada vira caçada. Nem toda tabela tem título — o
-    // select pede o que existir e o aviso usa o que vier.
-    const { data: alvo, error: eA } = await admin
-      .from(tabela)
-      .select(tabela === "relogios_prazo" ? "id, caso_id" : "id, caso_id, titulo")
-      .in("caso_id", emprestados)
-      .in("created_by", contaIds)
-      .gte("created_at", INICIO_DA_SUITE);
-    if (eA) {
-      console.warn(`varredura ${tabela}: ${eA.message}`);
-      continue;
-    }
-    const ids = (alvo ?? []).map((l) => l.id as string);
-    if (ids.length === 0) continue;
-    for (const l of alvo ?? []) {
-      achados.push(`${tabela}: ${(l as { titulo?: string }).titulo ?? l.id}`);
-    }
-
-    // dependentes primeiro, presos ao id — não ao caso, senão volta o excesso
-    if (tabela === "tarefas") {
-      await admin.from("pedidos_prorrogacao").delete().in("tarefa_id", ids);
-      tarefasApagadas.push(...ids);
-    }
-    const { error: eD } = await admin.from(tabela).delete().in("id", ids);
-    if (eD) {
-      console.warn(`varredura ${tabela}: ${eD.message}`);
-      continue;
-    }
-    apagados += ids.length;
-  }
-  // o gatilho AFTER DELETE em tarefas escreve aqui; é rastro do próprio cleanup
-  if (tarefasApagadas.length > 0) {
-    await admin.from("tarefas_excluidas").delete().in("tarefa_id", tarefasApagadas);
-  }
-  if (apagados > 0) {
-    // alto de propósito: é sintoma de spec escrevendo em caso que não semeou
-    console.warn(
-      `[cleanup] ${apagados} linha(s) de teste em ${emprestados.length} caso(s) de cliente REAL: ` +
-        achados.slice(0, 8).join(" · ") +
-        (achados.length > 8 ? ` (+${achados.length - 8})` : "") +
-        ". Alguma spec criou dado num caso que não semeou — ver e2e/supabase-admin.ts.",
-    );
-  }
-  return apagados;
+  return varrerRastro(admin, { url: ENV.supabaseUrl, inicio: INICIO_DA_SUITE, de: "cleanup" });
 }
 
 // Remove TUDO que os testes criaram: filhos primeiro (FKs), depois caso e
