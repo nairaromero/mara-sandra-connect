@@ -1,3 +1,4 @@
+import { ga4HeadScripts, registrarCliqueWhatsapp } from "@/lib/ga4";
 import { useEffect, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ehHostQG } from "@/lib/qg/host";
@@ -33,6 +34,8 @@ export const Route = createFileRoute("/")({
       { property: "og:type", content: "website" },
       { property: "og:image", content: "/logo.png" },
     ],
+    // GA4 só nesta rota pública (ver src/lib/ga4.ts).
+    scripts: ga4HeadScripts(),
   }),
   component: HomePage,
 });
@@ -240,6 +243,7 @@ function HomePage() {
               href={WA_LINK}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={() => registrarCliqueWhatsapp("cabecalho")}
               className={`${btn} bg-gold text-white shadow-[0_6px_20px_-6px_rgba(184,134,46,.6)] hover:bg-[#a3741f]`}
             >
               <MessageCircle className="h-4 w-4" />
@@ -276,6 +280,7 @@ function HomePage() {
                 href={WA_LINK}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={() => registrarCliqueWhatsapp("hero")}
                 className={`${btn} bg-gold text-white shadow-[0_6px_20px_-6px_rgba(184,134,46,.6)] hover:bg-[#a3741f]`}
               >
                 Falar com a equipe
@@ -697,6 +702,7 @@ function HomePage() {
                     href={WA_LINK}
                     target="_blank"
                     rel="noopener noreferrer"
+                    onClick={() => registrarCliqueWhatsapp("rodape")}
                     className="text-sm text-[#cfc8b8] hover:text-[#caa14e]"
                   >
                     Falar no WhatsApp
@@ -730,6 +736,7 @@ function HomePage() {
         href={WA_LINK}
         target="_blank"
         rel="noopener noreferrer"
+        onClick={() => registrarCliqueWhatsapp("flutuante")}
         aria-label="Falar no WhatsApp"
         className="fixed bottom-6 right-6 z-[60] flex h-14 w-14 items-center justify-center rounded-full bg-[#25D366] text-white shadow-[0_10px_30px_-6px_rgba(37,211,102,.6)] transition-transform hover:scale-105"
       >
