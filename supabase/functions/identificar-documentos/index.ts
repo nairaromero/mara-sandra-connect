@@ -21,10 +21,9 @@
 
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { escopado, exigirSistema, exigirUsuario } from "../_shared/auth.ts";
-import { carregarIntegracao } from "../_shared/ia-integracao.ts";
+import { abrirCredencial, carregarIntegracao, registroDeUso } from "../_shared/ia-integracao.ts";
 import { iaConsegueLer, mediaTypeIA } from "../_shared/arquivo-ia.ts";
-import { decryptSecret } from "../_shared/crypto.ts";
-import { type Attachment, chatWith } from "../_shared/ia-providers.ts";
+import { type Attachment, chatWith, type Credencial } from "../_shared/ia-providers.ts";
 import { TIPOS_DOCUMENTO } from "../_shared/tipos-documento.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
@@ -141,22 +140,6 @@ async function promptDoEscritorio(
   return PADRAO;
 }
 
-/** Dono da chave COMPARTILHADA do escritório (caminho do sistema). */
-async function donoDaChaveCompartilhada(
-  admin: SupabaseClient,
-  escritorioId: string,
-): Promise<string | null> {
-  const { data } = await admin
-    .from("ia_integracoes")
-    .select("usuario_id")
-    .eq("escritorio_id", escritorioId)
-    .eq("ativo", true)
-    .eq("compartilhada", true)
-    .limit(1)
-    .maybeSingle();
-  return (data?.usuario_id as string | undefined) ?? null;
-}
-
 interface Resultado {
   lidos: Array<{ id: string; nome: string; tipo: string; confianca: string }>;
   pulados: Array<{ id: string; nome: string; motivo: string }>;
@@ -178,25 +161,30 @@ async function processarCaso(
   if (errCaso) return { erro: errCaso.message };
   if (!caso) return { erro: "caso não encontrado" };
 
-  // Chamada de pessoa usa a chave dela (própria ou a compartilhada do
-  // escritório, como o resto da IA já faz). Chamada do sistema não tem pessoa:
-  // só roda com chave COMPARTILHADA — trabalho automático não gasta a chave
-  // pessoal de alguém sem essa pessoa saber.
-  const dono = uidPessoa ?? await donoDaChaveCompartilhada(admin, caso.escritorio_id as string);
-  if (!dono) {
-    return {
-      erro: "nenhuma chave de IA compartilhada neste escritório",
-      code: "sem_chave_compartilhada",
-    };
-  }
-  const integracao = await carregarIntegracao(admin, dono);
+  // A chave é do ESCRITÓRIO (#451 parte 2): tanto o botão da tarefa quanto a
+  // fila do cron usam a mesma, e por isso a regra "trabalho de robô não gasta
+  // a chave pessoal de ninguém" deixou de precisar de guarda própria — não
+  // existe mais chave pessoal. Ler da pessoa aqui devolvia "não configurado"
+  // no staging, com a chave do escritório gravada e funcionando.
+  const escritorioId = caso.escritorio_id as string;
+  const integracao = await carregarIntegracao(admin, escritorioId);
   if (!integracao.ok) return { erro: integracao.error, code: integracao.code };
 
-  const apiKey = await decryptSecret(
-    integracao.integ.api_key_cipher,
-    integracao.integ.api_key_iv,
-  );
+  let credencial: Credencial;
+  try {
+    credencial = await abrirCredencial(integracao.integ);
+  } catch {
+    return { erro: "falha ao abrir a chave configurada", code: "chave_ilegivel" };
+  }
   const modelo = `${integracao.integ.provider}:${integracao.integ.modelo}`;
+  // O consumo entra na conta do escritório, com a pessoa quando houver (a
+  // fila do cron não tem pessoa).
+  const registro = registroDeUso(admin, {
+    escritorioId,
+    usuarioId: uidPessoa,
+    funcao: "identificar-documentos",
+    origem: integracao.integ.origem,
+  });
 
   const { data: pendentes, error: errPend } = await admin
     .from("documentos")
@@ -271,9 +259,10 @@ async function processarCaso(
         };
         const resposta = await chatWith(
           integracao.integ.provider,
-          apiKey,
+          credencial,
           integracao.integ.modelo,
           {
+            registro,
             system: `${SYSTEM}\n\nPadrão do escritório:\n${prompt}`,
             maxTokens: 400,
             tools: [],
