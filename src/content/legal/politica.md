@@ -12,7 +12,9 @@ atendimento se dá por **advogado/escritório parceiro**, este e o Escritório p
 Identificação e contato (nome, CPF, nascimento, telefone, e-mail, endereço); dados
 previdenciários (CNIS, vínculos, benefícios); senha do **Meu INSS** (armazenada
 **criptografada**); **documentos**, incluindo **documentos médicos** (dado sensível de saúde);
-dados processuais; e registros técnicos de acesso (logs).
+dados processuais; registros técnicos de acesso (logs); e, **no site público**, dados de
+navegação coletados pelo **Google Analytics** (páginas visitadas, origem do acesso, tipo de
+aparelho e cliques em botões de contato), usados apenas para medir a audiência do site.
 
 ## 3. De onde vêm
 De você ou de quem o representa; do **escritório/advogado parceiro**; de **fontes públicas
@@ -28,13 +30,14 @@ pediremos **consentimento**.
 ## 5. Compartilhamento
 Compartilhamos com prestadores que protegem seus dados: **Supabase** (banco/login/armazenamento
 — **Brasil/São Paulo**); **Cloudflare** (hospedagem — EUA); **Resend** (e-mail — EUA);
-**Google/Drive** (armazenamento opcional — EUA); **Anthropic/OpenAI** (IA de apoio, quando
+**Google/Drive** (armazenamento opcional — EUA); **Google Analytics** (medição de audiência
+do site público — EUA); **Anthropic/OpenAI** (IA de apoio, quando
 habilitada — EUA); **n8n** (automações); e o **escritório/advogado parceiro** do seu caso.
 Também com **autoridades** (INSS, Judiciário, ANPD) quando necessário ou exigido por lei.
 **Não vendemos seus dados.**
 
 ## 6. Transferência internacional (art. 33)
-O repositório principal fica **no Brasil**. Serviços acessórios (e-mail, Google Drive e IA) são
+O repositório principal fica **no Brasil**. Serviços acessórios (e-mail, Google Drive, medição de audiência do site e IA) são
 prestados por empresas nos **EUA**, com **garantias adequadas** e **minimização** dos dados.
 
 ## 7. Inteligência Artificial
