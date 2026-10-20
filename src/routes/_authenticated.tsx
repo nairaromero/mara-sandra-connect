@@ -20,8 +20,6 @@ import { IaLauncher } from "@/components/ia/ia-launcher";
 import { SessionTimeoutGuard } from "@/components/session-timeout-guard";
 import { SeletorEscritorio } from "@/components/seletor-escritorio";
 import { AvisoSuportePendente } from "@/components/aviso-suporte-pendente";
-import { MarcaEscritorio } from "@/components/marca-escritorio";
-import { nomeDoEscritorio } from "@/lib/marca-escritorio";
 import { supabase } from "@/lib/supabase";
 import { dataHoraBR } from "@/lib/fuso";
 import { ehHostQG } from "@/lib/qg/host";
@@ -206,18 +204,10 @@ function ConteudoAutenticado(props: {
             no mobile) */}
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="sticky top-0 z-10 flex h-14 items-center justify-between border-b border-border bg-background px-4">
+            {/* A marca do escritorio fica SO na sidebar (pedido de 20/10: dois
+                logos na mesma tela). O topo guarda o gatilho da sidebar. */}
             <div className="flex items-center gap-2">
               <SidebarTrigger />
-              {/* Logo pequeno no topbar - sempre visivel, leva pra home.
-                  No mobile fica como reforco da marca quando a sidebar
-                  esta colapsada. */}
-              <Link
-                to="/casos"
-                aria-label={`${nomeDoEscritorio(escritorio)} - início`}
-                className="hidden sm:flex items-center hover:opacity-80 transition-opacity"
-              >
-                <MarcaEscritorio variante="logo" className="h-10 w-auto object-contain" />
-              </Link>
             </div>
             <div className="flex items-center gap-3">
               <SeletorEscritorio />
