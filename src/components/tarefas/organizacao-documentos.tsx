@@ -25,7 +25,7 @@ import {
 
 import { supabase } from "@/lib/supabase";
 import { TIPOS_DOCUMENTO_LABEL, TIPOS_DOCUMENTO_OPTIONS } from "@/lib/documentos/tipos";
-import { CHECKLIST_BASE } from "@/lib/documentos/checklist";
+import { itensFaltantes } from "@/lib/documentos/checklist";
 import { provedorDaPasta, type PastaExterna } from "@/lib/documentos/pasta-externa";
 import { abreNoNavegador, iaConsegueLer, rotuloDaExtensao } from "@/lib/documentos/arquivo";
 import { quemJuntou, type AutorDocumento } from "@/lib/documentos/autor";
@@ -148,7 +148,11 @@ export function OrganizacaoDocumentos({
   const tiposPresentes = new Set(
     lista.map((d) => d.tipo).filter((t): t is string => !!t && t !== "outro"),
   );
-  const faltantes = CHECKLIST_BASE.filter((t) => !tiposPresentes.has(t));
+  // Nome de cada item que falta — o item aceita mais de um tipo (CNIS completo
+  // ou resumido resolvem o mesmo item), e o primeiro da família dá o nome.
+  const faltantes = itensFaltantes(tiposPresentes).map(
+    (item) => TIPOS_DOCUMENTO_LABEL[item.tipos[0]] ?? item.tipos[0],
+  );
 
   async function lerAgora() {
     if (lendo || !tarefa.caso_id) return;
@@ -190,7 +194,7 @@ export function OrganizacaoDocumentos({
     try {
       const { data, error } = await supabase.rpc("concluir_organizacao_documentos", {
         p_tarefa_id: tarefa.id,
-        p_faltantes: faltantes.map((t) => TIPOS_DOCUMENTO_LABEL[t] ?? t),
+        p_faltantes: faltantes,
         p_observacao: observacao.trim() || null,
       });
       if (error) throw error;
@@ -250,7 +254,7 @@ export function OrganizacaoDocumentos({
         )}
         {faltantes.length > 0 && docs !== null && (
           <p className="text-xs text-muted-foreground">
-            Falta: {faltantes.map((t) => TIPOS_DOCUMENTO_LABEL[t] ?? t).join(", ")}
+            Falta: {faltantes.join(", ")}
           </p>
         )}
         <Button
@@ -397,7 +401,7 @@ export function OrganizacaoDocumentos({
       {docs !== null && faltantes.length > 0 && (
         <p className="rounded-md bg-muted/50 p-2 text-xs">
           <strong>Falta:</strong>{" "}
-          {faltantes.map((t) => TIPOS_DOCUMENTO_LABEL[t] ?? t).join(", ")} — peça ao parceiro na
+          {faltantes.join(", ")} — peça ao parceiro na
           aba Documentos. O caso segue para análise com essa anotação.
         </p>
       )}
