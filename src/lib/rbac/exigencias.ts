@@ -151,6 +151,8 @@ export const FUNCTION: Record<string, Exigencia> = {
   "listar-processos-legalmail": { permissao: "processos:ler" },
   "listar-clientes-ti": { permissao: "casos:ler" },
   "check-legalmail-nome": { permissao: "processos:ler" },
+  // o link da pasta do parceiro: quem cola é quem confere (#434)
+  "checar-link-pasta": { permissao: "casos:editar" },
 };
 
 /** Storage: bucket → exigência de escrita (upload/remover). */

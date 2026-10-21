@@ -15,7 +15,35 @@ export interface PastaExterna {
   criado_por: string | null;
   created_at: string;
   atualizado_em: string | null;
+  /** Última checagem do compartilhamento (function `checar-link-pasta`). */
+  checado_em?: string | null;
+  checado_status?: StatusDoLink | null;
+  checado_detalhe?: string | null;
 }
+
+/**
+ * O que a checagem viu ao tentar abrir o link SEM credencial:
+ *   aberto     abriu, sem pedir login — a equipe consegue baixar
+ *   fechado    pediu login ou o provedor recusou — falta compartilhar
+ *   indefinido não deu para dizer (fora do ar, provedor desconhecido)
+ */
+export type StatusDoLink = "aberto" | "fechado" | "indefinido";
+
+/** A frase e o tom de cada resultado — um lugar só, tela e tarefa usam. */
+export const ROTULO_DO_LINK: Record<StatusDoLink, { texto: string; tom: string }> = {
+  aberto: {
+    texto: "compartilhado",
+    tom: "bg-emerald-500/15 text-emerald-800 dark:text-emerald-300",
+  },
+  fechado: {
+    texto: "não compartilhado — pede login",
+    tom: "bg-destructive/15 text-destructive",
+  },
+  indefinido: {
+    texto: "não deu para conferir",
+    tom: "bg-muted text-muted-foreground",
+  },
+};
 
 /** Hosts conhecidos → nome que a pessoa reconhece. */
 const PROVEDORES: Array<[RegExp, string]> = [

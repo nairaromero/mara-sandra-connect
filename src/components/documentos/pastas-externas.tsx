@@ -10,7 +10,16 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { ExternalLink, FolderOpen, Link2, Loader2, Pencil, Plus, X } from "lucide-react";
+import {
+  ExternalLink,
+  FolderOpen,
+  Link2,
+  Loader2,
+  Pencil,
+  Plus,
+  RefreshCw,
+  X,
+} from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
 import { lerLista } from "@/lib/leitura";
@@ -18,7 +27,9 @@ import { useAuth } from "@/hooks/use-auth";
 import {
   normalizarLinkPasta,
   provedorDaPasta,
+  ROTULO_DO_LINK,
   type PastaExterna,
+  type StatusDoLink,
 } from "@/lib/documentos/pasta-externa";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +45,8 @@ export function PastasExternas({ casoId, onChange }: Props) {
   const [pastas, setPastas] = useState<PastaExterna[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [editando, setEditando] = useState<PastaExterna | "nova" | null>(null);
+  // Ids sendo conferidos agora (o parceiro pode ter esquecido de compartilhar).
+  const [conferindo, setConferindo] = useState<Set<string>>(new Set());
 
   const ehParceiro = usuario?.tipo === "parceiro";
   const podeMexer = podeEscrever("caso_pastas_externas");
@@ -47,7 +60,9 @@ export function PastasExternas({ casoId, onChange }: Props) {
     lerLista<PastaExterna>(
       supabase
         .from("caso_pastas_externas")
-        .select("id, caso_id, url, rotulo, criado_por, created_at, atualizado_em")
+        .select(
+          "id, caso_id, url, rotulo, criado_por, created_at, atualizado_em, checado_em, checado_status, checado_detalhe",
+        )
         .eq("caso_id", casoId)
         .order("created_at"),
       "pastas por link do caso",
@@ -77,13 +92,28 @@ export function PastasExternas({ casoId, onChange }: Props) {
       toast.error("Cole o endereço completo da pasta (começando com https://).");
       return false;
     }
-    const campos = { url, rotulo: rotulo.trim() || null };
+    // Link novo (ou trocado) nasce sem checagem: o que valia era do endereço
+    // anterior.
+    const campos = {
+      url,
+      rotulo: rotulo.trim() || null,
+      checado_em: null,
+      checado_status: null,
+      checado_detalhe: null,
+    };
     const resp =
       alvo === "nova"
         ? await supabase
             .from("caso_pastas_externas")
             .insert({ caso_id: casoId, ...campos, criado_por: usuario?.id ?? null })
-        : await supabase.from("caso_pastas_externas").update(campos).eq("id", alvo.id);
+            .select("id")
+            .single()
+        : await supabase
+            .from("caso_pastas_externas")
+            .update(campos)
+            .eq("id", alvo.id)
+            .select("id")
+            .single();
     if (resp.error) {
       const dup = resp.error.code === "23505";
       toast.error(dup ? "Esse link já está neste caso." : "Não consegui salvar o link.");
@@ -94,7 +124,42 @@ export function PastasExternas({ casoId, onChange }: Props) {
     setEditando(null);
     carregar();
     onChange?.();
+    // Conferir na hora é o ponto do pedido (Naira, 20/10): quem colou está na
+    // tela e ainda pode arrumar o compartilhamento.
+    if (resp.data?.id) void conferir(resp.data.id as string, url);
     return true;
+  }
+
+  /**
+   * Tenta abrir o link sem credencial e guarda o que viu. Nunca estoura a
+   * tela: não conseguir conferir é um resultado, não um erro.
+   */
+  async function conferir(id: string, url: string) {
+    setConferindo((atual) => new Set(atual).add(id));
+    try {
+      const { data, error } = await supabase.functions.invoke("checar-link-pasta", {
+        body: { url },
+      });
+      const status = (error ? "indefinido" : (data?.status as StatusDoLink)) ?? "indefinido";
+      const detalhe = error ? "não consegui conferir agora" : (data?.detalhe as string) ?? null;
+      const { error: errGravar } = await supabase
+        .from("caso_pastas_externas")
+        .update({ checado_em: new Date().toISOString(), checado_status: status, checado_detalhe: detalhe })
+        .eq("id", id);
+      if (errGravar) console.error("gravar checagem do link:", errGravar);
+      if (status === "fechado") {
+        toast.warning("O link pede login — peça ao parceiro para compartilhar a pasta.");
+      }
+      carregar();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setConferindo((atual) => {
+        const novo = new Set(atual);
+        novo.delete(id);
+        return novo;
+      });
+    }
   }
 
   async function remover(pasta: PastaExterna) {
@@ -181,6 +246,35 @@ export function PastasExternas({ casoId, onChange }: Props) {
                   <ExternalLink className="h-3 w-3 shrink-0" />
                 </a>
                 <p className="truncate text-[11px] text-muted-foreground">{p.url}</p>
+                {/* O que a última checagem viu ao tentar abrir sem login. */}
+                <p className="mt-0.5 flex items-center gap-1">
+                  {conferindo.has(p.id) ? (
+                    <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                      <Loader2 className="h-3 w-3 animate-spin" /> conferindo o compartilhamento…
+                    </span>
+                  ) : p.checado_status ? (
+                    <span
+                      className={
+                        "rounded px-1 text-[10px] " + ROTULO_DO_LINK[p.checado_status].tom
+                      }
+                      title={p.checado_detalhe ?? undefined}
+                    >
+                      {ROTULO_DO_LINK[p.checado_status].texto}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-muted-foreground">sem conferência</span>
+                  )}
+                  {mexeNesta(p) && !conferindo.has(p.id) && (
+                    <button
+                      type="button"
+                      onClick={() => conferir(p.id, p.url)}
+                      className="flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground"
+                    >
+                      <RefreshCw className="h-2.5 w-2.5" />
+                      conferir
+                    </button>
+                  )}
+                </p>
               </div>
               {mexeNesta(p) && (
                 <div className="flex shrink-0 items-center">
