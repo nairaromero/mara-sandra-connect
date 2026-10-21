@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Plus, Scale, Trash2 } from "lucide-react";
+import { ClipboardCheck, Loader2, Plus, Scale, Trash2 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
@@ -14,12 +14,16 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { AcaoProtegida, usePodeAcao } from "@/components/acao-protegida";
+import { ChecklistDocumentosEditor } from "@/components/configuracoes/checklist-documentos";
+import type { ItemChecklist } from "@/lib/documentos/checklist";
 
 interface TipoBeneficio {
   id: string;
   nome: string;
   ativo: boolean;
   ordem: number;
+  /** O que o caso deste benefício precisa ter além da lista base (#434). */
+  documentos_exigidos: ItemChecklist[];
 }
 
 /**
@@ -40,12 +44,14 @@ export function TiposBeneficioCard() {
   const [salvando, setSalvando] = useState(false);
   // id com acao (toggle/delete) em andamento, pra desabilitar so aquela linha
   const [ocupadoId, setOcupadoId] = useState<string | null>(null);
+  // Benefício com a lista de documentos aberta.
+  const [documentosDe, setDocumentosDe] = useState<string | null>(null);
 
   const carregar = useCallback(async () => {
     try {
       const resp = await supabase
         .from("tipos_beneficio")
-        .select("id, nome, ativo, ordem")
+        .select("id, nome, ativo, ordem, documentos_exigidos")
         .order("ordem");
       if (resp.error) throw resp.error;
       setTipos((resp.data as Array<TipoBeneficio>) || []);
@@ -110,6 +116,22 @@ export function TiposBeneficioCard() {
     } finally {
       setOcupadoId(null);
     }
+  }
+
+  async function salvarDocumentos(t: TipoBeneficio, itens: ItemChecklist[]) {
+    const resp = await supabase
+      .from("tipos_beneficio")
+      .update({ documentos_exigidos: itens })
+      .eq("id", t.id)
+      .select("id");
+    if (resp.error || (resp.data ?? []).length === 0) {
+      console.error(resp.error);
+      toast.error(resp.error?.message || "Não consegui salvar a lista deste benefício.");
+      return false;
+    }
+    toast.success(`Documentos de "${t.nome}" salvos.`);
+    await carregar();
+    return true;
   }
 
   async function excluir(t: TipoBeneficio) {
@@ -187,10 +209,8 @@ export function TiposBeneficioCard() {
         ) : (
           <ul className="space-y-1">
             {tipos.map((t) => (
-              <li
-                key={t.id}
-                className="flex items-center justify-between gap-2 border rounded-md px-3 py-2"
-              >
+              <li key={t.id} className="border rounded-md">
+              <div className="flex items-center justify-between gap-2 px-3 py-2">
                 <div className="flex items-center gap-2 min-w-0">
                   <span
                     className={
@@ -206,6 +226,17 @@ export function TiposBeneficioCard() {
                   )}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-xs"
+                    title="O que o caso deste benefício precisa ter, além da lista base"
+                    onClick={() => setDocumentosDe((atual) => (atual === t.id ? null : t.id))}
+                    data-beneficio-documentos={t.nome}
+                  >
+                    <ClipboardCheck className="h-3.5 w-3.5 mr-1" />
+                    Documentos ({t.documentos_exigidos?.length ?? 0})
+                  </Button>
                   {podeMexer && (
                   <Button
                     size="sm"
@@ -236,6 +267,17 @@ export function TiposBeneficioCard() {
                   </Button>
                   )}
                 </div>
+              </div>
+              {documentosDe === t.id && (
+                <div className="border-t px-3 py-2">
+                  <ChecklistDocumentosEditor
+                    itens={t.documentos_exigidos ?? []}
+                    podeEditar={podeMexer}
+                    onSalvar={(itens) => salvarDocumentos(t, itens)}
+                    vazio="Só a lista base vale para este benefício."
+                  />
+                </div>
+              )}
               </li>
             ))}
           </ul>

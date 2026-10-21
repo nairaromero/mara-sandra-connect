@@ -178,6 +178,17 @@ o sistema em produção. Quando chegar, vale o seguinte:
   cru do provedor vai só para o log). A régua
   `e2e/unit/ia-registro-de-uso.test.ts` acusa chamada sem registro, chave lida
   ou decifrada fora do túnel e erro cru de IA devolvido à tela.
+  Listas que a tela e as edge functions dividem (#434): módulo PURO em
+  `supabase/functions/_shared/` que a tela importa por `@shared/…` — o que a IA
+  lê (`arquivo-ia.ts`), os tipos de documento (`tipos-documento.ts`; o rótulo
+  da tela é conferido pelo tsc) e os provedores de pasta por link
+  (`provedores-pasta.ts`). O SQL repete só o que o banco precisa
+  (`private.ia_le_arquivo`); a régua `e2e/unit/fonte-unica-documentos.test.ts`
+  confere SQL × arquivo, a pureza dos módulos e que ninguém refaz a lista.
+  "O que a IA ainda precisa ler" é `private.ia_documento_pendente` (fila do cron
+  e lista da function). A checagem do link (porta contra SSRF em CADA salto) é
+  `_shared/checar-link.ts`. Nas specs, chamada como o SISTEMA (cron/pg_net) é
+  `chamarComoSistema` de `e2e/rbac.ts`.
 - **Quem muda ACESSO audita** (desde 2026-09-27, `migration_rbac_25`/`26`; desenho em
   planning/AUDITABILIDADE.md): papel, permissão, status do vínculo, titularidade e staff
   chamam `private.auditar` com o antes e o depois; apagar cliente, documento ou andamento

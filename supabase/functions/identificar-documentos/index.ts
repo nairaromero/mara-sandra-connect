@@ -14,21 +14,36 @@
 //   • A IA ORGANIZA: confiança alta grava o `tipo` de verdade; o resto fica
 //     como sugestão e vira exceção na tarefa de conferência.
 //
+//   • ARQUIVO QUE FALHA NÃO TRAVA A FILA: cada falha conta no banco
+//     (`registrar_falha_leitura_ia`); na 3ª, ou de cara quando não adianta
+//     tentar (grande demais), o arquivo sai da fila com o motivo, e a
+//     conferência mostra para a pessoa.
+//
 // Dois modos:
 //   { caso_id }  — um caso (botão da tarefa, ou o cron pedindo um específico)
 //   { }          — a FILA: só pelo sistema, os casos que pararam de receber
 //                  arquivo e têm conferência aberta (`casos_com_leitura_pendente`)
+//
+// "O que falta ler" é do BANCO (`documentos_leitura_pendente`, mesma régua da
+// fila): antes a function cortava em 15 e só depois filtrava o formato, e um
+// caso com 15 .docx antigos nunca chegava aos PDFs.
 
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
-import { escopado, exigirSistema, exigirUsuario } from "../_shared/auth.ts";
+import { exigirRecurso, exigirUsuarioOuSistema, respostaOptions } from "../_shared/auth.ts";
 import { abrirCredencial, carregarIntegracao, registroDeUso } from "../_shared/ia-integracao.ts";
-import { iaConsegueLer, mediaTypeIA } from "../_shared/arquivo-ia.ts";
-import { type Attachment, chatWith, type Credencial } from "../_shared/ia-providers.ts";
+import { mediaTypeIA } from "../_shared/arquivo-ia.ts";
+import {
+  type Attachment,
+  chatWith,
+  classeDoErro,
+  type Credencial,
+  mensagemDoErro,
+} from "../_shared/ia-providers.ts";
 import { TIPOS_DOCUMENTO } from "../_shared/tipos-documento.ts";
 // CORS pelo túnel da casa: a resposta sem `Access-Control-Allow-Origin` o
 // navegador descarta, e o supabase-js mostra "Failed to send a request to the
 // Edge Function" — como se a function nem existisse.
-import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
+import { jsonResponse } from "../_shared/cors.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -43,7 +58,11 @@ const MAX_POR_RODADA = 15;
 const PARALELO = 3;
 // E, mesmo em paralelo, a rodada devolve o que conseguiu antes de ser morta:
 // o que sobrar volta na próxima (a fila do cron passa de 10 em 10 minutos).
-const ORCAMENTO_MS = 90_000;
+// O orçamento é da CHAMADA inteira — antes era por caso, e a fila de 10 casos
+// em série passava muito do relógio da edge. Leitura nova só começa se ainda
+// couber uma chamada de IA inteira; a chamada leva o tempo que sobra.
+const ORCAMENTO_MS = 110_000;
+const MINIMO_POR_LEITURA_MS = 20_000;
 /** Teto de casos por rodada do cron. */
 const MAX_CASOS = 10;
 
@@ -125,11 +144,14 @@ async function promptDoEscritorio(
   escritorioId: string | null,
 ): Promise<string> {
   if (escritorioId) {
-    const { data } = await admin
+    const { data, error } = await admin
       .from("escritorio_config")
       .select("extras")
       .eq("escritorio_id", escritorioId)
       .maybeSingle();
+    // Erro de leitura não é "escritório sem padrão": ler com o padrão neutro
+    // gravaria leitura pior para sempre (cada arquivo é lido uma vez só).
+    if (error) throw new Error(`lendo o padrão do escritório: ${error.message}`);
     const extras = (data?.extras ?? {}) as { prompt_identificacao_documentos?: string };
     const p = extras.prompt_identificacao_documentos;
     if (typeof p === "string" && p.trim().length > 40) return p.trim();
@@ -144,11 +166,16 @@ interface Resultado {
   modelo: string;
 }
 
+/** Falha que é da CHAVE ou da configuração, não do arquivo: para o caso. */
+const FALHA_DA_CHAVE = new Set(["http_401", "http_403", "http_404", "modelo_aposentado"]);
+/** Falha do provedor (fora do ar, cota): não é culpa do arquivo, não conta. */
+const falhaDoProvedor = (classe: string) => classe === "http_429" || /^http_5\d\d$/.test(classe);
+
 async function processarCaso(
   admin: SupabaseClient,
   casoId: string,
   uidPessoa: string | null,
-  documentoIds?: string[],
+  prazo: number,
 ): Promise<Resultado | { erro: string; code?: string }> {
   const { data: caso, error: errCaso } = await admin
     .from("casos")
@@ -183,53 +210,57 @@ async function processarCaso(
     origem: integracao.integ.origem,
   });
 
-  const { data: pendentes, error: errPend } = await admin
-    .from("documentos")
-    .select("id, nome_arquivo, storage_path")
-    .eq("caso_id", casoId)
-    .is("ia_lido_em", null)
-    .order("created_at")
-    .limit(MAX_POR_RODADA);
+  // Só o que a IA lê e ainda não desistiu — a régua é do banco.
+  const { data: pendentes, error: errPend } = await admin.rpc("documentos_leitura_pendente", {
+    p_caso_id: casoId,
+    p_limite: MAX_POR_RODADA,
+  });
   if (errPend) return { erro: errPend.message };
-
-  const escolhidos = documentoIds?.length
-    ? (pendentes ?? []).filter((d) => documentoIds.includes(d.id as string))
-    : (pendentes ?? []);
-
-  // O que a IA não lê não entra na rodada: tentar de novo não muda o
-  // resultado, e a fila do cron voltaria a este caso a cada 10 minutos.
-  const alvos = escolhidos.filter((d) => iaConsegueLer(d.nome_arquivo as string | null));
-  const semLeitor = escolhidos.filter((d) => !iaConsegueLer(d.nome_arquivo as string | null));
+  const alvos = (pendentes ?? []) as Pendente[];
 
   const prompt = await promptDoEscritorio(admin, caso.escritorio_id as string);
   const lidos: Resultado["lidos"] = [];
-  const pulados: Resultado["pulados"] = semLeitor.map((d) => ({
-    id: d.id as string,
-    nome: String(d.nome_arquivo ?? "arquivo"),
-    motivo: "formato que a IA não lê — abrir para conferir",
-  }));
+  const pulados: Resultado["pulados"] = [];
+  // Falha da chave (recusada, modelo que não existe): nenhum arquivo deste
+  // caso vai passar — para tudo e diz por quê, em vez de "Nada novo para ler".
+  let falhaDaChave: string | null = null;
 
-  const inicio = Date.now();
+  /** Conta a falha no banco (na 3ª o arquivo sai da fila) e avisa na resposta. */
+  async function falhou(doc: Pendente, motivo: string, definitiva = false) {
+    pulados.push({ id: doc.id, nome: doc.nome_arquivo ?? "arquivo", motivo });
+    const { error } = await admin.rpc("registrar_falha_leitura_ia", {
+      p_documento_id: doc.id,
+      p_motivo: motivo,
+      p_definitiva: definitiva,
+    });
+    if (error) console.error("identificar-documentos: registrar falha", doc.id, error.message);
+  }
 
   /** Lê UM arquivo. Nunca estoura: problema vira linha em `pulados`. */
-  async function lerUm(doc: { id: unknown; nome_arquivo: unknown; storage_path: unknown }) {
-    const nome = String(doc.nome_arquivo ?? "arquivo");
-    const id = doc.id as string;
+  async function lerUm(doc: Pendente) {
+    const nome = doc.nome_arquivo ?? "arquivo";
+    const id = doc.id;
     try {
-      const baixado = await admin.storage.from("documentos").download(String(doc.storage_path));
+      // O tamanho do cadastro decide ANTES de baixar: um PDF escaneado de
+      // 150MB inteiro na memória derruba a edge.
+      if ((doc.tamanho_bytes ?? 0) > MAX_BYTES) {
+        await falhou(doc, "arquivo acima de 8MB — abrir para conferir", true);
+        return;
+      }
+      const baixado = await admin.storage.from("documentos").download(doc.storage_path);
       if (baixado.error || !baixado.data) {
-        pulados.push({ id, nome, motivo: "arquivo não encontrado" });
+        await falhou(doc, "arquivo não encontrado no armazenamento");
         return;
       }
       const bytes = await baixado.data.arrayBuffer();
       if (bytes.byteLength > MAX_BYTES) {
-        pulados.push({ id, nome, motivo: "arquivo acima de 8MB" });
+        await falhou(doc, "arquivo acima de 8MB — abrir para conferir", true);
         return;
       }
 
       // Duplicata herda a leitura de quem já foi lido — sem gastar modelo.
       const hash = await sha256(bytes);
-      const { data: gemeo } = await admin
+      const { data: gemeo, error: errGemeo } = await admin
         .from("documentos")
         .select("ia_tipo, ia_confianca, ia_data_documento, ia_resumo")
         .eq("caso_id", casoId)
@@ -237,6 +268,8 @@ async function processarCaso(
         .not("ia_lido_em", "is", null)
         .limit(1)
         .maybeSingle();
+      // Erro aqui não é "não tem duplicata": seguir chamaria a IA à toa.
+      if (errGemeo) throw new Error(`procurando duplicata: ${errGemeo.message}`);
 
       let leitura: Leitura | null = gemeo
         ? {
@@ -260,6 +293,8 @@ async function processarCaso(
           integracao.integ.modelo,
           {
             registro,
+            // A leitura leva o tempo que sobra da chamada, nunca mais.
+            signal: AbortSignal.timeout(Math.max(prazo - Date.now(), 1_000)),
             system: `${SYSTEM}\n\nPadrão do escritório:\n${prompt}`,
             maxTokens: 400,
             tools: [],
@@ -274,7 +309,7 @@ async function processarCaso(
       }
 
       if (!leitura) {
-        pulados.push({ id, nome, motivo: "não entendi a resposta do modelo" });
+        await falhou(doc, "não entendi a resposta do modelo");
         return;
       }
 
@@ -293,17 +328,30 @@ async function processarCaso(
 
       const { error: errUp } = await admin.from("documentos").update(patch).eq("id", id);
       if (errUp) {
-        pulados.push({ id, nome, motivo: errUp.message });
+        console.error("identificar-documentos: gravar leitura", id, errUp.message);
+        pulados.push({ id, nome, motivo: "não consegui guardar a leitura — tenta de novo na próxima" });
         return;
       }
       lidos.push({ id, nome, tipo: leitura.tipo, confianca: leitura.confianca });
     } catch (e) {
-      // Um arquivo problemático não derruba a pasta inteira.
-      pulados.push({
-        id,
-        nome,
-        motivo: String((e as { message?: string })?.message ?? e).slice(0, 200),
-      });
+      // Um arquivo problemático não derruba a pasta inteira. O texto cru do
+      // provedor fica no log; para a pessoa vai a frase (túnel mensagemDoErro).
+      console.error("identificar-documentos:", id, e);
+      const classe = classeDoErro(e);
+      const frase = mensagemDoErro(e, "não consegui ler este arquivo");
+      if (classe === "timeout" && prazo - Date.now() < 2_000) {
+        // Quem acabou foi o tempo da RODADA, não a paciência com o arquivo:
+        // não conta como falha dele.
+        pulados.push({ id, nome, motivo: "tempo da rodada esgotado — fica para a próxima leitura" });
+      } else if (FALHA_DA_CHAVE.has(classe)) {
+        falhaDaChave = frase;
+        fila.splice(0);
+        pulados.push({ id, nome, motivo: frase });
+      } else if (falhaDoProvedor(classe)) {
+        pulados.push({ id, nome, motivo: frase });
+      } else {
+        await falhou(doc, frase);
+      }
     }
   }
 
@@ -313,11 +361,11 @@ async function processarCaso(
   await Promise.all(
     Array.from({ length: Math.min(PARALELO, fila.length) }, async () => {
       while (fila.length > 0) {
-        if (Date.now() - inicio > ORCAMENTO_MS) {
+        if (prazo - Date.now() < MINIMO_POR_LEITURA_MS) {
           for (const d of fila.splice(0)) {
             pulados.push({
-              id: d.id as string,
-              nome: String(d.nome_arquivo ?? "arquivo"),
+              id: d.id,
+              nome: d.nome_arquivo ?? "arquivo",
               motivo: "tempo da rodada esgotado — fica para a próxima leitura",
             });
           }
@@ -329,29 +377,44 @@ async function processarCaso(
     }),
   );
 
-  const { count } = await admin
-    .from("documentos")
-    .select("id", { count: "exact", head: true })
-    .eq("caso_id", casoId)
-    .is("ia_lido_em", null);
+  if (falhaDaChave) return { erro: falhaDaChave, code: "ia_recusou" };
 
-  return { lidos, pulados, faltam: count ?? 0, modelo };
+  // Quanto ainda falta ler — pela mesma régua da lista (o que a IA lê e ainda
+  // não desistiu). Erro de contagem não vira "faltam 0".
+  const { data: restantes, error: errRest } = await admin.rpc("documentos_leitura_pendente", {
+    p_caso_id: casoId,
+    p_limite: 1000,
+  });
+  if (errRest) return { erro: errRest.message };
+
+  return { lidos, pulados, faltam: (restantes ?? []).length, modelo };
+}
+
+interface Pendente {
+  id: string;
+  nome_arquivo: string | null;
+  storage_path: string;
+  tamanho_bytes: number | null;
 }
 
 Deno.serve(async (req) => {
   // O navegador pergunta ANTES (preflight). Sem esta linha o OPTIONS caía no
   // 405 abaixo, sem cabeçalho de CORS, e a chamada morria antes de sair.
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method === "OPTIONS") return respostaOptions();
   if (req.method !== "POST") return jsonResponse({ error: "use POST" }, 405);
+  const prazo = Date.now() + ORCAMENTO_MS;
 
-  // Pessoa (botão na tarefa) ou sistema (fila do cron).
-  const sistema = await exigirSistema(req, "identificar-documentos");
-  const quem = sistema instanceof Response
-    ? await exigirUsuario(req, { tipo: "interno", permissao: "ia:usar" })
-    : sistema;
+  // Pessoa (botão na tarefa) ou sistema (fila do cron). O job do cron assina
+  // como 'cron:identificar-documentos' (migration_fila_leitura_documentos):
+  // antes a function conferia outro nome, a assinatura nunca batia e a fila
+  // caía em 401 — só o botão funcionava.
+  const quem = await exigirUsuarioOuSistema(req, "cron:identificar-documentos", {
+    tipo: "interno",
+    permissao: "ia:usar",
+  });
   if (quem instanceof Response) return quem;
 
-  let body: { caso_id?: string; documento_ids?: string[] };
+  let body: { caso_id?: string };
   try {
     body = await req.json();
   } catch {
@@ -373,34 +436,34 @@ Deno.serve(async (req) => {
     if (errFila) return jsonResponse({ error: errFila.message }, 500);
     const resultados: Array<Record<string, unknown>> = [];
     for (const linha of (fila ?? []) as Array<{ caso_id: string }>) {
-      const r = await processarCaso(admin, linha.caso_id, null);
-      resultados.push({ caso_id: linha.caso_id, ...r });
+      // O orçamento é da chamada: caso que não cabe fica para a próxima rodada.
+      if (prazo - Date.now() < MINIMO_POR_LEITURA_MS) break;
+      try {
+        const r = await processarCaso(admin, linha.caso_id, null, prazo);
+        resultados.push({ caso_id: linha.caso_id, ...r });
+      } catch (e) {
+        // Um caso problemático não trava os outros.
+        console.error("identificar-documentos: caso", linha.caso_id, e);
+        resultados.push({ caso_id: linha.caso_id, erro: String((e as Error)?.message ?? e) });
+      }
     }
     return jsonResponse({ casos: resultados.length, resultados });
   }
 
-  // Pessoa só mexe no próprio escritório — o service role ignora RLS.
-  if (quem.tipo === "pessoa") {
-    const { data: caso } = await admin
-      .from("casos")
-      .select("escritorio_id")
-      .eq("id", body.caso_id)
-      .maybeSingle();
-    const sb = escopado(quem.admin, (caso?.escritorio_id as string) ?? null);
-    const { data: visivel } = await sb
-      .from("casos")
-      .select("id")
-      .eq("id", body.caso_id)
-      .maybeSingle();
-    if (!visivel) return jsonResponse({ error: "caso não encontrado" }, 404);
-  }
+  // Pessoa só mexe no caso que ELA alcança — a pergunta é feita com a sessão
+  // dela (RLS + escritório ativo). Antes a function lia o escritório do
+  // próprio caso e filtrava por ele mesmo: sempre passava, e um caso de outro
+  // escritório era lido com a chave de IA DELE.
+  const negado = await exigirRecurso(quem, "casos", body.caso_id);
+  if (negado) return negado;
 
-  const r = await processarCaso(
-    admin,
-    body.caso_id,
-    quem.tipo === "pessoa" ? quem.uid : null,
-    body.documento_ids,
-  );
+  let r: Awaited<ReturnType<typeof processarCaso>>;
+  try {
+    r = await processarCaso(admin, body.caso_id, quem.tipo === "pessoa" ? quem.uid : null, prazo);
+  } catch (e) {
+    console.error("identificar-documentos: caso", body.caso_id, e);
+    return jsonResponse({ error: "Não consegui ler os documentos agora. Tente de novo." }, 500);
+  }
   if ("erro" in r) return jsonResponse({ error: r.erro, code: r.code }, r.code ? 412 : 500);
   return jsonResponse(r);
 });

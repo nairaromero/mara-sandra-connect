@@ -313,7 +313,7 @@ export async function exigirSistema(
 export async function exigirUsuarioOuSistema(
   req: Request,
   job: string,
-  opts: { tipo?: "interno" | "parceiro"; admin?: boolean } = {},
+  opts: { tipo?: "interno" | "parceiro"; admin?: boolean; permissao?: string } = {},
 ): Promise<ChamadorPessoa | ChamadorSistema | Response> {
   const sistema = await exigirSistema(req, job);
   if (!(sistema instanceof Response)) return sistema;

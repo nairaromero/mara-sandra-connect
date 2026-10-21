@@ -9,9 +9,10 @@
 // fica de FORA de propósito: foto de iPhone chega assim e NENHUM dos dois lê —
 // até existir conversão, ela é um arquivo para a pessoa abrir, não para a IA.
 //
-// Espelhos desta régua (mude os três juntos):
-//   · public.documentos_leitura_pendente / casos_com_leitura_pendente (SQL)
-//   · src/lib/documentos/arquivo.ts (a tela, para não oferecer "Ler")
+// Quem usa: esta function, e a tela (src/lib/documentos/arquivo.ts importa
+// daqui por `@shared/arquivo-ia` — módulo PURO, sem import). O banco tem a
+// mesma régua em `private.ia_le_arquivo` (a fila do cron); a régua
+// e2e/unit/fonte-unica-documentos.test.ts confere que os dois dizem o mesmo.
 
 export const EXTENSOES_IA = ["pdf", "jpg", "jpeg", "png", "webp", "gif"];
 

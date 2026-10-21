@@ -15,7 +15,6 @@ import {
   CheckCircle2,
   ChevronDown,
   Download,
-  ExternalLink,
   Eye,
   FileQuestion,
   FolderOpen,
@@ -24,14 +23,18 @@ import {
 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
+import { lerLista } from "@/lib/leitura";
+import { mensagemDeErroEdge } from "@/lib/edge-function-error";
 import { TIPOS_DOCUMENTO_LABEL, TIPOS_DOCUMENTO_OPTIONS } from "@/lib/documentos/tipos";
-import { itensFaltantes } from "@/lib/documentos/checklist";
-import { provedorDaPasta, type PastaExterna } from "@/lib/documentos/pasta-externa";
+import { checklistDoCaso, itensFaltantes, nomeDoItem, type ItemChecklist } from "@/lib/documentos/checklist";
+import { lerPastasDoCaso, type PastaExterna } from "@/lib/documentos/pasta-externa";
 import { abreNoNavegador, iaConsegueLer, rotuloDaExtensao } from "@/lib/documentos/arquivo";
+import { LinkDaPasta } from "@/components/documentos/pastas-externas";
 import { quemJuntou, type AutorDocumento } from "@/lib/documentos/autor";
 import { useVisualizadorDocumento } from "@/hooks/use-visualizador-documento";
 import { VisualizadorDocumento } from "@/components/documentos/visualizador-documento";
 import { useDestaque } from "@/lib/destaque/destaque-context";
+import { useAuth } from "@/hooks/use-auth";
 import type { TarefaComJoins } from "@/lib/tarefas/types";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -49,6 +52,8 @@ interface DocDoCaso {
   ia_confianca: "alta" | "media" | "baixa" | null;
   ia_resumo: string | null;
   ia_lido_em: string | null;
+  /** A IA desistiu deste arquivo (3 falhas, ou grande demais): o porquê. */
+  ia_falha: string | null;
 }
 
 interface Props {
@@ -74,6 +79,8 @@ export function OrganizacaoDocumentos({
   // Pasta por link (#434): quando o parceiro não anexa nada, é aqui que os
   // arquivos estão — a tarefa não pode parecer um caso vazio.
   const [pastas, setPastas] = useState<PastaExterna[]>([]);
+  // O que este caso precisa ter: lista do escritório + a do benefício (banco).
+  const [checklist, setChecklist] = useState<ItemChecklist[]>([]);
   const [erro, setErro] = useState(false);
   const [lendo, setLendo] = useState(false);
   const [observacao, setObservacao] = useState("");
@@ -81,47 +88,48 @@ export function OrganizacaoDocumentos({
   const [verIdentificados, setVerIdentificados] = useState(false);
   const [concluindo, setConcluindo] = useState(false);
   const { marcar: marcarDestaque } = useDestaque();
+  // Concluir segue a regra da tarefa (escopo `atribuidos` só na tarefa da
+  // própria pessoa) — a mesma que a RPC confere no banco.
+  const { podeEscreverLinha } = useAuth();
+  const podeConcluir = podeEscreverLinha("tarefas", { responsavel_id: tarefa.responsavel_id }, "atualizar");
   // Ver o arquivo sem sair da conferência (pedido da Naira, 2026-10-19): é
   // olhando que se escolhe o tipo certo quando a IA ficou em dúvida.
   const visualizador = useVisualizadorDocumento();
 
   const carregar = useCallback(() => {
-    if (!tarefa.caso_id) return;
+    const casoId = tarefa.caso_id;
+    if (!casoId) return;
     let vivo = true;
-    supabase
-      .from("documentos")
-      // Uma string só: partida em duas, o supabase-js não consegue inferir o
-      // tipo do retorno e o `as DocDoCaso[]` passa a mentir.
-      .select("id, nome_arquivo, storage_path, tipo, ia_tipo, ia_confianca, ia_resumo, ia_lido_em, autor:usuarios!documentos_uploaded_by_fkey(nome, email, tipo)")
-      .eq("caso_id", tarefa.caso_id)
-      .order("created_at")
-      .then(({ data, error }) => {
+    // As três leituras chegam JUNTAS: separadas, a que respondia por último
+    // apagava o aviso de falha da outra e o "Conferido" voltava a ficar ativo
+    // com a tela dizendo que não chegou nada. Qualquer falha: aviso, e nada de
+    // "falta tudo" — quem organiza sairia pedindo o que já chegou.
+    Promise.all([
+      lerLista<DocDoCaso>(
+        supabase
+          .from("documentos")
+          // Uma string só: partida em duas, o supabase-js não consegue inferir o
+          // tipo do retorno e o `as DocDoCaso[]` passa a mentir.
+          .select("id, nome_arquivo, storage_path, tipo, ia_tipo, ia_confianca, ia_resumo, ia_lido_em, ia_falha, autor:usuarios!documentos_uploaded_by_fkey(nome, email, tipo)")
+          .eq("caso_id", casoId)
+          .order("created_at")
+          .order("id") as PromiseLike<{ data: DocDoCaso[] | null; error: { message: string } | null }>,
+        "documentos do caso",
+      ),
+      lerPastasDoCaso(casoId),
+      checklistDoCaso(casoId),
+    ])
+      .then(([documentos, links, itens]) => {
         if (!vivo) return;
-        // Erro de leitura não é "não tem documento": com [] a tela diria que
-        // falta tudo, e quem organiza sairia pedindo o que já chegou.
-        if (error) {
-          console.error("documentos do caso:", error);
-          setErro(true);
-          return;
-        }
         setErro(false);
-        setDocs((data ?? []) as DocDoCaso[]);
-      });
-    supabase
-      .from("caso_pastas_externas")
-      .select("id, caso_id, url, rotulo, criado_por, created_at, atualizado_em")
-      .eq("caso_id", tarefa.caso_id)
-      .order("created_at")
-      .then(({ data, error }) => {
+        setDocs(documentos);
+        setPastas(links);
+        setChecklist(itens);
+      })
+      .catch((e: Error) => {
         if (!vivo) return;
-        // Falhar aqui não pode virar "não tem pasta": a tela diria que o
-        // parceiro não mandou nada quando mandou.
-        if (error) {
-          console.error("pastas por link do caso:", error);
-          setErro(true);
-          return;
-        }
-        setPastas((data ?? []) as PastaExterna[]);
+        console.error(e);
+        setErro(true);
       });
     return () => {
       vivo = false;
@@ -132,10 +140,14 @@ export function OrganizacaoDocumentos({
 
   const concluida = tarefa.status === "feito";
   const lista = docs ?? [];
-  // "Por ler" é só o que a IA CONSEGUE ler: um .docx nunca vai ser lido, e
-  // oferecer "Ler 1 novo" para ele é um botão que não faz nada, para sempre.
-  const semLeitura = lista.filter((d) => !d.ia_lido_em && iaConsegueLer(d.nome_arquivo));
-  const foraDoAlcanceDaIA = lista.filter((d) => !d.ia_lido_em && !iaConsegueLer(d.nome_arquivo));
+  // "Por ler" é só o que a IA CONSEGUE ler e ainda não desistiu: um .docx
+  // nunca vai ser lido, e oferecer "Ler 1 novo" para ele (ou para o arquivo
+  // que já falhou 3 vezes) é um botão que não faz nada, para sempre. A régua
+  // é a mesma do banco (`private.ia_documento_pendente`).
+  const semLeitura = lista.filter((d) => !d.ia_lido_em && !d.ia_falha && iaConsegueLer(d.nome_arquivo));
+  const foraDoAlcanceDaIA = lista.filter(
+    (d) => !d.ia_lido_em && (!!d.ia_falha || !iaConsegueLer(d.nome_arquivo)),
+  );
   const lidos = lista.filter((d) => d.ia_lido_em);
   // Exceção: a IA leu e não soube dizer, ficou em dúvida — ou nem leu ainda
   // (sem chave, falha, acabou de chegar). Arquivo que a IA não resolveu é
@@ -150,9 +162,7 @@ export function OrganizacaoDocumentos({
   );
   // Nome de cada item que falta — o item aceita mais de um tipo (CNIS completo
   // ou resumido resolvem o mesmo item), e o primeiro da família dá o nome.
-  const faltantes = itensFaltantes(tiposPresentes).map(
-    (item) => TIPOS_DOCUMENTO_LABEL[item.tipos[0]] ?? item.tipos[0],
-  );
+  const faltantes = itensFaltantes(checklist, tiposPresentes).map((item) => nomeDoItem(item));
 
   async function lerAgora() {
     if (lendo || !tarefa.caso_id) return;
@@ -162,18 +172,27 @@ export function OrganizacaoDocumentos({
         body: { caso_id: tarefa.caso_id },
       });
       if (error) throw error;
-      const r = (data ?? {}) as { lidos?: unknown[]; pulados?: unknown[] };
+      const r = (data ?? {}) as { lidos?: unknown[]; pulados?: Array<{ motivo?: string }> };
       const n = r.lidos?.length ?? 0;
-      toast.success(
-        n === 0 ? "Nada novo para ler." : `${n} arquivo${n > 1 ? "s" : ""} identificado${n > 1 ? "s" : ""}.`,
-      );
+      const p = r.pulados?.length ?? 0;
+      if (n > 0) {
+        toast.success(`${n} arquivo${n > 1 ? "s" : ""} identificado${n > 1 ? "s" : ""}.`);
+      }
+      if (p > 0) {
+        // Falha não é "nada novo": antes a chave recusada aparecia assim.
+        toast.warning(
+          `${p} arquivo${p > 1 ? "s" : ""} sem leitura: ${r.pulados![0].motivo ?? "tente de novo"}`,
+        );
+      }
+      if (n === 0 && p === 0) toast.success("Nada novo para ler.");
       carregar();
       // O card da lista lê os documentos por conta própria: sem avisar o pai,
       // ele segue dizendo "0 de 3 identificados" depois que a IA já leu.
       onUpdated();
     } catch (e) {
-      console.error(e);
-      toast.error((e as { message?: string })?.message || "Não consegui ler os documentos agora.");
+      // A frase de verdade (chave recusada, IA não configurada) vem no corpo
+      // da resposta; a `message` do supabase-js é sempre "non-2xx status code".
+      toast.error(await mensagemDeErroEdge(e, "Não consegui ler os documentos agora."));
     } finally {
       setLendo(false);
     }
@@ -263,7 +282,7 @@ export function OrganizacaoDocumentos({
             if (stopPropagation) e.stopPropagation();
             void concluir();
           }}
-          disabled={concluindo || docs === null || erro}
+          disabled={concluindo || docs === null || erro || !podeConcluir}
         >
           {concluindo && <Loader2 className="mr-2 h-3 w-3 animate-spin" />}
           Conferido — enviar para análise
@@ -318,18 +337,10 @@ export function OrganizacaoDocumentos({
           <p className="mt-1 text-[11px] text-muted-foreground">
             Baixe de lá e suba na aba Documentos do caso; depois a IA lê o que subiu.
           </p>
-          <ul className="mt-1 space-y-0.5">
+          <ul className="mt-1 space-y-1">
             {pastas.map((p) => (
               <li key={p.id}>
-                <a
-                  href={p.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-xs font-medium hover:underline"
-                >
-                  {p.rotulo?.trim() || `Pasta no ${provedorDaPasta(p.url)}`}
-                  <ExternalLink className="h-3 w-3" />
-                </a>
+                <LinkDaPasta pasta={p} />
               </li>
             ))}
           </ul>
@@ -416,7 +427,7 @@ export function OrganizacaoDocumentos({
         />
       </div>
 
-      <Button size="sm" onClick={concluir} disabled={concluindo || docs === null || erro}>
+      <Button size="sm" onClick={concluir} disabled={concluindo || docs === null || erro || !podeConcluir}>
         {concluindo && <Loader2 className="mr-2 h-3 w-3 animate-spin" />}
         Conferido — enviar para análise
       </Button>
@@ -457,9 +468,11 @@ function LinhaDoc({
           <span className="text-[11px] text-muted-foreground">
             {doc.ia_lido_em
               ? (doc.ia_confianca && (ROTULO_CONFIANCA[doc.ia_confianca] ?? doc.ia_confianca)) || ""
-              : iaConsegueLer(doc.nome_arquivo)
-                ? "por ler"
-                : "a IA não lê"}
+              : doc.ia_falha
+                ? "a IA não conseguiu ler"
+                : iaConsegueLer(doc.nome_arquivo)
+                  ? "por ler"
+                  : "a IA não lê"}
           </span>
           <Button
             size="sm"
@@ -490,6 +503,11 @@ function LinhaDoc({
       )}
       {doc.ia_resumo && (
         <p className="mb-1 text-[11px] text-muted-foreground line-clamp-2">{doc.ia_resumo}</p>
+      )}
+      {!doc.ia_lido_em && doc.ia_falha && (
+        <p className="mb-1 text-[11px] text-amber-800 dark:text-amber-300" data-ia-falha>
+          {doc.ia_falha}
+        </p>
       )}
       <Selecao
         opcoes={TIPOS_DOCUMENTO_OPTIONS}

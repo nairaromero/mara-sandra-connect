@@ -123,6 +123,12 @@ export const RPC: Record<string, Exigencia> = {
   // relógio de prazos (#397): escopo `atribuidos` só na tarefa de quem pede;
   // decidir_prorrogacao é do admin (is_admin), sem permissão a espelhar.
   pedir_prorrogacao: { permissao: "tarefas:gerenciar" },
+  // organização de documentos (#434): concluir confere escritório e a mesma
+  // regra de escopo da policy de tarefas; o checklist é de quem mexe nos
+  // tipos de benefício (mesma aba); quem faz cada etapa, de quem configura.
+  concluir_organizacao_documentos: { permissao: "tarefas:gerenciar" },
+  escritorio_definir_checklist: { permissao: "templates:gerenciar" },
+  escritorio_definir_responsaveis: { permissao: "escritorio:configurar" },
 };
 
 /** Edge functions que pedem permissão em `exigirUsuario`. */
