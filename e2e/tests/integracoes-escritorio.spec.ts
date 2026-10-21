@@ -121,9 +121,14 @@ test.describe.serial("integrações por escritório", () => {
     expect((await adv.sb.from("escritorio_integracoes").select("escritorio_id, tipo, config")).data ?? []).toHaveLength(0);
     expect((await fn(adv.jwt, ESC2, { action: "salvar", tipo: "whatsapp", config: { instance: "x" } })).status).toBe(403);
 
-    // admin do escritório 1: nada do Canário
+    // admin do escritório 1: nada do CANÁRIO. O que ele enxerga do próprio
+    // escritório é legítimo (a chave de IA do escritório mora aqui desde o
+    // #451), então a régua é a origem das linhas, não a contagem — com
+    // `toHaveLength(0)` a spec caía assim que o escritório 1 configurava
+    // qualquer integração de verdade.
     const a1 = await como(`e2e+admin@${DOM}`, ESC1);
-    expect((await a1.sb.from("escritorio_integracoes").select("escritorio_id, tipo, config")).data ?? []).toHaveLength(0);
+    const doEsc1 = (await a1.sb.from("escritorio_integracoes").select("escritorio_id, tipo, config")).data ?? [];
+    expect(doEsc1.filter((l) => l.escritorio_id === ESC2)).toHaveLength(0);
     // ...e forjar o header do Canário também não abre
     const forjado = await como(`e2e+admin@${DOM}`, ESC2);
     expect((await forjado.sb.from("escritorio_integracoes").select("escritorio_id, tipo, config")).data ?? []).toHaveLength(0);
