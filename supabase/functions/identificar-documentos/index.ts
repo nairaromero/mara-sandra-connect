@@ -25,6 +25,10 @@ import { abrirCredencial, carregarIntegracao, registroDeUso } from "../_shared/i
 import { iaConsegueLer, mediaTypeIA } from "../_shared/arquivo-ia.ts";
 import { type Attachment, chatWith, type Credencial } from "../_shared/ia-providers.ts";
 import { TIPOS_DOCUMENTO } from "../_shared/tipos-documento.ts";
+// CORS pelo túnel da casa: a resposta sem `Access-Control-Allow-Origin` o
+// navegador descarta, e o supabase-js mostra "Failed to send a request to the
+// Edge Function" — como se a function nem existisse.
+import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -42,13 +46,6 @@ const PARALELO = 3;
 const ORCAMENTO_MS = 90_000;
 /** Teto de casos por rodada do cron. */
 const MAX_CASOS = 10;
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}
 
 // O padrão do escritório (que nome de arquivo chega, o que distingue um
 // documento do outro) vive no BANCO, por escritório — o repositório é público
@@ -342,6 +339,9 @@ async function processarCaso(
 }
 
 Deno.serve(async (req) => {
+  // O navegador pergunta ANTES (preflight). Sem esta linha o OPTIONS caía no
+  // 405 abaixo, sem cabeçalho de CORS, e a chamada morria antes de sair.
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return jsonResponse({ error: "use POST" }, 405);
 
   // Pessoa (botão na tarefa) ou sistema (fila do cron).
