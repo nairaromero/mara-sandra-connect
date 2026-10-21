@@ -663,7 +663,9 @@ function NovoCasoPage() {
 
           const docInsertResp = await supabase.from("documentos").insert({
             caso_id: casoId,
-            tipo: doc.tipo,
+            // Sem escolha, entra como "outro": a coluna é NOT NULL e quem dá
+            // o tipo de verdade é a leitura da IA, na conferência.
+            tipo: doc.tipo || "outro",
             tipo_personalizado: doc.tipo === "outro" ? doc.tipoPersonalizado.trim() || null : null,
             nome_arquivo: doc.file.name,
             storage_path: storagePath,
@@ -820,13 +822,12 @@ function NovoCasoPage() {
     }
   }
 
-  // Valida documentos: cada doc com arquivo precisa de tipo selecionado;
-  // se tipo='outro', precisa de tipoPersonalizado preenchido.
-  const docsComArquivo = docs.filter((d) => d.file !== null);
-  const docsInvalidos = docsComArquivo.filter(
-    (d) => !d.tipo || (d.tipo === "outro" && d.tipoPersonalizado.trim().length === 0),
-  );
-  const todosDocumentosNomeados = docsInvalidos.length === 0;
+  // O tipo NÃO é obrigatório aqui (Naira, 20/10). Quem indica o caso mandava
+  // tudo como "Outro" porque classificar 20 arquivos é trabalho de quem recebe,
+  // não de quem envia — e agora a IA lê a pasta e identifica. Quem souber o que
+  // é, diz; o resto entra como "Outro" e a conferência resolve.
+  // Esta decisão vale só para a criação do caso: o "Adicionar documento" do
+  // caso já existente continua como está.
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -1245,17 +1246,17 @@ function NovoCasoPage() {
                           </Button>
                         </div>
                         <div>
-                          <Label className="text-xs">Tipo</Label>
+                          <Label className="text-xs">Tipo (opcional)</Label>
                           <Selecao
                             opcoes={TIPOS_DOCUMENTO_OPTIONS}
                             value={d.tipo}
                             onChange={(v) => updateDocTipo(d.id, v)}
-                            placeholder="Selecione ou busque o tipo..."
+                            placeholder="Se souber o que é; senão a equipe identifica"
                           />
                         </div>
                         {d.tipo === "outro" && (
                           <div>
-                            <Label className="text-xs">Nome do documento (obrigatório)</Label>
+                            <Label className="text-xs">Nome do documento (opcional)</Label>
                             <Input
                               placeholder="Ex.: Cartão do INSS, Decisão do MS..."
                               value={d.tipoPersonalizado}
@@ -1274,18 +1275,6 @@ function NovoCasoPage() {
               </CardContent>
             </Card>
 
-            {!todosDocumentosNomeados && (
-              <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-                <p className="font-medium">
-                  Há {docsInvalidos.length}{" "}
-                  {docsInvalidos.length === 1 ? "documento sem tipo" : "documentos sem tipo"}{" "}
-                  selecionado{docsInvalidos.length === 1 ? "" : "s"}.
-                </p>
-                <p className="text-xs mt-1">
-                  Selecione o tipo de cada arquivo. Se for &quot;Outro&quot;, informe o nome.
-                </p>
-              </div>
-            )}
             <div className="flex items-center justify-end gap-2">
               <Button
                 type="button"
@@ -1297,8 +1286,7 @@ function NovoCasoPage() {
               </Button>
               <Button
                 type="submit"
-                disabled={submitting || !todosDocumentosNomeados}
-                title={!todosDocumentosNomeados ? "Há documentos sem tipo selecionado" : undefined}
+                disabled={submitting}
               >
                 {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 {progressoUpload
