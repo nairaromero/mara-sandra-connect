@@ -211,6 +211,33 @@ $$;
 revoke all on function public.documentos_leitura_pendente(uuid, int) from public, anon, authenticated;
 grant execute on function public.documentos_leitura_pendente(uuid, int) to service_role;
 
+-- O escritório tem IA ligada? Sem ela a function devolve "não configurado"
+-- sem marcar arquivo nenhum — e o caso voltava à fila a cada 10 minutos,
+-- ocupando as vagas da rodada (10 casos) e atrasando quem tem chave. A
+-- mesma regra de `carregarIntegracao` (_shared/ia-integracao.ts): linha
+-- 'ia' ligada, com segredo, provedor e modelo.
+create or replace function private.escritorio_tem_ia(p_escritorio uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1 from public.escritorio_integracoes i
+     where i.escritorio_id = p_escritorio
+       and i.tipo = 'ia'
+       and i.ativo
+       and i.segredo_cipher is not null
+       and i.segredo_iv is not null
+       and coalesce(btrim(i.config->>'provider'), '') <> ''
+       and coalesce(btrim(i.config->>'modelo'), '') <> ''
+  );
+$$;
+
+revoke all on function private.escritorio_tem_ia(uuid) from public, anon, authenticated;
+grant execute on function private.escritorio_tem_ia(uuid) to service_role;
+
 create or replace function public.casos_com_leitura_pendente(
   p_quieto_minutos int default 2,
   p_limite int default 20
@@ -233,6 +260,8 @@ as $$
         and t.status = 'a_fazer'
         and (t.metadata->>'organizacao_documentos')::boolean is true
    )
+     -- revisão: só escritório com IA ligada entra na fila (ver acima).
+     and private.escritorio_tem_ia(d.escritorio_id)
    group by d.caso_id
   having count(*) filter (
            where private.ia_documento_pendente(d.nome_arquivo, d.ia_lido_em, d.ia_falha)

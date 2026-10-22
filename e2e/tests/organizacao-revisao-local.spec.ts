@@ -16,7 +16,7 @@ import {
   segredoDeSistemaLocal,
   ultimaLinhaDaTrilha,
 } from "../rbac";
-import { adminClient, cleanupE2E, seedClienteCaso } from "../supabase-admin";
+import { adminClient, cleanupE2E, cpfValido, seedClienteCaso } from "../supabase-admin";
 import { TIPOS_DOCUMENTO_CHAVES } from "../../supabase/functions/_shared/tipos-documento";
 
 const admin = adminClient();
@@ -72,6 +72,53 @@ test.describe("escritório: um não alcança o outro", () => {
 });
 
 test.describe("a fila da leitura", () => {
+  // Achado da explicação de 22/10: escritório sem IA ligada voltava à fila a
+  // cada 10 minutos (a function respondia "não configurado" sem marcar nada)
+  // e ocupava as vagas de quem tem chave.
+  test("só entra na fila o escritório com IA ligada", async () => {
+    const esc = await escritorioCanario();
+    const { data: semIa } = await admin
+      .from("escritorio_integracoes")
+      .select("id")
+      .eq("escritorio_id", esc)
+      .eq("tipo", "ia")
+      .eq("ativo", true);
+    test.skip((semIa ?? []).length > 0, "o Canário deste banco tem IA ligada");
+
+    // Um caso de parceiro em cada escritório, cada um com um PDF por ler.
+    const parceiroCanario = await idDe(contaDoCanario("parceiro"));
+    const { data: cli, error: eCli } = await admin
+      .from("clientes")
+      .insert({ nome: `[E2E] Fila sem IA ${Date.now()}`, cpf: cpfValido(), escritorio_id: esc })
+      .select("id")
+      .single();
+    expect(eCli, eCli?.message).toBeNull();
+    const { data: casoCanario, error: eCaso } = await admin
+      .from("casos")
+      .insert({ cliente_id: cli!.id, escritorio_id: esc, tipo_beneficio: "Outro", fase: "analise", parceiro_id: parceiroCanario })
+      .select("id")
+      .single();
+    expect(eCaso, eCaso?.message).toBeNull();
+    for (const caso of [casoCanario!.id as string, casoId]) {
+      const { error } = await admin.from("documentos").insert({
+        caso_id: caso,
+        tipo: "outro",
+        nome_arquivo: "[E2E] fila.pdf",
+        storage_path: `e2e-fila/${caso}/fila.pdf`,
+      });
+      expect(error, error?.message).toBeNull();
+    }
+
+    const { data: fila, error } = await admin.rpc("casos_com_leitura_pendente", {
+      p_quieto_minutos: 0,
+      p_limite: 1000,
+    });
+    expect(error, error?.message).toBeNull();
+    const ids = (fila ?? []).map((l: { caso_id: string }) => l.caso_id);
+    expect(ids, "o escritório com IA entra").toContain(casoId);
+    expect(ids, "o escritório sem IA fica de fora").not.toContain(casoCanario!.id);
+  });
+
   // Achado 4: o cron assina como 'cron:identificar-documentos' e a function
   // conferia outro nome — toda chamada da fila voltava 401.
   test("o cron entra com a assinatura do job; outro nome é recusado", async () => {

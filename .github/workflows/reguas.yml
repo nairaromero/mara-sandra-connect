@@ -1,0 +1,38 @@
+# Réguas (e2e/unit): rodam em todo PR para a staging ou para a main.
+#
+# Por que existe (Naira, 22/10): as réguas do projeto — túnel da IA, fonte
+# única dos documentos, limpeza de spec só-local, leituras checadas, rótulos
+# da auditoria… — só rodavam quando alguém lembrava de rodar. Foi assim que a
+# régua da IA ficou VERMELHA no staging sem ninguém ver (revisão de 21/10).
+# Aqui um PR com régua vermelha aparece com o check falhando antes do merge.
+#
+# Só as réguas unitárias: rodam sem banco, sem rede e sem segredo (conferido
+# num checkout limpo, sem .env). A suíte E2E continua no `bun run e2e:local`
+# (CLAUDE.md, "Checagem de regressão").
+name: Réguas
+
+on:
+  pull_request:
+    branches: [staging, main]
+  push:
+    branches: [staging, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reguas-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  reguas:
+    name: bun test e2e/unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.1
+      - run: bun install --frozen-lockfile
+      - run: bun test e2e/unit

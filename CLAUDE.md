@@ -272,6 +272,9 @@ no lote de agosto: **sempre olhar se nada quebrou no meio do caminho.**
      os testes, o `afterAll` roda mesmo assim, e a suíte aponta para o STAGING em
      `e2e:staging` — use `limpezaLocal` (`e2e/rbac.ts`); `bun test
      e2e/unit/limpeza-por-ambiente.test.ts` é a régua.
+   As réguas unitárias (`bun test e2e/unit`) também rodam no GitHub em todo PR para
+   `staging`/`main` (`.github/workflows/reguas.yml`, desde 22/10): régua vermelha = check
+   falhando no PR. Régua nova precisa rodar sem banco, rede ou `.env`.
 4. Depois de subir, conferir o que roda **de verdade**: logs da edge function,
    `cron.job_run_details`, respostas do pg_net, dado esperado no banco.
    Deploy verde ≠ funcionando.
