@@ -10,7 +10,9 @@
 // Compara, para os papéis que a API usa (anon, authenticated, service_role):
 //   1. o padrão de permissão de objeto NOVO no schema public (pg_default_acl);
 //   2. o privilégio de cada tabela do public que existe nos dois;
-//   3. o EXECUTE de cada função do public que existe nos dois.
+//   3. o EXECUTE de cada função do public que existe nos dois;
+//   4. o privilégio de cada sequência (acrescentado no #479: duas sequências
+//      estavam abertas no staging e o detector, que só olhava o padrão, não via).
 // Só lê. Sai 0 quando bate, 1 quando diverge (e lista as diferenças).
 //
 //   node scripts/conferir-deriva-ambientes.mjs
@@ -50,6 +52,16 @@ const CONSULTAS = {
       join pg_namespace n on n.oid = c.relnamespace and n.nspname = 'public'
       cross join pg_roles r
      where c.relkind in ('r', 'p', 'v') and r.rolname in (${papeis})`,
+  "sequência": `
+    select c.relname || ' → ' || r.rolname as chave,
+           concat_ws(',',
+             case when has_sequence_privilege(r.oid, c.oid, 'SELECT') then 'SELECT' end,
+             case when has_sequence_privilege(r.oid, c.oid, 'UPDATE') then 'UPDATE' end,
+             case when has_sequence_privilege(r.oid, c.oid, 'USAGE') then 'USAGE' end) as valor
+      from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace and n.nspname = 'public'
+      cross join pg_roles r
+     where c.relkind = 'S' and r.rolname in (${papeis})`,
   "função": `
     select p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ') → ' || r.rolname as chave,
            case when has_function_privilege(r.oid, p.oid, 'EXECUTE') then 'EXECUTE' else '-' end as valor
