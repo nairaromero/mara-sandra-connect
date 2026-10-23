@@ -78,6 +78,9 @@ node scripts/msc-sql.mjs --local --file planning/sql-migrations/migration_x.sql
 5. Quando um lote estiver validado: Naira merge `staging → main` → deploy prod.
    O PR de release abre **com o label `release`**
    (`gh pr create --base main --head staging --label release`) — assim ele fica fora do board.
+   Antes de abrir o release: `node scripts/conferir-deriva-ambientes.mjs` (só lê) compara as
+   permissões do staging e da produção. Tudo é testado no staging — o que difere dele em
+   produção nenhum teste vê (item f44, 23/10: o registro de uso da IA falhou 5 dias em silêncio).
 
 **Board ([Legal Connect](https://github.com/users/nairaromero/projects/1), desde 2026-09-10):** o trabalho aberto vive lá, não mais no `planning/TODO.md`. Colunas: Backlog · Lote atual · Em revisão · Validar no staging · Produção.
 - **O card é a issue.** PR não vira card: o corpo do PR abre com `Closes #N` (**em inglês** — "Fecha #N" não liga) ou a issue é ligada no campo Development. Com essa ligação, o PR move a issue e o card dele (se entrar no board) é arquivado. PR sem issue ligada continua sendo o próprio card.
@@ -148,6 +151,10 @@ o sistema em produção. Quando chegar, vale o seguinte:
 - **Tabela nova de domínio** precisa de `escritorio_id not null` + FK + policy restritiva
   `isolamento_escritorio` + gatilho `aa_herdar_escritorio` — a `migration_rbac_02` é o
   molde (`private.tabelas_de_dominio()` lista quem fica de fora e por quê).
+  A conta das edge functions (`service_role`) precisa de SELECT/INSERT/UPDATE/DELETE em toda
+  tabela do public: o padrão do schema garante isso desde a `migration_service_role_tabelas`, e
+  `private.service_role_sem_acesso()` (cobrada pelo `rbac-conferir-exigencias`) acusa a exceção.
+  Não revogar da `service_role` para "fechar" tabela: quem fecha é a RLS e o código da function.
 - **RPC `SECURITY DEFINER`** que recebe id de linha começa com
   `private.exigir_no_escritorio('tabela'::regclass, p_id)` — o `postgres` tem BYPASSRLS.
 - **Função túnel: uma fonte de verdade, não N pontos** (pedido da Naira,
@@ -277,7 +284,10 @@ no lote de agosto: **sempre olhar se nada quebrou no meio do caminho.**
    falhando no PR. Régua nova precisa rodar sem banco, rede ou `.env`.
 4. Depois de subir, conferir o que roda **de verdade**: logs da edge function,
    `cron.job_run_details`, respostas do pg_net, dado esperado no banco.
-   Deploy verde ≠ funcionando.
+   Deploy verde ≠ funcionando. **Tabela vazia depois do release não prova "ninguém usou"**: confira
+   no log se a function foi chamada (em 18/10 `ia_uso` vazia foi lida como "sem uso" e era
+   `permission denied` em toda gravação). Gravação que "não derruba a chamada" (registro, trilha)
+   falha em silêncio — o log é o único lugar onde ela aparece.
 
 ## Comandos úteis
 
