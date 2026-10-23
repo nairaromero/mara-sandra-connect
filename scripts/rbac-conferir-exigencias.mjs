@@ -405,6 +405,27 @@ for (const { origem, funcao } of fechadasNoCaminho) {
   problemas.push(`FECHADA NO CAMINHO: ${origem} chama ${funcao}, sem EXECUTE para authenticated — a escrita da tela estoura "permission denied"`);
 }
 
+// ---------------------------------------------------------------------------
+// A conta das edge functions (service_role) alcança as tabelas do public?
+//
+// Em 23/10 a produção tinha o padrão de tabela nova SEM SELECT/INSERT/UPDATE/
+// DELETE para service_role, e o staging com — então o local (cópia do staging)
+// e toda a suíte passavam, e em produção o registro de uso da IA falhava em
+// silêncio desde 18/10 (item f44). A régua mora no banco,
+// `private.service_role_sem_acesso()` (migration_service_role_tabelas), e é a
+// mesma que a migration usa para se conferir.
+const temReguaServico = (() => {
+  const r = sql(`select to_regprocedure('private.service_role_sem_acesso()') is not null as existe`)[0];
+  return r?.existe === true || r?.existe === "true";
+})();
+const semServico = temReguaServico ? sql(`select objeto, falta from private.service_role_sem_acesso()`) : [];
+if (!temReguaServico) {
+  problemas.push("NÃO CONFERIDO: private.service_role_sem_acesso() não existe — rode a migration_service_role_tabelas");
+}
+for (const { objeto, falta } of semServico) {
+  problemas.push(`SEM ACESSO DO SERVIDOR: ${objeto} — service_role não tem ${falta}; edge function que usar quebra com "permission denied"`);
+}
+
 console.log(`espelho x banco — alvo: ${alvo}`);
 console.log(`  policies de escrita conferidas: ${policies.length - puladas}${puladas ? ` (${puladas} ILEGÍVEIS)` : ""}`);
 console.log(`  RPCs com permissão: ${Object.keys(rpcBanco).length}`);
@@ -415,6 +436,7 @@ console.log(`  trilha das edge: só pelo túnel ${TUNEL_AUDITORIA}`);
 console.log(`  functions presas a um escritório pelo escopado: ${conferidasEscopo}`);
 console.log(`  funções alcançáveis por anon/PUBLIC: ${conferidasAbertura} (${HELPERS_DE_POLICY.length} previstas)`);
 console.log(`  fechadas no caminho de gatilho/policy: ${temTunelCaminho ? fechadasNoCaminho.length : "NÃO CONFERIDO"}`);
+console.log(`  tabelas sem acesso da conta das functions: ${temReguaServico ? semServico.length : "NÃO CONFERIDO"}`);
 if (problemas.length === 0) {
   console.log("\nOK: o espelho do front bate com o servidor, e quem muda acesso audita.");
   process.exit(0);
