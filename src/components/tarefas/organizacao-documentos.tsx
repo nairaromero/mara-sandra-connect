@@ -145,16 +145,27 @@ export function OrganizacaoDocumentos({
   // que já falhou 3 vezes) é um botão que não faz nada, para sempre. A régua
   // é a mesma do banco (`private.ia_documento_pendente`).
   const semLeitura = lista.filter((d) => !d.ia_lido_em && !d.ia_falha && iaConsegueLer(d.nome_arquivo));
-  const foraDoAlcanceDaIA = lista.filter(
-    (d) => !d.ia_lido_em && (!!d.ia_falha || !iaConsegueLer(d.nome_arquivo)),
+  // Dois motivos diferentes de a IA não ter lido, e a tela diz qual: o
+  // formato que ela nunca lê (.docx, HEIC…) e o arquivo que ela TENTOU e
+  // desistiu (3 falhas, ou grande demais). Juntos, um PDF que falhou aparecia
+  // como "formato que ela não lê".
+  const formatoQueNaoLe = lista.filter(
+    (d) => !d.ia_lido_em && !d.ia_falha && !iaConsegueLer(d.nome_arquivo),
   );
+  const desistidos = lista.filter((d) => !d.ia_lido_em && !!d.ia_falha);
   const lidos = lista.filter((d) => d.ia_lido_em);
   // Exceção: a IA leu e não soube dizer, ficou em dúvida — ou nem leu ainda
   // (sem chave, falha, acabou de chegar). Arquivo que a IA não resolveu é
   // trabalho da pessoa, e por isso ele PRECISA aparecer: antes, o não lido
   // não entrava em lista nenhuma e só existia como número no cabeçalho.
   const emDuvida = lidos.filter((d) => d.ia_tipo === "outro" || d.ia_confianca !== "alta");
-  const duvidosos = [...semLeitura, ...foraDoAlcanceDaIA, ...emDuvida];
+  const duvidosos = [...semLeitura, ...desistidos, ...formatoQueNaoLe, ...emDuvida];
+  // O porquê dos não lidos, para o resumo: "1 em formato que ela não lê; 1 que
+  // ela não conseguiu ler".
+  const naoLidos = [
+    formatoQueNaoLe.length > 0 ? `${formatoQueNaoLe.length} em formato que ela não lê` : "",
+    desistidos.length > 0 ? `${desistidos.length} que ela não conseguiu ler` : "",
+  ].filter(Boolean);
   const reconhecidos = lidos.filter((d) => d.ia_tipo !== "outro" && d.ia_confianca === "alta");
 
   const tiposPresentes = new Set(
@@ -259,9 +270,8 @@ export function OrganizacaoDocumentos({
             : `${reconhecidos.length} de ${lista.length} identificados` +
               (emDuvida.length > 0 ? ` · ${emDuvida.length} em dúvida` : "") +
               (semLeitura.length > 0 ? ` · ${semLeitura.length} por ler` : "") +
-              (foraDoAlcanceDaIA.length > 0
-                ? ` · ${foraDoAlcanceDaIA.length} a IA não lê`
-                : "")}
+              (formatoQueNaoLe.length > 0 ? ` · ${formatoQueNaoLe.length} a IA não lê` : "") +
+              (desistidos.length > 0 ? ` · ${desistidos.length} a IA não conseguiu ler` : "")}
         </p>
         {docs !== null && pastas.length > 0 && (
           <p className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -304,10 +314,8 @@ export function OrganizacaoDocumentos({
               ? "Carregando…"
               : duvidosos.length === 0 && lista.length > 0
                 ? `A IA identificou ${reconhecidos.length === 1 ? "o arquivo" : `os ${reconhecidos.length} arquivos`}. Nada pendente.`
-                : `A IA leu ${lidos.length} de ${lidos.length + semLeitura.length} arquivos` +
-                  (foraDoAlcanceDaIA.length > 0
-                    ? ` (${foraDoAlcanceDaIA.length} em formato que ela não lê)`
-                    : "") +
+                : `A IA leu ${lidos.length} de ${lista.length} arquivo${lista.length === 1 ? "" : "s"}` +
+                  (naoLidos.length > 0 ? ` (${naoLidos.join("; ")})` : "") +
                   ". Abaixo, só o que ela não resolveu."}
           </p>
         </div>

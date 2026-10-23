@@ -129,6 +129,9 @@ test.describe("a fila da leitura", () => {
     const caixa = folha.locator("div.rounded-md.p-2").filter({ hasText: "[E2E] extrato.pdf" });
     await expect(caixa.getByText("a IA não conseguiu ler")).toBeVisible();
     await expect(caixa.locator("[data-ia-falha]")).toHaveText("não entendi a resposta do modelo");
+    // O resumo separa os dois porquês: o PDF desistido não é "formato que ela
+    // não lê" (os 16 .docx são).
+    await expect(folha.getByText(/\(16 em formato que ela não lê; 1 que ela não conseguiu ler\)/)).toBeVisible();
     // E o "Ler N novos" não oferece o que já foi desistido.
     await expect(folha.getByRole("button", { name: /^Ler \d+ novo/ })).toHaveCount(0);
   });
