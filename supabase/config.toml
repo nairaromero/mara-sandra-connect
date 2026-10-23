@@ -232,6 +232,11 @@ max_enrolled_factors = 10
 enroll_enabled = true
 verify_enabled = true
 
+[functions.checar-link-pasta]
+# Só pessoa (equipe ou parceiro, com casos:editar). Quem fecha a porta é o
+# exigirUsuario dentro da função — o verify_jwt sozinho não fecha nada.
+verify_jwt = false
+
 [functions.identificar-documentos]
 # Pessoa (botão na tarefa) ou sistema (fila). Quem fecha a porta é o
 # exigirUsuario/exigirSistema dentro da função — o verify_jwt sozinho não

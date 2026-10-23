@@ -5,7 +5,15 @@
 // no topo da aba Documentos e a tarefa de organizar sabe que ele existe.
 //
 // Um lugar só para: o nome do provedor (lido do endereço) e a validação do que
-// pode ser colado — a tela e a conferência leem daqui.
+// pode ser colado — a tela e a conferência leem daqui. A LISTA de provedores é
+// a mesma da function que confere o compartilhamento
+// (supabase/functions/_shared/provedores-pasta.ts, por `@shared`).
+
+import { provedorDoHost, type StatusDoLink } from "@shared/provedores-pasta";
+import { supabase } from "@/lib/supabase";
+import { lerLista } from "@/lib/leitura";
+
+export type { StatusDoLink };
 
 export interface PastaExterna {
   id: string;
@@ -15,20 +23,27 @@ export interface PastaExterna {
   criado_por: string | null;
   created_at: string;
   atualizado_em: string | null;
+  /** Última checagem do compartilhamento (function `checar-link-pasta`). */
+  checado_em?: string | null;
+  checado_status?: StatusDoLink | null;
+  checado_detalhe?: string | null;
 }
 
-/** Hosts conhecidos → nome que a pessoa reconhece. */
-const PROVEDORES: Array<[RegExp, string]> = [
-  [/(^|\.)1drv\.(ms|com)$/, "OneDrive"],
-  [/(^|\.)onedrive\.live\.com$/, "OneDrive"],
-  [/(^|\.)sharepoint\.com$/, "SharePoint"],
-  [/(^|\.)drive\.google\.com$/, "Google Drive"],
-  [/(^|\.)docs\.google\.com$/, "Google Drive"],
-  [/(^|\.)dropbox\.com$/, "Dropbox"],
-  [/(^|\.)wetransfer\.com$/, "WeTransfer"],
-  [/(^|\.)mega\.nz$/, "MEGA"],
-  [/(^|\.)icloud\.com$/, "iCloud"],
-];
+/** A frase e o tom de cada resultado — um lugar só, a aba Documentos e a tarefa usam. */
+export const ROTULO_DO_LINK: Record<StatusDoLink, { texto: string; tom: string }> = {
+  aberto: {
+    texto: "compartilhado",
+    tom: "bg-emerald-500/15 text-emerald-800 dark:text-emerald-300",
+  },
+  fechado: {
+    texto: "não compartilhado — pede login",
+    tom: "bg-destructive/15 text-destructive",
+  },
+  indefinido: {
+    texto: "não deu para conferir",
+    tom: "bg-muted text-muted-foreground",
+  },
+};
 
 /**
  * Nome do provedor do link, para a tela dizer "Pasta no OneDrive" em vez de
@@ -38,10 +53,7 @@ const PROVEDORES: Array<[RegExp, string]> = [
 export function provedorDaPasta(url: string): string {
   const host = hostDe(url);
   if (!host) return "link";
-  for (const [re, nome] of PROVEDORES) {
-    if (re.test(host)) return nome;
-  }
-  return host.replace(/^www\./, "");
+  return provedorDoHost(host)?.nome ?? host.replace(/^www\./, "");
 }
 
 function hostDe(url: string): string | null {
@@ -65,4 +77,23 @@ export function normalizarLinkPasta(bruto: string): string | null {
   const host = hostDe(comEsquema);
   if (!host || !host.includes(".")) return null;
   return comEsquema;
+}
+
+/**
+ * As pastas por link de um caso — a aba Documentos e a tarefa de organizar
+ * leem por aqui (antes cada uma tinha a própria consulta, e a da tarefa
+ * tratava o erro à mão). Erro estoura: "não consegui ler" não é "não tem".
+ */
+export function lerPastasDoCaso(casoId: string): Promise<PastaExterna[]> {
+  return lerLista<PastaExterna>(
+    supabase
+      .from("caso_pastas_externas")
+      .select(
+        "id, caso_id, url, rotulo, criado_por, created_at, atualizado_em, checado_em, checado_status, checado_detalhe",
+      )
+      .eq("caso_id", casoId)
+      .order("created_at")
+      .order("id"),
+    "pastas por link do caso",
+  );
 }

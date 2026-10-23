@@ -8,16 +8,27 @@
 // Não há integração com a Microsoft: quem organiza baixa de lá e sobe aqui. O
 // link é atalho, não sincronização.
 
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ExternalLink, FolderOpen, Link2, Loader2, Pencil, Plus, X } from "lucide-react";
+import {
+  ExternalLink,
+  FolderOpen,
+  Link2,
+  Loader2,
+  Pencil,
+  Plus,
+  RefreshCw,
+  X,
+} from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
-import { lerLista } from "@/lib/leitura";
 import { useAuth } from "@/hooks/use-auth";
+import { mensagemDeErroEdge } from "@/lib/edge-function-error";
 import {
+  lerPastasDoCaso,
   normalizarLinkPasta,
   provedorDaPasta,
+  ROTULO_DO_LINK,
   type PastaExterna,
 } from "@/lib/documentos/pasta-externa";
 import { Button } from "@/components/ui/button";
@@ -34,6 +45,8 @@ export function PastasExternas({ casoId, onChange }: Props) {
   const [pastas, setPastas] = useState<PastaExterna[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [editando, setEditando] = useState<PastaExterna | "nova" | null>(null);
+  // Ids sendo conferidos agora (o parceiro pode ter esquecido de compartilhar).
+  const [conferindo, setConferindo] = useState<Set<string>>(new Set());
 
   const ehParceiro = usuario?.tipo === "parceiro";
   const podeMexer = podeEscrever("caso_pastas_externas");
@@ -42,31 +55,31 @@ export function PastasExternas({ casoId, onChange }: Props) {
   const mexeNesta = (p: PastaExterna) =>
     podeMexer && (!ehParceiro || p.criado_por === usuario?.id);
 
+  // A tela ainda está montada? A conferência do link leva até 8s, e a pessoa
+  // pode ter saído da aba no meio — sem isto, o fim dela mexia em estado de
+  // componente que já não existe e disparava uma leitura à toa.
+  const montado = useRef(true);
+  useEffect(() => {
+    montado.current = true;
+    return () => {
+      montado.current = false;
+    };
+  }, []);
+
   const carregar = useCallback(() => {
-    let vivo = true;
-    lerLista<PastaExterna>(
-      supabase
-        .from("caso_pastas_externas")
-        .select("id, caso_id, url, rotulo, criado_por, created_at, atualizado_em")
-        .eq("caso_id", casoId)
-        .order("created_at"),
-      "pastas por link do caso",
-    )
+    lerPastasDoCaso(casoId)
       .then((linhas) => {
-        if (!vivo) return;
+        if (!montado.current) return;
         setErro(null);
         setPastas(linhas);
       })
       .catch((e: Error) => {
-        if (!vivo) return;
+        if (!montado.current) return;
         // Erro de leitura não é "não tem pasta": dizer que não tem manda a
         // pessoa procurar o link no WhatsApp de novo.
         console.error(e);
         setErro(e.message);
       });
-    return () => {
-      vivo = false;
-    };
   }, [casoId]);
 
   useEffect(() => carregar(), [carregar]);
@@ -77,13 +90,22 @@ export function PastasExternas({ casoId, onChange }: Props) {
       toast.error("Cole o endereço completo da pasta (começando com https://).");
       return false;
     }
+    // Link trocado nasce sem checagem e o autor é quem está logado — as duas
+    // coisas o BANCO garante (gatilho `_pasta_externa_antes`), não esta tela.
     const campos = { url, rotulo: rotulo.trim() || null };
     const resp =
       alvo === "nova"
         ? await supabase
             .from("caso_pastas_externas")
-            .insert({ caso_id: casoId, ...campos, criado_por: usuario?.id ?? null })
-        : await supabase.from("caso_pastas_externas").update(campos).eq("id", alvo.id);
+            .insert({ caso_id: casoId, ...campos })
+            .select("id")
+            .single()
+        : await supabase
+            .from("caso_pastas_externas")
+            .update(campos)
+            .eq("id", alvo.id)
+            .select("id")
+            .single();
     if (resp.error) {
       const dup = resp.error.code === "23505";
       toast.error(dup ? "Esse link já está neste caso." : "Não consegui salvar o link.");
@@ -92,9 +114,42 @@ export function PastasExternas({ casoId, onChange }: Props) {
     }
     toast.success(alvo === "nova" ? "Link da pasta salvo." : "Link atualizado.");
     setEditando(null);
-    carregar();
     onChange?.();
+    // Conferir na hora é o ponto do pedido (Naira, 20/10): quem colou está na
+    // tela e ainda pode arrumar o compartilhamento. A conferência recarrega a
+    // lista no fim; até lá, recarrega já para o link aparecer.
+    carregar();
+    if (resp.data?.id) void conferir(resp.data.id as string);
     return true;
+  }
+
+  /**
+   * Pede ao servidor para abrir o link sem credencial. Quem GRAVA o que viu é
+   * a function (a tela não grava mais: o banco recusa veredito vindo de
+   * pessoa). Nunca estoura a tela: não conseguir conferir é um resultado.
+   */
+  async function conferir(id: string) {
+    setConferindo((atual) => new Set(atual).add(id));
+    try {
+      const { data, error } = await supabase.functions.invoke("checar-link-pasta", {
+        body: { pasta_id: id },
+      });
+      if (error) {
+        console.error("checar-link-pasta:", await mensagemDeErroEdge(error, "falhou"));
+        if (montado.current) toast.error("Não consegui conferir o link agora.");
+      } else if (data?.status === "fechado" && montado.current) {
+        toast.warning("O link pede login — peça ao parceiro para compartilhar a pasta.");
+      }
+    } finally {
+      if (montado.current) {
+        setConferindo((atual) => {
+          const novo = new Set(atual);
+          novo.delete(id);
+          return novo;
+        });
+        carregar();
+      }
+    }
   }
 
   async function remover(pasta: PastaExterna) {
@@ -171,18 +226,22 @@ export function PastasExternas({ casoId, onChange }: Props) {
           ) : (
             <li key={p.id} className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <a
-                  href={p.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 text-sm font-medium hover:underline"
-                >
-                  {p.rotulo?.trim() || `Pasta no ${provedorDaPasta(p.url)}`}
-                  <ExternalLink className="h-3 w-3 shrink-0" />
-                </a>
-                <p className="truncate text-[11px] text-muted-foreground">{p.url}</p>
+                <LinkDaPasta pasta={p} conferindo={conferindo.has(p.id)} mostrarEndereco>
+                  {mexeNesta(p) && !conferindo.has(p.id) && (
+                    <button
+                      type="button"
+                      onClick={() => conferir(p.id)}
+                      className="flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground"
+                    >
+                      <RefreshCw className="h-2.5 w-2.5" />
+                      conferir
+                    </button>
+                  )}
+                </LinkDaPasta>
               </div>
-              {mexeNesta(p) && (
+              {/* Lápis some durante a conferência: trocar o link no meio dela
+                  é o que deixava o veredito do endereço velho no novo. */}
+              {mexeNesta(p) && !conferindo.has(p.id) && (
                 <div className="flex shrink-0 items-center">
                   <Button
                     size="sm"
@@ -232,6 +291,58 @@ export function PastasExternas({ casoId, onChange }: Props) {
         </Button>
       )}
     </div>
+  );
+}
+
+/**
+ * O link de uma pasta e o que a última checagem viu — a aba Documentos e a
+ * tarefa de organizar mostram por aqui (antes a tarefa tinha a própria cópia,
+ * sem o selo de compartilhamento).
+ */
+export function LinkDaPasta({
+  pasta,
+  conferindo = false,
+  mostrarEndereco = false,
+  children,
+}: {
+  pasta: PastaExterna;
+  conferindo?: boolean;
+  mostrarEndereco?: boolean;
+  /** Ação ao lado do selo (o "conferir" da aba Documentos). */
+  children?: ReactNode;
+}) {
+  return (
+    <>
+      <a
+        href={pasta.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center gap-1 text-sm font-medium hover:underline"
+      >
+        {pasta.rotulo?.trim() || `Pasta no ${provedorDaPasta(pasta.url)}`}
+        <ExternalLink className="h-3 w-3 shrink-0" />
+      </a>
+      {mostrarEndereco && <p className="truncate text-[11px] text-muted-foreground">{pasta.url}</p>}
+      {/* O que a última checagem viu ao tentar abrir sem login. */}
+      <p className="mt-0.5 flex items-center gap-1">
+        {conferindo ? (
+          <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" /> conferindo o compartilhamento…
+          </span>
+        ) : pasta.checado_status ? (
+          <span
+            className={"rounded px-1 text-[10px] " + ROTULO_DO_LINK[pasta.checado_status].tom}
+            title={pasta.checado_detalhe ?? undefined}
+            data-link-checagem={pasta.checado_status}
+          >
+            {ROTULO_DO_LINK[pasta.checado_status].texto}
+          </span>
+        ) : (
+          <span className="text-[10px] text-muted-foreground">sem conferência</span>
+        )}
+        {children}
+      </p>
+    </>
   );
 }
 

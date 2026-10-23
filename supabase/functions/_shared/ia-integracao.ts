@@ -49,7 +49,10 @@ const NAO_CONFIGURADO: ResultadoIntegracao = {
 };
 
 /**
- * Carrega a chave que vale para esta chamada. Erro de leitura do banco
+ * Carrega a chave que vale para esta chamada. A regra de "configurada" (linha
+ * 'ia' ligada, com segredo, provedor e modelo) tem espelho no banco em
+ * `private.escritorio_tem_ia`, que decide quem entra na fila de leitura de
+ * documentos — mude os dois juntos. Erro de leitura do banco
  * estoura (não vira "não configurado" calado); os dois casos de "sem IA"
  * voltam prontos para a resposta HTTP.
  */

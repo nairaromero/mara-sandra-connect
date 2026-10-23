@@ -5,8 +5,14 @@
 // substabelecimento, declaração de hipossuficiência e declaração de ausência
 // de duplicidade. Documento salvo com um desses tipos aparecia lá com a chave
 // crua ("substabelecimento") em vez do nome.
+//
+// As CHAVES vêm de supabase/functions/_shared/tipos-documento.ts (a mesma
+// lista das edge functions). Aqui fica só o rótulo — e o `satisfies` faz o tsc
+// recusar chave que falte ou sobre em relação a ela.
 
-export const TIPOS_DOCUMENTO_LABEL: Record<string, string> = {
+import type { TipoDocumento } from "@shared/tipos-documento";
+
+const ROTULOS = {
   cnis: "CNIS",
   cnis_resumido: "CNIS resumido",
   rg_cpf: "RG / CPF",
@@ -40,7 +46,9 @@ export const TIPOS_DOCUMENTO_LABEL: Record<string, string> = {
   termo_responsabilidade: "Termo de responsabilidade",
   cnpj_empregadora: "CNPJ (empresa empregadora)",
   outro: "Outro",
-};
+} satisfies Record<TipoDocumento, string>;
+
+export const TIPOS_DOCUMENTO_LABEL: Record<string, string> = ROTULOS;
 
 /**
  * Opções em ordem alfabética, com "Outro" sempre por último — ele não é um
