@@ -33,6 +33,15 @@ function envLocal(nome) {
   return null;
 }
 
+// O projeto onde o filme está mexendo, para a varredura de rastro do fim
+// (#445). Quem sabe disso é o módulo de ambiente que o roteiro carrega
+// (`local.cjs` ou `staging.cjs`), e ele registra aqui ao ser carregado — assim
+// nenhum roteiro precisa passar nada, e um filme LOCAL nunca varre o staging.
+let alvoDaVarredura = null;
+function definirAlvoDaVarredura(admin, url) {
+  alvoDaVarredura = { admin, url };
+}
+
 /** Client service-role do STAGING (nunca produção — filme é sempre no staging). */
 function adminStaging() {
   const srk = envLocal("STAGING_SERVICE_ROLE_KEY");
@@ -156,11 +165,42 @@ async function cursorVisivel(page) {
 }
 
 /**
+ * A varredura de rastro em caso emprestado, no fim de TODO filme (#445).
+ *
+ * O roteiro limpa o que semeou; o que escapa é o que a TELA criou num caso de
+ * cliente REAL do espelho (tarefa de template com o nome do cliente, sem
+ * marcador nenhum). Era isso que a Naira encontrava ao abrir o staging para
+ * validar — cinco tarefas e um relógio, em 29/09.
+ *
+ * A regra é a mesma da suíte e mora no mesmo arquivo —
+ * `e2e/varredura-rastro.mjs`, carregado com `import()` porque aqui é CommonJS.
+ */
+async function varrerRastroDoFilme(inicio) {
+  // Sem alvo registrado, o fallback é o staging — e SÓ quando o filme está
+  // rodando contra o staging. Filme local sem credencial não varre nada: é
+  // melhor não varrer do que varrer o projeto errado.
+  const alvo = alvoDaVarredura
+    ?? (BASE.includes("localhost") ? null : { admin: adminStaging(), url: SB_URL });
+  if (!alvo) {
+    console.warn("[filme] varredura de rastro não rodou: alvo local sem credencial registrada");
+    return;
+  }
+  try {
+    const { varrerRastroEmCasosEmprestados } = await import("../varredura-rastro.mjs");
+    await varrerRastroEmCasosEmprestados(alvo.admin, { url: alvo.url, inicio, de: "filme" });
+  } catch (e) {
+    console.warn("[filme] varredura de rastro falhou:", e.message);
+  }
+}
+
+/**
  * Estúdio de filmagem: um context (= um clipe de vídeo) por ato, still de
  * conferência por cena, e no encerrar() os clipes são renomeados ato1..N na
  * ordem de gravação. slowMo 350 dá o ritmo de mão humana.
  */
 async function abrirEstudio(nomeRoteiro) {
+  // Janela da varredura do fim: nada criado antes disto é tocado.
+  const inicio = new Date().toISOString();
   const saida = path.join(__dirname, "saida", nomeRoteiro);
   const videoDir = path.join(saida, "video");
   const stillDir = path.join(saida, "stills");
@@ -204,6 +244,7 @@ async function abrirEstudio(nomeRoteiro) {
         try { await ctx.close(); } catch { /* já fechado */ }
       }
       await browser.close();
+      await varrerRastroDoFilme(inicio);
       const clipes = fs.readdirSync(videoDir).filter((f) => f.endsWith(".webm"))
         .map((f) => ({ f, t: fs.statSync(path.join(videoDir, f)).birthtimeMs }))
         .sort((a, b) => a.t - b.t);
@@ -218,6 +259,7 @@ async function abrirEstudio(nomeRoteiro) {
 module.exports = {
   BASE,
   adminStaging,
+  definirAlvoDaVarredura,
   cpfValido,
   ler,
   deslizar,

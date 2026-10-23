@@ -53,7 +53,10 @@ describe("túnel da IA", () => {
       for (const c of chamadas(readFileSync(p, "utf8"))) {
         if (c.startsWith("chatWith(provider: string")) continue; // a definição
         total++;
-        if (!c.includes("registro:")) sem.push(p.replace(RAIZ + "/", ""));
+        // `registro: registroDeUso(...)` ou o atalho `{ registro, … }` — a
+        // primeira versão só aceitava a forma longa e ficou vermelha no
+        // staging com o atalho, que registra igual.
+        if (!/\bregistro\s*[:,}\n]/.test(c)) sem.push(p.replace(RAIZ + "/", ""));
       }
     }
     expect(total).toBeGreaterThan(8);
@@ -91,8 +94,11 @@ describe("túnel da IA", () => {
           const fim = texto.indexOf("\n" + recuo + "}", c + 1 + recuo.length + 1);
           const bloco = texto.slice(c, fim < 0 ? c + 600 : fim);
           for (const l of bloco.split("\n")) {
-            const resposta = /\b(error|erros?)\s*:/.test(l) && !l.includes("console.");
-            const comCru = /String\(\s*(e|err|erro)\s*\)|\b(e|err|erro)\.message\b|\b(m|msg)\.slice\(/.test(l);
+            // `motivo:` entrou depois do #434: a leitura de documentos devolvia
+            // o cru do provedor em `pulados[].motivo` e a régua não via.
+            const resposta = /\b(error|erros?|motivo)\s*:/.test(l) && !l.includes("console.");
+            const comCru =
+              /String\(\s*\(?\s*(e|err|erro)\b|\b(e|err|erro)\??\.message\b|\(\s*(e|err|erro)\s+as\b[^)]*\)\??\.message|\b(m|msg)\.slice\(/.test(l);
             if (resposta && comCru) cru.push(`${p.replace(RAIZ + "/", "")}: ${l.trim().slice(0, 80)}`);
           }
         }

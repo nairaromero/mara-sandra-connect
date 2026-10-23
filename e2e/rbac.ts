@@ -21,6 +21,9 @@
 //     precisam, com erro de query distinguido de "não tem linha".
 //
 // Usar isto em spec nova. As antigas vão migrando quando alguém passar por elas.
+import { createHmac } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
 import { ENV } from "./env";
 import { adminClient } from "./supabase-admin";
@@ -155,6 +158,46 @@ export async function chamarFuncao(
       "Content-Type": "application/json",
       ...(escritorio ? { "x-escritorio-id": escritorio } : {}),
     },
+    body: JSON.stringify(corpo),
+  });
+  const texto = await r.text();
+  let json: Record<string, unknown> | null = null;
+  try { json = JSON.parse(texto) as Record<string, unknown>; } catch { json = null; }
+  return { status: r.status, json, texto };
+}
+
+/**
+ * O segredo das chamadas de SISTEMA do banco local (`MSC_SYSTEM_SECRET` em
+ * supabase/functions/.env), ou null quando não há — a spec pula.
+ */
+export function segredoDeSistemaLocal(): string | null {
+  try {
+    const txt = fs.readFileSync(path.join(process.cwd(), "supabase/functions/.env"), "utf8");
+    return (txt.match(/^MSC_SYSTEM_SECRET=(.*)$/m) || [])[1]?.trim().replace(/^"|"$/g, "") || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Chama uma function como o SISTEMA — o mesmo cabeçalho que o pg_cron monta
+ * com `ops.headers_sistema('<job>')`: HMAC de `<job>.<ts>`. A assinatura é por
+ * JOB, então errar o nome do job é exatamente o 401 que a fila da leitura de
+ * documentos levou em produção (#434). `assinatura` substitui a calculada
+ * (para provar que a errada é recusada).
+ *
+ * Antes, cada spec que falava com cron tinha a própria cópia disto.
+ */
+export async function chamarComoSistema(
+  nome: string, job: string, corpo: unknown = {}, assinatura?: string,
+): Promise<RespostaFuncao> {
+  const segredo = segredoDeSistemaLocal();
+  if (!segredo && !assinatura) throw new Error("MSC_SYSTEM_SECRET ausente em supabase/functions/.env");
+  const ts = Math.floor(Date.now() / 1000).toString();
+  const hmac = assinatura ?? createHmac("sha256", segredo!).update(`${job}.${ts}`).digest("hex");
+  const r = await fetch(`${ENV.supabaseUrl}/functions/v1/${nome}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-region": "sa-east-1", "x-msc-assinatura": `${ts}.${hmac}` },
     body: JSON.stringify(corpo),
   });
   const texto = await r.text();

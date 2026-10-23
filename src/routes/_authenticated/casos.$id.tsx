@@ -125,6 +125,10 @@ import { EtiquetasCliente } from "@/components/etiquetas-cliente";
 import { Markdown } from "@/components/markdown";
 import { listarInternosAtivos } from "@/lib/tarefas/queries";
 import { ArquivosCumprimento } from "@/components/documentos/arquivos-cumprimento";
+import { PastasExternas } from "@/components/documentos/pastas-externas";
+import { quemJuntou } from "@/lib/documentos/autor";
+import { VisualizadorDocumento } from "@/components/documentos/visualizador-documento";
+import { useVisualizadorDocumento } from "@/hooks/use-visualizador-documento";
 import {
   rotuloSolicitacao,
   subirArquivosCumprimento,
@@ -241,6 +245,8 @@ interface Documento {
   storage_path: string;
   tamanho_bytes: number | null;
   uploaded_by: string | null;
+  /** Quem juntou o arquivo (join por `uploaded_by`). */
+  autor?: { id: string; nome: string | null; email: string | null; tipo: string | null } | null;
   visivel_parceiro: boolean;
   // Parceiro pode VISUALIZAR docs com visivel_parceiro=true. Mas so BAIXAR
   // quando o interno autoriza (download_parceiro=true). Default false.
@@ -746,7 +752,10 @@ function CasoDetalhePage() {
           .order("data_evento", { ascending: false }),
         supabase
           .from("documentos")
-          .select("*")
+          // `autor`: quem juntou (Naira, 20/10) — a equipe precisa distinguir o
+          // que veio do parceiro do que ela mesma subiu. `uploaded_by` sempre
+          // foi gravado; faltava mostrar.
+          .select("*, autor:usuarios!documentos_uploaded_by_fkey(id, nome, email, tipo)")
           .eq("caso_id", casoId)
           .order("created_at", { ascending: false }),
         supabase
@@ -4120,8 +4129,14 @@ function TabDocumentos(props: TabDocumentosProps) {
   // Estado do accordion "Solicitações cumpridas"
   const [cumpridasAberto, setCumpridasAberto] = useState(false);
   // Preview de documento (parceiro: visualizar sem baixar)
-  const [previewDoc, setPreviewDoc] = useState<{ doc: Documento; url: string } | null>(null);
-  const [carregandoPreview, setCarregandoPreview] = useState(false);
+  // Ver sem baixar: o visualizador é compartilhado com a conferência da
+  // tarefa (src/components/documentos/visualizador-documento.tsx).
+  const {
+    aberto: previewDoc,
+    carregando: carregandoPreview,
+    abrir: abrirPreview,
+    fechar: fecharPreview,
+  } = useVisualizadorDocumento();
   // Multi-select de documentos para deletar em batch (so interno usa)
   const [docsSelecionados, setDocsSelecionados] = useState<Set<string>>(new Set());
   // Progresso da numeracao em lote (null = nao esta numerando)
@@ -4721,80 +4736,6 @@ function TabDocumentos(props: TabDocumentosProps) {
     }
   }
 
-  async function abrirPreview(d: Documento) {
-    // So PDF e imagem renderizam no browser. Qualquer outro formato (docx,
-    // zip, etc.) dentro do iframe vira download forcado pelo Chrome - o que
-    // furaria o bloqueio de download do parceiro. Avisa e nao abre.
-    if (!ehImagemDoc(d.nome_arquivo) && !ehPdfDoc(d.nome_arquivo)) {
-      toast.error(
-        "Visualização disponível apenas para PDF e imagens. Este arquivo (" +
-          (d.nome_arquivo.split(".").pop() || "?").toUpperCase() +
-          ") precisa ser baixado para abrir.",
-      );
-      return;
-    }
-    setCarregandoPreview(true);
-    try {
-      const resp = await supabase.storage.from("documentos").createSignedUrl(d.storage_path, 300); // 5 min de TTL
-      if (resp.error) throw resp.error;
-      const signedUrl = resp.data ? resp.data.signedUrl : null;
-      if (!signedUrl) throw new Error("Não foi possível gerar link de visualização");
-
-      // Audit log (LGPD Art. 37) — fire-and-forget.
-      supabase
-        .rpc("log_acesso_documento", { p_documento_id: d.id, p_acao: "visualizacao" })
-        .then(undefined, () => {});
-
-      // Buscamos o arquivo e convertemos para blob: URL same-origin.
-      // Sem isso, o Chrome bloqueia iframes apontados direto para o
-      // Supabase Storage (cross-origin + Content-Disposition pode forcar
-      // download, e o sandbox impede o PDF viewer de renderizar).
-      // Com blob: URL o iframe e same-origin do app e o PDF viewer interno
-      // do Chrome consegue exibir normalmente.
-      const fileResp = await fetch(signedUrl);
-      if (!fileResp.ok) {
-        throw new Error("Erro ao baixar arquivo para preview");
-      }
-      const blob = await fileResp.blob();
-      console.log("[preview]", {
-        nome: d.nome_arquivo,
-        contentType: fileResp.headers.get("content-type"),
-        blobType: blob.type,
-        blobSize: blob.size,
-      });
-      const blobUrl = URL.createObjectURL(blob);
-
-      setPreviewDoc({ doc: d, url: blobUrl });
-    } catch (err) {
-      console.error(err);
-      const errObj = err as { message?: string };
-      toast.error(errObj.message || "Erro ao abrir preview");
-    } finally {
-      setCarregandoPreview(false);
-    }
-  }
-
-  function fecharPreview() {
-    // Libera memoria do blob URL gerado em abrirPreview.
-    if (previewDoc && previewDoc.url.startsWith("blob:")) {
-      URL.revokeObjectURL(previewDoc.url);
-    }
-    setPreviewDoc(null);
-  }
-
-  // Detecta se o arquivo eh imagem (pra usar <img> em vez de <iframe>)
-  function ehImagemDoc(nome: string | null | undefined): boolean {
-    if (!nome) return false;
-    return /\.(jpe?g|png|gif|webp|bmp)$/i.test(nome);
-  }
-
-  // Detecta PDF - unico formato alem de imagem que o browser renderiza
-  // inline no iframe (viewer interno do Chrome).
-  function ehPdfDoc(nome: string | null | undefined): boolean {
-    if (!nome) return false;
-    return /\.pdf$/i.test(nome);
-  }
-
   async function baixarSelecionados() {
     if (docsSelecionados.size === 0) return;
     const alvos = lista.filter((d) => docsSelecionados.has(d.id));
@@ -5304,6 +5245,10 @@ function TabDocumentos(props: TabDocumentosProps) {
 
   return (
     <div className="space-y-4">
+      {/* #434: a pasta que o parceiro manda por link fica em cima de tudo — é
+          onde os arquivos ainda estão quando o caso parece vazio. */}
+      <PastasExternas casoId={casoId} onChange={onChange} />
+
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -5626,6 +5571,23 @@ function TabDocumentos(props: TabDocumentosProps) {
                               ? d.tipo_personalizado
                               : TIPOS_DOCUMENTO_LABEL[d.tipo] || d.tipo}{" "}
                             - {formatBytes(d.tamanho_bytes)} - {formatDate(d.created_at)}
+                            {/* quem juntou: a etiqueta só no parceiro — numa
+                                pasta grande, "equipe" em toda linha é ruído */}
+                            {(() => {
+                              const quem = quemJuntou(d.autor);
+                              if (!quem) return null;
+                              return (
+                                <>
+                                  {" "}
+                                  - por {quem.nome}
+                                  {quem.ehParceiro && (
+                                    <span className="ml-1 rounded bg-[var(--gold)]/15 px-1 text-[10px] text-foreground">
+                                      parceiro
+                                    </span>
+                                  )}
+                                </>
+                              );
+                            })()}
                           </p>
                         </div>
                       </div>
@@ -6131,74 +6093,9 @@ function TabDocumentos(props: TabDocumentosProps) {
         </DialogContent>
       </Dialog>
 
-      {/* ---- Dialog de preview de documento (parceiro: visualizar sem baixar) ---- */}
-      <Dialog
-        open={previewDoc !== null}
-        onOpenChange={(o) => {
-          if (!o) fecharPreview();
-        }}
-      >
-        <DialogContent
-          className="max-w-4xl max-h-[95vh] overflow-hidden p-0"
-          onContextMenu={(e) => e.preventDefault()}
-        >
-          <DialogHeader className="px-4 pt-4 pb-2">
-            <DialogTitle className="text-base">
-              {previewDoc ? previewDoc.doc.nome_arquivo : ""}
-            </DialogTitle>
-            <DialogDescription className="text-xs text-destructive bg-destructive/10 border border-destructive/30 rounded p-2 mt-1">
-              <strong>Documento confidencial.</strong> Captura de tela, gravação ou compartilhamento
-              configura responsabilidade legal. Acesso registrado para auditoria.
-            </DialogDescription>
-          </DialogHeader>
-          {previewDoc && (
-            <div
-              className="relative bg-muted/30 select-none"
-              style={{ height: "75vh" }}
-              onContextMenu={(e) => e.preventDefault()}
-              onDragStart={(e) => e.preventDefault()}
-            >
-              {ehImagemDoc(previewDoc.doc.nome_arquivo) ? (
-                <img
-                  src={previewDoc.url}
-                  alt={previewDoc.doc.nome_arquivo}
-                  draggable={false}
-                  onDragStart={(e) => e.preventDefault()}
-                  onContextMenu={(e) => e.preventDefault()}
-                  className="w-full h-full object-contain pointer-events-none"
-                />
-              ) : (
-                // Sem sandbox: o PDF viewer interno do Chrome precisa rodar
-                // scripts pra renderizar. Como a URL e blob: same-origin
-                // (gerado por nos no client), o risco e baixo.
-                <iframe
-                  src={previewDoc.url + "#toolbar=0&navpanes=0&scrollbar=1"}
-                  title={previewDoc.doc.nome_arquivo}
-                  className="w-full h-full"
-                />
-              )}
-              {/* Watermark com identificacao do usuario */}
-              <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center overflow-hidden">
-                <div
-                  className="font-bold text-gray-400/30 -rotate-12 text-center whitespace-pre-line leading-tight"
-                  style={{ fontSize: "2rem" }}
-                >
-                  {(usuario && usuario.nome) || "Confidencial"}
-                  {"\n"}
-                  {(usuario && usuario.email) || ""}
-                  {"\n"}
-                  {formatarBR(new Date(), { dateStyle: "short", timeStyle: "medium" })}
-                </div>
-              </div>
-            </div>
-          )}
-          <div className="flex items-center justify-end gap-2 px-4 py-3 border-t">
-            <Button variant="outline" size="sm" onClick={fecharPreview}>
-              Fechar
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Ver sem baixar — o mesmo visualizador da conferência da tarefa. */}
+      <VisualizadorDocumento aberto={previewDoc} onFechar={fecharPreview} />
+
       {/* Dialog do Google Drive Picker (interno only). */}
       {isInterno && pode("documentos:enviar") && (
         <DrivePickerDialog

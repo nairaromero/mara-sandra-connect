@@ -58,6 +58,11 @@ export const ESCRITA: Record<string, { todas?: Exigencia } & Partial<Record<Oper
   processos_admin: { todas: { permissao: "casos:editar" } },
   processos_judiciais: { todas: { permissao: "casos:editar" } },
 
+  // pasta que o parceiro manda por link (#434): é dado do caso, e o parceiro
+  // tem `casos:editar` no escopo `indicados` — por isso a mesma exigência.
+  // Quem só mexe na linha que colou é a policy permissiva, não a permissão.
+  caso_pastas_externas: { todas: { permissao: "casos:editar" } },
+
   // documentos: enviar e excluir são permissões DIFERENTES (o assistente envia
   // e não apaga) — foi aqui que a tela errou o gate em dois lugares.
   documentos: {
@@ -118,6 +123,12 @@ export const RPC: Record<string, Exigencia> = {
   // relógio de prazos (#397): escopo `atribuidos` só na tarefa de quem pede;
   // decidir_prorrogacao é do admin (is_admin), sem permissão a espelhar.
   pedir_prorrogacao: { permissao: "tarefas:gerenciar" },
+  // organização de documentos (#434): concluir confere escritório e a mesma
+  // regra de escopo da policy de tarefas; o checklist é de quem mexe nos
+  // tipos de benefício (mesma aba); quem faz cada etapa, de quem configura.
+  concluir_organizacao_documentos: { permissao: "tarefas:gerenciar" },
+  escritorio_definir_checklist: { permissao: "templates:gerenciar" },
+  escritorio_definir_responsaveis: { permissao: "escritorio:configurar" },
 };
 
 /** Edge functions que pedem permissão em `exigirUsuario`. */
@@ -133,6 +144,9 @@ export const FUNCTION: Record<string, Exigencia> = {
   // por AÇÃO (status/testar/salvar/ativar/compartilhar), enquanto as ações de
   // token do MCP são da dona do token, que pode ser parceira (#385).
   "ia-triagem-andamentos": { permissao: "ia:usar" },
+  // leitura dos documentos pela IA (#434): a pessoa pede pela conferência; a
+  // fila do cron entra pela via de sistema, que não passa por permissão.
+  "identificar-documentos": { permissao: "ia:usar" },
   "sugerir-proxima-tarefa": { permissao: "ia:usar" },
   "mensagem-parceiro-exigencia": { permissao: "ia:usar" },
   "extrair-agendamento-pericia": { permissao: "ia:usar" },
@@ -143,6 +157,8 @@ export const FUNCTION: Record<string, Exigencia> = {
   "listar-processos-legalmail": { permissao: "processos:ler" },
   "listar-clientes-ti": { permissao: "casos:ler" },
   "check-legalmail-nome": { permissao: "processos:ler" },
+  // o link da pasta do parceiro: quem cola é quem confere (#434)
+  "checar-link-pasta": { permissao: "casos:editar" },
 };
 
 /** Storage: bucket → exigência de escrita (upload/remover). */

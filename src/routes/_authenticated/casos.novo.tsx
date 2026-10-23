@@ -18,6 +18,7 @@ import { useTiposBeneficio } from "@/hooks/use-tipos-beneficio";
 import { supabase } from "@/lib/supabase";
 import { TIPOS_DOCUMENTO_OPTIONS } from "@/lib/documentos/tipos";
 import { MAX_FILE_SIZE_MB, validateFileSizes } from "@/lib/upload-limits";
+import { normalizarLinkPasta } from "@/lib/documentos/pasta-externa";
 import { ClientOnly } from "@/components/client-only";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -174,6 +175,9 @@ function NovoCasoPage() {
   // vem o nome — o resto do cadastro fica pra equipe completar.
   const [processosLegalmail, setProcessosLegalmail] = useState<Array<number>>([]);
   const [docs, setDocs] = useState<Array<DocUpload>>([]);
+  // #434: a pasta que vem por link. Quem indica o caso muitas vezes tem tudo
+  // numa pasta do OneDrive e não anexa nada — o link vale tanto quanto o anexo.
+  const [linkPasta, setLinkPasta] = useState("");
   // Dialog do Google Drive Picker. O parente chama abrirDrivePicker direto
   // antes de abrir o dialog, e so abre o dialog quando o Picker retorna com
   // arquivos selecionados. Isso evita race conditions onde o dialog fechava
@@ -659,7 +663,9 @@ function NovoCasoPage() {
 
           const docInsertResp = await supabase.from("documentos").insert({
             caso_id: casoId,
-            tipo: doc.tipo,
+            // Sem escolha, entra como "outro": a coluna é NOT NULL e quem dá
+            // o tipo de verdade é a leitura da IA, na conferência.
+            tipo: doc.tipo || "outro",
             tipo_personalizado: doc.tipo === "outro" ? doc.tipoPersonalizado.trim() || null : null,
             nome_arquivo: doc.file.name,
             storage_path: storagePath,
@@ -682,6 +688,27 @@ function NovoCasoPage() {
         }
       }
 
+      // 3b) A pasta que veio por LINK (#434). Link torto não derruba o caso:
+      // avisa e segue — dá para colar de novo na aba Documentos.
+      const urlPasta = linkPasta.trim() ? normalizarLinkPasta(linkPasta) : null;
+      if (linkPasta.trim() && !urlPasta) {
+        toast.warning(
+          "Caso criado, mas o link da pasta não parecia um endereço. Cole de novo na aba Documentos.",
+        );
+      } else if (urlPasta) {
+        const { error: errPasta } = await supabase.from("caso_pastas_externas").insert({
+          caso_id: casoId,
+          url: urlPasta,
+          criado_por: usuario.id,
+        });
+        if (errPasta) {
+          console.error("Falha ao salvar o link da pasta:", errPasta);
+          toast.warning(
+            "Caso criado, mas o link da pasta não foi salvo. Cole de novo na aba Documentos.",
+          );
+        }
+      }
+
       // Se quem cadastrou foi o PARCEIRO, avisa o sino da equipe (interno):
       // caso novo pronto para analise (com a contagem de documentos anexados).
       if (!isInterno) {
@@ -691,7 +718,11 @@ function NovoCasoPage() {
           titulo: `Novo caso para análise: ${values.nome.trim()}`,
           descricao:
             `${values.tipo_beneficio}` +
-            (qtdDocs > 0 ? ` · ${qtdDocs} documento(s)` : " · sem documentos") +
+            (qtdDocs > 0
+              ? ` · ${qtdDocs} documento(s)`
+              : urlPasta
+                ? " · documentos em pasta por link"
+                : " · sem documentos") +
             ` · por ${usuario.nome || "parceiro"}`,
           caso_id: casoId,
         });
@@ -791,13 +822,12 @@ function NovoCasoPage() {
     }
   }
 
-  // Valida documentos: cada doc com arquivo precisa de tipo selecionado;
-  // se tipo='outro', precisa de tipoPersonalizado preenchido.
-  const docsComArquivo = docs.filter((d) => d.file !== null);
-  const docsInvalidos = docsComArquivo.filter(
-    (d) => !d.tipo || (d.tipo === "outro" && d.tipoPersonalizado.trim().length === 0),
-  );
-  const todosDocumentosNomeados = docsInvalidos.length === 0;
+  // O tipo NÃO é obrigatório aqui (Naira, 20/10). Quem indica o caso mandava
+  // tudo como "Outro" porque classificar 20 arquivos é trabalho de quem recebe,
+  // não de quem envia — e agora a IA lê a pasta e identifica. Quem souber o que
+  // é, diz; o resto entra como "Outro" e a conferência resolve.
+  // Esta decisão vale só para a criação do caso: o "Adicionar documento" do
+  // caso já existente continua como está.
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -1151,6 +1181,21 @@ function NovoCasoPage() {
                     }}
                   />
                 </div>
+                {/* #434: quem tem tudo numa pasta do OneDrive cola o link aqui
+                    em vez de anexar. O link fica no topo da aba Documentos. */}
+                <div>
+                  <Label className="text-xs">
+                    Ou o link da pasta (OneDrive, Google Drive, Dropbox…)
+                  </Label>
+                  <Input
+                    value={linkPasta}
+                    onChange={(e) => setLinkPasta(e.target.value)}
+                    placeholder="https://1drv.ms/f/…"
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    A equipe baixa de lá e organiza aqui. O link fica guardado no caso.
+                  </p>
+                </div>
                 {/* Importar do Google Drive - so aparece pra interno e se
                     as env vars estiverem configuradas. Util pra migrar
                     documentos de clientes que ja tem pasta no Drive. */}
@@ -1201,17 +1246,17 @@ function NovoCasoPage() {
                           </Button>
                         </div>
                         <div>
-                          <Label className="text-xs">Tipo</Label>
+                          <Label className="text-xs">Tipo (opcional)</Label>
                           <Selecao
                             opcoes={TIPOS_DOCUMENTO_OPTIONS}
                             value={d.tipo}
                             onChange={(v) => updateDocTipo(d.id, v)}
-                            placeholder="Selecione ou busque o tipo..."
+                            placeholder="Se souber o que é; senão a equipe identifica"
                           />
                         </div>
                         {d.tipo === "outro" && (
                           <div>
-                            <Label className="text-xs">Nome do documento (obrigatório)</Label>
+                            <Label className="text-xs">Nome do documento (opcional)</Label>
                             <Input
                               placeholder="Ex.: Cartão do INSS, Decisão do MS..."
                               value={d.tipoPersonalizado}
@@ -1230,18 +1275,6 @@ function NovoCasoPage() {
               </CardContent>
             </Card>
 
-            {!todosDocumentosNomeados && (
-              <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-                <p className="font-medium">
-                  Há {docsInvalidos.length}{" "}
-                  {docsInvalidos.length === 1 ? "documento sem tipo" : "documentos sem tipo"}{" "}
-                  selecionado{docsInvalidos.length === 1 ? "" : "s"}.
-                </p>
-                <p className="text-xs mt-1">
-                  Selecione o tipo de cada arquivo. Se for &quot;Outro&quot;, informe o nome.
-                </p>
-              </div>
-            )}
             <div className="flex items-center justify-end gap-2">
               <Button
                 type="button"
@@ -1253,8 +1286,7 @@ function NovoCasoPage() {
               </Button>
               <Button
                 type="submit"
-                disabled={submitting || !todosDocumentosNomeados}
-                title={!todosDocumentosNomeados ? "Há documentos sem tipo selecionado" : undefined}
+                disabled={submitting}
               >
                 {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 {progressoUpload

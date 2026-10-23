@@ -9,13 +9,10 @@
 // Só no banco local com o seed e o mock; usa o MSC_SYSTEM_SECRET do .env local.
 
 import { test, expect } from "@playwright/test";
-import { createHmac } from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { ENV } from "../env";
 import { adminClient } from "../supabase-admin";
-import { limpezaLocal } from "../rbac";
+import { chamarComoSistema, limpezaLocal, segredoDeSistemaLocal } from "../rbac";
 
 const admin = adminClient();
 const DOM = "marasandraconnect.com";
@@ -25,27 +22,14 @@ const MOCK_DOCKER = "http://host.docker.internal:8787";
 const TEL = "5511999990000";
 const MARCA = "[E2E outbox]";
 
-function segredoLocal(): string | null {
-  try {
-    const txt = fs.readFileSync(path.join(process.cwd(), "supabase/functions/.env"), "utf8");
-    return (txt.match(/^MSC_SYSTEM_SECRET=(.*)$/m) || [])[1]?.trim().replace(/^"|"$/g, "") ?? null;
-  } catch { return null; }
-}
 async function sessao(email: string, escritorio: string) {
   const sb = createClient(ENV.supabaseUrl, ENV.anonKey, { auth: { persistSession: false, autoRefreshToken: false }, global: { headers: { "x-escritorio-id": escritorio } } });
   const { data, error } = await sb.auth.signInWithPassword({ email, password: ENV.internoPassword });
   if (error || !data.session) throw new Error(`login ${email}: ${error?.message}`);
   return { sb, jwt: data.session.access_token };
 }
-async function comoSistema(job: string, body: Record<string, unknown>) {
-  const ts = Math.floor(Date.now() / 1000).toString();
-  const hmac = createHmac("sha256", segredoLocal()!).update(`${job}.${ts}`).digest("hex");
-  const r = await fetch(`${FN}/whatsapp-outbox-enviar`, { method: "POST", headers: { "content-type": "application/json", "x-msc-assinatura": `${ts}.${hmac}` }, body: JSON.stringify(body) });
-  const texto = await r.text();
-  let json: Record<string, unknown> = {};
-  try { json = JSON.parse(texto); } catch { /* sem JSON */ }
-  return { status: r.status, json, texto };
-}
+const comoSistema = (job: string, body: Record<string, unknown>) =>
+  chamarComoSistema("whatsapp-outbox-enviar", job, body);
 
 let ESC1: string;
 let ESC2: string;
@@ -57,7 +41,7 @@ async function limpar() {
 
 test.describe.serial("saída de WhatsApp por escritório (sem n8n)", () => {
   test.beforeAll(async () => {
-    test.skip(!ENV.local || !segredoLocal(), "só no local, com MSC_SYSTEM_SECRET no supabase/functions/.env");
+    test.skip(!ENV.local || !segredoDeSistemaLocal(), "só no local, com MSC_SYSTEM_SECRET no supabase/functions/.env");
     const { data: canario } = await admin.from("escritorios").select("id").eq("slug", "canario").maybeSingle();
     test.skip(!canario, "escritório canário ausente — rode `bun run local:rbac`");
     ESC2 = canario!.id;
@@ -82,15 +66,15 @@ test.describe.serial("saída de WhatsApp por escritório (sem n8n)", () => {
     expect(antes?.map((l) => l.escritorio_id).sort()).toEqual([ESC1, ESC2].sort());
 
     // assinatura errada → 401 e nada sai
-    const ruim = await (async () => { const ts = Math.floor(Date.now() / 1000).toString(); const r = await fetch(`${FN}/whatsapp-outbox-enviar`, { method: "POST", headers: { "content-type": "application/json", "x-msc-assinatura": `${ts}.deadbeef` }, body: "{}" }); return r.status; })();
-    expect(ruim).toBe(401);
+    const ruim = await chamarComoSistema("whatsapp-outbox-enviar", "cron:whatsapp-outbox", {}, "deadbeef");
+    expect(ruim.status).toBe(401);
 
     // o "cron": drena a fila
     const r = await comoSistema("cron:whatsapp-outbox", { limite: 20 });
     expect(r.status, r.texto.slice(0, 200)).toBe(200);
-    expect(r.json.enviadas).toBe(1);
-    expect(r.json.falhas).toBe(1);
-    const porEsc = r.json.por_escritorio as Record<string, { enviadas: number; falhas: number; origem?: string; erro?: string }>;
+    expect(r.json?.enviadas).toBe(1);
+    expect(r.json?.falhas).toBe(1);
+    const porEsc = r.json?.por_escritorio as Record<string, { enviadas: number; falhas: number; origem?: string; erro?: string }>;
     expect(porEsc[ESC2]).toMatchObject({ enviadas: 1, falhas: 0, origem: "escritorio" });
     expect(porEsc[ESC1].falhas).toBe(1);
     expect(porEsc[ESC1].erro).toMatch(/não configurada/);

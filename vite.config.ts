@@ -35,7 +35,13 @@ export default defineConfig(({ command, mode }) => {
   return {
     define,
     resolve: {
-      alias: { "@": `${process.cwd()}/src` },
+      alias: {
+        "@": `${process.cwd()}/src`,
+        // Listas PURAS (sem import) que a tela e as edge functions dividem —
+        // uma fonte só, em vez de cópia nos dois lados (#434). Régua:
+        // e2e/unit/fonte-unica-documentos.test.ts.
+        "@shared": `${process.cwd()}/supabase/functions/_shared`,
+      },
       dedupe: [
         "react",
         "react-dom",

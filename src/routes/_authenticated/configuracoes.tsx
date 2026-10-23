@@ -31,6 +31,8 @@ import { IntegracaoLegalmailCard } from "@/components/integracoes/integracao-leg
 import { IntegracaoTiCard } from "@/components/integracoes/integracao-ti-card";
 import { EmBreveCard } from "@/components/integracoes/em-breve-card";
 import { TiposBeneficioCard } from "@/components/tipos-beneficio-card";
+import { ChecklistBaseCard } from "@/components/configuracoes/checklist-documentos";
+import { ResponsaveisEtapasCard } from "@/components/configuracoes/responsaveis-etapas-card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -673,7 +675,8 @@ function ConfiguracoesPage() {
 
           {/* Tipos de benefício: exige templates:gerenciar (admin e advogado) */}
           {ehInterno && podeEscrever("tipos_beneficio") && (
-            <TabsContent value="beneficios">
+            <TabsContent value="beneficios" className="space-y-6">
+              <ChecklistBaseCard />
               <TiposBeneficioCard />
             </TabsContent>
           )}
@@ -682,8 +685,9 @@ function ConfiguracoesPage() {
             <>
               {/* Escritorio: nome de exibicao, logo e cor — a marca que aparece
                   no topo, nos e-mails e nas mensagens deste escritorio. */}
-              <TabsContent value="escritorio">
+              <TabsContent value="escritorio" className="space-y-6">
                 <EscritorioMarcaCard />
+                <ResponsaveisEtapasCard />
               </TabsContent>
 
               <TabsContent value="integracoes" className="space-y-6">

@@ -40,6 +40,9 @@ if (!SENHA) throw new Error("STAGING_SYNTH_PASSWORD ausente no .env.local");
 const REF = new URL(PILHA.url).hostname.split(".")[0];
 const FN = `${PILHA.url}/functions/v1`;
 const admin = createClient(PILHA.url, PILHA.service, { auth: { persistSession: false, autoRefreshToken: false } });
+// Filme local varre o rastro no banco LOCAL, nunca no staging (#445): quem
+// sabe o alvo é este módulo, e o estúdio usa o que for registrado aqui.
+require("./helpers.cjs").definirAlvoDaVarredura(admin, PILHA.url);
 
 async function sessao(email, escritorio) {
   const sb = createClient(PILHA.url, PILHA.anon, {
