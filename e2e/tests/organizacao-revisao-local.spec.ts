@@ -11,6 +11,7 @@ import {
   clienteComo,
   contaDoCanario,
   escritorioCanario,
+  escritorioPadrao,
   idDe,
   limpezaLocal,
   segredoDeSistemaLocal,
@@ -22,6 +23,10 @@ import { TIPOS_DOCUMENTO_CHAVES } from "../../supabase/functions/_shared/tipos-d
 const admin = adminClient();
 let casoId: string;
 let tarefaId: string;
+// Integração de IA de mentira que a spec cria quando o banco não tem uma: desde
+// o espelho de 27/10 o staging (e a cópia local) chega sem chave de IA, porque
+// escritorio_integracoes não sai de produção. Apagada no fim.
+let iaDeTeste: string | null = null; // escritório onde a spec criou a linha
 
 test.beforeAll(async () => {
   test.skip(!ENV.local, "o Canário e o segredo do sistema só existem no banco local");
@@ -38,6 +43,7 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(limpezaLocal(async () => {
+  if (iaDeTeste) await admin.from("escritorio_integracoes").delete().eq("escritorio_id", iaDeTeste).eq("tipo", "ia");
   await cleanupE2E(admin);
 }));
 
@@ -77,13 +83,33 @@ test.describe("a fila da leitura", () => {
   // e ocupava as vagas de quem tem chave.
   test("só entra na fila o escritório com IA ligada", async () => {
     const esc = await escritorioCanario();
-    const { data: semIa } = await admin
+    const { data: semIa, error: eSemIa } = await admin
       .from("escritorio_integracoes")
-      .select("id")
+      .select("ativo")
       .eq("escritorio_id", esc)
       .eq("tipo", "ia")
       .eq("ativo", true);
+    expect(eSemIa, eSemIa?.message).toBeNull();
     test.skip((semIa ?? []).length > 0, "o Canário deste banco tem IA ligada");
+
+    // O escritório do casoId precisa de IA ligada (private.escritorio_tem_ia).
+    const padrao = await escritorioPadrao();
+    const { data: comIa, error: eIa } = await admin
+      .from("escritorio_integracoes")
+      .select("ativo")
+      .eq("escritorio_id", padrao)
+      .eq("tipo", "ia");
+    expect(eIa, eIa?.message).toBeNull();
+    if (!(comIa ?? []).some((l) => l.ativo)) {
+      test.skip((comIa ?? []).length > 0, "o escritório padrão tem IA cadastrada e desligada — não mexo nela");
+      const { error: eNova } = await admin.from("escritorio_integracoes").insert({
+        escritorio_id: padrao, tipo: "ia", ativo: true,
+        config: { provider: "anthropic", modelo: "e2e-fila" },
+        segredo_cipher: "e2e", segredo_iv: "e2e",
+      });
+      expect(eNova, eNova?.message).toBeNull();
+      iaDeTeste = padrao;
+    }
 
     // Um caso de parceiro em cada escritório, cada um com um PDF por ler.
     const parceiroCanario = await idDe(contaDoCanario("parceiro"));
@@ -136,12 +162,15 @@ test.describe("o checklist é do escritório", () => {
   test("os tipos da tela existem no enum do banco", async () => {
     // A CHECK da lista confere cada chave contra `public.tipo_documento`.
     const todas = TIPOS_DOCUMENTO_CHAVES.filter((t) => t !== "outro").map((t) => [t]);
-    const { data: alvo } = await admin
+    // Qualquer linha serve: a CHECK é a mesma em todos os escritórios (o Canário
+    // pode chegar sem tipos depois do espelho).
+    const { data: alvo, error: eAlvo } = await admin
       .from("tipos_beneficio")
       .select("id, documentos_exigidos")
-      .eq("escritorio_id", await escritorioCanario())
+      .order("id")
       .limit(1)
       .single();
+    expect(eAlvo, eAlvo?.message).toBeNull();
     const { error } = await admin.from("tipos_beneficio").update({ documentos_exigidos: todas }).eq("id", alvo!.id);
     await admin.from("tipos_beneficio").update({ documentos_exigidos: alvo!.documentos_exigidos }).eq("id", alvo!.id);
     expect(error, `chave da tela fora do enum do banco: ${error?.message}`).toBeNull();

@@ -165,6 +165,8 @@ const server = http.createServer(async (req, res) => {
     // ---- utilitários
     if (p === "/_health") return json(res, { ok: true, config: estado.config, emails: estado.emails.length, chamadas: estado.chamadas.slice(-10) });
     if (p === "/_config" && req.method === "POST") { Object.assign(estado.config, JSON.parse(await lerCorpo(req) || "{}")); return json(res, { ok: true, config: estado.config }); }
+    // O que as functions mandaram pelo Resend (as specs conferem o conteúdo).
+    if (p === "/_emails") return json(res, { emails: estado.emails });
     if (p === "/_reset" && req.method === "POST") { estado.emails = []; estado.claude = []; estado.painel = []; estado.evolution = []; return json(res, { ok: true }); }
 
     // ---- Evolution API (WhatsApp)

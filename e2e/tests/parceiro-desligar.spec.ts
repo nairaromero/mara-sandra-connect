@@ -10,6 +10,7 @@
 
 import { test, expect, type Browser, type Page } from "@playwright/test";
 import { createClient, type Session } from "@supabase/supabase-js";
+import { TERMOS_VERSAO } from "../../supabase/functions/_shared/termos";
 import { cursorVisivel } from "../cursor";
 import { STORAGE_INTERNO } from "../auth.setup";
 import { ENV, PROJECT_REF } from "../env";
@@ -59,7 +60,7 @@ async function criarParceiroDescartavel(): Promise<string> {
     ativo: true,
     onboarded_em: agora,
     aceitou_termos_em: agora,
-    termos_versao: "1.0-2026-06-09",
+    termos_versao: TERMOS_VERSAO,
   });
   if (perfilErr) throw new Error(`perfil parceiro descartavel: ${perfilErr.message}`);
   return data.user.id;

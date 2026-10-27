@@ -190,6 +190,13 @@ o sistema em produção. Quando chegar, vale o seguinte:
   cru do provedor vai só para o log). A régua
   `e2e/unit/ia-registro-de-uso.test.ts` acusa chamada sem registro, chave lida
   ou decifrada fora do túnel e erro cru de IA devolvido à tela.
+  Túneis do aceite (#249): `enviarEmail`/`emailConfigurado` em `_shared/email.ts`
+  (ninguém mais chama o Resend direto) e `parceiroSemAceite` em `_shared/termos.ts`
+  (a versão dos termos e o que é aceite válido — a tela importa por `@shared/termos`).
+  Parceiro (tipo `parceiro`) sem aceite vigente não recebe dado de cliente: e-mail
+  do caso vira o aviso genérico de `_shared/aviso-sem-aceite.ts` (um por dia,
+  `reservar_aviso_aceite`) e a linha dele no WhatsApp vira `cancelado`. Régua:
+  `e2e/unit/aceite-antes-do-email.test.ts`.
   Listas que a tela e as edge functions dividem (#434): módulo PURO em
   `supabase/functions/_shared/` que a tela importa por `@shared/…` — o que a IA
   lê (`arquivo-ia.ts`), os tipos de documento (`tipos-documento.ts`; o rótulo
