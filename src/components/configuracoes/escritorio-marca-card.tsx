@@ -87,7 +87,7 @@ export function EscritorioMarcaCard() {
           Marca do escritório
         </CardTitle>
         <CardDescription>
-          O que aparece no topo do sistema, nos e-mails e nas mensagens deste escritório. Antes do login e no rodapé
+          O que aparece na barra lateral do sistema, nos e-mails e nas mensagens deste escritório. Antes do login e no rodapé
           fica a marca do produto (Legal Connect).
         </CardDescription>
       </CardHeader>

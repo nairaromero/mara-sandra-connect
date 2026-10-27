@@ -170,8 +170,8 @@ export const TERMOS: Array<Termo> = [
     categoria: "papeis",
     papel: "parceiro",
     definicao:
-      "Advogado de fora que indica clientes e acompanha só os casos que indicou. Nesses casos vê os andamentos marcados como visíveis ao parceiro, envia documentos, cumpre solicitações, lê publicações e processos e vê os próprios repasses. Não vê os outros casos do escritório nem a equipe. Entra pelo convite feito em Parceiros, cria a senha e aceita os termos no primeiro acesso.",
-    veja: ["indicados", "parceria", "visivel-parceiro", "repasse", "aceite-termos"],
+      "Advogado de fora que indica clientes e acompanha só os casos que indicou. Nesses casos vê os andamentos marcados como visíveis ao parceiro, envia documentos, cumpre solicitações, lê publicações e processos e vê os próprios repasses. Não vê os outros casos do escritório nem a equipe. Entra pelo convite feito em Parceiros, cria a senha e aceita os termos no primeiro acesso; enquanto não aceita a versão atual, não recebe dado de cliente por e-mail nem por WhatsApp.",
+    veja: ["indicados", "parceria", "visivel-parceiro", "repasse", "aceite-termos", "aviso-sem-aceite"],
   },
   {
     id: "interno",
@@ -217,7 +217,7 @@ export const TERMOS: Array<Termo> = [
     sinonimos: ["trocar de escritório"],
     categoria: "papeis",
     definicao:
-      "Aparece no cabeçalho para quem tem vínculo em mais de um escritório. Trocar recarrega a página e mostra só o que é do escritório escolhido; cada aba do navegador fica no seu, então dá para trabalhar em dois ao mesmo tempo.",
+      "Aparece no cabeçalho para quem tem vínculo em mais de um escritório. Trocar recarrega a página e mostra só o que é do escritório escolhido. Uma aba já aberta continua no escritório dela até ser recarregada; aba nova abre no último escritório escolhido.",
     veja: ["escritorio", "vinculo"],
   },
   {
@@ -242,11 +242,11 @@ export const TERMOS: Array<Termo> = [
   {
     id: "token-mcp",
     termo: "Token do MCP",
-    sinonimos: ["chave do Claude", "MCP"],
+    sinonimos: ["chave do Claude", "MCP", "Conectar Claude", "ChatGPT"],
     categoria: "papeis",
     publico: "interno",
     definicao:
-      "A chave que deixa o Claude Desktop (ou outra ferramenta de IA) consultar o sistema em nome de uma pessoa. Emite quem tem a permissão de emitir token — por padrão, só o administrador — para si ou para alguém do escritório, escolhido numa lista; o token vale só naquele escritório e roda como a pessoa (ela vê pelo Claude o que vê no sistema). O dono e quem emitiu veem e revogam; se quem emitiu deixa de poder conceder — perdeu a permissão, foi rebaixado ou desligado —, o token para na hora.",
+      "Em Configurações → Integrações → Conectar Claude / ChatGPT: a chave que deixa o Claude Desktop, o Claude Code ou o ChatGPT consultar o sistema em nome de uma pessoa, com o modelo da assinatura dela — sem chave de API — e, por enquanto, só para ler. Emite quem tem a permissão de emitir token — por padrão, só o administrador — para si ou para alguém do escritório, escolhido numa lista; o token vale só naquele escritório e roda como a pessoa (ela vê pelo Claude o que vê no sistema). O dono e quem emitiu veem e revogam; se quem emitiu deixa de poder conceder — perdeu a permissão, foi rebaixado ou desligado —, o token para na hora.",
     veja: ["ia", "admin", "permissao-sensivel"],
   },
   {
@@ -259,6 +259,24 @@ export const TERMOS: Array<Termo> = [
     veja: ["escritorio", "rls"],
   },
 
+  {
+    id: "duas-etapas",
+    termo: "Verificação em duas etapas",
+    sinonimos: ["MFA", "2FA", "autenticador", "código de 6 dígitos"],
+    categoria: "papeis",
+    definicao:
+      "Além da senha, um código de 6 dígitos do aplicativo autenticador (Google Authenticator, 1Password…) a cada entrada. Qualquer pessoa ativa ou desativa a sua em Configurações → Segurança, lendo o QR; para desativar, confirma o código atual. É obrigatória para a equipe do QG e recomendada para quem administra o escritório.",
+    veja: ["sessao", "aal2"],
+  },
+  {
+    id: "sessao",
+    termo: "Sessão e saída automática",
+    sinonimos: ["sessão expirou", "desconectado", "sair de todos os dispositivos"],
+    categoria: "papeis",
+    definicao:
+      "Depois de 1 hora sem uso, o sistema avisa e encerra a sessão um minuto depois, a menos que a pessoa clique em “Continuar conectado”. Mesmo em uso, a sessão dura no máximo 12 horas. Em Configurações → Segurança dá para sair deste dispositivo ou de todos os dispositivos.",
+    veja: ["duas-etapas"],
+  },
   // -------------------------------------------------------------------------
   // Casos e rotina
   // -------------------------------------------------------------------------
@@ -302,8 +320,8 @@ export const TERMOS: Array<Termo> = [
     sinonimos: ["benefício", "aposentadoria", "auxílio-doença", "BPC", "LOAS", "pensão por morte"],
     categoria: "casos",
     definicao:
-      "O que se pede ao INSS: aposentadoria por idade ou por tempo de contribuição, auxílio-doença, BPC/LOAS, pensão por morte, salário-maternidade, revisão… A lista é do escritório e se edita em Configurações → Benefícios.",
-    veja: ["caso"],
+      "O que se pede ao INSS: aposentadoria por idade ou por tempo de contribuição, auxílio-doença, BPC/LOAS, pensão por morte, salário-maternidade, revisão… A lista é do escritório e se edita em Configurações → Tipos de benefício. Desativar tira o tipo dos menus sem mexer nos casos; excluir só é possível se nenhum caso usa. Cada benefício tem a sua lista de documentos exigidos, que a conferência cobra além da lista base.",
+    veja: ["caso", "checklist-documentos", "catalogo-escritorio"],
   },
   {
     id: "andamento",
@@ -338,8 +356,8 @@ export const TERMOS: Array<Termo> = [
     sinonimos: ["arquivo", "CNIS", "PPP", "CTPS", "laudo", "procuração"],
     categoria: "casos",
     definicao:
-      "Um arquivo do caso, com tipo (CNIS, PPP, CTPS, laudo médico, procuração, contrato…). Sobe pelo sistema ou pela pasta do Google Drive espelhada. Pode ser marcado como visível ao parceiro. Só o parceiro do caso e a equipe alcançam o arquivo, e só dentro do escritório.",
-    veja: ["solicitacao-documento", "google-drive", "visivel-parceiro"],
+      "Um arquivo do caso, com tipo (CNIS, PPP, CTPS, laudo, procuração, contrato de honorários…) e a indicação de quem juntou (parceiro ou equipe). Chega pelo sistema, pela pasta do Google Drive vinculada ao caso ou como pasta por link. Classificar ao subir é opcional: com a IA ligada, o sistema lê e diz o que cada arquivo é, e a equipe confere. Pode ser marcado como visível ao parceiro. Só a equipe e o parceiro do caso alcançam o arquivo, e só dentro do escritório.",
+    veja: ["solicitacao-documento", "google-drive", "visivel-parceiro", "pasta-por-link", "leitura-automatica", "organizar-documentos"],
   },
   {
     id: "documento-apagado",
@@ -357,8 +375,8 @@ export const TERMOS: Array<Termo> = [
     sinonimos: ["documentos pendentes", "pendência", "solicitação"],
     categoria: "casos",
     definicao:
-      "Um pedido de documento a quem pode providenciar: interna (para a equipe), externa (para o parceiro) ou gerada por um template de exigência. Fica pendente até ser atendida ou dispensada. É o que o kanban de Tarefas do parceiro mostra e o que a tela Documentos pendentes lista para a equipe. Pedir, atender, dispensar ou excluir é de quem edita casos — o financeiro acompanha, mas não mexe.",
-    veja: ["exigencia", "template-tarefa", "documento"],
+      "Um pedido de documento a quem pode providenciar: interna (para a equipe) ou externa (para o parceiro), à mão ou por um template de exigência — e também o pedido de troca da senha do MEU INSS. Fica pendente até ser atendida ou dispensada. É o que o kanban de Tarefas do parceiro mostra e o que a tela Documentos pendentes lista, filtrável por situação, tipo e responsável. O parceiro é avisado por e-mail; se não aceitou os termos, recebe só o aviso genérico. Pedir, atender, dispensar ou excluir é de quem edita casos; o financeiro acompanha, mas não mexe.",
+    veja: ["exigencia", "template-tarefa", "documento", "troca-senha-meu-inss", "aviso-sem-aceite"],
   },
   {
     id: "exigencia",
@@ -374,8 +392,8 @@ export const TERMOS: Array<Termo> = [
     sinonimos: ["contagem do indeferimento", "relógio do caso"],
     categoria: "casos",
     definicao:
-      "A contagem que nasce quando um requerimento é indeferido e fixa as datas de cada etapa a partir dali: análise, montagem da inicial, revisão, protocolo e o limite. As datas não são chute nem combinação — saem da data do indeferimento, e por isso todo mundo vê a mesma. Cada processo tem o SEU relógio: dois requerimentos indeferidos no mesmo caso correm separados, e um não atrasa o outro.",
-    veja: ["janela-prazo", "prorrogacao", "reta-final", "tarefa"],
+      "A contagem que nasce quando um requerimento é indeferido e fixa as datas de cada etapa a partir dali: análise do indeferimento, montagem e revisão da inicial, protocolo e, quando cabe, o recurso ordinário. As datas não são chute nem combinação — saem da data do indeferimento, e por isso todo mundo vê a mesma. Cada processo tem o SEU relógio: dois requerimentos indeferidos no mesmo caso correm separados, e um não atrasa o outro.",
+    veja: ["janela-prazo", "prorrogacao", "reta-final", "tarefa", "montagem"],
     publico: "interno",
   },
   {
@@ -390,7 +408,7 @@ export const TERMOS: Array<Termo> = [
   {
     id: "prorrogacao",
     termo: "Pedido de prorrogação",
-    sinonimos: ["pedir mais prazo", "pedir para a Mara"],
+    sinonimos: ["pedir mais prazo"],
     categoria: "casos",
     definicao:
       "Passado o limite do relógio, a data não se muda sozinha: quem cuida da tarefa PEDE, dizendo até quando e por quê, e quem administra o escritório aprova ou recusa. Pedir exige a permissão de gerenciar tarefas; decidir é de quem é administrador. Enquanto não há decisão, o prazo continua o de antes.",
@@ -412,8 +430,8 @@ export const TERMOS: Array<Termo> = [
     sinonimos: ["pendência da equipe", "to-do"],
     categoria: "casos",
     definicao:
-      "A unidade de trabalho da equipe: título, responsável, prazo, prioridade e tipo (interna, prazo, perícia, pós-protocolo, contato com cliente). Nasce à mão, de um template, de uma sugestão da IA ou de uma automação (e-mail do INSS, DJEN, lembrete de perícia). Toda tarefa tem dono; excluir pede motivo e fica registrado.",
-    veja: ["template-tarefa", "agenda", "assistente", "relogio-prazo"],
+      "A unidade de trabalho da equipe: título, responsável, prazo, prioridade e tipo (interna, prazo, perícia, pós-protocolo, contato com cliente). Está a fazer ou feita. Nasce à mão, de um template, de uma sugestão da IA ou de uma automação (e-mail do INSS, DJEN, perícia, conferência de documentos). A que nasce sem dono vai para quem analisa no escritório. Excluir pede motivo e a tarefa fica em Arquivados.",
+    veja: ["template-tarefa", "agenda", "assistente", "relogio-prazo", "arquivados", "responsaveis-etapa", "radar-casos"],
   },
   {
     id: "template-tarefa",
@@ -422,8 +440,8 @@ export const TERMOS: Array<Termo> = [
     categoria: "casos",
     publico: "interno",
     definicao:
-      "Um conjunto de tarefas (e solicitações de documento) que se aplica a um caso de uma vez, para padronizar rotinas como exigência, pós-protocolo ou perícia marcada. Administrador e advogado gerenciam; quem pode editar o caso aplica. Cada escritório tem os seus.",
-    veja: ["tarefa", "exigencia"],
+      "Um conjunto de tarefas, solicitações de documento e, às vezes, um compromisso na agenda, que se aplica a um caso de uma vez (atalho “Template” na tarefa) para padronizar rotinas como exigência, pós-protocolo ou perícia; alguns só registram um andamento. Cada escritório tem os seus, copiados do catálogo quando ele foi criado; quem pode editar o caso aplica.",
+    veja: ["tarefa", "exigencia", "catalogo-escritorio"],
   },
   {
     id: "agenda",
@@ -431,7 +449,7 @@ export const TERMOS: Array<Termo> = [
     sinonimos: ["compromisso", "audiência"],
     categoria: "casos",
     definicao:
-      "Os compromissos do escritório: perícias, audiências, reuniões. O parceiro vê só as perícias e audiências dos casos dele; o assistente só edita os compromissos atribuídos a ele. Datas sempre no horário de Brasília.",
+      "Os compromissos do escritório: perícias, audiências, guichê OAB, atendimentos, reuniões e compromissos internos. Toda perícia agendada entra aqui sozinha; as tarefas sobre ela (acompanhar, contatar) ficam em Tarefas. O parceiro vê só as perícias e audiências dos casos dele, e o assistente só edita os compromissos atribuídos a ele. Datas sempre no horário de Brasília.",
     veja: ["pericia", "tarefa"],
   },
   {
@@ -440,7 +458,7 @@ export const TERMOS: Array<Termo> = [
     sinonimos: ["perícia médica", "perícia do INSS", "perícia judicial"],
     categoria: "casos",
     definicao:
-      "O exame do INSS ou da Justiça, com data e local. Entra na agenda e gera tarefas de lembrete e de acompanhamento; o aviso ao cliente ou ao parceiro sai pela fila “A enviar”, para alguém conferir antes.",
+      "O exame do INSS ou da Justiça, com data e local. Toda perícia agendada entra na agenda sozinha e gera tarefas de lembrete e acompanhamento. O aviso ao parceiro é revisado no próprio agendamento ou vira a tarefa “Enviar aviso ao parceiro”.",
     veja: ["agenda", "tarefa"],
   },
   {
@@ -500,6 +518,102 @@ export const TERMOS: Array<Termo> = [
     veja: ["auditoria", "escopo"],
   },
 
+  {
+    id: "organizar-documentos",
+    termo: "Organizar documentos (conferência)",
+    sinonimos: ["conferência de documentos", "conferência"],
+    categoria: "casos",
+    publico: "interno",
+    definicao:
+      "No caso novo de parceiro, a primeira tarefa é conferir os documentos que chegaram. A IA já leu cada arquivo e diz o que ele é; a tarefa mostra só as exceções (“Preciso da sua ajuda nestes”), o que falta pela lista de documentos do caso e a pasta por link, se houver — o que a IA identificou fica recolhido. Quem confere corrige o tipo se precisar, deixa um recado opcional e clica em “Conferido — enviar para análise”: a análise abre no nome de quem analisa. Documento faltando não segura o caso; vai junto, anotado.",
+    veja: ["leitura-automatica", "checklist-documentos", "responsaveis-etapa", "pasta-por-link", "documento"],
+  },
+  {
+    id: "checklist-documentos",
+    termo: "Documentos que o caso precisa ter",
+    sinonimos: ["checklist", "lista base", "documentos exigidos"],
+    categoria: "casos",
+    publico: "interno",
+    definicao:
+      "A lista que a conferência cobra. Tem duas partes: a lista base, que vale para todo caso, e a lista própria de cada tipo de benefício — as duas em Configurações → Tipos de benefício. Um item pode aceitar mais de um documento (por exemplo, CNIS ou CNIS resumido). Mudar a lista vale para as próximas conferências.",
+    veja: ["tipo-beneficio", "organizar-documentos"],
+  },
+  {
+    id: "responsaveis-etapa",
+    termo: "Quem faz cada etapa",
+    sinonimos: ["responsáveis por etapa"],
+    categoria: "casos",
+    publico: "interno",
+    definicao:
+      "Em Configurações → Escritório, o administrador escolhe quem recebe cada tarefa do caso novo de parceiro: quem organiza os documentos, o substituto (se essa pessoa não estiver mais ativa) e quem analisa o caso — que também recebe as tarefas que nascem sem dono. Sem escolha, vale a ordem de sempre. Pessoa desligada deixa de receber sozinha.",
+    veja: ["organizar-documentos", "tarefa", "desligar"],
+  },
+  {
+    id: "pasta-por-link",
+    termo: "Pasta por link",
+    sinonimos: ["link da pasta", "OneDrive", "Dropbox", "pasta externa"],
+    categoria: "casos",
+    definicao:
+      "Quem já tem os documentos numa pasta do OneDrive, Google Drive ou Dropbox cola o link no caso (no caso novo ou na aba Documentos), em vez de subir arquivo por arquivo. O sistema confere se a pasta abre sem login e mostra um selo: compartilhado, não compartilhado (pede login) ou não deu para conferir. Tirar o link do caso não apaga nada na pasta.",
+    veja: ["documento", "google-drive", "organizar-documentos"],
+  },
+  {
+    id: "radar-casos",
+    termo: "Radar de casos",
+    sinonimos: ["caso sem próximo passo", "caso órfão", "processo parado"],
+    categoria: "casos",
+    publico: "interno",
+    definicao:
+      "O aviso no alto da tela Tarefas que conta os casos sem tarefa aberta e sem compromisso futuro, ou com processo judicial parado há 90 dias — casos de que ninguém vai ser lembrado, e é assim que prazo se perde. Os casos em acompanhamento judicial são vigiados pelo DataJud e pelo DJEN e só alarmam se algo exigir ação. Para resolver, basta abrir o caso e criar a próxima tarefa: ele sai do radar sozinho.",
+    veja: ["tarefa", "datajud", "djen"],
+  },
+  {
+    id: "montagem",
+    termo: "Montagem → revisão → protocolo",
+    sinonimos: ["montagem da inicial", "montagem de requerimento", "protocolo realizado"],
+    categoria: "casos",
+    publico: "interno",
+    definicao:
+      "A sequência de tarefas para preparar uma petição inicial (judicial) ou um requerimento no INSS (administrativo): monta, envia para revisão, envia para protocolo e, no fim, “Protocolo realizado”. Cada etapa abre a seguinte no nome de quem a faz. No protocolo, o número do processo ou do requerimento é cadastrado e o parceiro é avisado. Na judicial, as datas vêm do relógio de prazos.",
+    veja: ["relogio-prazo", "processo", "acompanhamento-processual"],
+  },
+  {
+    id: "acompanhamento-processual",
+    termo: "Acompanhamento e implantação",
+    sinonimos: ["30/60/120", "implantação do benefício", "entrou em folha"],
+    categoria: "casos",
+    publico: "interno",
+    definicao:
+      "Depois do protocolo administrativo, uma tarefa acompanha o requerimento por etapas: aos 30 dias, ouvidoria; aos 60, pedido por mora; aos 120, ação judicial — cada etapa é marcada como feita. Benefício concedido ainda não é benefício pago: a tarefa “Implantação do benefício” volta a cada 5 dias úteis (administrativo) ou 15 (judicial) até alguém confirmar que entrou em folha.",
+    veja: ["montagem", "tarefa"],
+  },
+  {
+    id: "arquivados",
+    termo: "Ativos e Arquivados",
+    sinonimos: ["feito", "excluídas", "canceladas"],
+    categoria: "casos",
+    publico: "interno",
+    definicao:
+      "Tarefa só tem dois estados: a fazer ou feito. A aba Ativos mostra o que está a fazer; Arquivados mostra o que foi feito e o que foi descartado (excluído ou cancelado, com quem fez), agrupado por mês, com só o mês mais recente aberto. Vale na tela Tarefas e na aba Atividades do caso.",
+    veja: ["tarefa", "documento-apagado"],
+  },
+  {
+    id: "troca-senha-meu-inss",
+    termo: "Pedido de troca da senha do MEU INSS",
+    categoria: "casos",
+    definicao:
+      "Quando a senha do cliente precisa mudar, a equipe pede ao parceiro pelo caso (“Pedir troca ao parceiro”). O pedido aparece para ele como as solicitações de documento — e-mail, Tarefas, Documentos pendentes —, mas em vez de anexar arquivo ele digita a nova senha, que é guardada cifrada; a equipe recebe uma tarefa avisando.",
+    veja: ["senha-meu-inss", "solicitacao-documento"],
+  },
+  {
+    id: "notificacoes",
+    termo: "Notificações e Movimentações (o sino)",
+    sinonimos: ["sino", "notificações", "movimentações"],
+    categoria: "casos",
+    definicao:
+      "O sino do cabeçalho. Para a equipe, “Notificações”: andamentos, comentários, documentos, solicitações e processos novos, cada um levando direto à aba certa do caso. Para o parceiro, “Movimentações”: as novidades dos casos dele, que saem do sino quando ele abre o item ou marca todas como lidas.",
+    veja: ["conversas", "andamento"],
+  },
   // -------------------------------------------------------------------------
   // Parceria e financeiro
   // -------------------------------------------------------------------------
@@ -536,18 +650,37 @@ export const TERMOS: Array<Termo> = [
     sinonimos: ["termos da parceria", "onboarding"],
     categoria: "parceria",
     definicao:
-      "No primeiro acesso, o parceiro lê e aceita os termos da parceria; o aceite fica registrado com data e versão. Até aceitar, ele não entra no sistema.",
-    veja: ["parceiro", "convite"],
+      "No primeiro acesso, o parceiro confirma os dados (nome, CPF/CNPJ, OAB, endereço), lê o Acordo de Tratamento de Dados, o Termo de Uso e a Política de Privacidade e assina digitando o nome. O aceite fica registrado com data, hora, IP e versão, e o escritório baixa o comprovante em Parceiros. Até aceitar, ele não passa da tela de boas-vindas e não recebe nenhum dado de cliente — só um aviso genérico por dia (ver Aviso sem aceite). Quando os termos mudam de versão, o aceite é pedido de novo.",
+    veja: ["parceiro", "convite", "aviso-sem-aceite"],
   },
   {
     id: "contrato",
     termo: "Contrato de honorários",
     categoria: "parceria",
     definicao:
-      "O contrato do caso com o cliente: pendente, assinado, vigente ou encerrado. Fica com o escritório, nunca com o parceiro.",
+      "O contrato de honorários do caso com o cliente. No sistema, é um documento do caso, do tipo “Contrato de honorários”. Fica com o escritório, nunca com o parceiro.",
     veja: ["caso", "parceria"],
   },
 
+  {
+    id: "aviso-sem-aceite",
+    termo: "Aviso sem aceite",
+    sinonimos: ["sem aceite", "aviso genérico", "novidades nos seus casos"],
+    categoria: "parceria",
+    publico: "interno",
+    definicao:
+      "Parceiro que ainda não assinou a versão atual dos termos não recebe nenhum dado de cliente: no lugar dos e-mails de andamento, comentário e pedido de documento, recebe no máximo um aviso genérico por dia (“há novidades nos seus casos — entre e assine os termos”), e as mensagens dele na fila do WhatsApp são canceladas. Em Parceiros, ele aparece com o selo “sem aceite — não recebe os e-mails dos casos”. Quando assina, tudo volta ao normal. Quem é da equipe e também parceiro comercial não assina esses termos e recebe normalmente.",
+    veja: ["aceite-termos", "parceiro", "whatsapp"],
+  },
+  {
+    id: "armazenamento",
+    termo: "Armazenamento",
+    categoria: "parceria",
+    publico: "interno",
+    definicao:
+      "A aba de Parceiros que mostra quanto espaço os documentos ocupam, somado pelo parceiro que indicou cada caso.",
+    veja: ["parceiro", "documento"],
+  },
   // -------------------------------------------------------------------------
   // Integracoes e automacoes
   // -------------------------------------------------------------------------
@@ -558,8 +691,8 @@ export const TERMOS: Array<Termo> = [
     categoria: "automacoes",
     publico: "interno",
     definicao:
-      "O escritório conecta a própria chave (Anthropic ou OpenAI) em Configurações → Integrações; a equipe usa para analisar documentos, triar andamentos, sugerir a próxima tarefa e conversar sobre o caso. Só quem tem a permissão de usar IA; parceiro não usa. Tirar essa permissão de alguém fecha a IA de verdade: quem recusa é o servidor, não o sumiço do botão. A chave é do escritório e só vale nele.",
-    veja: ["token-mcp", "analise-tecnica"],
+      "O escritório conecta a própria chave (Anthropic/Claude ou OpenAI/GPT) em Configurações → Integrações → IA do escritório. Salva, a chave nunca volta para a tela, e um selo diz se ela está salva e válida ou foi recusada pelo provedor. O modelo é escolhido entre os que a própria chave enxerga, com aviso de quais não leem PDF ou vão sair do ar. A equipe usa a IA para ler e identificar documentos, extrair dados do cliente e de perícias, ler os e-mails do INSS, triar andamentos, sugerir a próxima tarefa, redigir mensagens ao parceiro e analisar e conversar sobre o caso. Com a IA ligada, documentos e dados de saúde vão ao provedor, fora do Brasil; desligada, nenhuma tela usa IA. O consumo é cobrado na conta do escritório. Só usa quem tem a permissão de usar IA — parceiro não usa —, e quem recusa é o servidor, não só a tela.",
+    veja: ["token-mcp", "analise-tecnica", "esforco-ia", "leitura-automatica"],
   },
   {
     id: "djen",
@@ -586,7 +719,7 @@ export const TERMOS: Array<Termo> = [
     categoria: "automacoes",
     publico: "interno",
     definicao:
-      "A caixa Gmail conectada em Configurações → Integrações recebe as comunicações do MEU INSS. Cada e-mail é lido, casado com o caso pelo CPF e vira andamento — e tarefa, quando há prazo. Cada escritório conecta a sua caixa; a rotina roda uma vez por escritório e só enxerga os casos dele.",
+      "A caixa Gmail conectada em Configurações → Integrações recebe as comunicações do MEU INSS. Cada e-mail é lido, casado com o cliente (pelo nome, pelo CPF ou pelo número do requerimento) e vira andamento — e tarefa, quando há prazo. O que não casa vira uma tarefa de revisão, para não se perder. Cada escritório conecta a sua caixa, e a rotina só enxerga os casos dele.",
     veja: ["andamento", "tarefa"],
   },
   {
@@ -596,8 +729,8 @@ export const TERMOS: Array<Termo> = [
     categoria: "automacoes",
     publico: "interno",
     definicao:
-      "A pasta espelho de documentos por caso: o que entra na pasta aparece no caso, e o que sobe no sistema vai para a pasta. O escritório conecta a própria conta Google.",
-    veja: ["documento"],
+      "A pasta do cliente no Google Drive, ligada ao caso pela equipe (aba Documentos → “Vincular pasta”, entrando com a conta Google da pessoa). “Sync pasta” traz o que entrou lá, “Subir pendentes” leva para lá o que subiu no sistema e “Importar arquivos” traz arquivos avulsos; renomear e apagar no sistema também vale no Drive. Para pasta que o parceiro só compartilha por link, ver Pasta por link.",
+    veja: ["documento", "pasta-por-link"],
   },
   {
     id: "legalmail",
@@ -605,7 +738,7 @@ export const TERMOS: Array<Termo> = [
     categoria: "automacoes",
     publico: "interno",
     definicao:
-      "Serviço de acompanhamento processual usado para importar processos e intimações. Só leitura e importação manual — o sistema nunca escreve lá.",
+      "Serviço de acompanhamento processual. O escritório cadastra a própria conta em Configurações → Integrações; com ela, a equipe busca processos pelo nome do cliente e importa movimentações. Só leitura: o sistema nunca escreve lá, e sem a conta cadastrada os botões não aparecem.",
     veja: ["processo"],
   },
   {
@@ -615,7 +748,7 @@ export const TERMOS: Array<Termo> = [
     categoria: "automacoes",
     publico: "interno",
     definicao:
-      "O sistema anterior, de onde a base foi migrada. Sobrou “Buscar/Importar do TI” para casos antigos; a sincronização automática está desligada desde agosto de 2026. Só leitura.",
+      "O sistema anterior, de onde a base foi migrada. Com a conta do escritório cadastrada em Integrações, a equipe ainda busca clientes pelo nome e importa notas para o caso; a sincronização automática está desligada desde agosto de 2026. Só leitura.",
     veja: ["cliente"],
   },
   {
@@ -625,8 +758,8 @@ export const TERMOS: Array<Termo> = [
     categoria: "automacoes",
     publico: "interno",
     definicao:
-      "O canal de mensagens com o parceiro, ativado por código. Cada escritório cadastra a própria instância do Evolution em Configurações → Integrações (a chave fica cifrada no servidor); a mensagem que chega é do escritório daquela instância. O envio automático está pausado; o que existe hoje é o registro das mensagens.",
-    veja: ["parceiro"],
+      "O canal de mensagens com o parceiro. Cada escritório cadastra a própria instância do Evolution em Configurações → Integrações (a chave fica cifrada no servidor) e gera o token do webhook de entrada; o parceiro é ativado em Parceiros por um código enviado ao WhatsApp dele. As mensagens que ele manda chegam ao escritório daquela instância. O envio de mensagens pelo sistema tem fila própria e está pausado até ser retomado; quando voltar, mensagem para parceiro sem aceite dos termos é cancelada em vez de sair.",
+    veja: ["parceiro", "aviso-sem-aceite"],
   },
   {
     id: "resumo-do-dia",
@@ -635,7 +768,7 @@ export const TERMOS: Array<Termo> = [
     categoria: "automacoes",
     publico: "interno",
     definicao:
-      "O e-mail automático da manhã com as tarefas e os prazos do dia para a equipe do escritório. Cada escritório recebe só o seu.",
+      "O e-mail automático da manhã para a equipe interna ativa: movimentações processuais novas, publicações do DJEN (com e sem caso), processos que apareceram mas não estão no sistema e as tarefas atrasadas ou vencendo hoje, cada item com link para o caso. Sem novidade, não é enviado. Nesta versão a rotina automática atende o escritório padrão.",
     veja: ["tarefa", "agenda"],
   },
   {
@@ -650,15 +783,35 @@ export const TERMOS: Array<Termo> = [
   },
   {
     id: "a-enviar",
-    termo: "A enviar",
-    sinonimos: ["fila de avisos", "aviso de perícia"],
+    termo: "Aviso ao parceiro",
+    sinonimos: ["enviar aviso ao parceiro", "aviso de perícia", "A enviar"],
     categoria: "automacoes",
     publico: "interno",
     definicao:
-      "A fila de avisos (por exemplo, de perícia marcada) que o sistema preparou e que aguardam alguém da equipe conferir e enviar. Nada sai para o cliente sem passar por aqui.",
+      "O aviso de perícia ou audiência ao parceiro é revisado e enviado no próprio formulário do agendamento, antes de salvar. Quem desmarca o envio — ou quando a perícia chega por publicação ou andamento — ganha a tarefa “Enviar aviso ao parceiro”, para mandar depois. O aviso sai como comentário do caso, com e-mail. A antiga fila “A enviar” não existe mais.",
     veja: ["pericia"],
   },
 
+  {
+    id: "leitura-automatica",
+    termo: "Leitura automática de documentos",
+    sinonimos: ["identificar documentos", "fila de leitura", "a IA não lê"],
+    categoria: "automacoes",
+    publico: "interno",
+    definicao:
+      "Com a IA do escritório ligada, o sistema lê sozinho os arquivos que chegam num caso — esperando os envios pararem por alguns minutos — e grava o que cada um é, de quando é e um resumo. Com confiança alta, o tipo do documento já fica definido; o resto vira sugestão a conferir. Cada arquivo é lido uma vez só, e cópia idêntica herda a leitura. A IA lê PDF e imagem (JPG, PNG, WebP, GIF); .docx, .xlsx, .zip e foto HEIC aparecem como “a IA não lê”. Arquivo que falha três vezes sai da fila com o motivo.",
+    veja: ["organizar-documentos", "ia", "esforco-ia", "documento"],
+  },
+  {
+    id: "esforco-ia",
+    termo: "Esforço da IA",
+    sinonimos: ["esforço do raciocínio", "effort"],
+    categoria: "automacoes",
+    publico: "interno",
+    definicao:
+      "Quanto a IA pensa antes de responder, tarefa por tarefa: Baixo, Médio ou Alto. Mais esforço dá resposta mais cuidadosa, porém mais lenta e com mais consumo na conta do provedor. Cada tarefa tem um padrão do sistema (analisar o caso e triar andamentos em Alto; identificar documentos, extrair, redigir e conversar em Médio), e o escritório troca qualquer uma em Configurações → Integrações → IA do escritório → Esforço do raciocínio por tarefa. Só faz efeito com modelo que recebe esforço (a tela avisa quando o modelo escolhido não recebe); cada chamada fica registrada com o nível usado.",
+    veja: ["ia", "leitura-automatica"],
+  },
   // -------------------------------------------------------------------------
   // Plataforma e QG
   // -------------------------------------------------------------------------
@@ -668,7 +821,7 @@ export const TERMOS: Array<Termo> = [
     sinonimos: ["marca do produto", "logo"],
     categoria: "plataforma",
     definicao:
-      "O nome e a marca do produto — os dois anéis entrelaçados, azul-marinho e dourado. Aparece onde ainda não se sabe (ou não importa) o escritório: tela de entrada, criar/redefinir senha, aba do navegador, ícone do app, cabeçalho dos e-mails, QG e o “por Legal Connect” no rodapé. Dentro do sistema, o topo mostra a marca do escritório.",
+      "O nome e a marca do produto — os dois anéis entrelaçados, azul-marinho e dourado. Aparece onde ainda não se sabe (ou não importa) o escritório: tela de entrada, criar/redefinir senha, aba do navegador, ícone do app, cabeçalho dos e-mails, QG e o “por Legal Connect” no rodapé. Dentro do sistema, a barra lateral mostra a marca do escritório, com o “por Legal Connect” embaixo.",
     veja: ["plataforma", "escritorio"],
   },
   {
@@ -746,8 +899,8 @@ export const TERMOS: Array<Termo> = [
     categoria: "plataforma",
     publico: "qg",
     definicao:
-      "O primeiro escritório, dono das integrações de sistema (e-mail do INSS, DJEN, WhatsApp) nesta versão. Não pode ser suspenso nem encerrado.",
-    veja: ["escritorio", "email-inss"],
+      "O primeiro escritório. É dele o catálogo que os escritórios novos copiam, e é só ele que ainda usa as credenciais antigas do sistema (WhatsApp, Legalmail e TI, quando não tem as próprias) e recebe o resumo do dia automático. Não pode ser suspenso nem encerrado.",
+    veja: ["escritorio", "email-inss", "catalogo-escritorio"],
   },
   {
     id: "trocar-titular",
@@ -806,9 +959,29 @@ export const TERMOS: Array<Termo> = [
     publico: "qg",
     definicao:
       "O segundo fator de autenticação (código do aplicativo autenticador), obrigatório para entrar no QG — quem chega sem ele cadastra o autenticador na hora, na própria tela. A exigência é uma chave no banco, ligada hoje em produção e no staging. Qualquer pessoa pode ativar o seu em Configurações → Segurança; a partir daí o código é pedido depois da senha.",
-    veja: ["qg"],
+    veja: ["qg", "duas-etapas"],
   },
 
+  {
+    id: "catalogo-escritorio",
+    termo: "Catálogo do escritório",
+    sinonimos: ["templates padrão", "tipos de benefício padrão"],
+    categoria: "plataforma",
+    publico: "interno",
+    definicao:
+      "Os tipos de benefício e os templates de tarefa com que todo escritório nasce: o QG copia os do escritório padrão na criação, sem nenhum dado, nome ou responsável de outro escritório. Depois disso o catálogo é do escritório — o que ele muda não afeta os outros.",
+    veja: ["tipo-beneficio", "template-tarefa", "qg", "escritorio-padrao"],
+  },
+  {
+    id: "saude-rotinas",
+    termo: "Saúde das rotinas",
+    sinonimos: ["saúde da operação"],
+    categoria: "plataforma",
+    publico: "qg",
+    definicao:
+      "A aba Saúde da Operação do QG mostra a última execução de cada rotina automática (DJEN, DataJud, e-mail do INSS, resumo do dia, leitura de documentos…) e marca as que falharam. No staging e no local ela fica vazia, porque os agendamentos só existem em produção.",
+    veja: ["qg", "djen", "email-inss"],
+  },
   // -------------------------------------------------------------------------
   // Ambientes e tecnica
   // -------------------------------------------------------------------------
@@ -819,8 +992,8 @@ export const TERMOS: Array<Termo> = [
     categoria: "tecnico",
     publico: "interno",
     definicao:
-      "Produção é o sistema de verdade (marasandraconnect.com). Staging é a cópia onde se valida cada mudança antes (staging.marasandraconnect.com), com dados anonimizados. Local é a máquina de quem desenvolve. Cada um tem o próprio banco; nada passa de um para o outro sozinho.",
-    veja: ["release", "migration"],
+      "Produção é o sistema de verdade (marasandraconnect.com). Staging (staging.marasandraconnect.com) é onde cada mudança é validada antes, com uma cópia semanal da produção com os dados trocados (o espelho) e contas de teste por papel. Local é a máquina de quem desenvolve, que começa cada tarefa copiando o staging. Cada um tem o próprio banco; fora o espelho e essa cópia — que só vão de cima para baixo —, nada passa de um para o outro.",
+    veja: ["release", "migration", "espelho", "escritorio-canario"],
   },
   {
     id: "release",
@@ -880,5 +1053,44 @@ export const TERMOS: Array<Termo> = [
     definicao:
       "Código que roda no servidor para o que o navegador não pode fazer sozinho: falar com a IA, com o Gmail, com o DJEN, enviar e-mail. Toda função começa conferindo quem chama, em qual escritório e — quando a ação pede uma permissão — se quem chama tem essa permissão; daí para a frente trabalha presa a esse escritório.",
     veja: ["ia", "gate-permissao", "email-inss"],
+  },
+  {
+    id: "espelho",
+    termo: "Espelho do staging",
+    sinonimos: ["anonimização", "cópia semanal"],
+    categoria: "tecnico",
+    publico: "interno",
+    definicao:
+      "Toda segunda de manhã, os dados de produção são copiados para o staging com nomes, CPFs, e-mails e telefones trocados — por isso o staging tem casos parecidos com os de verdade sem ser os de verdade. O espelho recria as contas de teste e o escritório Canário e preserva a chave de IA do staging. Se falhar, abre um card no board sozinho, e o staging fica na última cópia boa.",
+    veja: ["ambientes", "escritorio-canario"],
+  },
+  {
+    id: "escritorio-canario",
+    termo: "Escritório Canário",
+    categoria: "tecnico",
+    publico: "interno",
+    definicao:
+      "O escritório de teste que só existe no staging e no local, com uma conta de teste para cada papel. As conferências automáticas de cada lote escrevem só nele e desfazem tudo no fim, para não tocar nos dados espelhados.",
+    veja: ["ambientes", "espelho"],
+  },
+  {
+    id: "regua",
+    termo: "Régua",
+    sinonimos: ["teste de regra"],
+    categoria: "tecnico",
+    publico: "interno",
+    definicao:
+      "Um teste automático que cobra uma regra do projeto — por exemplo, que toda chamada de IA fique registrada, que o aceite seja conferido antes de qualquer e-mail, ou que a lista de documentos seja a mesma na tela e no servidor. As réguas rodam em todo PR para staging ou main; régua vermelha segura o merge.",
+    veja: ["tunel", "gate-permissao", "release"],
+  },
+  {
+    id: "tunel",
+    termo: "Túnel (fonte única)",
+    sinonimos: ["fonte única", "fonte de verdade"],
+    categoria: "tecnico",
+    publico: "interno",
+    definicao:
+      "Uma regra que mora num lugar só — quem pode o quê, o fuso de Brasília, a chave de IA, o aceite dos termos — e que todo o resto do sistema consulta, em vez de várias cópias que se desencontram. Quando aparece a segunda cópia de uma lógica, ela vira túnel, e uma régua acusa quem passa por fora.",
+    veja: ["regua", "gate-permissao"],
   },
 ];
