@@ -98,10 +98,21 @@ describe("plano da chamada", () => {
   });
 
   test("tarefa low com resposta curta num modelo que desliga: desliga o raciocínio", () => {
-    const p = planoDaChamada(perfilDoModelo("anthropic", "claude-sonnet-5-5"), "curta", 400, "identificar-documentos");
-    expect(p).toEqual({ teto: 400, thinking: { type: "between_tools" } });
+    const p = planoDaChamada(perfilDoModelo("anthropic", "claude-sonnet-5-5"), "curta", 20, "integracoes-escritorio:testar");
+    expect(p).toEqual({ teto: 20, thinking: { type: "between_tools" } });
     // No Opus 5.5 não há como desligar: vai low.
-    expect(planoDaChamada(perfilDoModelo("anthropic", "claude-opus-5-5"), "curta", 400, "identificar-documentos").esforco).toBe("low");
+    expect(planoDaChamada(perfilDoModelo("anthropic", "claude-opus-5-5"), "curta", 20, "integracoes-escritorio:testar").esforco).toBe("low");
+  });
+
+  test("identificar documentos pensa: no mínimo medium, em qualquer modelo que recebe esforço", () => {
+    // Pedido da Naira (27/10): precisão alta na identificação.
+    expect(["medium", "high"]).toContain(ESFORCO_POR_TAREFA["identificar-documentos"]);
+    for (const modelo of ["claude-sonnet-5-5", "claude-opus-5-5"]) {
+      const p = planoDaChamada(perfilDoModelo("anthropic", modelo), "curta", 400, "identificar-documentos");
+      expect(p.thinking, modelo).toBeUndefined();
+      expect(p.esforco, modelo).toBe("medium");
+      expect(p.teto, modelo).toBeGreaterThanOrEqual(4000);
+    }
   });
 
   test("modelo que não recebe esforço (Haiku 4.5, OpenAI) ignora a tarefa", () => {

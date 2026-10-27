@@ -164,15 +164,16 @@ const PISO_RACIOCINIO: Record<TamanhoResposta, number> = { curta: 4000, longa: 1
 // esforço usado — é dali que se mede antes de mudar um nível.
 // Função de IA nova: entra aqui (o tipo `TarefaIA` e a régua
 // e2e/unit/ia-registro-de-uso.test.ts cobram).
-//   low    — ler/classificar/testar: resposta curta, pouco a pensar;
-//   medium — extrair dado que vira registro, redigir, conversar;
+//   low    — só o teste de conexão (nada a pensar);
+//   medium — identificar e extrair dado que vira registro, redigir, conversar;
 //   high   — analisar o caso e triar andamentos: errar custa caro.
 // ---------------------------------------------------------------------------
 export type Esforco = "low" | "medium" | "high";
 
 export const ESFORCO_POR_TAREFA = {
   "integracoes-escritorio:testar": "low",
-  "identificar-documentos": "low",
+  // Naira, 27/10: a identificação precisa de alta precisão — no mínimo medium.
+  "identificar-documentos": "medium",
   "inss-email-processor": "medium",
   "extrair-dados-cliente": "medium",
   "extrair-agendamento-pericia": "medium",
