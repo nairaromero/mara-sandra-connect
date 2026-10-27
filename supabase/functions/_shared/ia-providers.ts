@@ -18,7 +18,14 @@ export type ToolCall = { id: string; name: string; args: Record<string, unknown>
  * ("not scoped to a workspace"). Montada por `abrirCredencial`
  * (_shared/ia-integracao.ts) — ninguém decifra a chave por fora.
  */
-export type Credencial = { chave: string; workspaceId?: string | null };
+import { esforcoDaTarefa, type Esforco, type EsforcosDoEscritorio, type TarefaIA } from "./ia-esforco.ts";
+
+export type Credencial = {
+  chave: string;
+  workspaceId?: string | null;
+  /** O esforço que o escritório trocou por tarefa (vem com a chave, por `abrirCredencial`). */
+  esforcos?: EsforcosDoEscritorio;
+};
 
 // Anexo binario (PDF/imagem) enviado junto da ultima mensagem 'user'. Usado pela
 // ia-analise p/ mandar PDFs escaneados direto ao provider (OCR nativo do modelo),
@@ -151,40 +158,9 @@ export type TamanhoResposta = "curta" | "longa";
 // Teto minimo quando o modelo raciocina: sobra espaco para o rascunho E a resposta.
 const PISO_RACIOCINIO: Record<TamanhoResposta, number> = { curta: 4000, longa: 16000 };
 
-// ---------------------------------------------------------------------------
-// Esforço por tarefa — UMA tabela (pedido da Naira, 27/10, "opção 1").
-//
-// O esforço (`output_config.effort` da Anthropic) decide quanto o modelo
-// raciocina: mais esforço, mais tokens e mais demora. Antes ele saía do
-// TAMANHO da resposta ("curta" = low, "longa" = padrão do modelo), e o padrão
-// mudou de modelo para modelo: no Opus 5.5 é `medium`, no Sonnet 5.5 é `high`
-// — a análise do caso rodava em `medium` no Opus sem ninguém ter decidido.
-// Agora cada tarefa diz o seu, aqui. A tarefa é o mesmo nome que vai para o
-// registro de uso (`registroDeUso({ funcao })`, tabela ia_uso), que grava o
-// esforço usado — é dali que se mede antes de mudar um nível.
-// Função de IA nova: entra aqui (o tipo `TarefaIA` e a régua
-// e2e/unit/ia-registro-de-uso.test.ts cobram).
-//   low    — só o teste de conexão (nada a pensar);
-//   medium — identificar e extrair dado que vira registro, redigir, conversar;
-//   high   — analisar o caso e triar andamentos: errar custa caro.
-// ---------------------------------------------------------------------------
-export type Esforco = "low" | "medium" | "high";
-
-export const ESFORCO_POR_TAREFA = {
-  "integracoes-escritorio:testar": "low",
-  // Naira, 27/10: a identificação precisa de alta precisão — no mínimo medium.
-  "identificar-documentos": "medium",
-  "inss-email-processor": "medium",
-  "extrair-dados-cliente": "medium",
-  "extrair-agendamento-pericia": "medium",
-  "mensagem-parceiro-exigencia": "medium",
-  "sugerir-proxima-tarefa": "medium",
-  "ia-assistant": "medium",
-  "ia-triagem-andamentos": "high",
-  "ia-analise": "high",
-} as const satisfies Record<string, Esforco>;
-
-export type TarefaIA = keyof typeof ESFORCO_POR_TAREFA;
+// Esforço por tarefa: a tabela, os rótulos e a escolha do escritório moram em
+// ./ia-esforco.ts (módulo puro, a tela também lê). Aqui só se aplica.
+export { ESFORCO_POR_TAREFA, type Esforco, type TarefaIA } from "./ia-esforco.ts";
 
 /** O que vai na requisicao: teto, raciocinio e esforco — derivados do perfil e da tarefa. */
 export function planoDaChamada(
@@ -192,13 +168,14 @@ export function planoDaChamada(
   tamanho: TamanhoResposta,
   pedido: number,
   tarefa?: TarefaIA,
+  doEscritorio?: EsforcosDoEscritorio,
 ): { teto: number; thinking?: Record<string, unknown>; esforco?: Esforco } {
   if (perfil.raciocinio === "nenhum" || perfil.raciocinio === "desligado") {
     return { teto: pedido };
   }
   // Sem tarefa (não deveria acontecer: a régua cobra o registro) vale a regra
   // antiga pelo tamanho.
-  const esforco: Esforco | undefined = tarefa ? ESFORCO_POR_TAREFA[tarefa] : tamanho === "curta" ? "low" : undefined;
+  const esforco: Esforco | undefined = tarefa ? esforcoDaTarefa(tarefa, doEscritorio) : tamanho === "curta" ? "low" : undefined;
   // Tarefa de pouco esforço com resposta curta, num modelo que deixa desligar
   // o raciocínio: desliga (mais rápido e barato que pensar pouco).
   if (tamanho === "curta" && esforco === "low" && perfil.desligar) {
@@ -340,10 +317,10 @@ function tamanhoDe(opts: ChatOpts, pedido: number): TamanhoResposta {
 }
 
 /** O plano de uma chamada — o mesmo para montar a requisição e para o registro de uso. */
-function planoDe(provider: string, modelo: string, opts: ChatOpts) {
+function planoDe(provider: string, modelo: string, opts: ChatOpts, doEscritorio?: EsforcosDoEscritorio) {
   const pedido = opts.maxTokens ?? MAX_TOKENS;
   const perfil = perfilDoModelo(provider, modelo);
-  return { pedido, perfil, ...planoDaChamada(perfil, tamanhoDe(opts, pedido), pedido, opts.registro?.tarefa) };
+  return { pedido, perfil, ...planoDaChamada(perfil, tamanhoDe(opts, pedido), pedido, opts.registro?.tarefa, doEscritorio) };
 }
 
 /**
@@ -415,7 +392,7 @@ export async function chatWith(
   const inicio = Date.now();
   let r: ChatResult | null = null;
   // Só o Anthropic recebe esforço hoje (o OpenAI fica no padrão de cada modelo).
-  const esforco = provider === "anthropic" ? planoDe(provider, modelo, opts).esforco ?? null : null;
+  const esforco = provider === "anthropic" ? planoDe(provider, modelo, opts, credencial.esforcos).esforco ?? null : null;
   try {
     const aposentado = modeloAposentado(provider, modelo);
     if (aposentado) throw new Error(aposentado);
@@ -502,7 +479,7 @@ async function anthropicChat(
   flushTools();
   appendAttachments(msgs, opts.attachments, anthropicAttBlock);
 
-  const plano = planoDe("anthropic", modelo, opts);
+  const plano = planoDe("anthropic", modelo, opts, credencial.esforcos);
   const body: Record<string, unknown> = {
     model: modelo,
     max_tokens: plano.teto,

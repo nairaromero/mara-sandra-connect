@@ -16,6 +16,7 @@ import { encryptSecret, decryptSecret } from "../_shared/crypto.ts";
 import { baseLegalmail, baseTI } from "../_shared/integracoes.ts";
 import { chatWith, classeDoErro, type Credencial, listarModelos, mensagemDoErro, modeloAposentado, PROVIDERS } from "../_shared/ia-providers.ts";
 import { abrirCredencial, integracaoDaLinha, registroDeUso } from "../_shared/ia-integracao.ts";
+import { lerEsforcos } from "../_shared/ia-esforco.ts";
 
 /** ID de workspace da Anthropic: `wrkspc_` + letras e números. */
 const WORKSPACE_RE = /^wrkspc_[A-Za-z0-9]+$/;
@@ -37,7 +38,8 @@ const CAMPOS: Record<string, string[]> = {
   djen: [],
   // IA (#451): provedor, modelo e — para chave da Anthropic que vale para mais
   // de um workspace — o ID do workspace; a chave vai no segredo.
-  ia: ["provider", "modelo", "workspace_id"],
+  // + o esforço por tarefa que o escritório trocou (_shared/ia-esforco.ts).
+  ia: ["provider", "modelo", "workspace_id", "esforcos"],
 };
 
 /** Lista da tela para a IA: sai dos perfis de modelo (uma fonte só). */
@@ -123,6 +125,10 @@ serve(async (req) => {
       else if (!WORKSPACE_RE.test(ws)) return json({ error: "ID do workspace inválido: começa com wrkspc_" }, 400);
       else configNova.workspace_id = ws;
       delete configNova.origem;
+      // Só tarefa conhecida, nível válido e diferente do padrão (lerEsforcos).
+      const esforcos = lerEsforcos(configNova.esforcos);
+      if (Object.keys(esforcos).length) configNova.esforcos = esforcos;
+      else delete configNova.esforcos;
     }
     const linha: Record<string, unknown> = {
       escritorio_id: escritorioId,
@@ -152,8 +158,14 @@ serve(async (req) => {
     if (error) return json({ error: `salvando: ${error.message}` }, 500);
     const antesDepois = tipo === "ia"
       ? {
-          antes: { provider: atual?.config?.provider ?? null, modelo: atual?.config?.modelo ?? null, ativo: atual?.ativo ?? null },
-          depois: { provider: configNova.provider, modelo: configNova.modelo, ativo: linha.ativo },
+          antes: {
+            provider: atual?.config?.provider ?? null, modelo: atual?.config?.modelo ?? null, ativo: atual?.ativo ?? null,
+            esforcos: lerEsforcos(atual?.config?.esforcos),
+          },
+          depois: {
+            provider: configNova.provider, modelo: configNova.modelo, ativo: linha.ativo,
+            esforcos: lerEsforcos(configNova.esforcos),
+          },
         }
       : {};
     await registrar(body.action === "gerar_token" ? "integracao.token" : "integracao.salvar", {
