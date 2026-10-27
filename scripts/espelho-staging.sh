@@ -54,7 +54,19 @@ STG_URL="postgresql://postgres.${STG_REF}:$(enc "$STG_PW")@${POOLER_STG}:5432/po
 EXCLUIR=(escritorio_integracoes acessos_suporte ia_integracoes ia_tokens ia_acoes usuario_gmail_oauth aceites_termos
   acessos_documento acessos_senha_inss alertas_duplicidade mensagens
   webhook_eventos whatsapp_mensagens whatsapp_outbox whatsapp_sessoes
-  whatsapp_lid_map whatsapp_ativacao_codigos)
+  whatsapp_lid_map whatsapp_ativacao_codigos
+  # #481 (27/10) — tabelas que nasceram depois de setembro sem decisão, e por
+  # isso o espelho abortava desde 28/09:
+  #   auditoria             trilha com dado pessoal (minimização);
+  #   caso_pastas_externas  o link aponta para a pasta REAL do cliente;
+  #   membros, plataforma_staff, membro_permissoes  do modelo de acesso: o
+  #     truncate de usuarios as leva junto (não dá para PRESERVAR) e o passo
+  #     6/6 as reconstrói (backfill das migrations do RBAC + seed do
+  #     Canário/QG). Os ajustes de permissão por pessoa de produção não vêm.
+  auditoria caso_pastas_externas membros plataforma_staff membro_permissoes)
+# Tabela NOVA com RLS precisa de uma decisão aqui (EXCLUIR/PRESERVAR) ou da
+# policy espelho_leitura_select em produção (aí ela é copiada). Sem isso o
+# espelho aborta — e o `rbac-conferir-exigencias` (produção) acusa antes.
 # Configuração DO AMBIENTE: não sai de produção E não é limpa no staging, que
 # mantém os próprios valores. O app_config guarda o edge_base_url, endereço que
 # os triggers usam pra chamar edge functions — o da produção no staging faria o
@@ -62,12 +74,12 @@ EXCLUIR=(escritorio_integracoes acessos_suporte ia_integracoes ia_tokens ia_acoe
 # NÃO pode sair desta lista (a trava (e) no fim confere). Tabela daqui não pode
 # ter FK pra outra, senão o `truncate ... cascade` do passo 2 a levaria junto
 # (app_config não tem, nos dois bancos — conferido em 2026-09-11).
-# RBAC (2026-09-23): o catálogo do modelo de acesso não existe em produção
-# enquanto o lote não for lançado, e mesmo depois é configuração do ambiente.
-# Preservar aqui evita o staging acordar sem escritórios/papéis na segunda.
-# `membros` e `plataforma_staff` NÃO dá para preservar (o truncate de usuarios
-# cascateia neles): o passo 6/6 reaplica as migrations (backfill de membros do
-# escritório padrão) e o seed do Canário/QG.
+# RBAC: o catálogo do modelo de acesso é configuração do ambiente (o staging
+# tem o Canário e os papéis de teste). Preservar aqui evita o staging acordar
+# sem escritórios/papéis na segunda. `membros` e `plataforma_staff` NÃO dá para
+# preservar (o truncate de usuarios cascateia neles): ficam em EXCLUIR e o
+# passo 6/6 reaplica as migrations (backfill de membros do escritório padrão)
+# e o seed do Canário/QG.
 PRESERVAR=(app_config escritorios papeis permissoes papel_permissoes escritorio_config)
 
 # Array SQL a partir dos nomes acima (fixos neste script, sem entrada externa).
