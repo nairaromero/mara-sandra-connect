@@ -136,6 +136,25 @@ for t in "${PRESERVAR[@]}"; do
   fi
 done
 
+# (g) A chave de IA do STAGING sobrevive ao espelho (#486, decisão da Naira em
+#     27/10). escritorio_integracoes está em EXCLUIR — a chave de produção
+#     nunca vem — e não dá para PRESERVAR (FK para usuarios, que o passo 2
+#     limpa em cascade). Então: guardar as linhas tipo 'ia' do staging em
+#     ops.espelho_guarda_ia (o espelho não toca no schema ops) e o passo 6 as
+#     devolve. A guarda só é trocada quando o staging TEM chave: um espelho que
+#     abortou no meio (staging sem chave) não apaga o que estava guardado.
+echo "==> 1b/4 guardando a chave de IA do staging…"
+psql "$STG_URL" -q -v ON_ERROR_STOP=1 -c "
+create table if not exists ops.espelho_guarda_ia (linha jsonb not null, guardado_em timestamptz not null default now());
+do \$\$ begin
+  if exists (select 1 from public.escritorio_integracoes where tipo = 'ia') then
+    delete from ops.espelho_guarda_ia;
+    insert into ops.espelho_guarda_ia (linha)
+    select to_jsonb(i) from public.escritorio_integracoes i where i.tipo = 'ia';
+  end if;
+end \$\$;"
+echo "    guardadas: $(psql "$STG_URL" -tAXc "select count(*) from ops.espelho_guarda_ia")"
+
 echo "==> 2/4 limpando staging (menos PRESERVAR: ${PRESERVAR[*]})…"
 # Ordem importa: public primeiro (esvazia as referências), depois auth —
 # o delete de auth.users cascateia em public.usuarios já vazio.
