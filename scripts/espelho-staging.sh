@@ -152,6 +152,20 @@ echo "==> 3/4 restore no staging…"
 { echo "set session_replication_role = replica;"; cat "$DUMP"; } |
   psql "$STG_URL" -q -v ON_ERROR_STOP=1 -o /dev/null
 
+# (f) Escritório: os dados de produção apontam para o id do escritório de
+#     PRODUÇÃO; o staging preserva os seus. Sem a troca, a anonimização falha
+#     e desfaz tudo (27/10, #481). A regra está em scripts/espelho-escritorios.sql.
+echo "==> 3b/4 apontando os dados para os escritórios do staging…"
+if ! psql "$STG_URL" -q -v ON_ERROR_STOP=1 -v nao_limpar="$(IFS=,; echo "${PRESERVAR[*]}")" \
+     -f "$(dirname "$0")/espelho-escritorios.sql"; then
+  echo "ABORTANDO: não consegui apontar os dados para os escritórios do staging. Limpando o staging para não deixar dado de produção SEM máscara."
+  psql "$STG_URL" -q -c "do \$\$ declare r record; begin
+    for r in select tablename from pg_tables where schemaname='public' and tablename::text <> all($NAO_LIMPAR_NO_STG) loop
+      execute format('truncate table public.%I cascade', r.tablename);
+    end loop; end \$\$;"
+  exit 1
+fi
+
 echo "==> 4/4 anonimizando…"
 psql "$STG_URL" -q -v ON_ERROR_STOP=1 -v senha_sintetica="$SYNTH_PW" \
   -f "$(dirname "$0")/anonimizar-staging.sql"
