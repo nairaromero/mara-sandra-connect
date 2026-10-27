@@ -12,7 +12,7 @@
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { decryptSecret } from "./crypto.ts";
-import type { Credencial, LinhaUso, RegistroUso } from "./ia-providers.ts";
+import type { Credencial, LinhaUso, RegistroUso, TarefaIA } from "./ia-providers.ts";
 
 export interface IntegracaoIA {
   provider: string;
@@ -112,11 +112,13 @@ export function registroDeUso(
   ctx: {
     escritorioId: string | null | undefined;
     usuarioId?: string | null;
-    funcao: string;
+    /** O nome da tarefa: vai para ia_uso.funcao e escolhe o esforço (ESFORCO_POR_TAREFA). */
+    funcao: TarefaIA;
     origem: IntegracaoIA["origem"] | "teste";
   },
 ): RegistroUso {
   return {
+    tarefa: ctx.funcao,
     gravar: async (linha: LinhaUso) => {
       if (!ctx.escritorioId) return;
       const { error } = await admin.from("ia_uso").insert({

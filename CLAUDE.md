@@ -185,7 +185,9 @@ o sistema em produção. Quando chegar, vale o seguinte:
   junta o workspace da Anthropic — ninguém decifra por fora),
   `listarModelos` (os modelos que a chave enxerga), `chatWith` com `registro:
   registroDeUso(...)` (toda chamada vira linha em `ia_uso`), os perfis de modelo
-  em `_shared/ia-providers.ts` (teto, raciocínio, lista da tela) e
+  em `_shared/ia-providers.ts` (teto, raciocínio, lista da tela), o esforço por
+  tarefa (`ESFORCO_POR_TAREFA`, escolhido pelo `funcao` do `registroDeUso` e gravado
+  em `ia_uso.esforco` — função de IA nova entra na tabela) e
   `mensagemDoErro(e, padrão)` (a frase de erro de IA que chega à tela; o texto
   cru do provedor vai só para o log). A régua
   `e2e/unit/ia-registro-de-uso.test.ts` acusa chamada sem registro, chave lida
