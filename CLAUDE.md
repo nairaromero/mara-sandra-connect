@@ -186,8 +186,10 @@ o sistema em produção. Quando chegar, vale o seguinte:
   `listarModelos` (os modelos que a chave enxerga), `chatWith` com `registro:
   registroDeUso(...)` (toda chamada vira linha em `ia_uso`), os perfis de modelo
   em `_shared/ia-providers.ts` (teto, raciocínio, lista da tela), o esforço por
-  tarefa (`ESFORCO_POR_TAREFA`, escolhido pelo `funcao` do `registroDeUso` e gravado
-  em `ia_uso.esforco` — função de IA nova entra na tabela) e
+  tarefa (`_shared/ia-esforco.ts`: `TAREFAS_IA` com o padrão do sistema; o escritório
+  troca pela tela, em `config.esforcos` da integração `ia`, e a escolha chega junto da chave
+  por `abrirCredencial`; a tarefa é o `funcao` do `registroDeUso` e o nível usado vai
+  para `ia_uso.esforco` — função de IA nova entra em `TAREFAS_IA`) e
   `mensagemDoErro(e, padrão)` (a frase de erro de IA que chega à tela; o texto
   cru do provedor vai só para o log). A régua
   `e2e/unit/ia-registro-de-uso.test.ts` acusa chamada sem registro, chave lida

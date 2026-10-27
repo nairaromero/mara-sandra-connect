@@ -106,7 +106,7 @@ test.describe.serial("IA: chave do escritório", () => {
 
     const trilha = await ultimaLinhaDaTrilha(ESC2, "integracao.salvar");
     expect(trilha?.recurso_id).toBe("ia");
-    expect(trilha?.detalhes.depois).toEqual({ provider: "anthropic", modelo: "claude-sonnet-5-5", ativo: true });
+    expect(trilha?.detalhes.depois).toEqual({ provider: "anthropic", modelo: "claude-sonnet-5-5", ativo: true, esforcos: {} });
   });
 
   test("com a chave ligada a equipe tem IA; desligada, não — e a antiga chave pessoal responde 410", async () => {
@@ -156,6 +156,51 @@ test.describe.serial("IA: chave do escritório", () => {
     });
     expect(modelos.json.ok).toBe(false);
     expect(String(modelos.json.erro)).toContain("wrkspc_");
+  });
+
+  test("esforço por tarefa: o escritório troca, o servidor confere, a trilha registra — e quem não gerencia não troca", async () => {
+    const adm = await sessao(`canario+admin@${DOM}`, ESC2);
+    // Garante uma IA configurada (os testes anteriores podem ter trocado para OpenAI).
+    const base = await fn("integracoes-escritorio", adm.jwt, ESC2, {
+      action: "salvar", tipo: "ia", config: { provider: "anthropic", modelo: "claude-opus-5-5" }, segredo: CHAVE_TESTE,
+    });
+    expect(base.status, base.texto).toBe(200);
+
+    // Só o esforço: provedor, modelo e ligado/desligado ficam.
+    const r = await fn("integracoes-escritorio", adm.jwt, ESC2, {
+      action: "salvar", tipo: "ia",
+      config: {
+        esforcos: {
+          "ia-analise": "medium",          // troca de verdade
+          "ia-triagem-andamentos": "high", // igual ao padrão: não grava
+          "tarefa-inventada": "low",       // desconhecida: descartada
+          "ia-assistant": "max",           // nível fora dos aceitos: descartado
+        },
+      },
+    });
+    expect(r.status, r.texto).toBe(200);
+    const cfg = r.json.config as Record<string, unknown>;
+    expect(cfg.esforcos).toEqual({ "ia-analise": "medium" });
+    expect(cfg.modelo).toBe("claude-opus-5-5");
+
+    const st = await fn("integracoes-escritorio", adm.jwt, ESC2, { action: "status", tipo: "ia" });
+    expect((st.json.config as Record<string, unknown>).esforcos).toEqual({ "ia-analise": "medium" });
+
+    const trilha = await ultimaLinhaDaTrilha(ESC2, "integracao.salvar");
+    expect(trilha?.detalhes.antes).toMatchObject({ esforcos: {} });
+    expect(trilha?.detalhes.depois).toMatchObject({ esforcos: { "ia-analise": "medium" } });
+
+    // Voltar ao padrão apaga a troca.
+    const volta = await fn("integracoes-escritorio", adm.jwt, ESC2, { action: "salvar", tipo: "ia", config: { esforcos: {} } });
+    expect(volta.status, volta.texto).toBe(200);
+    expect((volta.json.config as Record<string, unknown>).esforcos).toBeUndefined();
+
+    // Quem não gerencia integrações não troca o esforço.
+    const adv = await sessao(`canario+advogado@${DOM}`, ESC2);
+    const negado = await fn("integracoes-escritorio", adv.jwt, ESC2, {
+      action: "salvar", tipo: "ia", config: { esforcos: { "ia-analise": "low" } },
+    });
+    expect(negado.status).toBe(403);
   });
 
   test("ia_uso: só quem gerencia integrações lê, e só no próprio escritório", async () => {

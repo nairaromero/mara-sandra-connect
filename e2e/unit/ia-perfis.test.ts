@@ -4,6 +4,7 @@
 //   bun test e2e/unit/ia-perfis.test.ts
 // (fora de src/ porque o tsc do app não conhece bun:test; a Playwright só lê e2e/tests)
 import { afterEach, describe, expect, test } from "bun:test";
+import { esforcoDaTarefa, lerEsforcos } from "../../supabase/functions/_shared/ia-esforco";
 import {
   chatWith,
   classeDoErro,
@@ -118,6 +119,44 @@ describe("plano da chamada", () => {
   test("modelo que não recebe esforço (Haiku 4.5, OpenAI) ignora a tarefa", () => {
     expect(planoDaChamada(perfilDoModelo("anthropic", "claude-haiku-4-5"), "longa", 8000, "ia-analise")).toEqual({ teto: 8000 });
     expect(planoDaChamada(perfilDoModelo("openai", "gpt-4.1"), "longa", 8000, "ia-analise")).toEqual({ teto: 8000 });
+  });
+
+  test("o escritório troca o esforço de uma tarefa; as outras seguem o padrão", () => {
+    const doEscritorio = lerEsforcos({ "ia-analise": "medium" });
+    expect(planoDaChamada(perfilDoModelo("anthropic", "claude-opus-5-5"), "longa", 8000, "ia-analise", doEscritorio).esforco).toBe("medium");
+    expect(planoDaChamada(perfilDoModelo("anthropic", "claude-opus-5-5"), "longa", 8000, "ia-triagem-andamentos", doEscritorio).esforco).toBe("high");
+  });
+
+  test("escritório que baixa uma tarefa para low em resposta curta, no Sonnet 5.5: desliga o raciocínio", () => {
+    const doEscritorio = lerEsforcos({ "identificar-documentos": "low" });
+    const p = planoDaChamada(perfilDoModelo("anthropic", "claude-sonnet-5-5"), "curta", 400, "identificar-documentos", doEscritorio);
+    expect(p).toEqual({ teto: 400, thinking: { type: "between_tools" } });
+  });
+
+  test("lerEsforcos não confia no que vem do banco/tela", () => {
+    expect(lerEsforcos({
+      "ia-analise": "medium",          // vale
+      "ia-triagem-andamentos": "high", // igual ao padrão: não grava
+      "tarefa-inventada": "low",       // tarefa desconhecida
+      "ia-assistant": "max",           // nível fora dos aceitos
+      "sugerir-proxima-tarefa": 3,     // tipo errado
+    })).toEqual({ "ia-analise": "medium" });
+    expect(lerEsforcos(null)).toEqual({});
+    expect(lerEsforcos(["low"])).toEqual({});
+    expect(esforcoDaTarefa("ia-analise", {})).toBe(ESFORCO_POR_TAREFA["ia-analise"]);
+  });
+
+  test("chatWith usa o esforço que vem com a credencial do escritório e grava no registro", async () => {
+    const enviados = provedor(RESP_ANTHROPIC);
+    const linhas: LinhaUso[] = [];
+    await chatWith(
+      "anthropic",
+      { chave: "k", esforcos: { "ia-analise": "low" } },
+      "claude-opus-5-5",
+      opts({ maxTokens: 8000, registro: { tarefa: "ia-analise", gravar: async (l) => { linhas.push(l); } } }),
+    );
+    expect(enviados[0].output_config).toEqual({ effort: "low" });
+    expect(linhas[0].esforco).toBe("low");
   });
 
   test("a tabela só usa níveis que os modelos atuais aceitam", () => {

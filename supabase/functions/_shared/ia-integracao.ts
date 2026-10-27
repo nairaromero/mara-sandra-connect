@@ -13,6 +13,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { decryptSecret } from "./crypto.ts";
 import type { Credencial, LinhaUso, RegistroUso, TarefaIA } from "./ia-providers.ts";
+import { lerEsforcos, type EsforcosDoEscritorio } from "./ia-esforco.ts";
 
 export interface IntegracaoIA {
   provider: string;
@@ -22,6 +23,8 @@ export interface IntegracaoIA {
   /** Workspace da Anthropic (`wrkspc_…`), para chave que vale para mais de um. */
   workspace_id: string | null;
   ativo: boolean;
+  /** O esforço que o escritório trocou por tarefa (config.esforcos, já conferido). */
+  esforcos: EsforcosDoEscritorio;
   /** de quem é a chave cobrada (hoje sempre o escritório) */
   origem: "escritorio";
 }
@@ -34,6 +37,7 @@ export async function abrirCredencial(integ: IntegracaoIA): Promise<Credencial> 
   return {
     chave: await decryptSecret(integ.api_key_cipher, integ.api_key_iv),
     workspaceId: integ.workspace_id,
+    esforcos: integ.esforcos,
   };
 }
 
@@ -98,6 +102,7 @@ export function integracaoDaLinha(
     api_key_iv: linha.segredo_iv,
     workspace_id: texto(config.workspace_id) || null,
     ativo: linha.ativo,
+    esforcos: lerEsforcos(config.esforcos),
     origem: "escritorio",
   };
 }
