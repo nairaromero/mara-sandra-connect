@@ -185,15 +185,13 @@ fi
 # escritório padrão, e o Canário/QG de teste precisam existir de novo. As
 # migrations são idempotentes (backfill com on conflict); só rodam se a
 # branch tiver os arquivos (antes do lote, este passo não faz nada).
-echo "==> 6/6 RBAC: reaplicar migrations e seed do Canário…"
-if ls planning/sql-migrations/migration_rbac_01_*.sql >/dev/null 2>&1; then
-  for f in $(ls planning/sql-migrations/migration_rbac_*.sql | sort); do
-    node scripts/msc-sql.mjs --staging --file "$f" >/dev/null || { echo "AVISO: $f falhou no staging — rode à mão: node scripts/msc-sql.mjs --staging --file $f"; break; }
-  done
-  node "$(dirname "$0")/seed-local-rbac.mjs" --staging || echo "AVISO: seed do RBAC no staging falhou — rode `node scripts/seed-local-rbac.mjs --staging` à mão."
-else
-  echo "    (branch sem as migrations do RBAC: nada a reaplicar)"
-fi
+echo "==> 6/6 RBAC: vínculos de quem veio de produção e seed do Canário/QG…"
+# Era "reaplicar as migrations do RBAC" pelo msc-sql — que no Actions não tem a
+# credencial e, de qualquer forma, já não reaplica a rbac_01 (#481). Agora é
+# um SQL próprio pelo psql (tem a senha do staging aqui) + o seed.
+psql "$STG_URL" -q -v ON_ERROR_STOP=1 -f "$(dirname "$0")/espelho-reconstruir-acesso.sql" ||
+  echo "AVISO: vínculos não reconstruídos — rode: psql \"\$STG_URL\" -f scripts/espelho-reconstruir-acesso.sql"
+node "$(dirname "$0")/seed-local-rbac.mjs" --staging || echo "AVISO: seed do RBAC no staging falhou — rode \`node scripts/seed-local-rbac.mjs --staging\` à mão."
 
 # (e) Pós-condição: o staging continua chamando as PRÓPRIAS edge functions.
 #     A trava (d) cobre a exclusão; esta cobre o resto — alguém tirar o
