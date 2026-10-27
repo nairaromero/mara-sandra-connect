@@ -6,7 +6,7 @@
 // modelo do servidor).
 
 import { useCallback, useEffect, useState } from "react";
-import { Selecao } from "@/components/ui/selecao";
+import { Selecao, type OpcaoSelecao } from "@/components/ui/selecao";
 import { toast } from "sonner";
 import { Loader2, Sparkles, Save, Plug, ShieldCheck, Globe, ListChecks } from "lucide-react";
 
@@ -90,9 +90,25 @@ export function IntegracaoIaCard() {
   }, [carregar]);
 
   const providers = status?.providers ?? {};
-  const modelosSugeridos = daChave
-    ? daChave.map((m) => m.id)
-    : (providers[provider]?.models ?? []);
+  // As opções do menu Modelo: a lista recomendada do provedor ou, depois de
+  // "Ver modelos desta chave", o que a chave enxerga (com o que importa sobre
+  // cada um). O modelo já salvo entra sempre, para não sumir da tela.
+  const listaModelos: Array<Partial<ModeloDaChave> & { id: string }> =
+    daChave ?? (providers[provider]?.models ?? []).map((id) => ({ id }));
+  const opcoesModelo: OpcaoSelecao[] = listaModelos.map((m) => ({
+    value: m.id,
+    label: [
+      m.id,
+      m.recomendado && "recomendado",
+      m.lePdf === false && "não lê PDF",
+      m.situacao === "descontinuado" && `sai do ar${m.saiEm ? " em " + dataBR(m.saiEm) : ""}`,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+  }));
+  if (modelo.trim() && !opcoesModelo.some((o) => o.value === modelo.trim())) {
+    opcoesModelo.unshift({ value: modelo.trim(), label: `${modelo.trim()} · atual` });
+  }
 
   /** O que vai à function: o workspace só existe para a Anthropic. */
   const configDaTela = () => ({
@@ -241,17 +257,14 @@ export function IntegracaoIaCard() {
               </div>
               <div>
                 <Label className="text-xs">Modelo</Label>
-                <Input semGerenciadorDeSenha
-                  value={modelo}
-                  onChange={(e) => setModelo(e.target.value)}
-                  placeholder="ex.: claude-sonnet-5-5"
-                  list="ia-modelos"
+                <Selecao
+                  value={modelo.trim() || undefined}
+                  onChange={setModelo}
+                  opcoes={opcoesModelo}
+                  placeholder="Escolha o modelo"
+                  aria-label="Modelo"
+                  data-selecao="ia-modelo"
                 />
-                <datalist id="ia-modelos">
-                  {modelosSugeridos.map((m) => (
-                    <option key={m} value={m} />
-                  ))}
-                </datalist>
               </div>
             </div>
 
@@ -306,34 +319,9 @@ export function IntegracaoIaCard() {
               </Button>
               {erroLista && <p className="text-xs text-destructive">{erroLista}</p>}
               {daChave && (
-                <div className="rounded-md border p-2" data-ia-modelos-da-chave>
-                  <p className="mb-1 text-xs text-muted-foreground">
-                    {daChave.length} modelo(s) disponível(is) nesta chave. Clique para escolher.
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {daChave.map((m) => (
-                      <button
-                        key={m.id}
-                        type="button"
-                        onClick={() => setModelo(m.id)}
-                        title={m.nome}
-                        className={
-                          "rounded-full border px-2 py-0.5 text-xs " +
-                          (m.id === modelo.trim()
-                            ? "border-primary bg-primary text-primary-foreground"
-                            : "hover:bg-muted")
-                        }
-                        data-modelo={m.id}
-                      >
-                        {m.id}
-                        {m.recomendado && " · recomendado"}
-                        {m.lePdf === false && " · não lê PDF"}
-                        {m.situacao === "descontinuado" &&
-                          ` · sai do ar${m.saiEm ? " em " + dataBR(m.saiEm) : ""}`}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                <p className="text-xs text-muted-foreground" data-ia-modelos-da-chave>
+                  {daChave.length} modelo(s) desta chave no menu Modelo, acima.
+                </p>
               )}
             </div>
 
