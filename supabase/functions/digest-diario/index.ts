@@ -23,16 +23,13 @@
 //   para    — override de destinatário (string ou array; teste)
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
-import { escopado, escritorioDoSistema, exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
+import { escopado, escritorioDoSistema, exigirUsuarioOuSistema } from "../_shared/auth.ts";
 import { marcaDoEscritorio, remetente } from "../_shared/marca.ts";
+import { emailConfigurado, enviarEmail } from "../_shared/email.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
-
-// RESEND_BASE_URL so existe no ambiente LOCAL (mock de e2e/demo/mocks); fora dele e o Resend.
-const RESEND_BASE = (Deno.env.get("RESEND_BASE_URL") ?? "https://api.resend.com").replace(/\/+$/, "");
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const APP_URL = Deno.env.get("APP_URL") || "https://marasandraconnect.com";
 
 const GOLD = "#c9a14a";
@@ -294,7 +291,7 @@ serve(async (req) => {
   if (!temNovidade && !sempre) {
     return jsonResponse({ enviado: false, motivo: "sem novidades", totais });
   }
-  if (!RESEND_API_KEY) {
+  if (!emailConfigurado()) {
     return jsonResponse({ error: "RESEND_API_KEY ausente" }, 500);
   }
 
@@ -334,17 +331,9 @@ serve(async (req) => {
     return jsonResponse({ enviado: false, motivo: "sem destinatarios", totais });
   }
 
-  const resp = await fetchT(`${RESEND_BASE}/emails`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${RESEND_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ from: remetente(marca), to: destinos, subject, html }),
-  });
-  if (!resp.ok) {
-    const detail = await resp.text();
-    return jsonResponse({ error: `resend ${resp.status}: ${detail.slice(0, 200)}` }, 502);
+  const envio = await enviarEmail({ de: remetente(marca), para: destinos, assunto: subject, html });
+  if (!envio.ok) {
+    return jsonResponse({ error: `resend ${envio.status}: ${envio.detalhe.slice(0, 200)}` }, 502);
   }
 
   return jsonResponse({ enviado: true, destinatarios: destinos.length, totais, subject });

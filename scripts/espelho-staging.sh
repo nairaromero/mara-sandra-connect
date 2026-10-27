@@ -63,7 +63,10 @@ EXCLUIR=(escritorio_integracoes acessos_suporte ia_integracoes ia_tokens ia_acoe
   #     truncate de usuarios as leva junto (não dá para PRESERVAR) e o passo
   #     6/6 as reconstrói (backfill das migrations do RBAC + seed do
   #     Canário/QG). Os ajustes de permissão por pessoa de produção não vêm.
-  auditoria caso_pastas_externas membros plataforma_staff membro_permissoes)
+  auditoria caso_pastas_externas membros plataforma_staff membro_permissoes
+  # #249 — controle do "um aviso por dia" ao parceiro sem aceite: estado de
+  # envio de produção não vale no staging (vazio = o staging avisa do zero).
+  avisos_aceite_pendente)
 # Tabela NOVA com RLS precisa de uma decisão aqui (EXCLUIR/PRESERVAR) ou da
 # policy espelho_leitura_select em produção (aí ela é copiada). Sem isso o
 # espelho aborta — e o `rbac-conferir-exigencias` (produção) acusa antes.

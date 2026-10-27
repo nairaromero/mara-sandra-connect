@@ -20,12 +20,8 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { Webhook } from "https://esm.sh/standardwebhooks@1.0.0";
-import { fetchT } from "../_shared/auth.ts";
+import { emailConfigurado, enviarEmail } from "../_shared/email.ts";
 
-// RESEND_BASE_URL so existe no ambiente LOCAL (mock de e2e/demo/mocks); fora dele e o Resend.
-const RESEND_BASE = (Deno.env.get("RESEND_BASE_URL") ?? "https://api.resend.com").replace(/\/+$/, "");
-
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const HOOK_SECRET = Deno.env.get("SEND_EMAIL_HOOK_SECRET") || "";
 const FROM_EMAIL = "Legal Connect <noreply@marasandraconnect.com>";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -156,7 +152,7 @@ serve(async (req) => {
   if (req.method !== "POST") {
     return new Response("metodo nao permitido", { status: 405 });
   }
-  if (!RESEND_API_KEY || !HOOK_SECRET) {
+  if (!emailConfigurado() || !HOOK_SECRET) {
     return Response.json(
       { error: { http_code: 500, message: "secrets ausentes na funcao" } },
       { status: 500 },
@@ -183,20 +179,12 @@ serve(async (req) => {
 
   const { subject, html } = buildEmail(data.email_data, data.user.user_metadata ?? {});
 
-  const resp = await fetchT(`${RESEND_BASE}/emails`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${RESEND_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ from: FROM_EMAIL, to: data.user.email, subject, html }),
-  });
+  const envio = await enviarEmail({ de: FROM_EMAIL, para: data.user.email, assunto: subject, html });
 
-  if (!resp.ok) {
-    const detail = await resp.text();
-    console.error("resend falhou", resp.status, detail);
+  if (!envio.ok) {
+    console.error("resend falhou", envio.status, envio.detalhe);
     return Response.json(
-      { error: { http_code: 502, message: `resend ${resp.status}: ${detail}` } },
+      { error: { http_code: 502, message: `resend ${envio.status}: ${envio.detalhe}` } },
       { status: 500 },
     );
   }

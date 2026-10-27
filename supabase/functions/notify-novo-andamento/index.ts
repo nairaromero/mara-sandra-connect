@@ -21,19 +21,16 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
-import { exigirRecurso, exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
+import { exigirRecurso, exigirUsuarioOuSistema } from "../_shared/auth.ts";
 import { marcaDoEscritorio, remetente, type MarcaEscritorio } from "../_shared/marca.ts";
-
-// RESEND_BASE_URL so existe no ambiente LOCAL (mock de e2e/demo/mocks); fora dele e o Resend.
-const RESEND_BASE = (Deno.env.get("RESEND_BASE_URL") ?? "https://api.resend.com").replace(/\/+$/, "");
+import { emailConfigurado, enviarEmail } from "../_shared/email.ts";
+import { parceiroSemAceite } from "../_shared/termos.ts";
+import { avisarParceiroSemAceite } from "../_shared/aviso-sem-aceite.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const APP_BASE_URL = Deno.env.get("APP_BASE_URL") ||
   "https://marasandraconnect.com";
-
-const FROM_EMAIL = "Mara Vian Advocacia <noreply@marasandraconnect.com>";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -208,7 +205,7 @@ serve(async (req) => {
   // escritório.
   const quem = await exigirUsuarioOuSistema(req, "pgnet:notify-novo-andamento");
   if (quem instanceof Response) return quem;
-  if (!RESEND_API_KEY) {
+  if (!emailConfigurado()) {
     return jsonResponse({ error: "RESEND_API_KEY nao configurado" }, 500);
   }
   if (!SUPABASE_URL || !SERVICE_ROLE) {
@@ -235,7 +232,7 @@ serve(async (req) => {
   const { data, error } = await supabase
     .from("andamentos")
     .select(
-      "id, escritorio_id, titulo, descricao, data_evento, origem, visivel_parceiro, casos:caso_id(id, parceiro_id, clientes:cliente_id(nome), usuarios_parceiro:parceiro_id(id, nome, email, emails_copia))",
+      "id, escritorio_id, titulo, descricao, data_evento, origem, visivel_parceiro, casos:caso_id(id, parceiro_id, clientes:cliente_id(nome), usuarios_parceiro:parceiro_id(id, nome, email, emails_copia, tipo, onboarded_em, termos_versao))",
     )
     .eq("id", andamentoId)
     .maybeSingle();
@@ -286,6 +283,20 @@ serve(async (req) => {
     });
   }
 
+  // Sem aceite dos termos vigentes: nada de dado de cliente — vai o aviso
+  // genérico, no máximo um por dia (#249).
+  const parceiro = a.casos.usuarios_parceiro as {
+    id: string; nome: string | null; email: string; tipo?: string | null; onboarded_em?: string | null; termos_versao?: string | null;
+  };
+  if (parceiroSemAceite(parceiro)) {
+    try {
+      return jsonResponse(await avisarParceiroSemAceite(supabase, (data as { escritorio_id: string }).escritorio_id, parceiro));
+    } catch (e) {
+      console.error("aviso sem aceite:", e);
+      return jsonResponse({ error: "falha ao avisar parceiro sem aceite" }, 500);
+    }
+  }
+
   const parceiroNome = a.casos.usuarios_parceiro.nome ||
     a.casos.usuarios_parceiro.email;
   const parceiroEmail = a.casos.usuarios_parceiro.email;
@@ -311,33 +322,23 @@ serve(async (req) => {
     linkCaso,
   });
 
-  const resp = await fetchT(`${RESEND_BASE}/emails`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${RESEND_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: remetente(marca),
-      to: [parceiroEmail, ...copias],
-      subject: `Novo andamento - ${a.titulo} - ${clienteNome}`,
-      html,
-      text,
-    }),
+  const envio = await enviarEmail({
+    de: remetente(marca),
+    para: [parceiroEmail, ...copias],
+    assunto: `Novo andamento - ${a.titulo} - ${clienteNome}`,
+    html,
+    texto: text,
   });
-
-  if (!resp.ok) {
-    const detail = await resp.text();
+  if (!envio.ok) {
     return jsonResponse(
-      { error: "erro ao enviar email", status: resp.status, detail },
+      { error: "erro ao enviar email", status: envio.status, detail: envio.detalhe },
       502,
     );
   }
 
-  const result = await resp.json();
   return jsonResponse({
     enviado: true,
     to: parceiroEmail,
-    resend_id: result.id || null,
+    resend_id: envio.id,
   });
 });

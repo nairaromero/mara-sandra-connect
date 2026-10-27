@@ -22,19 +22,16 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
-import { exigirRecurso, exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
+import { exigirRecurso, exigirUsuarioOuSistema } from "../_shared/auth.ts";
 import { marcaDoEscritorio, remetente, type MarcaEscritorio } from "../_shared/marca.ts";
-
-// RESEND_BASE_URL so existe no ambiente LOCAL (mock de e2e/demo/mocks); fora dele e o Resend.
-const RESEND_BASE = (Deno.env.get("RESEND_BASE_URL") ?? "https://api.resend.com").replace(/\/+$/, "");
+import { emailConfigurado, enviarEmail } from "../_shared/email.ts";
+import { parceiroSemAceite } from "../_shared/termos.ts";
+import { avisarParceiroSemAceite } from "../_shared/aviso-sem-aceite.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const APP_BASE_URL = Deno.env.get("APP_BASE_URL") ||
   "https://marasandraconnect.com";
-
-const FROM_EMAIL = "Mara Vian Advocacia <noreply@marasandraconnect.com>";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -188,7 +185,7 @@ serve(async (req) => {
   // Chamada pelo front, pela rotina de lembretes (pg_net) e pelo WhatsApp.
   const quem = await exigirUsuarioOuSistema(req, "pgnet:notify-novo-comentario");
   if (quem instanceof Response) return quem;
-  if (!RESEND_API_KEY) {
+  if (!emailConfigurado()) {
     return jsonResponse({ error: "RESEND_API_KEY nao configurado" }, 500);
   }
   if (!SUPABASE_URL || !SERVICE_ROLE) {
@@ -216,7 +213,7 @@ serve(async (req) => {
   const { data: comentario, error } = await supabase
     .from("comentarios")
     .select(
-      "id, escritorio_id, texto, parent_id, caso_id, destinatario_id, casos:caso_id(id, parceiro_id, clientes:cliente_id(nome), usuarios_parceiro:parceiro_id(id, nome, email, emails_copia)), autor:autor_id(id, nome, email, tipo)",
+      "id, escritorio_id, texto, parent_id, caso_id, destinatario_id, casos:caso_id(id, parceiro_id, clientes:cliente_id(nome), usuarios_parceiro:parceiro_id(id, nome, email, emails_copia, tipo, onboarded_em, termos_versao)), autor:autor_id(id, nome, email, tipo)",
     )
     .eq("id", comentarioId)
     .maybeSingle();
@@ -262,9 +259,11 @@ serve(async (req) => {
   // Autor nulo = comentário do sistema (ex.: lembrete automático de perícia/
   // audiência do job diário). Trata como equipe: vai pro parceiro.
   const autorTipo = c.autor?.tipo ?? "interno";
+  // Marca do escritório do comentário (nunca o nome escrito à mão).
+  const marca = await marcaDoEscritorio(supabase, c.escritorio_id as string | null);
   const autorNome = c.autor
     ? (c.autor.nome || c.autor.email || "(autor sem nome)")
-    : "Equipe Mara Vian Advocacia";
+    : `Equipe ${marca.nome}`;
   const clienteNome = c.casos.clientes
     ? c.casos.clientes.nome
     : "(cliente sem nome)";
@@ -287,6 +286,19 @@ serve(async (req) => {
         enviado: false,
         motivo: "parceiro sem email",
       });
+    }
+    // Sem aceite dos termos vigentes: nada de dado de cliente — vai o aviso
+    // genérico, no máximo um por dia (#249).
+    const parceiro = c.casos.usuarios_parceiro as {
+      id: string; nome: string | null; email: string; tipo?: string | null; onboarded_em?: string | null; termos_versao?: string | null;
+    };
+    if (parceiroSemAceite(parceiro)) {
+      try {
+        return jsonResponse(await avisarParceiroSemAceite(supabase, c.escritorio_id as string, parceiro));
+      } catch (e) {
+        console.error("aviso sem aceite:", e);
+        return jsonResponse({ error: "falha ao avisar parceiro sem aceite" }, 500);
+      }
     }
     destinatarios.push({
       nome: c.casos.usuarios_parceiro.nome ||
@@ -374,7 +386,6 @@ serve(async (req) => {
       continue;
     }
 
-    const marca = await marcaDoEscritorio(supabase, c.escritorio_id as string | null);
     const { html, text } = renderEmail({
       destinatarioNome: dest.nome,
     marca,
@@ -390,23 +401,15 @@ serve(async (req) => {
       ? `Nova resposta em comentario - ${clienteNome}`
       : `Novo comentario - ${clienteNome}`;
 
-    const resp = await fetchT(`${RESEND_BASE}/emails`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: remetente(marca),
-        to: [dest.email, ...(dest.copias ?? [])],
-        subject,
-        html,
-        text,
-      }),
+    const envio = await enviarEmail({
+      de: remetente(marca),
+      para: [dest.email, ...(dest.copias ?? [])],
+      assunto: subject,
+      html,
+      texto: text,
     });
-    if (!resp.ok) {
-      const detail = await resp.text();
-      resultados.push({ email: dest.email, ok: false, detail });
+    if (!envio.ok) {
+      resultados.push({ email: dest.email, ok: false, detail: envio.detalhe });
     } else {
       // registra o envio pra a janela de anti-repique
       await supabase.from("comentario_email_throttle").upsert(

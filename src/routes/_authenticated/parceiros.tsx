@@ -71,6 +71,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { mensagemDeErroEdge } from "@/lib/edge-function-error";
+import { parceiroSemAceite } from "@/lib/legal/termos";
 
 export const Route = createFileRoute("/_authenticated/parceiros")({
   // Aba ativa na URL (?tab=convites|armazenamento) pra deep-link e
@@ -94,6 +95,9 @@ interface ParceiroRow {
   desligado_em: string | null;
   created_at: string | null;
   onboarded_em: string | null;
+  // Versão dos termos que aceitou (#249): sem a vigente, não recebe e-mail com
+  // dado de cliente — só o aviso "assine os termos".
+  termos_versao: string | null;
   // Modo de acesso. Quase sempre 'parceiro', mas alguem da equipe pode tambem
   // ser parceiro comercial (eh_parceiro=true com tipo='interno') — essa pessoa
   // aparece aqui pro repasse, mas nao se gerencia como parceiro (sem convite,
@@ -103,6 +107,20 @@ interface ParceiroRow {
 
 function ehDaEquipe(p: ParceiroRow): boolean {
   return p.tipo === "interno";
+}
+
+// Selo do #249: parceiro sem aceite dos termos vigentes. A regra é a mesma das
+// functions de e-mail e WhatsApp (`parceiroSemAceite`, @shared/termos).
+function SeloSemAceite() {
+  return (
+    <Badge
+      variant="outline"
+      className="text-[10px] font-normal border-amber-500/50 text-amber-700 bg-amber-50"
+      title="Enquanto não assinar os termos vigentes, recebe só um aviso por dia, sem dado de cliente."
+    >
+      sem aceite — não recebe os e-mails dos casos
+    </Badge>
+  );
 }
 
 interface AceiteRow {
@@ -508,7 +526,7 @@ function ParceirosPage() {
     const { data, error } = await supabase
       .from("usuarios_escritorio")
       .select(
-        "id, nome, email, emails_copia, oab, telefone, percentual_parceiro, ativo, desligado_em, created_at, onboarded_em, tipo",
+        "id, nome, email, emails_copia, oab, telefone, percentual_parceiro, ativo, desligado_em, created_at, onboarded_em, termos_versao, tipo",
       )
       .eq("eh_parceiro", true)
       .order("created_at", { ascending: false });
@@ -841,6 +859,9 @@ function ParceirosPage() {
                                 convite pendente
                               </Badge>
                             </p>
+                            <div className="mt-1">
+                              <SeloSemAceite />
+                            </div>
                             <p className="text-xs text-muted-foreground">
                               {p.email ?? "(sem e-mail)"}
                               {p.oab && <> · OAB {p.oab}</>}
@@ -937,7 +958,8 @@ function ParceirosPage() {
                                   {p.email ?? "—"}
                                 </div>
                               </div>
-                              <div className="flex shrink-0 items-center gap-1">
+                              <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+                                {parceiroSemAceite(p) && <SeloSemAceite />}
                                 {ehDaEquipe(p) && (
                                   <Badge
                                     variant="outline"
@@ -1067,7 +1089,8 @@ function ParceirosPage() {
                                 </TableCell>
                                 <TableCell>{formatarTelefone(p.telefone) || "—"}</TableCell>
                                 <TableCell>
-                                  <div className="flex items-center gap-1">
+                                  <div className="flex flex-wrap items-center gap-1">
+                                    {parceiroSemAceite(p) && <SeloSemAceite />}
                                     {ehDaEquipe(p) && (
                                       <Badge
                                         variant="outline"

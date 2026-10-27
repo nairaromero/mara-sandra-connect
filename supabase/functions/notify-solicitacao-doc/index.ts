@@ -30,19 +30,16 @@
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
-import { exigirRecurso, exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
+import { exigirRecurso, exigirUsuarioOuSistema } from "../_shared/auth.ts";
 import { marcaDoEscritorio, remetente, type MarcaEscritorio } from "../_shared/marca.ts";
-
-// RESEND_BASE_URL so existe no ambiente LOCAL (mock de e2e/demo/mocks); fora dele e o Resend.
-const RESEND_BASE = (Deno.env.get("RESEND_BASE_URL") ?? "https://api.resend.com").replace(/\/+$/, "");
+import { emailConfigurado, enviarEmail } from "../_shared/email.ts";
+import { parceiroSemAceite } from "../_shared/termos.ts";
+import { avisarParceiroSemAceite } from "../_shared/aviso-sem-aceite.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const APP_BASE_URL = Deno.env.get("APP_BASE_URL") ||
   "https://marasandraconnect.com";
-
-const FROM_EMAIL = "Mara Vian Advocacia <noreply@marasandraconnect.com>";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -95,10 +92,6 @@ function prazoBR(iso: string): string {
 }
 
 const TIPO_PEDIDO_SENHA = "senha_meu_inss";
-
-// Resend pendurado nao pode segurar a funcao (e o job de lembretes) ate o
-// gateway estourar.
-const RESEND_TIMEOUT_MS = 20_000;
 
 const LEMBRETE_FRASE: Record<string, string> = {
   "7d": "O prazo para envio esta chegando: faltam menos de 7 dias.",
@@ -251,7 +244,7 @@ serve(async (req) => {
   // Chamada pelo front e pela rotina de lembretes (pg_net).
   const quem = await exigirUsuarioOuSistema(req, "pgnet:notify-solicitacao-doc");
   if (quem instanceof Response) return quem;
-  if (!RESEND_API_KEY) {
+  if (!emailConfigurado()) {
     return jsonResponse({ error: "RESEND_API_KEY nao configurado" }, 500);
   }
   if (!SUPABASE_URL || !SERVICE_ROLE) {
@@ -284,7 +277,7 @@ serve(async (req) => {
   const { data, error } = await supabase
     .from("solicitacoes_documento")
     .select(
-      "id, escritorio_id, tipo, tipos, descricao, origem, status, prazo_at, casos:caso_id(id, parceiro_id, clientes:cliente_id(nome), usuarios_parceiro:parceiro_id(id, nome, email))",
+      "id, escritorio_id, tipo, tipos, descricao, origem, status, prazo_at, casos:caso_id(id, parceiro_id, clientes:cliente_id(nome), usuarios_parceiro:parceiro_id(id, nome, email, tipo, onboarded_em, termos_versao))",
     )
     .eq("id", solicitacaoId)
     .maybeSingle();
@@ -313,7 +306,14 @@ serve(async (req) => {
       id: string;
       parceiro_id: string | null;
       clientes: { nome: string } | null;
-      usuarios_parceiro: { id: string; nome: string | null; email: string | null } | null;
+      usuarios_parceiro: {
+        id: string;
+        nome: string | null;
+        email: string | null;
+        tipo: string | null;
+        onboarded_em: string | null;
+        termos_versao: string | null;
+      } | null;
     } | null;
   };
 
@@ -346,6 +346,20 @@ serve(async (req) => {
     });
   }
 
+  // Sem aceite dos termos vigentes: nada de dado de cliente — vai o aviso
+  // genérico, no máximo um por dia (#249).
+  if (parceiroSemAceite(solic.casos.usuarios_parceiro)) {
+    const p = solic.casos.usuarios_parceiro;
+    try {
+      return jsonResponse(
+        await avisarParceiroSemAceite(supabase, solic.escritorio_id as string, { id: p.id, nome: p.nome, email: p.email! }),
+      );
+    } catch (e) {
+      console.error("aviso sem aceite:", e);
+      return jsonResponse({ error: "falha ao avisar parceiro sem aceite" }, 500);
+    }
+  }
+
   const parceiroNome = solic.casos.usuarios_parceiro.nome ||
     solic.casos.usuarios_parceiro.email || "(parceiro sem nome)";
   const parceiroEmail = solic.casos.usuarios_parceiro.email;
@@ -374,39 +388,28 @@ serve(async (req) => {
     ehSenha,
   });
 
-  // Envia via Resend API REST
-  const resp = await fetchT(`${RESEND_BASE}/emails`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${RESEND_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: remetente(marca),
-      to: parceiroEmail,
-      subject: lembrete
+  const envio = await enviarEmail({
+    de: remetente(marca),
+    para: parceiroEmail,
+    assunto: lembrete
         ? `Lembrete de prazo${prazoLabel ? " " + prazoLabel : ""} - ${ehSenha ? "troca da senha do Meu INSS" : "documentos pendentes"} - ${clienteNome}`
         : ehSenha
         ? `Pedido: trocar a senha do Meu INSS - ${clienteNome}`
         : `Nova solicitacao de documento - ${tipoLabel} - ${clienteNome}`,
-      html,
-      text,
-    }),
-    signal: AbortSignal.timeout(RESEND_TIMEOUT_MS),
+    html,
+    texto: text,
   });
 
-  if (!resp.ok) {
-    const detail = await resp.text();
+  if (!envio.ok) {
     return jsonResponse(
-      { error: "erro ao enviar email", status: resp.status, detail },
+      { error: "erro ao enviar email", status: envio.status, detail: envio.detalhe },
       502,
     );
   }
 
-  const result = await resp.json();
   return jsonResponse({
     enviado: true,
     to: parceiroEmail,
-    resend_id: result.id || null,
+    resend_id: envio.id,
   });
 });

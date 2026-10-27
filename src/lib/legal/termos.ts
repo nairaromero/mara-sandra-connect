@@ -10,8 +10,10 @@ import termoRaw from "@/content/legal/termo-uso.md?raw";
 import politicaRaw from "@/content/legal/politica.md?raw";
 import { dataBR } from "@/lib/fuso";
 
-// Versão dos termos. Incrementar quando o conteúdo mudar — habilita re-aceite.
-export const TERMOS_VERSAO = "1.0-2026-06-09";
+// Versão dos termos e a régua do aceite: um lugar só, que as edge functions de
+// e-mail e WhatsApp também leem (#249). Incrementar lá quando o conteúdo mudar.
+import { TERMOS_VERSAO } from "@shared/termos";
+export { TERMOS_VERSAO, parceiroSemAceite } from "@shared/termos";
 
 // Dados do escritório (preencher uma vez). O que estiver "[a preencher]" aparece
 // assim no documento até ser configurado.
