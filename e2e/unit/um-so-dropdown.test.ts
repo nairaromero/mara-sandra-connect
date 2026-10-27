@@ -78,6 +78,20 @@ describe("um só caminho para escolher da lista", () => {
     ).toBe(0);
   });
 
+  test("ninguém usa `<datalist>` como lista de escolha", () => {
+    // 27/10: o Modelo da IA era um <input list> + <datalist> — a lista de
+    // sugestões do navegador, com o visual do sistema operacional e coberta
+    // pelo ícone do 1Password. Era o quinto caminho que esta régua não via.
+    const usos = varrer(/<datalist(\s|>|$)|\blist="/);
+    expect(
+      usos.length,
+      usos.length === 0
+        ? ""
+        : `<datalist> de volta:\n${usos.map((u) => `  ${u.arquivo}:${u.linha}`).join("\n")}\n\n` +
+          "Use `<Selecao>` de @/components/ui/selecao.",
+    ).toBe(0);
+  });
+
   test("o componente repassa o nome acessível", () => {
     // Regressão real: o codemod da migração de 28/09 largou 19 `aria-label`
     // pelo caminho. O `SelectTrigger` do Radix herdava o nome do `<Label>`;

@@ -65,11 +65,14 @@ export function IntegracaoIaCard() {
   const [salvando, setSalvando] = useState(false);
   const [teste, setTeste] = useState<{ ok: boolean; erro?: string } | null>(null);
   const [workspace, setWorkspace] = useState("");
-  // Modelos que ESTA chave enxerga (botão "Ver modelos desta chave"). Enquanto
-  // não pede, vale a lista recomendada do servidor.
+  // Modelos que ESTA chave enxerga. É a lista de escolha do modelo (Naira,
+  // 27/10: a lista recomendada fixa não fazia sentido se dá para perguntar à
+  // chave). Com chave salva, carrega sozinha ao abrir a tela.
   const [daChave, setDaChave] = useState<ModeloDaChave[] | null>(null);
   const [listando, setListando] = useState(false);
   const [erroLista, setErroLista] = useState<string | null>(null);
+  // De qual chave é a lista acima: a salva ou a colada agora (ainda não salva).
+  const [listaDe, setListaDe] = useState<"salva" | "colada" | null>(null);
 
   const carregar = useCallback(async () => {
     setErroCarga(null);
@@ -90,9 +93,6 @@ export function IntegracaoIaCard() {
   }, [carregar]);
 
   const providers = status?.providers ?? {};
-  const modelosSugeridos = daChave
-    ? daChave.map((m) => m.id)
-    : (providers[provider]?.models ?? []);
 
   /** O que vai à function: o workspace só existe para a Anthropic. */
   const configDaTela = () => ({
@@ -101,14 +101,17 @@ export function IntegracaoIaCard() {
     workspace_id: provider === "anthropic" ? workspace.trim() : "",
   });
 
-  async function verModelos() {
+  /** `salva`: confere a chave guardada no servidor, mesmo com algo colado no campo. */
+  async function verModelos(qual: "tela" | "salva" = "tela") {
+    const colada = qual === "salva" ? "" : apiKey.trim();
     setListando(true);
     setErroLista(null);
+    setListaDe(colada ? "colada" : "salva");
     try {
       const r = (await chamar({
         action: "modelos",
         config: configDaTela(),
-        segredo: apiKey.trim() || undefined,
+        segredo: colada || undefined,
       })) as { ok: boolean; erro?: string; modelos?: ModeloDaChave[] };
       if (!r.ok) {
         setDaChave(null);
@@ -124,6 +127,41 @@ export function IntegracaoIaCard() {
     }
   }
   const configurada = !!status?.segredo_definido_em;
+
+  // Com chave salva, a lista (e o selo de chave válida) vem sozinha ao abrir.
+  // Listar não custa nada no provedor e não vira linha de uso.
+  const [listouAoAbrir, setListouAoAbrir] = useState(false);
+  useEffect(() => {
+    if (!status || listouAoAbrir) return;
+    setListouAoAbrir(true);
+    if (status.segredo_definido_em) void verModelos("salva");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- só na primeira carga do status
+  }, [status, listouAoAbrir]);
+
+  // O selo da chave. "Válida" = o provedor respondeu à lista de modelos com ela.
+  const chave: { texto: string; tom: "ok" | "erro" | "neutro" | "espera"; titulo?: string } = apiKey.trim()
+    ? listaDe === "colada" && daChave && !listando
+      ? { texto: "chave nova válida — falta salvar", tom: "ok" }
+      : listaDe === "colada" && erroLista && !listando
+        ? { texto: "chave nova recusada", tom: "erro", titulo: erroLista }
+        : { texto: "chave nova — não conferida", tom: "neutro" }
+    : !configurada
+      ? { texto: "sem chave", tom: "neutro" }
+      : listando
+        ? { texto: "conferindo a chave…", tom: "espera" }
+        : listaDe === "salva" && daChave
+          ? { texto: `chave salva e válida${status?.config.hint ? ` · ${status.config.hint}` : ""}`, tom: "ok" }
+          : listaDe === "salva" && erroLista
+            ? { texto: "chave salva, mas recusada pelo provedor", tom: "erro", titulo: erroLista }
+            : { texto: `chave salva${status?.config.hint ? ` · ${status.config.hint}` : ""}`, tom: "neutro" };
+  const corDoSelo = {
+    ok: "border-emerald-500/50 bg-emerald-50 text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200",
+    erro: "border-destructive/50 bg-destructive/10 text-destructive",
+    neutro: "border-border bg-muted text-muted-foreground",
+    espera: "border-border bg-muted text-muted-foreground",
+  }[chave.tom];
+  // O modelo salvo continua visível mesmo se a chave não o enxergar mais.
+  const modeloForaDaLista = !!daChave && !!modelo.trim() && !daChave.some((m) => m.id === modelo.trim());
 
   async function testar() {
     if (!modelo.trim()) {
@@ -156,6 +194,7 @@ export function IntegracaoIaCard() {
       return;
     }
     setSalvando(true);
+    const trocouChave = !!apiKey.trim();
     try {
       await chamar({
         action: "salvar",
@@ -164,6 +203,8 @@ export function IntegracaoIaCard() {
         ...extra,
       });
       setApiKey("");
+      // A chave nova agora é a salva: confere de novo para o selo e a lista.
+      if (trocouChave) void verModelos("salva");
       toast.success(
         extra.ativo === false ? "IA do escritório desligada" : "IA do escritório salva",
       );
@@ -222,7 +263,7 @@ export function IntegracaoIaCard() {
               </p>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div>
               <div>
                 <Label className="text-xs">Provedor</Label>
                 <Selecao
@@ -231,6 +272,7 @@ export function IntegracaoIaCard() {
                     setProvider(v);
                     setDaChave(null);
                     setErroLista(null);
+                    setListaDe(null);
                   }}
                   opcoes={Object.entries(providers).map(([key, info]) => ({
                     value: key,
@@ -239,28 +281,33 @@ export function IntegracaoIaCard() {
                   placeholder="Escolha o provedor"
                 />
               </div>
-              <div>
-                <Label className="text-xs">Modelo</Label>
-                <Input semGerenciadorDeSenha
-                  value={modelo}
-                  onChange={(e) => setModelo(e.target.value)}
-                  placeholder="ex.: claude-sonnet-5-5"
-                  list="ia-modelos"
-                />
-                <datalist id="ia-modelos">
-                  {modelosSugeridos.map((m) => (
-                    <option key={m} value={m} />
-                  ))}
-                </datalist>
-              </div>
             </div>
 
             <div>
-              <Label className="text-xs">Chave de API do escritório</Label>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Label className="text-xs">Chave de API do escritório</Label>
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${corDoSelo}`}
+                  title={chave.titulo}
+                  data-ia-chave-estado={chave.tom}
+                >
+                  {chave.tom === "espera" && <Loader2 className="h-3 w-3 animate-spin" />}
+                  {chave.tom === "ok" && <ShieldCheck className="h-3 w-3" />}
+                  {chave.texto}
+                </span>
+              </div>
               <Input semGerenciadorDeSenha
                 type="password"
                 value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
+                onChange={(e) => {
+                  setApiKey(e.target.value);
+                  // Chave nova: a lista e o selo da anterior não valem mais.
+                  if (listaDe === "colada" || e.target.value.trim()) {
+                    setDaChave(null);
+                    setErroLista(null);
+                    setListaDe(null);
+                  }
+                }}
                 placeholder={
                   configurada
                     ? `Chave salva${status.config.hint ? ` (${status.config.hint})` : ""} — cole para substituir`
@@ -292,24 +339,46 @@ export function IntegracaoIaCard() {
               </div>
             )}
 
-            <div className="space-y-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => void verModelos()}
-                disabled={listando}
-                data-ia-ver-modelos
-              >
-                {listando ? <Loader2 className="h-3 w-3 mr-2 animate-spin" /> : <ListChecks className="h-3 w-3 mr-2" />}
-                Ver modelos desta chave
-              </Button>
+            <div className="space-y-2" data-ia-modelo>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Label className="text-xs">
+                  Modelo
+                  {modelo.trim() && (
+                    <span className="ml-2 font-normal text-muted-foreground">
+                      escolhido: <span className="font-mono text-foreground">{modelo.trim()}</span>
+                    </span>
+                  )}
+                </Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void verModelos()}
+                  disabled={listando || (!configurada && !apiKey.trim())}
+                  data-ia-ver-modelos
+                >
+                  {listando ? <Loader2 className="h-3 w-3 mr-2 animate-spin" /> : <ListChecks className="h-3 w-3 mr-2" />}
+                  {daChave ? "Atualizar modelos" : "Ver modelos desta chave"}
+                </Button>
+              </div>
               {erroLista && <p className="text-xs text-destructive">{erroLista}</p>}
+              {!daChave && !erroLista && !listando && (
+                <p className="text-xs text-muted-foreground">
+                  {configurada || apiKey.trim()
+                    ? "Clique em \u201cVer modelos desta chave\u201d para escolher entre os modelos que ela enxerga."
+                    : "Cole a chave acima e clique em \u201cVer modelos desta chave\u201d."}
+                </p>
+              )}
               {daChave && (
                 <div className="rounded-md border p-2" data-ia-modelos-da-chave>
                   <p className="mb-1 text-xs text-muted-foreground">
                     {daChave.length} modelo(s) disponível(is) nesta chave. Clique para escolher.
                   </p>
+                  {modeloForaDaLista && (
+                    <p className="mb-1 text-xs text-destructive">
+                      O modelo escolhido ({modelo.trim()}) não está entre os desta chave — escolha outro.
+                    </p>
+                  )}
                   <div className="flex flex-wrap gap-1.5">
                     {daChave.map((m) => (
                       <button
@@ -317,6 +386,7 @@ export function IntegracaoIaCard() {
                         type="button"
                         onClick={() => setModelo(m.id)}
                         title={m.nome}
+                        aria-pressed={m.id === modelo.trim()}
                         className={
                           "rounded-full border px-2 py-0.5 text-xs " +
                           (m.id === modelo.trim()
