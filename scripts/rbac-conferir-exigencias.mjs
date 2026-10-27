@@ -426,6 +426,36 @@ for (const { objeto, falta } of semServico) {
   problemas.push(`SEM ACESSO DO SERVIDOR: ${objeto} — service_role não tem ${falta}; edge function que usar quebra com "permission denied"`);
 }
 
+// ---------------------------------------------------------------------------
+// Toda tabela com RLS em produção tem uma DECISÃO de espelho?
+//
+// O espelho semanal (scripts/espelho-staging.sh) só copia tabela com RLS que
+// tenha a policy `espelho_leitura_select`; a que não deve sair de produção fica
+// nas listas EXCLUIR/PRESERVAR do script. Tabela nova sem nenhum dos dois faz o
+// espelho ABORTAR — e foi assim de 28/09 a 27/10 sem ninguém ver (#481). As
+// listas são lidas do PRÓPRIO script (fonte única). Só faz sentido contra
+// produção: é de lá que o espelho lê.
+let semDecisaoEspelho = null;
+if (!flag) {
+  const script = fs.readFileSync(path.join(process.cwd(), "scripts/espelho-staging.sh"), "utf8");
+  const listaDoScript = (nome) => {
+    const m = script.match(new RegExp(`^${nome}=\\(([\\s\\S]*?)\\)\\s*$`, "m"));
+    if (!m) throw new Error(`não achei a lista ${nome} em scripts/espelho-staging.sh`);
+    return m[1].split("\n").map((l) => l.replace(/#.*$/, "")).join(" ").split(/\s+/).filter(Boolean);
+  };
+  const decididas = [...listaDoScript("EXCLUIR"), ...listaDoScript("PRESERVAR")];
+  semDecisaoEspelho = sql(`
+    select c.relname as tabela
+      from pg_class c join pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'public' and c.relkind in ('r','p') and c.relrowsecurity
+       and c.relname::text <> all(array[${decididas.map((t) => `'${t}'`).join(",")}]::text[])
+       and not exists (select 1 from pg_policies p where p.schemaname = 'public'
+                         and p.tablename = c.relname and p.policyname = 'espelho_leitura_select')`);
+  for (const { tabela } of semDecisaoEspelho) {
+    problemas.push(`ESPELHO SEM DECISÃO: ${tabela} tem RLS e nem a policy espelho_leitura_select nem lugar em EXCLUIR/PRESERVAR — o espelho do staging aborta`);
+  }
+}
+
 console.log(`espelho x banco — alvo: ${alvo}`);
 console.log(`  policies de escrita conferidas: ${policies.length - puladas}${puladas ? ` (${puladas} ILEGÍVEIS)` : ""}`);
 console.log(`  RPCs com permissão: ${Object.keys(rpcBanco).length}`);
@@ -437,6 +467,7 @@ console.log(`  functions presas a um escritório pelo escopado: ${conferidasEsco
 console.log(`  funções alcançáveis por anon/PUBLIC: ${conferidasAbertura} (${HELPERS_DE_POLICY.length} previstas)`);
 console.log(`  fechadas no caminho de gatilho/policy: ${temTunelCaminho ? fechadasNoCaminho.length : "NÃO CONFERIDO"}`);
 console.log(`  tabelas sem acesso da conta das functions: ${temReguaServico ? semServico.length : "NÃO CONFERIDO"}`);
+console.log(`  tabelas com RLS sem decisão de espelho: ${semDecisaoEspelho === null ? "(só contra produção)" : semDecisaoEspelho.length}`);
 if (problemas.length === 0) {
   console.log("\nOK: o espelho do front bate com o servidor, e quem muda acesso audita.");
   process.exit(0);

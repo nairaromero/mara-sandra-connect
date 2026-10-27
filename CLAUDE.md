@@ -155,6 +155,11 @@ o sistema em produção. Quando chegar, vale o seguinte:
   tabela do public: o padrão do schema garante isso desde a `migration_service_role_tabelas`, e
   `private.service_role_sem_acesso()` (cobrada pelo `rbac-conferir-exigencias`) acusa a exceção.
   Não revogar da `service_role` para "fechar" tabela: quem fecha é a RLS e o código da function.
+  E decidir o ESPELHO (#481): tabela com RLS ou ganha a policy `espelho_leitura_select` em
+  produção (é copiada para o staging) ou entra em `EXCLUIR`/`PRESERVAR` do
+  `scripts/espelho-staging.sh`. Sem decisão, o espelho semanal aborta (abortou de 28/09 a 27/10
+  sem ninguém ver); o `rbac-conferir-exigencias` contra produção acusa, e a falha do espelho
+  agora abre card sozinha.
 - **RPC `SECURITY DEFINER`** que recebe id de linha começa com
   `private.exigir_no_escritorio('tabela'::regclass, p_id)` — o `postgres` tem BYPASSRLS.
 - **Função túnel: uma fonte de verdade, não N pontos** (pedido da Naira,

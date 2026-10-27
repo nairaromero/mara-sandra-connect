@@ -27,7 +27,12 @@ import { createHmac } from "node:crypto";
 // --staging: mesmas contas e o mesmo Canário no projeto de STAGING (chaves do
 // .env.local); o espelho semanal chama assim no fim. Sem a flag, pilha local.
 const STAGING = process.argv.includes("--staging");
-const envLocal = (nome) => fs.readFileSync(".env.local", "utf8").match(new RegExp(`^${nome}=(.*)$`, "m"))?.[1]?.replace(/^"|"$/g, "").trim();
+// .env.local na máquina; no Actions (espelho do staging) as chaves vêm do
+// ambiente — antes o seed falhava lá por não achar o arquivo (#481).
+const envLocal = (nome) => {
+  const arquivo = fs.existsSync(".env.local") ? fs.readFileSync(".env.local", "utf8") : "";
+  return arquivo.match(new RegExp(`^${nome}=(.*)$`, "m"))?.[1]?.replace(/^"|"$/g, "").trim() || process.env[nome];
+};
 const st = STAGING
   ? { API_URL: "https://alhqbpbekmxpoibrrnbi.supabase.co", ANON_KEY: envLocal("STAGING_PUBLISHABLE_KEY") || envLocal("VITE_SUPABASE_PUBLISHABLE_KEY"), SERVICE_ROLE_KEY: envLocal("STAGING_SERVICE_ROLE_KEY") }
   : JSON.parse(execSync("bunx supabase status -o json", { stdio: ["ignore", "pipe", "ignore"] }).toString());

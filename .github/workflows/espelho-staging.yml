@@ -17,6 +17,11 @@ on:
     - cron: "0 8 * * 1"
   workflow_dispatch:
 
+# issues: write é só para o aviso de falha (último passo).
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   espelhar:
     runs-on: ubuntu-latest
@@ -56,3 +61,24 @@ jobs:
           STAGING_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SERVICE_ROLE_KEY }}
           STAGING_PUBLISHABLE_KEY: ${{ secrets.STAGING_PUBLISHABLE_KEY }}
         run: bash scripts/espelho-staging.sh
+
+      # Aviso de falha (#481): o espelho abortou de 28/09 a 27/10 e ninguém viu —
+      # a falha só aparecia no histórico do Actions. Agora vira card no board
+      # (issue nova entra no Backlog sozinha). Um card por vez: se já houver um
+      # aberto, só comenta nele.
+      - name: Avisa que o espelho falhou
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          titulo="Espelho do staging falhou"
+          aberto="$(gh issue list --state open --search "\"$titulo\" in:title" --json number --jq '.[0].number')"
+          corpo="O espelho semanal (produção → staging) falhou em $(date -u '+%Y-%m-%d %H:%M UTC'). Log: $RUN_URL
+
+          Enquanto não voltar, os dados do staging ficam parados na última cópia boa. Causa mais comum: tabela nova com RLS sem decisão de espelho — \`node scripts/rbac-conferir-exigencias.mjs\` (produção) diz qual."
+          if [ -n "$aberto" ]; then
+            gh issue comment "$aberto" --body "$corpo"
+          else
+            gh issue create --title "$titulo" --body "$corpo"
+          fi
