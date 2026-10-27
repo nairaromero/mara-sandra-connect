@@ -21,10 +21,13 @@ const EMAIL = "e2e+semaceite@marasandraconnect.com";
 const CLIENTE = "[E2E aceite] Cliente Sigiloso";
 const TITULO = "[E2E aceite] Perícia designada";
 
-interface EmailMock { to: string | string[]; subject: string; html: string; text?: string }
+interface EmailMock { to: string | string[]; subject: string; html: string; text?: string; recebido_em: string }
+// Só os desta rodada: o mock guarda o que recebeu desde que subiu (e não dá
+// para zerá-lo no meio da suíte sem atrapalhar outra spec).
+let INICIO = "";
 async function emailsPara(email: string): Promise<EmailMock[]> {
   const r = await fetch(`${MOCK}/_emails`).then((x) => x.json()) as { emails: EmailMock[] };
-  return r.emails.filter((e) => [e.to].flat().includes(email));
+  return r.emails.filter((e) => [e.to].flat().includes(email) && e.recebido_em >= INICIO);
 }
 
 let ESC: string;
@@ -59,6 +62,7 @@ test.describe.serial("parceiro sem aceite dos termos (#249)", () => {
     test.skip(!vivo, "mock dos provedores (:8787) fora do ar");
     ESC = await escritorioPadrao();
     await limpar();
+    INICIO = new Date().toISOString();
 
     const { data: au, error: eAu } = await admin.auth.admin.createUser({ email: EMAIL, password: ENV.parceiroPassword, email_confirm: true });
     if (eAu || !au.user) throw new Error(`parceiro descartável: ${eAu?.message}`);
