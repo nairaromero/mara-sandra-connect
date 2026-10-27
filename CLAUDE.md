@@ -197,6 +197,11 @@ o sistema em produção. Quando chegar, vale o seguinte:
   do caso vira o aviso genérico de `_shared/aviso-sem-aceite.ts` (um por dia,
   `reservar_aviso_aceite`) e a linha dele no WhatsApp vira `cancelado`. Régua:
   `e2e/unit/aceite-antes-do-email.test.ts`.
+  Catálogo do escritório (#486): `private.semear_catalogo(escritório)` copia do
+  padrão os tipos de benefício e modelos de tarefa que estiverem vazios — chamado
+  pelo `qg_criar_escritorio` e pelo passo 6 do espelho (o Canário perde o catálogo
+  no passo 2). O espelho guarda a chave de IA do staging (`ops.espelho_guarda_ia`)
+  e a devolve no fim. Régua: `e2e/unit/catalogo-escritorio.test.ts`.
   Listas que a tela e as edge functions dividem (#434): módulo PURO em
   `supabase/functions/_shared/` que a tela importa por `@shared/…` — o que a IA
   lê (`arquivo-ia.ts`), os tipos de documento (`tipos-documento.ts`; o rótulo
