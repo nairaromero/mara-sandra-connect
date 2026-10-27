@@ -54,7 +54,19 @@ STG_URL="postgresql://postgres.${STG_REF}:$(enc "$STG_PW")@${POOLER_STG}:5432/po
 EXCLUIR=(escritorio_integracoes acessos_suporte ia_integracoes ia_tokens ia_acoes usuario_gmail_oauth aceites_termos
   acessos_documento acessos_senha_inss alertas_duplicidade mensagens
   webhook_eventos whatsapp_mensagens whatsapp_outbox whatsapp_sessoes
-  whatsapp_lid_map whatsapp_ativacao_codigos)
+  whatsapp_lid_map whatsapp_ativacao_codigos
+  # #481 (27/10) — tabelas que nasceram depois de setembro sem decisão, e por
+  # isso o espelho abortava desde 28/09:
+  #   auditoria             trilha com dado pessoal (minimização);
+  #   caso_pastas_externas  o link aponta para a pasta REAL do cliente;
+  #   membros, plataforma_staff, membro_permissoes  do modelo de acesso: o
+  #     truncate de usuarios as leva junto (não dá para PRESERVAR) e o passo
+  #     6/6 as reconstrói (backfill das migrations do RBAC + seed do
+  #     Canário/QG). Os ajustes de permissão por pessoa de produção não vêm.
+  auditoria caso_pastas_externas membros plataforma_staff membro_permissoes)
+# Tabela NOVA com RLS precisa de uma decisão aqui (EXCLUIR/PRESERVAR) ou da
+# policy espelho_leitura_select em produção (aí ela é copiada). Sem isso o
+# espelho aborta — e o `rbac-conferir-exigencias` (produção) acusa antes.
 # Configuração DO AMBIENTE: não sai de produção E não é limpa no staging, que
 # mantém os próprios valores. O app_config guarda o edge_base_url, endereço que
 # os triggers usam pra chamar edge functions — o da produção no staging faria o
@@ -62,12 +74,12 @@ EXCLUIR=(escritorio_integracoes acessos_suporte ia_integracoes ia_tokens ia_acoe
 # NÃO pode sair desta lista (a trava (e) no fim confere). Tabela daqui não pode
 # ter FK pra outra, senão o `truncate ... cascade` do passo 2 a levaria junto
 # (app_config não tem, nos dois bancos — conferido em 2026-09-11).
-# RBAC (2026-09-23): o catálogo do modelo de acesso não existe em produção
-# enquanto o lote não for lançado, e mesmo depois é configuração do ambiente.
-# Preservar aqui evita o staging acordar sem escritórios/papéis na segunda.
-# `membros` e `plataforma_staff` NÃO dá para preservar (o truncate de usuarios
-# cascateia neles): o passo 6/6 reaplica as migrations (backfill de membros do
-# escritório padrão) e o seed do Canário/QG.
+# RBAC: o catálogo do modelo de acesso é configuração do ambiente (o staging
+# tem o Canário e os papéis de teste). Preservar aqui evita o staging acordar
+# sem escritórios/papéis na segunda. `membros` e `plataforma_staff` NÃO dá para
+# preservar (o truncate de usuarios cascateia neles): ficam em EXCLUIR e o
+# passo 6/6 reaplica as migrations (backfill de membros do escritório padrão)
+# e o seed do Canário/QG.
 PRESERVAR=(app_config escritorios papeis permissoes papel_permissoes escritorio_config)
 
 # Array SQL a partir dos nomes acima (fixos neste script, sem entrada externa).
@@ -140,6 +152,20 @@ echo "==> 3/4 restore no staging…"
 { echo "set session_replication_role = replica;"; cat "$DUMP"; } |
   psql "$STG_URL" -q -v ON_ERROR_STOP=1 -o /dev/null
 
+# (f) Escritório: os dados de produção apontam para o id do escritório de
+#     PRODUÇÃO; o staging preserva os seus. Sem a troca, a anonimização falha
+#     e desfaz tudo (27/10, #481). A regra está em scripts/espelho-escritorios.sql.
+echo "==> 3b/4 apontando os dados para os escritórios do staging…"
+if ! psql "$STG_URL" -q -v ON_ERROR_STOP=1 -v nao_limpar="$(IFS=,; echo "${PRESERVAR[*]}")" \
+     -f "$(dirname "$0")/espelho-escritorios.sql"; then
+  echo "ABORTANDO: não consegui apontar os dados para os escritórios do staging. Limpando o staging para não deixar dado de produção SEM máscara."
+  psql "$STG_URL" -q -c "do \$\$ declare r record; begin
+    for r in select tablename from pg_tables where schemaname='public' and tablename::text <> all($NAO_LIMPAR_NO_STG) loop
+      execute format('truncate table public.%I cascade', r.tablename);
+    end loop; end \$\$;"
+  exit 1
+fi
+
 echo "==> 4/4 anonimizando…"
 psql "$STG_URL" -q -v ON_ERROR_STOP=1 -v senha_sintetica="$SYNTH_PW" \
   -f "$(dirname "$0")/anonimizar-staging.sql"
@@ -159,15 +185,13 @@ fi
 # escritório padrão, e o Canário/QG de teste precisam existir de novo. As
 # migrations são idempotentes (backfill com on conflict); só rodam se a
 # branch tiver os arquivos (antes do lote, este passo não faz nada).
-echo "==> 6/6 RBAC: reaplicar migrations e seed do Canário…"
-if ls planning/sql-migrations/migration_rbac_01_*.sql >/dev/null 2>&1; then
-  for f in $(ls planning/sql-migrations/migration_rbac_*.sql | sort); do
-    node scripts/msc-sql.mjs --staging --file "$f" >/dev/null || { echo "AVISO: $f falhou no staging — rode à mão: node scripts/msc-sql.mjs --staging --file $f"; break; }
-  done
-  node "$(dirname "$0")/seed-local-rbac.mjs" --staging || echo "AVISO: seed do RBAC no staging falhou — rode `node scripts/seed-local-rbac.mjs --staging` à mão."
-else
-  echo "    (branch sem as migrations do RBAC: nada a reaplicar)"
-fi
+echo "==> 6/6 RBAC: vínculos de quem veio de produção e seed do Canário/QG…"
+# Era "reaplicar as migrations do RBAC" pelo msc-sql — que no Actions não tem a
+# credencial e, de qualquer forma, já não reaplica a rbac_01 (#481). Agora é
+# um SQL próprio pelo psql (tem a senha do staging aqui) + o seed.
+psql "$STG_URL" -q -v ON_ERROR_STOP=1 -f "$(dirname "$0")/espelho-reconstruir-acesso.sql" ||
+  echo "AVISO: vínculos não reconstruídos — rode: psql \"\$STG_URL\" -f scripts/espelho-reconstruir-acesso.sql"
+node "$(dirname "$0")/seed-local-rbac.mjs" --staging || echo "AVISO: seed do RBAC no staging falhou — rode \`node scripts/seed-local-rbac.mjs --staging\` à mão."
 
 # (e) Pós-condição: o staging continua chamando as PRÓPRIAS edge functions.
 #     A trava (d) cobre a exclusão; esta cobre o resto — alguém tirar o

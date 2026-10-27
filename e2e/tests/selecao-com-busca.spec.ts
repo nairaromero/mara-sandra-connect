@@ -15,6 +15,7 @@
 import { test, expect } from "@playwright/test";
 import { ENV } from "../env";
 import { adminClient } from "../supabase-admin";
+import { escritorioPadrao } from "../rbac";
 import { LIMITE_BUSCA } from "../../src/components/ui/selecao";
 
 const admin = adminClient();
@@ -44,8 +45,13 @@ test.describe("selecionar cliente: busca onde a lista é longa", () => {
     await expect(busca, "lista longa precisa oferecer busca").toBeVisible();
 
     // e a busca filtra de verdade: digita um nome e a lista encolhe
+    // Um caso do escritório da conta de teste (o padrão): "o primeiro caso
+    // qualquer" passou a ser do Canário depois do espelho de 27/10 — invisível
+    // para esta conta, e a busca, com razão, não achava nada.
     const { data: umCaso } = await admin
-      .from("casos").select("clientes(nome)").not("cliente_id", "is", null).limit(1).maybeSingle();
+      .from("casos").select("clientes(nome)").not("cliente_id", "is", null)
+      .eq("escritorio_id", await escritorioPadrao())
+      .order("id").limit(1).maybeSingle();
     const nome = (umCaso?.clientes as { nome?: string } | null)?.nome;
     if (nome) {
       const pedaco = nome.split(" ")[0];
