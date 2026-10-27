@@ -18,7 +18,14 @@ export type ToolCall = { id: string; name: string; args: Record<string, unknown>
  * ("not scoped to a workspace"). Montada por `abrirCredencial`
  * (_shared/ia-integracao.ts) — ninguém decifra a chave por fora.
  */
-export type Credencial = { chave: string; workspaceId?: string | null };
+import { esforcoDaTarefa, type Esforco, type EsforcosDoEscritorio, type TarefaIA } from "./ia-esforco.ts";
+
+export type Credencial = {
+  chave: string;
+  workspaceId?: string | null;
+  /** O esforço que o escritório trocou por tarefa (vem com a chave, por `abrirCredencial`). */
+  esforcos?: EsforcosDoEscritorio;
+};
 
 // Anexo binario (PDF/imagem) enviado junto da ultima mensagem 'user'. Usado pela
 // ia-analise p/ mandar PDFs escaneados direto ao provider (OCR nativo do modelo),
@@ -151,23 +158,32 @@ export type TamanhoResposta = "curta" | "longa";
 // Teto minimo quando o modelo raciocina: sobra espaco para o rascunho E a resposta.
 const PISO_RACIOCINIO: Record<TamanhoResposta, number> = { curta: 4000, longa: 16000 };
 
-/** O que vai na requisicao: teto, raciocinio e esforco — derivados do perfil. */
+// Esforço por tarefa: a tabela, os rótulos e a escolha do escritório moram em
+// ./ia-esforco.ts (módulo puro, a tela também lê). Aqui só se aplica.
+export { ESFORCO_POR_TAREFA, type Esforco, type TarefaIA } from "./ia-esforco.ts";
+
+/** O que vai na requisicao: teto, raciocinio e esforco — derivados do perfil e da tarefa. */
 export function planoDaChamada(
   perfil: PerfilModelo,
   tamanho: TamanhoResposta,
   pedido: number,
-): { teto: number; thinking?: Record<string, unknown>; esforco?: "low" } {
+  tarefa?: TarefaIA,
+  doEscritorio?: EsforcosDoEscritorio,
+): { teto: number; thinking?: Record<string, unknown>; esforco?: Esforco } {
   if (perfil.raciocinio === "nenhum" || perfil.raciocinio === "desligado") {
     return { teto: pedido };
   }
-  // Resposta curta num modelo que deixa desligar: desliga (mais rapido e barato).
-  if (tamanho === "curta" && perfil.desligar) {
+  // Sem tarefa (não deveria acontecer: a régua cobra o registro) vale a regra
+  // antiga pelo tamanho.
+  const esforco: Esforco | undefined = tarefa ? esforcoDaTarefa(tarefa, doEscritorio) : tamanho === "curta" ? "low" : undefined;
+  // Tarefa de pouco esforço com resposta curta, num modelo que deixa desligar
+  // o raciocínio: desliga (mais rápido e barato que pensar pouco).
+  if (tamanho === "curta" && esforco === "low" && perfil.desligar) {
     return { teto: pedido, thinking: perfil.desligar };
   }
-  // Nao desliga (ou resposta longa): teto com folga; na curta, pede pouco esforco.
   return {
     teto: Math.max(pedido, PISO_RACIOCINIO[tamanho]),
-    esforco: tamanho === "curta" && perfil.esforco ? "low" : undefined,
+    esforco: perfil.esforco ? esforco : undefined,
   };
 }
 
@@ -229,13 +245,19 @@ export type LinhaUso = {
   tokens_entrada: number;
   tokens_saida: number;
   tokens_raciocinio: number | null;
+  /** Esforço pedido ao provedor (null quando o modelo não recebe esforço). */
+  esforco: Esforco | null;
   parada: string | null;
   cortada: boolean;
   erro: string | null;
   duracao_ms: number;
 };
 
-export type RegistroUso = { gravar: (linha: LinhaUso) => Promise<void> };
+export type RegistroUso = {
+  /** A tarefa — é ela que escolhe o esforço (ESFORCO_POR_TAREFA). */
+  tarefa: TarefaIA;
+  gravar: (linha: LinhaUso) => Promise<void>;
+};
 
 /** Classe da falha para o registro (nunca o texto do provider, que pode ecoar conteudo). */
 export function classeDoErro(e: unknown): string {
@@ -292,6 +314,13 @@ async function registrar(reg: RegistroUso | undefined, linha: LinhaUso): Promise
 
 function tamanhoDe(opts: ChatOpts, pedido: number): TamanhoResposta {
   return opts.tamanho ?? (pedido <= 2000 ? "curta" : "longa");
+}
+
+/** O plano de uma chamada — o mesmo para montar a requisição e para o registro de uso. */
+function planoDe(provider: string, modelo: string, opts: ChatOpts, doEscritorio?: EsforcosDoEscritorio) {
+  const pedido = opts.maxTokens ?? MAX_TOKENS;
+  const perfil = perfilDoModelo(provider, modelo);
+  return { pedido, perfil, ...planoDaChamada(perfil, tamanhoDe(opts, pedido), pedido, opts.registro?.tarefa, doEscritorio) };
 }
 
 /**
@@ -362,6 +391,8 @@ export async function chatWith(
 ): Promise<ChatResult> {
   const inicio = Date.now();
   let r: ChatResult | null = null;
+  // Só o Anthropic recebe esforço hoje (o OpenAI fica no padrão de cada modelo).
+  const esforco = provider === "anthropic" ? planoDe(provider, modelo, opts, credencial.esforcos).esforco ?? null : null;
   try {
     const aposentado = modeloAposentado(provider, modelo);
     if (aposentado) throw new Error(aposentado);
@@ -373,6 +404,7 @@ export async function chatWith(
       provider, modelo,
       tokens_entrada: r.usage.input, tokens_saida: r.usage.output,
       tokens_raciocinio: r.usage.raciocinio ?? null,
+      esforco,
       parada: r.parada, cortada: r.cortada, erro: null,
       duracao_ms: Date.now() - inicio,
     });
@@ -383,6 +415,7 @@ export async function chatWith(
       provider, modelo,
       tokens_entrada: r?.usage.input ?? 0, tokens_saida: r?.usage.output ?? 0,
       tokens_raciocinio: r?.usage.raciocinio ?? null,
+      esforco,
       parada: r?.parada ?? null, cortada: r?.cortada ?? false, erro: classeDoErro(e),
       duracao_ms: Date.now() - inicio,
     });
@@ -446,8 +479,7 @@ async function anthropicChat(
   flushTools();
   appendAttachments(msgs, opts.attachments, anthropicAttBlock);
 
-  const pedido = opts.maxTokens ?? MAX_TOKENS;
-  const plano = planoDaChamada(perfilDoModelo("anthropic", modelo), tamanhoDe(opts, pedido), pedido);
+  const plano = planoDe("anthropic", modelo, opts, credencial.esforcos);
   const body: Record<string, unknown> = {
     model: modelo,
     max_tokens: plano.teto,
@@ -529,9 +561,8 @@ async function openaiChat(
   }
   appendAttachments(msgs, opts.attachments, openaiAttPart);
 
-  const pedido = opts.maxTokens ?? MAX_TOKENS;
-  const perfil = perfilDoModelo("openai", modelo);
-  const plano = planoDaChamada(perfil, tamanhoDe(opts, pedido), pedido);
+  const plano = planoDe("openai", modelo, opts);
+  const perfil = plano.perfil;
   // Modelos que raciocinam recusam `max_tokens`: o teto (raciocinio incluso)
   // vai em `max_completion_tokens`.
   const campoTeto = perfil.raciocinio === "nenhum" ? "max_tokens" : "max_completion_tokens";

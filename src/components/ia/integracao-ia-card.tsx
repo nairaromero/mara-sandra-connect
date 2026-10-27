@@ -19,9 +19,20 @@ import { Switch } from "@/components/ui/switch";
 import { supabase } from "@/lib/supabase";
 import { dataBR, dataHoraBR } from "@/lib/fuso";
 import type { IaProviderInfo } from "@/lib/ia/client";
+import {
+  ESFORCO_POR_TAREFA,
+  lerEsforcos,
+  NIVEIS_ESFORCO,
+  ROTULO_ESFORCO,
+  TAREFAS_IA,
+  type Esforco,
+  type EsforcosDoEscritorio,
+  type TarefaIA,
+} from "@shared/ia-esforco";
+import { perfilDoModelo } from "@shared/ia-providers";
 
 interface StatusIa {
-  config: { provider?: string; modelo?: string; hint?: string; workspace_id?: string };
+  config: { provider?: string; modelo?: string; hint?: string; workspace_id?: string; esforcos?: unknown };
   ativo: boolean;
   segredo_definido_em: string | null;
   updated_at: string | null;
@@ -73,6 +84,9 @@ export function IntegracaoIaCard() {
   const [erroLista, setErroLista] = useState<string | null>(null);
   // De qual chave é a lista acima: a salva ou a colada agora (ainda não salva).
   const [listaDe, setListaDe] = useState<"salva" | "colada" | null>(null);
+  // Esforço por tarefa que o escritório trocou (o resto segue o padrão do sistema).
+  const [esforcos, setEsforcos] = useState<EsforcosDoEscritorio>({});
+  const [salvandoEsforco, setSalvandoEsforco] = useState(false);
 
   const carregar = useCallback(async () => {
     setErroCarga(null);
@@ -82,6 +96,7 @@ export function IntegracaoIaCard() {
       if (r.config?.provider) setProvider(r.config.provider);
       setModelo(r.config?.modelo ?? "");
       setWorkspace(r.config?.workspace_id ?? "");
+      setEsforcos(lerEsforcos(r.config?.esforcos));
     } catch (e) {
       // Falha de leitura não pode virar "não configurado" calado.
       setErroCarga(e instanceof Error ? e.message : String(e));
@@ -185,6 +200,29 @@ export function IntegracaoIaCard() {
       toast.error(erro);
     } finally {
       setTestando(false);
+    }
+  }
+
+  // O que está na tela difere do salvo?
+  const esforcosSalvos = lerEsforcos(status?.config.esforcos);
+  const tarefasNaTela = (Object.keys(TAREFAS_IA) as TarefaIA[]).filter((t) => TAREFAS_IA[t].naTela);
+  const esforcoMudou = tarefasNaTela.some((t) => esforcos[t] !== esforcosSalvos[t]);
+  // Haiku 4.5, OpenAI, Opus 4.x sem raciocínio: o modelo não recebe esforço.
+  const perfilAtual = perfilDoModelo(provider, modelo.trim());
+  const modeloRecebeEsforco =
+    !!perfilAtual.esforco && perfilAtual.raciocinio !== "nenhum" && perfilAtual.raciocinio !== "desligado";
+
+  async function salvarEsforcos() {
+    setSalvandoEsforco(true);
+    try {
+      // Só o esforço: provedor, modelo, chave e ligado/desligado ficam como estão.
+      await chamar({ action: "salvar", config: { esforcos } });
+      toast.success("Esforço da IA salvo");
+      await carregar();
+    } catch (e) {
+      toast.error(`Não salvou: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setSalvandoEsforco(false);
     }
   }
 
@@ -448,6 +486,74 @@ export function IntegracaoIaCard() {
                   onCheckedChange={(v) => void salvar({ ativo: v })}
                   aria-label="Ligar a IA do escritório"
                 />
+              </div>
+            )}
+
+            {configurada && (
+              <div className="space-y-3 rounded-md border border-border px-3 py-3" data-ia-esforco>
+                <div>
+                  <p className="text-sm font-medium">Esforço do raciocínio por tarefa</p>
+                  <p className="text-xs text-muted-foreground">
+                    Quanto a IA pensa antes de responder. Mais esforço: respostas mais cuidadosas,
+                    porém mais lentas e com mais consumo na conta do provedor. Cada chamada fica
+                    registrada com o esforço usado.
+                  </p>
+                  {!modeloRecebeEsforco && (
+                    <p className="mt-1 text-xs text-amber-700 dark:text-amber-300" data-ia-esforco-sem-efeito>
+                      O modelo escolhido ({modelo.trim() || "nenhum"}) não recebe esforço: estas
+                      escolhas passam a valer com um modelo que recebe (Claude Opus 5.5, Sonnet 5.5).
+                    </p>
+                  )}
+                </div>
+                <div className="divide-y">
+                  {tarefasNaTela.map((t) => {
+                    const padrao = ESFORCO_POR_TAREFA[t];
+                    return (
+                      <div key={t} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                        <span className="text-sm">{TAREFAS_IA[t].rotulo}</span>
+                        <div className="w-48">
+                          <Selecao
+                            value={esforcos[t] ?? "padrao"}
+                            onChange={(v) =>
+                              setEsforcos((atual) => {
+                                const novo = { ...atual };
+                                if (v === "padrao" || v === padrao) delete novo[t];
+                                else novo[t] = v as Esforco;
+                                return novo;
+                              })
+                            }
+                            opcoes={[
+                              { value: "padrao", label: `Padrão (${ROTULO_ESFORCO[padrao]})` },
+                              ...NIVEIS_ESFORCO.filter((n) => n !== padrao).map((n) => ({
+                                value: n,
+                                label: ROTULO_ESFORCO[n],
+                              })),
+                            ]}
+                            aria-label={`Esforço: ${TAREFAS_IA[t].rotulo}`}
+                            data-selecao={`esforco-${t}`}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void salvarEsforcos()}
+                    disabled={!esforcoMudou || salvandoEsforco}
+                    data-ia-salvar-esforco
+                  >
+                    {salvandoEsforco ? (
+                      <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                    ) : (
+                      <Save className="h-3 w-3 mr-2" />
+                    )}
+                    Salvar esforço
+                  </Button>
+                  {esforcoMudou && <span className="text-xs text-muted-foreground">Alterações não salvas.</span>}
+                </div>
               </div>
             )}
           </div>

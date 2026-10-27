@@ -4,6 +4,7 @@
 //   bun test e2e/unit/ia-perfis.test.ts
 // (fora de src/ porque o tsc do app não conhece bun:test; a Playwright só lê e2e/tests)
 import { afterEach, describe, expect, test } from "bun:test";
+import { esforcoDaTarefa, lerEsforcos } from "../../supabase/functions/_shared/ia-esforco";
 import {
   chatWith,
   classeDoErro,
@@ -14,6 +15,7 @@ import {
   modeloAposentado,
   perfilDoModelo,
   planoDaChamada,
+  ESFORCO_POR_TAREFA,
   PROVIDERS,
 } from "../../supabase/functions/_shared/ia-providers";
 
@@ -84,6 +86,83 @@ describe("plano da chamada", () => {
   test("longa: teto com folga, sem mexer no raciocínio", () => {
     const p = planoDaChamada(perfilDoModelo("anthropic", "claude-sonnet-5-5"), "longa", 8000);
     expect(p).toEqual({ teto: 16000, esforco: undefined });
+  });
+
+  test("a tarefa escolhe o esforço: análise em high mesmo no Opus 5.5 (padrão medium)", () => {
+    const p = planoDaChamada(perfilDoModelo("anthropic", "claude-opus-5-5"), "longa", 8000, "ia-analise");
+    expect(p).toEqual({ teto: 16000, esforco: "high" });
+  });
+
+  test("tarefa medium com resposta curta: pensa um pouco, não desliga", () => {
+    const p = planoDaChamada(perfilDoModelo("anthropic", "claude-sonnet-5-5"), "curta", 700, "extrair-agendamento-pericia");
+    expect(p).toEqual({ teto: 4000, esforco: "medium" });
+  });
+
+  test("tarefa low com resposta curta num modelo que desliga: desliga o raciocínio", () => {
+    const p = planoDaChamada(perfilDoModelo("anthropic", "claude-sonnet-5-5"), "curta", 20, "integracoes-escritorio:testar");
+    expect(p).toEqual({ teto: 20, thinking: { type: "between_tools" } });
+    // No Opus 5.5 não há como desligar: vai low.
+    expect(planoDaChamada(perfilDoModelo("anthropic", "claude-opus-5-5"), "curta", 20, "integracoes-escritorio:testar").esforco).toBe("low");
+  });
+
+  test("identificar documentos pensa: no mínimo medium, em qualquer modelo que recebe esforço", () => {
+    // Pedido da Naira (27/10): precisão alta na identificação.
+    expect(["medium", "high"]).toContain(ESFORCO_POR_TAREFA["identificar-documentos"]);
+    for (const modelo of ["claude-sonnet-5-5", "claude-opus-5-5"]) {
+      const p = planoDaChamada(perfilDoModelo("anthropic", modelo), "curta", 400, "identificar-documentos");
+      expect(p.thinking, modelo).toBeUndefined();
+      expect(p.esforco, modelo).toBe("medium");
+      expect(p.teto, modelo).toBeGreaterThanOrEqual(4000);
+    }
+  });
+
+  test("modelo que não recebe esforço (Haiku 4.5, OpenAI) ignora a tarefa", () => {
+    expect(planoDaChamada(perfilDoModelo("anthropic", "claude-haiku-4-5"), "longa", 8000, "ia-analise")).toEqual({ teto: 8000 });
+    expect(planoDaChamada(perfilDoModelo("openai", "gpt-4.1"), "longa", 8000, "ia-analise")).toEqual({ teto: 8000 });
+  });
+
+  test("o escritório troca o esforço de uma tarefa; as outras seguem o padrão", () => {
+    const doEscritorio = lerEsforcos({ "ia-analise": "medium" });
+    expect(planoDaChamada(perfilDoModelo("anthropic", "claude-opus-5-5"), "longa", 8000, "ia-analise", doEscritorio).esforco).toBe("medium");
+    expect(planoDaChamada(perfilDoModelo("anthropic", "claude-opus-5-5"), "longa", 8000, "ia-triagem-andamentos", doEscritorio).esforco).toBe("high");
+  });
+
+  test("escritório que baixa uma tarefa para low em resposta curta, no Sonnet 5.5: desliga o raciocínio", () => {
+    const doEscritorio = lerEsforcos({ "identificar-documentos": "low" });
+    const p = planoDaChamada(perfilDoModelo("anthropic", "claude-sonnet-5-5"), "curta", 400, "identificar-documentos", doEscritorio);
+    expect(p).toEqual({ teto: 400, thinking: { type: "between_tools" } });
+  });
+
+  test("lerEsforcos não confia no que vem do banco/tela", () => {
+    expect(lerEsforcos({
+      "ia-analise": "medium",          // vale
+      "ia-triagem-andamentos": "high", // igual ao padrão: não grava
+      "tarefa-inventada": "low",       // tarefa desconhecida
+      "ia-assistant": "max",           // nível fora dos aceitos
+      "sugerir-proxima-tarefa": 3,     // tipo errado
+    })).toEqual({ "ia-analise": "medium" });
+    expect(lerEsforcos(null)).toEqual({});
+    expect(lerEsforcos(["low"])).toEqual({});
+    expect(esforcoDaTarefa("ia-analise", {})).toBe(ESFORCO_POR_TAREFA["ia-analise"]);
+  });
+
+  test("chatWith usa o esforço que vem com a credencial do escritório e grava no registro", async () => {
+    const enviados = provedor(RESP_ANTHROPIC);
+    const linhas: LinhaUso[] = [];
+    await chatWith(
+      "anthropic",
+      { chave: "k", esforcos: { "ia-analise": "low" } },
+      "claude-opus-5-5",
+      opts({ maxTokens: 8000, registro: { tarefa: "ia-analise", gravar: async (l) => { linhas.push(l); } } }),
+    );
+    expect(enviados[0].output_config).toEqual({ effort: "low" });
+    expect(linhas[0].esforco).toBe("low");
+  });
+
+  test("a tabela só usa níveis que os modelos atuais aceitam", () => {
+    for (const [tarefa, nivel] of Object.entries(ESFORCO_POR_TAREFA)) {
+      expect(["low", "medium", "high"], tarefa).toContain(nivel);
+    }
   });
 
   test("modelo sem raciocínio: nada muda", () => {
@@ -171,23 +250,24 @@ describe("chatWith", () => {
   test("registro de uso: uma linha por chamada, com tokens e sem conteúdo", async () => {
     provedor({ ...RESP_ANTHROPIC, usage: { input_tokens: 12, output_tokens: 7, output_tokens_details: { thinking_tokens: 3 } } });
     const linhas: LinhaUso[] = [];
-    await chatWith("anthropic", { chave: "k" }, "claude-sonnet-5-5", opts({ registro: { gravar: async (l) => { linhas.push(l); } } }));
+    await chatWith("anthropic", { chave: "k" }, "claude-sonnet-5-5", opts({ registro: { tarefa: "ia-analise", gravar: async (l) => { linhas.push(l); } } }));
     expect(linhas).toHaveLength(1);
     expect(linhas[0]).toMatchObject({
       provider: "anthropic", modelo: "claude-sonnet-5-5",
       tokens_entrada: 12, tokens_saida: 7, tokens_raciocinio: 3,
+      esforco: "high",
       parada: "end_turn", cortada: false, erro: null,
     });
     // Só números, nomes e a classe da falha: nenhum campo carrega texto da conversa.
     expect(Object.keys(linhas[0]).sort()).toEqual([
-      "cortada", "duracao_ms", "erro", "modelo", "parada", "provider",
+      "cortada", "duracao_ms", "erro", "esforco", "modelo", "parada", "provider",
       "tokens_entrada", "tokens_raciocinio", "tokens_saida",
     ]);
   });
 
   test("registro de uso: corte e erro HTTP viram classe, nunca o texto do provedor", async () => {
     const linhas: LinhaUso[] = [];
-    const registro = { gravar: async (l: LinhaUso) => { linhas.push(l); } };
+    const registro = { tarefa: "ia-assistant" as const, gravar: async (l: LinhaUso) => { linhas.push(l); } };
     provedor({ content: [], stop_reason: "max_tokens", usage: { input_tokens: 1, output_tokens: 4000 } });
     await expect(chatWith("anthropic", { chave: "k" }, "claude-opus-5-5", opts({ registro }))).rejects.toBeInstanceOf(IaRespostaCortada);
     expect(linhas[0]).toMatchObject({ erro: "cortada", cortada: true, tokens_saida: 4000 });
@@ -202,7 +282,7 @@ describe("chatWith", () => {
   test("registro que falha não derruba a chamada", async () => {
     provedor(RESP_ANTHROPIC);
     const r = await chatWith("anthropic", { chave: "k" }, "claude-haiku-4-5", opts({
-      registro: { gravar: async () => { throw new Error("banco fora"); } },
+      registro: { tarefa: "ia-assistant", gravar: async () => { throw new Error("banco fora"); } },
     }));
     expect(r.text).toBe("{\"ok\":true}");
   });
