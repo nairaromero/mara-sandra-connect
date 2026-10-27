@@ -14,6 +14,7 @@ import {
   modeloAposentado,
   perfilDoModelo,
   planoDaChamada,
+  ESFORCO_POR_TAREFA,
   PROVIDERS,
 } from "../../supabase/functions/_shared/ia-providers";
 
@@ -84,6 +85,34 @@ describe("plano da chamada", () => {
   test("longa: teto com folga, sem mexer no raciocínio", () => {
     const p = planoDaChamada(perfilDoModelo("anthropic", "claude-sonnet-5-5"), "longa", 8000);
     expect(p).toEqual({ teto: 16000, esforco: undefined });
+  });
+
+  test("a tarefa escolhe o esforço: análise em high mesmo no Opus 5.5 (padrão medium)", () => {
+    const p = planoDaChamada(perfilDoModelo("anthropic", "claude-opus-5-5"), "longa", 8000, "ia-analise");
+    expect(p).toEqual({ teto: 16000, esforco: "high" });
+  });
+
+  test("tarefa medium com resposta curta: pensa um pouco, não desliga", () => {
+    const p = planoDaChamada(perfilDoModelo("anthropic", "claude-sonnet-5-5"), "curta", 700, "extrair-agendamento-pericia");
+    expect(p).toEqual({ teto: 4000, esforco: "medium" });
+  });
+
+  test("tarefa low com resposta curta num modelo que desliga: desliga o raciocínio", () => {
+    const p = planoDaChamada(perfilDoModelo("anthropic", "claude-sonnet-5-5"), "curta", 400, "identificar-documentos");
+    expect(p).toEqual({ teto: 400, thinking: { type: "between_tools" } });
+    // No Opus 5.5 não há como desligar: vai low.
+    expect(planoDaChamada(perfilDoModelo("anthropic", "claude-opus-5-5"), "curta", 400, "identificar-documentos").esforco).toBe("low");
+  });
+
+  test("modelo que não recebe esforço (Haiku 4.5, OpenAI) ignora a tarefa", () => {
+    expect(planoDaChamada(perfilDoModelo("anthropic", "claude-haiku-4-5"), "longa", 8000, "ia-analise")).toEqual({ teto: 8000 });
+    expect(planoDaChamada(perfilDoModelo("openai", "gpt-4.1"), "longa", 8000, "ia-analise")).toEqual({ teto: 8000 });
+  });
+
+  test("a tabela só usa níveis que os modelos atuais aceitam", () => {
+    for (const [tarefa, nivel] of Object.entries(ESFORCO_POR_TAREFA)) {
+      expect(["low", "medium", "high"], tarefa).toContain(nivel);
+    }
   });
 
   test("modelo sem raciocínio: nada muda", () => {
@@ -171,23 +200,24 @@ describe("chatWith", () => {
   test("registro de uso: uma linha por chamada, com tokens e sem conteúdo", async () => {
     provedor({ ...RESP_ANTHROPIC, usage: { input_tokens: 12, output_tokens: 7, output_tokens_details: { thinking_tokens: 3 } } });
     const linhas: LinhaUso[] = [];
-    await chatWith("anthropic", { chave: "k" }, "claude-sonnet-5-5", opts({ registro: { gravar: async (l) => { linhas.push(l); } } }));
+    await chatWith("anthropic", { chave: "k" }, "claude-sonnet-5-5", opts({ registro: { tarefa: "ia-analise", gravar: async (l) => { linhas.push(l); } } }));
     expect(linhas).toHaveLength(1);
     expect(linhas[0]).toMatchObject({
       provider: "anthropic", modelo: "claude-sonnet-5-5",
       tokens_entrada: 12, tokens_saida: 7, tokens_raciocinio: 3,
+      esforco: "high",
       parada: "end_turn", cortada: false, erro: null,
     });
     // Só números, nomes e a classe da falha: nenhum campo carrega texto da conversa.
     expect(Object.keys(linhas[0]).sort()).toEqual([
-      "cortada", "duracao_ms", "erro", "modelo", "parada", "provider",
+      "cortada", "duracao_ms", "erro", "esforco", "modelo", "parada", "provider",
       "tokens_entrada", "tokens_raciocinio", "tokens_saida",
     ]);
   });
 
   test("registro de uso: corte e erro HTTP viram classe, nunca o texto do provedor", async () => {
     const linhas: LinhaUso[] = [];
-    const registro = { gravar: async (l: LinhaUso) => { linhas.push(l); } };
+    const registro = { tarefa: "ia-assistant" as const, gravar: async (l: LinhaUso) => { linhas.push(l); } };
     provedor({ content: [], stop_reason: "max_tokens", usage: { input_tokens: 1, output_tokens: 4000 } });
     await expect(chatWith("anthropic", { chave: "k" }, "claude-opus-5-5", opts({ registro }))).rejects.toBeInstanceOf(IaRespostaCortada);
     expect(linhas[0]).toMatchObject({ erro: "cortada", cortada: true, tokens_saida: 4000 });
@@ -202,7 +232,7 @@ describe("chatWith", () => {
   test("registro que falha não derruba a chamada", async () => {
     provedor(RESP_ANTHROPIC);
     const r = await chatWith("anthropic", { chave: "k" }, "claude-haiku-4-5", opts({
-      registro: { gravar: async () => { throw new Error("banco fora"); } },
+      registro: { tarefa: "ia-assistant", gravar: async () => { throw new Error("banco fora"); } },
     }));
     expect(r.text).toBe("{\"ok\":true}");
   });

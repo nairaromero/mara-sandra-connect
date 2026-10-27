@@ -6,6 +6,7 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { ESFORCO_POR_TAREFA } from "../../supabase/functions/_shared/ia-providers";
 
 const RAIZ = join(import.meta.dir, "../../supabase/functions");
 
@@ -46,6 +47,19 @@ function chamadas(bruto: string): string[] {
 const TODOS = arquivos(RAIZ).filter((p) => !p.endsWith("_shared/ia-providers.ts"));
 
 describe("túnel da IA", () => {
+  test("toda função de IA tem esforço na tabela, e a tabela não tem sobra", () => {
+    // O Deno das functions não passa pelo tsc do app: o tipo TarefaIA sozinho
+    // não barra um nome digitado errado (que cairia na regra antiga, calado).
+    const usadas = new Set<string>();
+    for (const p of TODOS) {
+      for (const m of semComentarios(readFileSync(p, "utf8")).matchAll(/\bfuncao:\s*"([^"]+)"/g)) usadas.add(m[1]);
+    }
+    const tabela = Object.keys(ESFORCO_POR_TAREFA);
+    expect([...usadas].filter((t) => !tabela.includes(t)).sort(), "função sem esforço em ESFORCO_POR_TAREFA").toEqual([]);
+    expect(tabela.filter((t) => !usadas.has(t)).sort(), "linha da tabela que ninguém usa").toEqual([]);
+  });
+
+
   test("toda chamada ao provedor leva registro de uso", () => {
     const sem: string[] = [];
     let total = 0;
