@@ -149,7 +149,7 @@ export function IntegracaoCredencialCard(props: {
               {campos.map((c) => (
                 <div key={c.chave} className="space-y-1">
                   <Label htmlFor={`${tipo}-${c.chave}`}>{c.rotulo}</Label>
-                  <Input
+                  <Input semGerenciadorDeSenha
                     id={`${tipo}-${c.chave}`}
                     value={valores[c.chave] ?? ""}
                     onChange={(e) => setValores((v) => ({ ...v, [c.chave]: e.target.value }))}
@@ -166,12 +166,11 @@ export function IntegracaoCredencialCard(props: {
                     </span>
                   )}
                 </Label>
-                <Input
+                <Input semGerenciadorDeSenha
                   id={`${tipo}-segredo`}
                   type="password"
                   value={segredo}
                   onChange={(e) => setSegredo(e.target.value)}
-                  autoComplete="new-password"
                   placeholder="••••••••"
                 />
                 {ajudaSegredo && <p className="text-xs text-muted-foreground">{ajudaSegredo}</p>}

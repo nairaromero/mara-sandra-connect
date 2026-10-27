@@ -152,15 +152,15 @@ export function IntegracaoWhatsappCard() {
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <Label htmlFor="wa-url">URL do Evolution</Label>
-                <Input id="wa-url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://evo.exemplo.com" />
+                <Input semGerenciadorDeSenha id="wa-url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://evo.exemplo.com" />
               </div>
               <div>
                 <Label htmlFor="wa-inst">Instância</Label>
-                <Input id="wa-inst" value={instance} onChange={(e) => setInstance(e.target.value)} placeholder="meu-escritorio" />
+                <Input semGerenciadorDeSenha id="wa-inst" value={instance} onChange={(e) => setInstance(e.target.value)} placeholder="meu-escritorio" />
               </div>
               <div>
                 <Label htmlFor="wa-num">Número (opcional, só para exibir)</Label>
-                <Input id="wa-num" value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="55 11 99999-0000" />
+                <Input semGerenciadorDeSenha id="wa-num" value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="55 11 99999-0000" />
               </div>
               <div>
                 <Label htmlFor="wa-key">
@@ -171,7 +171,7 @@ export function IntegracaoWhatsappCard() {
                     </span>
                   )}
                 </Label>
-                <Input id="wa-key" type="password" value={chave} onChange={(e) => setChave(e.target.value)} autoComplete="new-password" placeholder="••••••••" />
+                <Input semGerenciadorDeSenha id="wa-key" type="password" value={chave} onChange={(e) => setChave(e.target.value)} placeholder="••••••••" />
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">

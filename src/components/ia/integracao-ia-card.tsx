@@ -241,7 +241,7 @@ export function IntegracaoIaCard() {
               </div>
               <div>
                 <Label className="text-xs">Modelo</Label>
-                <Input
+                <Input semGerenciadorDeSenha
                   value={modelo}
                   onChange={(e) => setModelo(e.target.value)}
                   placeholder="ex.: claude-sonnet-5-5"
@@ -257,7 +257,7 @@ export function IntegracaoIaCard() {
 
             <div>
               <Label className="text-xs">Chave de API do escritório</Label>
-              <Input
+              <Input semGerenciadorDeSenha
                 type="password"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
@@ -266,7 +266,6 @@ export function IntegracaoIaCard() {
                     ? `Chave salva${status.config.hint ? ` (${status.config.hint})` : ""} — cole para substituir`
                     : "Cole a chave de API do escritório"
                 }
-                autoComplete="off"
               />
               <p className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
                 <ShieldCheck className="h-3 w-3" />A chave é cifrada no servidor e nunca volta para
@@ -280,12 +279,11 @@ export function IntegracaoIaCard() {
                 <Label className="text-xs" htmlFor="ia-workspace">
                   ID do workspace da Anthropic (opcional)
                 </Label>
-                <Input
+                <Input semGerenciadorDeSenha
                   id="ia-workspace"
                   value={workspace}
                   onChange={(e) => setWorkspace(e.target.value)}
                   placeholder="wrkspc_…"
-                  autoComplete="off"
                 />
                 <p className="mt-1 text-[11px] text-muted-foreground">
                   Só para chave que vale para mais de um workspace. Chave criada dentro de um
