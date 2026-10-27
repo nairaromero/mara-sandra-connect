@@ -163,7 +163,7 @@ export function ConexaoClaudeCard() {
         <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto_auto] sm:items-end">
           <div>
             <Label className="text-xs">Nome do token</Label>
-            <Input
+            <Input semGerenciadorDeSenha
               value={nome}
               onChange={(e) => setNome(e.target.value)}
               placeholder="Ex.: Meu Claude Desktop"

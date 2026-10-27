@@ -2341,6 +2341,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                       </span>
                     </Label>
                     <Input
+                      semGerenciadorDeSenha
                       type="password"
                       value={clSenhaMeuInss}
                       onChange={(e) => setClSenhaMeuInss(e.target.value)}
@@ -2349,7 +2350,6 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                           ? "Deixe vazio pra manter a senha atual"
                           : "Senha do MEU INSS do cliente"
                       }
-                      autoComplete="off"
                     />
                     <p className="text-xs text-muted-foreground mt-1">
                       Criptografada no banco. Toda escrita e leitura ficam registradas em auditoria.
@@ -2547,11 +2547,11 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                   <div>
                     <Label className="text-xs">Nova senha do MEU INSS</Label>
                     <Input
+                      semGerenciadorDeSenha
                       type="password"
                       value={senhaParcValor}
                       onChange={(e) => setSenhaParcValor(e.target.value)}
                       placeholder="Senha do MEU INSS do cliente"
-                      autoComplete="off"
                     />
                   </div>
                 </div>
