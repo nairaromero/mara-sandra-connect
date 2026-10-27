@@ -24,7 +24,7 @@ import { supabase } from "@/lib/supabase";
 import { dataHoraBR } from "@/lib/fuso";
 import { ehHostQG } from "@/lib/qg/host";
 import { useAuth } from "@/hooks/use-auth";
-import { TERMOS_VERSAO } from "@/lib/legal/termos";
+import { parceiroSemAceite } from "@/lib/legal/termos";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -65,9 +65,7 @@ function AuthenticatedLayout() {
   // precisaSenha===false garante a ordem senha -> boas-vindas.
   useEffect(() => {
     if (loading || !usuario || precisaSenha !== false) return;
-    const precisaOnboarding =
-      usuario.tipo === "parceiro" &&
-      (!usuario.onboarded_em || usuario.termos_versao !== TERMOS_VERSAO);
+    const precisaOnboarding = usuario.tipo === "parceiro" && parceiroSemAceite(usuario);
     if (precisaOnboarding && currentPath !== "/boas-vindas") {
       navigate({ to: "/boas-vindas" });
     }

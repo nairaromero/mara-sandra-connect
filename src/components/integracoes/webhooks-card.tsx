@@ -180,11 +180,11 @@ function CampoSegredo({
   return (
     <div className="flex gap-2">
       <Input
+        semGerenciadorDeSenha
         value={valor}
         onChange={(e) => mudar(e.target.value)}
         placeholder={placeholder}
         className="font-mono text-xs"
-        autoComplete="off"
       />
       <Button type="button" variant="outline" onClick={() => mudar(gerarSegredo())}>
         <KeyRound className="h-4 w-4 mr-1" />

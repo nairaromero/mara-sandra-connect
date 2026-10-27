@@ -63,7 +63,10 @@ EXCLUIR=(escritorio_integracoes acessos_suporte ia_integracoes ia_tokens ia_acoe
   #     truncate de usuarios as leva junto (não dá para PRESERVAR) e o passo
   #     6/6 as reconstrói (backfill das migrations do RBAC + seed do
   #     Canário/QG). Os ajustes de permissão por pessoa de produção não vêm.
-  auditoria caso_pastas_externas membros plataforma_staff membro_permissoes)
+  auditoria caso_pastas_externas membros plataforma_staff membro_permissoes
+  # #249 — controle do "um aviso por dia" ao parceiro sem aceite: estado de
+  # envio de produção não vale no staging (vazio = o staging avisa do zero).
+  avisos_aceite_pendente)
 # Tabela NOVA com RLS precisa de uma decisão aqui (EXCLUIR/PRESERVAR) ou da
 # policy espelho_leitura_select em produção (aí ela é copiada). Sem isso o
 # espelho aborta — e o `rbac-conferir-exigencias` (produção) acusa antes.
@@ -132,6 +135,25 @@ for t in "${PRESERVAR[@]}"; do
     exit 1
   fi
 done
+
+# (g) A chave de IA do STAGING sobrevive ao espelho (#486, decisão da Naira em
+#     27/10). escritorio_integracoes está em EXCLUIR — a chave de produção
+#     nunca vem — e não dá para PRESERVAR (FK para usuarios, que o passo 2
+#     limpa em cascade). Então: guardar as linhas tipo 'ia' do staging em
+#     ops.espelho_guarda_ia (o espelho não toca no schema ops) e o passo 6 as
+#     devolve. A guarda só é trocada quando o staging TEM chave: um espelho que
+#     abortou no meio (staging sem chave) não apaga o que estava guardado.
+echo "==> 1b/4 guardando a chave de IA do staging…"
+psql "$STG_URL" -q -v ON_ERROR_STOP=1 -c "
+create table if not exists ops.espelho_guarda_ia (linha jsonb not null, guardado_em timestamptz not null default now());
+do \$\$ begin
+  if exists (select 1 from public.escritorio_integracoes where tipo = 'ia') then
+    delete from ops.espelho_guarda_ia;
+    insert into ops.espelho_guarda_ia (linha)
+    select to_jsonb(i) from public.escritorio_integracoes i where i.tipo = 'ia';
+  end if;
+end \$\$;"
+echo "    guardadas: $(psql "$STG_URL" -tAXc "select count(*) from ops.espelho_guarda_ia")"
 
 echo "==> 2/4 limpando staging (menos PRESERVAR: ${PRESERVAR[*]})…"
 # Ordem importa: public primeiro (esvazia as referências), depois auth —

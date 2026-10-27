@@ -9,6 +9,10 @@
 //      antigas (EVOLUTION_*), como o whatsapp-inbound; os demais nunca.
 //   3. POST {base}/message/sendText/{instance} { number, text } (ou sendMedia
 //      quando há midia_url) com o header apikey do escritório.
+//   3a. linha de parceiro SEM aceite dos termos vigentes vira 'cancelado' e não
+//      sai (#249): a mensagem leva nome de cliente e texto do caso. A régua do
+//      aceite é a mesma dos e-mails (`parceiroSemAceite`, _shared/termos.ts) e vale
+//      também para o que já estava na fila.
 //   4. whatsapp_mark_result(outbox_id, ok, http, erro) — backoff igual ao
 //      antigo (1m/5m/30m/2h; 5ª falha → 'falhou').
 //
@@ -19,6 +23,7 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { exigirSistema, fetchT } from "../_shared/auth.ts";
 import { decryptSecret } from "../_shared/crypto.ts";
+import { parceiroSemAceite } from "../_shared/termos.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -53,6 +58,25 @@ serve(async (req) => {
   if (eLote) return json({ error: `claim: ${eLote.message}` }, 500);
   const linhas = (lote ?? []) as Linha[];
 
+  // Aceite dos termos de cada parceiro do lote (#249). Erro de leitura estoura:
+  // sem saber o aceite, nada sai (as linhas voltam para a fila).
+  const semAceite = new Set<string>();
+  if (linhas.length) {
+    const { data: donos, error: eDonos } = await admin
+      .from("whatsapp_outbox").select("id, parceiro_id").in("id", linhas.map((l) => l.outbox_id));
+    const ids = [...new Set((donos ?? []).map((d) => d.parceiro_id as string | null).filter((x): x is string => !!x))];
+    const { data: parceiros, error: eParc } = ids.length
+      ? await admin.from("usuarios").select("id, tipo, onboarded_em, termos_versao").in("id", ids)
+      : { data: [], error: null };
+    if (eDonos || eParc) {
+      await admin.from("whatsapp_outbox").update({ status: "pendente" }).in("id", linhas.map((l) => l.outbox_id));
+      return json({ error: `aceite: ${(eDonos ?? eParc)!.message}` }, 500);
+    }
+    // Parceiro que não voltou na leitura (apagado) também não recebe: lado fechado.
+    const barrado = new Map((parceiros ?? []).map((u) => [u.id as string, parceiroSemAceite(u)]));
+    for (const d of donos ?? []) if (d.parceiro_id && barrado.get(d.parceiro_id as string) !== false) semAceite.add(d.id as string);
+  }
+
   const credenciais = new Map<string, Credencial | null>();
   async function credencialDe(escritorioId: string | null): Promise<Credencial | null> {
     const chave = escritorioId ?? "(sem escritório)";
@@ -78,10 +102,18 @@ serve(async (req) => {
     return cred;
   }
 
-  const resultado = { processadas: linhas.length, enviadas: 0, falhas: 0, dry_run: dryRun, por_escritorio: {} as Record<string, { enviadas: number; falhas: number; origem?: string; erro?: string }> };
+  const resultado = { processadas: linhas.length, enviadas: 0, falhas: 0, sem_aceite: 0, dry_run: dryRun, por_escritorio: {} as Record<string, { enviadas: number; falhas: number; origem?: string; erro?: string }> };
   for (const l of linhas) {
     const escKey = l.escritorio_id ?? "(sem escritório)";
     const acc = (resultado.por_escritorio[escKey] ??= { enviadas: 0, falhas: 0 });
+    if (semAceite.has(l.outbox_id)) {
+      resultado.sem_aceite++;
+      const { error: eCanc } = await admin.from("whatsapp_outbox")
+        .update(dryRun ? { status: "pendente" } : { status: "cancelado", erro: "parceiro sem aceite dos termos vigentes (#249)" })
+        .eq("id", l.outbox_id);
+      if (eCanc) console.error("cancelar sem aceite", l.outbox_id, eCanc.message);
+      continue;
+    }
     let ok = false, http: number | null = null, erro: string | null = null;
     try {
       const cred = await credencialDe(l.escritorio_id);
