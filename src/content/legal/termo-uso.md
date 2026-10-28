@@ -2,17 +2,20 @@
 
 **Versão {{VERSAO}}**
 
-Este Termo regula o uso da plataforma **Legal Connect** (“Plataforma”), operada por
-**{{ESCRITORIO_NOME}}** (“Escritório”), pelo parceiro identificado no aceite eletrônico ao
-final (“Parceiro / Usuário”).
+Este Termo regula o uso da plataforma **Legal Connect** (“Plataforma”), disponibilizada por
+**{{ESCRITORIO_NOME}}** (“Escritório”) para a gestão dos casos em parceria, pelo parceiro
+identificado no aceite eletrônico ao final (“Parceiro / Usuário”).
 
 ## 1. Objeto
 A Plataforma permite ao Parceiro cadastrar clientes/casos previdenciários, acompanhar
 andamentos, processos e publicações, trocar documentos e mensagens com a equipe do Escritório.
 
 ## 2. Cadastro e acesso
-2.1. O acesso é **nominal e intransferível**, feito por **link mágico** (sem senha). O
-Parceiro é responsável por manter o sigilo do seu e-mail e por todo uso feito com sua conta.
+2.1. O acesso é **nominal e intransferível**, feito com o e-mail do Parceiro e uma **senha
+pessoal**, criada por ele no convite (ou por link de acesso enviado ao mesmo e-mail). A
+**verificação em duas etapas** pode ser ativada em Configurações → Segurança, e a sessão é
+encerrada automaticamente após um período sem uso. O Parceiro é responsável por manter o
+sigilo do seu e-mail e da sua senha e por todo uso feito com sua conta.
 
 2.2. O Parceiro declara que os dados informados no cadastro são **verdadeiros** e se
 compromete a mantê-los atualizados.
