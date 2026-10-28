@@ -151,7 +151,10 @@ async function elevarQg(sb) {
   return async () => { await sb.auth.mfa.unenroll({ factorId: en.data.id }); };
 }
 
-const TERMOS = /TERMOS_VERSAO = "([^"]+)"/.exec(fs.readFileSync("src/lib/legal/termos.ts", "utf8"))?.[1] ?? null;
+// A versão dos termos mora em supabase/functions/_shared/termos.ts desde o #249
+// (a tela só reexporta). Sem ela, o parceiro do seed nasce sem aceite.
+const TERMOS = /TERMOS_VERSAO = "([^"]+)"/.exec(fs.readFileSync("supabase/functions/_shared/termos.ts", "utf8"))?.[1] ?? null;
+if (!TERMOS) { console.error("nao achei TERMOS_VERSAO em supabase/functions/_shared/termos.ts"); process.exit(1); }
 
 function cpfValido(semente) {
   const n = String(semente).padStart(9, "0").slice(-9).split("").map(Number);

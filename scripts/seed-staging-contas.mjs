@@ -62,13 +62,14 @@ for (const [nome, v] of [
   }
 }
 
-// Mesma versao que o app exige (src/lib/legal/termos.ts) — lida do fonte pra
-// nao desalinhar quando os termos mudarem.
+// Mesma versao que o app exige — lida do fonte unico (supabase/functions/
+// _shared/termos.ts desde o #249; a tela so reexporta) pra nao desalinhar
+// quando os termos mudarem.
 const TERMOS_VERSAO = /TERMOS_VERSAO = "([^"]+)"/.exec(
-  fs.readFileSync(path.join(process.cwd(), "src/lib/legal/termos.ts"), "utf8"),
+  fs.readFileSync(path.join(process.cwd(), "supabase/functions/_shared/termos.ts"), "utf8"),
 )?.[1];
 if (!TERMOS_VERSAO) {
-  console.error("nao achei TERMOS_VERSAO em src/lib/legal/termos.ts");
+  console.error("nao achei TERMOS_VERSAO em supabase/functions/_shared/termos.ts");
   process.exit(1);
 }
 
