@@ -5,8 +5,8 @@
 ## Partes
 
 **ESCRITÓRIO (Controlador):** **{{ESCRITORIO_NOME}}**, CNPJ **{{ESCRITORIO_CNPJ}}**, com sede
-em **{{ESCRITORIO_ENDERECO}}**, responsável por desenvolver e operar a plataforma **Legal
-Connect** (“Plataforma”).
+em **{{ESCRITORIO_ENDERECO}}**, que utiliza a plataforma **Legal Connect** (“Plataforma”) para
+a gestão dos casos em parceria.
 
 **PARCEIRO:** **{{PARCEIRO_NOME}}**, inscrito(a) sob **{{PARCEIRO_DOC}}**, **{{PARCEIRO_OAB}}**,
 com endereço em **{{PARCEIRO_ENDERECO}}**.
@@ -18,8 +18,8 @@ ESCRITÓRIO e PARCEIRO, em conjunto, “Partes”.
 acompanhamento de demandas previdenciárias por meio da Plataforma.
 
 1.2. **Controladoria conjunta (art. 26).** ESCRITÓRIO e PARCEIRO atuam como **controladores
-conjuntos** dos dados dos titulares por eles compartilhados na Plataforma. O ESCRITÓRIO opera
-a Plataforma e contrata operadores/subprocessadores de infraestrutura (Anexo I).
+conjuntos** dos dados dos titulares por eles compartilhados na Plataforma. O ESCRITÓRIO é quem
+contrata a Plataforma e os operadores/subprocessadores de infraestrutura (Anexo I).
 
 1.3. **Titular** é o cliente/segurado (e seus dependentes/beneficiários, quando houver).
 
@@ -48,7 +48,8 @@ A Plataforma adota, entre outras, medidas **já implementadas**: hospedagem do b
 documentos **no Brasil** (São Paulo); **isolamento por parceiro** (cada um só vê os próprios
 casos; conteúdo interno não é acessível ao parceiro nem via API); **armazenamento privado com
 links temporários**; **criptografia** da senha do Meu INSS; **trilhas de auditoria** de acesso
-a documentos e à senha; **autenticação por link mágico**; e tráfego **cifrado (TLS)**.
+a documentos e à senha; **autenticação por senha pessoal**, com **verificação em duas etapas**
+disponível e encerramento automático de sessões sem uso; e tráfego **cifrado (TLS)**.
 
 ## 5. Subprocessadores e transferência internacional (art. 33)
 5.1. As Partes autorizam os subprocessadores do **Anexo I**, todos sob obrigações de
@@ -83,8 +84,8 @@ da LGPD. Foro da Comarca de **{{FORO}}**.
 ### Anexo I — Subprocessadores
 Supabase (banco/auth/armazenamento — **Brasil/São Paulo**); Cloudflare (hospedagem/CDN/DNS —
 EUA); Resend (e-mail — EUA); Google/Drive (armazenamento opcional — EUA); Anthropic e OpenAI
-(IA, quando habilitada — EUA); n8n (automações). Fontes públicas oficiais (ex.: DJEN/Comunica
-do CNJ) não são subprocessadores.
+(IA, quando habilitada — EUA). Fontes públicas oficiais (ex.: DJEN/Comunica do CNJ) não são
+subprocessadores.
 
 ---
 

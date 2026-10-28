@@ -11,7 +11,12 @@
 // 1.1 (28/10, #496): a plataforma passa a se chamar Legal Connect nos três
 // documentos e os dados do escritório saem da configuração de cada escritório.
 // Todo parceiro assina de novo; até lá recebe só o aviso sem dado de cliente.
-export const TERMOS_VERSAO = "1.1-2026-10-28";
+// 1.2 (28/10, mesmo dia, antes de qualquer assinatura da 1.1): o texto passa a
+// descrever o sistema de hoje — acesso por senha pessoal (não mais "link
+// mágico"), verificação em duas etapas, o escritório UTILIZA a plataforma (não
+// a desenvolve/opera) e o n8n sai da lista de prestadores (nenhuma rotina passa
+// por ele desde 23/09).
+export const TERMOS_VERSAO = "1.2-2026-10-28";
 
 /** O mínimo de `usuarios` que decide o aceite. */
 export interface SituacaoDoAceite {
