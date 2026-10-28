@@ -14,7 +14,7 @@ import { ClientOnly } from "@/components/client-only";
 
 export const Route = createFileRoute("/definir-senha")({
   head: () => ({
-    meta: [{ title: "Criar sua senha — Mara Sandra Vian Advocacia" }],
+    meta: [{ title: "Criar sua senha — Legal Connect" }],
   }),
   component: DefinirSenhaPage,
 });

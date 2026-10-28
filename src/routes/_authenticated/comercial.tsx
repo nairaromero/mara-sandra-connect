@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
+import { nomeDoEscritorio } from "@/lib/marca-escritorio";
 import { supabase } from "@/lib/supabase";
 import {
   dataBR,
@@ -164,11 +165,11 @@ function soDigitos(s: string) {
   return s.replace(/\D/g, "");
 }
 
-function linkWhatsApp(lead: Lead) {
+function linkWhatsApp(lead: Lead, escritorioNome: string) {
   let d = soDigitos(lead.whatsapp);
   if (d.length <= 11) d = `55${d}`;
   const primeiroNome = lead.nome.trim().split(/\s+/)[0];
-  const msg = `Olá, ${primeiroNome}! Aqui é do escritório Mara Sandra Vian Advocacia. Recebemos seu contato pelo site e queremos entender melhor o seu caso.`;
+  const msg = `Olá, ${primeiroNome}! Aqui é do escritório ${escritorioNome}. Recebemos seu contato pelo site e queremos entender melhor o seu caso.`;
   return `https://wa.me/${d}?text=${encodeURIComponent(msg)}`;
 }
 
@@ -201,7 +202,7 @@ function resumoLead(lead: Lead) {
 }
 
 function ComercialPage() {
-  const { usuario, pode } = useAuth();
+  const { usuario, pode, escritorio } = useAuth();
   // so quem gerencia o comercial (financeiro e assistente nao): o banco ja recusa
   const isInterno = usuario?.tipo === "interno" && pode("comercial:gerenciar");
 
@@ -704,7 +705,7 @@ function ComercialPage() {
                 <div className="flex flex-wrap gap-2">
                   <Button asChild size="sm" className="bg-[#25D366] text-white hover:bg-[#1fb959]">
                     <a
-                      href={linkWhatsApp(aberto)}
+                      href={linkWhatsApp(aberto, nomeDoEscritorio(escritorio))}
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={() => registrarPrimeiroContato(aberto, true)}
@@ -1266,6 +1267,7 @@ function LeadCard({
   onMover: (etapa: string) => void;
   onWhats: () => void;
 }) {
+  const { escritorio } = useAuth();
   const idx = (ETAPAS_ATIVAS as readonly string[]).indexOf(lead.etapa);
   const proxima = idx >= 0 && idx < ETAPAS_ATIVAS.length - 1 ? ETAPAS_ATIVAS[idx + 1] : null;
 
@@ -1317,7 +1319,7 @@ function LeadCard({
           <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
             <Button asChild size="icon" variant="ghost" className="h-7 w-7" title="WhatsApp">
               <a
-                href={linkWhatsApp(lead)}
+                href={linkWhatsApp(lead, nomeDoEscritorio(escritorio))}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={onWhats}

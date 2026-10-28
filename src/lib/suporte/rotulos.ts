@@ -23,6 +23,7 @@ export const ROTULO_ACAO: Record<string, string> = {
   "escritorio.marca": "Alterou a marca do escritório",
   "escritorio.checklist": "Alterou os documentos que todo caso precisa ter",
   "escritorio.responsaveis": "Alterou quem faz cada etapa do caso novo",
+  "escritorio.dados_legais": "Alterou os dados legais do escritório (termos dos parceiros)",
   // Mudança de ACESSO dentro do escritório (migration_rbac_25). Sem rótulo, a
   // trilha mostrava a chave crua — "equipe.permissao_ajustada" — para quem
   // abre a Auditoria.

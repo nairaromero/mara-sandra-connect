@@ -36,12 +36,12 @@ const PROTOCOL = "2024-11-05";
 // pessoa pede. O chat interno do app (ia-assistant) usa as mesmas tools SEM essa
 // restricao — por isso fica aqui, e nao nas descricoes de ia-tools.ts.
 const INSTRUCOES =
-  "Ferramentas do sistema do escritorio Mara Sandra (casos, clientes, andamentos, documentos). " +
+  "Ferramentas do sistema do escritorio no Legal Connect (casos, clientes, andamentos, documentos). " +
   "Use-as SOMENTE quando o usuario pedir explicitamente para consultar ou alterar algo no " +
-  "sistema - por exemplo: 'use o MCP para...', 'consulta no sistema', 'no Mara Sandra'. " +
+  "sistema - por exemplo: 'use o MCP para...', 'consulta no sistema', 'no Legal Connect'. " +
   "Se o usuario apenas mencionar um cliente ou caso, sem pedir consulta ao sistema, NAO chame " +
   "as ferramentas: responda com o que ja tem ou pergunte se ele quer que voce consulte o sistema.";
-const PREFIXO_DESCRICAO = "[Sistema Mara Sandra - usar so quando o usuario pedir] ";
+const PREFIXO_DESCRICAO = "[Legal Connect - usar so quando o usuario pedir] ";
 const ULTIMO_USO_INTERVALO_MS = 5 * 60_000;
 
 const cors = {

@@ -3,15 +3,16 @@ import { ArrowLeft } from "lucide-react";
 
 import { Markdown } from "@/components/markdown";
 import { renderPolitica } from "@/lib/legal/termos";
+import { SITE_PUBLICO } from "@/lib/site-publico";
 
 export const Route = createFileRoute("/privacidade")({
   head: () => ({
     meta: [
-      { title: "Política de Privacidade — Mara Sandra Vian Advocacia" },
+      { title: `Política de Privacidade — ${SITE_PUBLICO.nome}` },
       {
         name: "description",
         content:
-          "Política de Privacidade da plataforma Mara Sandra Connect, conforme a LGPD.",
+          "Política de Privacidade da plataforma Legal Connect, conforme a LGPD.",
       },
     ],
   }),
@@ -19,7 +20,7 @@ export const Route = createFileRoute("/privacidade")({
 });
 
 function PrivacidadePage() {
-  const texto = renderPolitica();
+  const texto = renderPolitica(SITE_PUBLICO.dadosLegais);
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto max-w-3xl px-5 py-10 sm:px-6 sm:py-14">

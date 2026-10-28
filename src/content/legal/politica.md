@@ -1,9 +1,9 @@
-# Política de Privacidade — Mara Sandra Connect
+# Política de Privacidade — Legal Connect
 
 **Versão {{VERSAO}}**
 
 ## 1. Controlador
-A plataforma **Mara Sandra Connect** é operada por **{{ESCRITORIO_NOME}}** (CNPJ
+A plataforma **Legal Connect** é operada por **{{ESCRITORIO_NOME}}** (CNPJ
 **{{ESCRITORIO_CNPJ}}**, **{{ESCRITORIO_ENDERECO}}**), **controladora** dos dados. Quando o
 atendimento se dá por **advogado/escritório parceiro**, este e o Escritório podem atuar como
 **controladores conjuntos**.
