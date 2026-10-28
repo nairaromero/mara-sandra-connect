@@ -1,8 +1,8 @@
-# Termo de Uso — Plataforma Mara Sandra Connect
+# Termo de Uso — Plataforma Legal Connect
 
 **Versão {{VERSAO}}**
 
-Este Termo regula o uso da plataforma **Mara Sandra Connect** (“Plataforma”), operada por
+Este Termo regula o uso da plataforma **Legal Connect** (“Plataforma”), operada por
 **{{ESCRITORIO_NOME}}** (“Escritório”), pelo parceiro identificado no aceite eletrônico ao
 final (“Parceiro / Usuário”).
 

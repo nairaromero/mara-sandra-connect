@@ -1,9 +1,11 @@
 // Documentos legais aceitos pelo parceiro no primeiro acesso.
 //
 // As fontes (markdown) ficam em src/content/legal/*.md com tokens {{ }} de
-// autofill. Este módulo injeta os dados do escritório (constantes) e do parceiro
+// autofill. Este módulo injeta os dados legais do ESCRITÓRIO (do banco:
+// escritorio_config.dados_legais, editados em Configurações → Escritório — #496;
+// antes eram constantes com os dados de um escritório só) e os do parceiro
 // (preenchidos no aceite), e expõe utilitários de render + hash para o registro
-// imutável do aceite.
+// imutável do aceite. A plataforma é a Legal Connect.
 
 import dpaRaw from "@/content/legal/dpa.md?raw";
 import termoRaw from "@/content/legal/termo-uso.md?raw";
@@ -15,22 +17,43 @@ import { dataBR } from "@/lib/fuso";
 import { TERMOS_VERSAO } from "@shared/termos";
 export { TERMOS_VERSAO, parceiroSemAceite } from "@shared/termos";
 
-// Dados do escritório (preencher uma vez). O que estiver "[a preencher]" aparece
-// assim no documento até ser configurado.
-export const ESCRITORIO = {
-  nome: "Mara Vian Sociedade Individual de Advocacia",
-  cnpj: "60.244.853/0001-09",
-  endereco:
-    "Rua Alagoas, nº 3081, Sala 04 – Patrimônio Velho – Votuporanga/SP – CEP 15505-169",
-  // Comarca do domicílio do escritório (Votuporanga/SP) — confirmar se é o foro desejado.
-  foro: "Votuporanga/SP",
-  // Contato de privacidade (LGPD). Escritório de pequeno porte é dispensado de
-  // indicar Encarregado/DPO formal (Resolução CD/ANPD nº 2/2022), mas deve manter
-  // um canal de comunicação com o titular.
-  privacidadeContato: "Mara Sandra",
-  privacidadeEmail: "contato.maravian@advocaciaprevi.com",
-  privacidadeTel: "",
-};
+/** Os dados do escritório que os documentos legais citam (escritorio_config.dados_legais). */
+export interface DadosLegais {
+  razao_social: string;
+  cnpj: string;
+  endereco: string;
+  /** Comarca do foro de eleição. */
+  foro: string;
+  // Canal de privacidade (LGPD). Escritório de pequeno porte é dispensado de
+  // indicar Encarregado/DPO formal (Resolução CD/ANPD nº 2/2022), mas deve
+  // manter um canal de comunicação com o titular.
+  privacidade_contato: string;
+  privacidade_email: string;
+  privacidade_tel: string;
+}
+
+/** Sem estes, o documento sairia com "[a preencher]" — o parceiro não pode assinar. */
+export const CAMPOS_LEGAIS_OBRIGATORIOS = ["razao_social", "cnpj", "endereco", "foro"] as const;
+
+/** Lê o jsonb sem confiar nele: campo ausente ou que não é texto vira "". */
+export function dadosLegaisDe(bruto: unknown): DadosLegais {
+  const o = bruto && typeof bruto === "object" && !Array.isArray(bruto) ? (bruto as Record<string, unknown>) : {};
+  const t = (k: string) => (typeof o[k] === "string" ? (o[k] as string).trim() : "");
+  return {
+    razao_social: t("razao_social"),
+    cnpj: t("cnpj"),
+    endereco: t("endereco"),
+    foro: t("foro"),
+    privacidade_contato: t("privacidade_contato"),
+    privacidade_email: t("privacidade_email"),
+    privacidade_tel: t("privacidade_tel"),
+  };
+}
+
+/** Os campos obrigatórios que faltam (vazio = pronto para assinar). */
+export function faltamDadosLegais(d: DadosLegais): Array<(typeof CAMPOS_LEGAIS_OBRIGATORIOS)[number]> {
+  return CAMPOS_LEGAIS_OBRIGATORIOS.filter((k) => !d[k]);
+}
 
 export interface ParceiroDados {
   nome: string;
@@ -74,13 +97,9 @@ function dataHoje(): string {
   }
 }
 
-function preencher(raw: string, d: ParceiroDados): string {
+function preencher(raw: string, d: ParceiroDados, e: DadosLegais): string {
   // Canal de privacidade: nome — e-mail — telefone, omitindo o que estiver vazio.
-  const canalPrivacidade = [
-    ESCRITORIO.privacidadeContato,
-    ESCRITORIO.privacidadeEmail,
-    ESCRITORIO.privacidadeTel,
-  ]
+  const canalPrivacidade = [e.privacidade_contato, e.privacidade_email, e.privacidade_tel]
     .map((s) => (s || "").trim())
     .filter((s) => s && !s.startsWith("["))
     .join(" — ");
@@ -88,11 +107,11 @@ function preencher(raw: string, d: ParceiroDados): string {
   const mapa: Record<string, string> = {
     "{{VERSAO}}": TERMOS_VERSAO,
     "{{DATA}}": dataHoje(),
-    "{{ESCRITORIO_NOME}}": ESCRITORIO.nome,
-    "{{ESCRITORIO_CNPJ}}": ESCRITORIO.cnpj,
-    "{{ESCRITORIO_ENDERECO}}": ESCRITORIO.endereco,
+    "{{ESCRITORIO_NOME}}": e.razao_social || "[a preencher]",
+    "{{ESCRITORIO_CNPJ}}": e.cnpj || "[a preencher]",
+    "{{ESCRITORIO_ENDERECO}}": e.endereco || "[a preencher]",
     "{{CANAL_PRIVACIDADE}}": canalPrivacidade || "[a preencher]",
-    "{{FORO}}": ESCRITORIO.foro,
+    "{{FORO}}": e.foro || "[a preencher]",
     "{{PARCEIRO_NOME}}": d.nome || "[nome]",
     "{{PARCEIRO_DOC}}": d.documento || "[CPF/CNPJ]",
     "{{PARCEIRO_OAB}}": oabCompleta(d),
@@ -105,12 +124,12 @@ function preencher(raw: string, d: ParceiroDados): string {
   return out;
 }
 
-export function renderDocumentos(d: ParceiroDados): Array<DocumentoRenderizado> {
+export function renderDocumentos(d: ParceiroDados, escritorio: DadosLegais): Array<DocumentoRenderizado> {
   return DEFS.map((def) => ({
     id: def.id,
     titulo: def.titulo,
     requerAssinatura: def.requerAssinatura,
-    texto: preencher(def.raw, d),
+    texto: preencher(def.raw, d, escritorio),
   }));
 }
 
@@ -122,9 +141,9 @@ const PARCEIRO_VAZIO: ParceiroDados = {
   endereco: "",
 };
 
-// Política de Privacidade pública (não usa dados do parceiro — só do escritório).
-export function renderPolitica(): string {
-  return preencher(politicaRaw, PARCEIRO_VAZIO);
+// Política de Privacidade (não usa dados do parceiro — só do escritório).
+export function renderPolitica(escritorio: DadosLegais): string {
+  return preencher(politicaRaw, PARCEIRO_VAZIO, escritorio);
 }
 
 // SHA-256 hex de um texto (tamper-evidence do que foi assinado).

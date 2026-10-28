@@ -5,8 +5,8 @@
 ## Partes
 
 **ESCRITÓRIO (Controlador):** **{{ESCRITORIO_NOME}}**, CNPJ **{{ESCRITORIO_CNPJ}}**, com sede
-em **{{ESCRITORIO_ENDERECO}}**, responsável por desenvolver e operar a plataforma **Mara
-Sandra Connect** (“Plataforma”).
+em **{{ESCRITORIO_ENDERECO}}**, responsável por desenvolver e operar a plataforma **Legal
+Connect** (“Plataforma”).
 
 **PARCEIRO:** **{{PARCEIRO_NOME}}**, inscrito(a) sob **{{PARCEIRO_DOC}}**, **{{PARCEIRO_OAB}}**,
 com endereço em **{{PARCEIRO_ENDERECO}}**.

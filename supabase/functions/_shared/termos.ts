@@ -8,7 +8,10 @@
 // (régua: e2e/unit/fonte-unica-documentos.test.ts).
 
 /** Versão dos termos. Incrementar quando o conteúdo mudar — habilita re-aceite. */
-export const TERMOS_VERSAO = "1.0-2026-06-09";
+// 1.1 (28/10, #496): a plataforma passa a se chamar Legal Connect nos três
+// documentos e os dados do escritório saem da configuração de cada escritório.
+// Todo parceiro assina de novo; até lá recebe só o aviso sem dado de cliente.
+export const TERMOS_VERSAO = "1.1-2026-10-28";
 
 /** O mínimo de `usuarios` que decide o aceite. */
 export interface SituacaoDoAceite {

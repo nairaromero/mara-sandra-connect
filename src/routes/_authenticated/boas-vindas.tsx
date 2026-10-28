@@ -14,7 +14,9 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
+import { nomeDoEscritorio } from "@/lib/marca-escritorio";
 import { supabase } from "@/lib/supabase";
+import { lerUm } from "@/lib/leitura";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -28,9 +30,12 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
+  dadosLegaisDe,
+  faltamDadosLegais,
   renderDocumentos,
   sha256Hex,
   TERMOS_VERSAO,
+  type DadosLegais,
   type ParceiroDados,
 } from "@/lib/legal/termos";
 
@@ -72,7 +77,7 @@ const RECURSOS: RecursoCard[] = [
 ];
 
 function BoasVindasPage() {
-  const { usuario } = useAuth();
+  const { usuario, escritorio } = useAuth();
   const ehParceiro = usuario?.tipo === "parceiro";
   const primeiroNome =
     usuario?.nome?.split(" ")[0] ?? usuario?.email?.split("@")[0] ?? "";
@@ -87,9 +92,9 @@ function BoasVindasPage() {
           Olá{primeiroNome ? `, ${primeiroNome}` : ""}!
         </h1>
         <p className="text-base text-muted-foreground">
-          Você agora faz parte do Mara Sandra Connect — a plataforma de gestão de
+          Você agora faz parte do Legal Connect — a plataforma de gestão de
           casos do escritório{" "}
-          <strong className="text-foreground">Mara Sandra Vian Advocacia</strong>.
+          <strong className="text-foreground">{nomeDoEscritorio(escritorio)}</strong>.
         </p>
       </div>
 
@@ -185,7 +190,7 @@ function InternoConcluir() {
               className="text-sm leading-snug cursor-pointer select-none"
             >
               Li e concordo com os termos de uso e a política de privacidade do
-              Mara Sandra Connect, e me comprometo a tratar com sigilo
+              Legal Connect, e me comprometo a tratar com sigilo
               profissional os dados pessoais dos clientes.
             </label>
           </div>
@@ -212,8 +217,25 @@ function AceiteParceiro({
   usuarioId: string;
   nomeInicial: string;
 }) {
-  const { refreshUsuario } = useAuth();
+  const { refreshUsuario, escritorio } = useAuth();
   const navigate = useNavigate();
+
+  // Os dados do ESCRITÓRIO que os documentos citam (razão social, CNPJ,
+  // endereço, foro, canal de privacidade) — do banco, por escritório (#496).
+  const [legais, setLegais] = useState<DadosLegais | null>(null);
+  const [erroLegais, setErroLegais] = useState<string | null>(null);
+  useEffect(() => {
+    const escId = escritorio?.escritorio_id;
+    if (!escId) return;
+    lerUm<{ dados_legais: unknown }>(
+      supabase.from("escritorio_config").select("dados_legais").eq("escritorio_id", escId).maybeSingle(),
+      "dados legais do escritório",
+    )
+      .then((r) => setLegais(dadosLegaisDe(r?.dados_legais)))
+      .catch((e: Error) => setErroLegais(e.message));
+  }, [escritorio?.escritorio_id]);
+  const faltamLegais = legais ? faltamDadosLegais(legais) : [];
+  const legaisOk = !!legais && faltamLegais.length === 0;
 
   const [dados, setDados] = useState<ParceiroDados>({
     nome: nomeInicial,
@@ -246,7 +268,7 @@ function AceiteParceiro({
     })();
   }, [usuarioId]);
 
-  const docs = useMemo(() => renderDocumentos(dados), [dados]);
+  const docs = useMemo(() => (legais ? renderDocumentos(dados, legais) : []), [dados, legais]);
 
   const docDigits = dados.documento.replace(/\D/g, "");
   const dadosOk =
@@ -261,6 +283,10 @@ function AceiteParceiro({
   }
 
   async function assinar() {
+    if (!legaisOk) {
+      toast.error("O escritório ainda não completou os dados legais dos documentos.");
+      return;
+    }
     if (!dadosOk) {
       toast.error("Preencha seus dados: nome, CPF/CNPJ, OAB (com UF) e endereço.");
       return;
@@ -384,7 +410,25 @@ function AceiteParceiro({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {docs.map((d) => (
+          {erroLegais && (
+            <p className="text-sm text-destructive">Não consegui carregar os dados do escritório: {erroLegais}</p>
+          )}
+          {!legais && !erroLegais && (
+            <div className="flex h-20 items-center justify-center">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          )}
+          {legais && faltamLegais.length > 0 && (
+            <div
+              className="rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/30 dark:text-amber-200"
+              data-aceite-faltam-dados-legais
+            >
+              O escritório ainda não completou os dados que os documentos citam (razão social, CNPJ,
+              endereço e foro). Fale com o escritório: a assinatura fica liberada assim que eles
+              forem preenchidos.
+            </div>
+          )}
+          {legaisOk && docs.map((d) => (
             <div key={d.id} className="rounded-lg border">
               <div className="flex items-center justify-between gap-2 border-b bg-muted/40 px-3 py-2">
                 <span className="text-sm font-medium">{d.titulo}</span>
@@ -448,7 +492,7 @@ function AceiteParceiro({
         <Button
           size="lg"
           onClick={assinar}
-          disabled={submitting || !dadosOk || !aceite || !assinaturaOk}
+          disabled={submitting || !legaisOk || !dadosOk || !aceite || !assinaturaOk}
         >
           {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
           Assinar e começar
