@@ -53,6 +53,20 @@ describe("aceite antes do e-mail (#249)", () => {
     expect(copias, "importe TERMOS_VERSAO de @shared/termos").toEqual([]);
   });
 
+  test("os seeds leem a versão do fonte único e acham", () => {
+    // Até 28/10 os dois seeds procuravam `TERMOS_VERSAO = "…"` em
+    // src/lib/legal/termos.ts, que desde o #249 só reexporta: o de staging
+    // parava com erro (passo 5 do espelho) e o local criava parceiro sem aceite.
+    for (const script of ["scripts/seed-local-rbac.mjs", "scripts/seed-staging-contas.mjs"]) {
+      const t = readFileSync(join(RAIZ, script), "utf8");
+      const lidos = [...t.matchAll(/readFileSync\(\s*(?:path\.join\(process\.cwd\(\),\s*)?"([^"]+)"/g)]
+        .map((m) => m[1]).filter((f) => /termos\.ts$/.test(f));
+      expect(lidos, script).toEqual(["supabase/functions/_shared/termos.ts"]);
+      const fonte = readFileSync(join(RAIZ, lidos[0]), "utf8");
+      expect(/TERMOS_VERSAO = "([^"]+)"/.exec(fonte)?.[1], `${script}: a busca acha a versão`).toBe(TERMOS_VERSAO);
+    }
+  });
+
   test("ninguém chama o Resend fora de _shared/email.ts", () => {
     const diretos: string[] = [];
     for (const p of arquivos(FUNCTIONS, /\.ts$/)) {
