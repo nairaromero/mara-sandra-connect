@@ -72,6 +72,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { mensagemDeErroEdge } from "@/lib/edge-function-error";
 import { parceiroSemAceite } from "@/lib/legal/termos";
+import { nomeDoEscritorio } from "@/lib/marca-escritorio";
 
 export const Route = createFileRoute("/_authenticated/parceiros")({
   // Aba ativa na URL (?tab=convites|armazenamento) pra deep-link e
@@ -144,7 +145,7 @@ function fmtDataHora(iso: string | null): string {
 }
 
 // Gera e baixa um comprovante de aceite (HTML autocontido, imprimível em PDF).
-function baixarComprovante(a: AceiteRow, parceiroNome: string) {
+function baixarComprovante(a: AceiteRow, parceiroNome: string, escritorioNome: string) {
   const esc = (s: string) =>
     String(s ?? "")
       .replace(/&/g, "&amp;")
@@ -169,7 +170,7 @@ h1{font-size:20px;border-bottom:3px solid #b8862e;padding-bottom:8px}
 table{border-collapse:collapse;width:100%;margin:10px 0}td{border:1px solid #ddd;padding:6px 8px;font-size:13px;vertical-align:top}
 .muted{color:#777;font-size:12px}</style></head><body>
 <h1>Comprovante de Aceite Eletrônico</h1>
-<p class="muted">Mara Sandra Vian Advocacia · Plataforma Mara Sandra Connect</p>
+<p class="muted">${esc(escritorioNome)} · Plataforma Legal Connect</p>
 <table>
 <tr><td><b>Parceiro</b></td><td>${esc(parceiroNome)}</td></tr>
 <tr><td><b>Assinatura (nome digitado)</b></td><td>${esc(a.nome_assinatura)}</td></tr>
@@ -228,7 +229,7 @@ interface UsoStorageRow {
 }
 
 function ParceirosPage() {
-  const { usuario, isAdmin, pode } = useAuth();
+  const { usuario, isAdmin, pode, escritorio } = useAuth();
   const navigate = useNavigate();
   const { entrarVerComo } = useVerComoParceiro();
   // "Ver como parceiro" (só admin, leitura): entra no modo e vai pro kanban.
@@ -1287,7 +1288,7 @@ function ParceirosPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => baixarComprovante(a, aceiteAlvo?.nome ?? "parceiro")}
+                        onClick={() => baixarComprovante(a, aceiteAlvo?.nome ?? "parceiro", nomeDoEscritorio(escritorio))}
                       >
                         <Download className="h-3.5 w-3.5 mr-1.5" />
                         Baixar comprovante

@@ -42,7 +42,7 @@ function buildSystem(
     ? "usuario INTERNO do escritorio (acesso total aos casos)"
     : "advogado PARCEIRO (so enxerga os casos vinculados a ele)";
   const linhas = [
-    "Voce e o assistente do Mara Sandra Connect, um sistema de um escritorio de",
+    "Voce e o assistente do Legal Connect, o sistema de gestao de um escritorio de",
     "advocacia previdenciaria brasileira. Fala portugues do Brasil, de forma direta.",
     "O usuario atual e um " + papel + ".",
     "",

@@ -33,6 +33,7 @@ import { EmBreveCard } from "@/components/integracoes/em-breve-card";
 import { TiposBeneficioCard } from "@/components/tipos-beneficio-card";
 import { ChecklistBaseCard } from "@/components/configuracoes/checklist-documentos";
 import { ResponsaveisEtapasCard } from "@/components/configuracoes/responsaveis-etapas-card";
+import { DadosLegaisCard } from "@/components/configuracoes/dados-legais-card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -541,7 +542,7 @@ function ConfiguracoesPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="text-sm text-muted-foreground space-y-1">
-                <p>Mara Sandra Connect - app interno do escritório</p>
+                <p>Legal Connect — gestão de casos previdenciários para escritórios e parceiros</p>
                 <p className="text-xs">Versão beta</p>
               </CardContent>
             </Card>
@@ -687,6 +688,7 @@ function ConfiguracoesPage() {
                   no topo, nos e-mails e nas mensagens deste escritorio. */}
               <TabsContent value="escritorio" className="space-y-6">
                 <EscritorioMarcaCard />
+                <DadosLegaisCard />
                 <ResponsaveisEtapasCard />
               </TabsContent>
 

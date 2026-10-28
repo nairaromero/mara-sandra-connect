@@ -105,6 +105,15 @@ async function garantirConta(conta, { tipo, escritorioOrigem, existentes }) {
       termos_versao: TERMOS, senha_definida_em: agora, escritorio_origem_id: escritorioOrigem ?? null,
     });
     falha(`usuarios ${conta.email}`, error);
+  } else {
+    // Conta de TESTE fica sempre na versão atual dos termos: quando a versão
+    // sobe (#496), a conta que já existia cairia em /boas-vindas.
+    const { error } = await admin.from("usuarios").update({ termos_versao: TERMOS, onboarded_em: agora, aceitou_termos_em: agora })
+      .eq("id", u.id).is("termos_versao", null);
+    falha(`usuarios (termos sem versão) ${conta.email}`, error);
+    const { error: e2 } = await admin.from("usuarios").update({ termos_versao: TERMOS, aceitou_termos_em: agora })
+      .eq("id", u.id).neq("termos_versao", TERMOS);
+    falha(`usuarios (termos) ${conta.email}`, e2);
   }
   conta.id = u.id;
   return u.id;
@@ -214,6 +223,20 @@ const comoCAdmin = await sessaoDe(CONTAS.cAdmin, ESC2);
 falha("papel assistente", (await comoCAdmin.rpc("definir_papel", { p_usuario_id: CONTAS.cAssistente.id, p_papel: "assistente" })).error);
 falha("papel financeiro", (await comoCAdmin.rpc("definir_papel", { p_usuario_id: CONTAS.cFinanceiro.id, p_papel: "financeiro" })).error);
 log("canário: admin, advogado, assistente, financeiro e parceira");
+
+// Dados legais FICTÍCIOS do Canário (#496): sem eles, a parceira do Canário não
+// assina os termos (os documentos citariam "[a preencher]").
+falha("dados legais do Canário", (await comoCAdmin.rpc("escritorio_definir_dados_legais", {
+  p_dados: {
+    razao_social: "Canário Advocacia Sociedade Individual (fictício)",
+    cnpj: "12.345.678/0001-90",
+    endereco: "Rua de Teste, 100 – Centro – São Paulo/SP – CEP 01000-000",
+    foro: "São Paulo/SP",
+    privacidade_contato: "Carla Nogueira",
+    privacidade_email: "privacidade@canario-advocacia.com.br",
+  },
+})).error);
+log("canário: dados legais (fictícios)");
 
 // 4. Escritório 1: papéis novos + a pessoa dos dois escritórios.
 await garantirConta(CONTAS.m1Assistente, { tipo: "interno",  escritorioOrigem: esc1.id, existentes });

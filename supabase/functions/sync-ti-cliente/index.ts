@@ -295,7 +295,7 @@ serve(async (req) => {
     return jsonResponse({
       achou_no_ti: true,
       atualizado: false,
-      motivo: "cliente nao existe no Mara Sandra (cadastre primeiro)",
+      motivo: "cliente nao existe no sistema (cadastre primeiro)",
       customer_ti: customer,
     });
   }
