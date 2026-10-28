@@ -3,8 +3,9 @@
 **Versão {{VERSAO}}**
 
 ## 1. Controlador
-A plataforma **Legal Connect** é operada por **{{ESCRITORIO_NOME}}** (CNPJ
-**{{ESCRITORIO_CNPJ}}**, **{{ESCRITORIO_ENDERECO}}**), **controladora** dos dados. Quando o
+Os dados tratados na plataforma **Legal Connect** têm como **controlador** o escritório
+**{{ESCRITORIO_NOME}}** (CNPJ **{{ESCRITORIO_CNPJ}}**, **{{ESCRITORIO_ENDERECO}}**), que
+utiliza a plataforma na gestão dos casos. Quando o
 atendimento se dá por **advogado/escritório parceiro**, este e o Escritório podem atuar como
 **controladores conjuntos**.
 
@@ -32,7 +33,7 @@ Compartilhamos com prestadores que protegem seus dados: **Supabase** (banco/logi
 — **Brasil/São Paulo**); **Cloudflare** (hospedagem — EUA); **Resend** (e-mail — EUA);
 **Google/Drive** (armazenamento opcional — EUA); **Google Analytics** (medição de audiência
 do site público — EUA); **Anthropic/OpenAI** (IA de apoio, quando
-habilitada — EUA); **n8n** (automações); e o **escritório/advogado parceiro** do seu caso.
+habilitada — EUA); e o **escritório/advogado parceiro** do seu caso.
 Também com **autoridades** (INSS, Judiciário, ANPD) quando necessário ou exigido por lei.
 **Não vendemos seus dados.**
 
@@ -47,7 +48,8 @@ revisão humana e informações (art. 20).
 
 ## 8. Segurança
 Hospedagem no Brasil; isolamento de acesso; armazenamento privado com links temporários;
-criptografia de credenciais sensíveis; trilhas de auditoria; autenticação sem senha; TLS.
+criptografia de credenciais sensíveis; trilhas de auditoria; autenticação por senha pessoal,
+com verificação em duas etapas disponível; TLS.
 
 ## 9. Retenção
 Mantemos pelo tempo necessário às finalidades e às obrigações legais (em regra, até **trânsito
