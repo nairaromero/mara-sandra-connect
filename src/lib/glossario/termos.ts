@@ -118,7 +118,7 @@ export const TERMOS: Array<Termo> = [
     publico: "interno",
     papel: "admin",
     definicao:
-      "Tornar alguém administrador é entregar o escritório a essa pessoa: ela convida e desliga gente, troca papéis (inclusive o seu), vê a auditoria, mexe nas integrações (IA, Google, webhooks), emite token do MCP, exclui clientes e parceiros e é quem aprova ou recusa o acesso de suporte da plataforma. Quando a ideia é dar só uma dessas coisas a alguém, não é preciso torná-la administradora: dá para conceder aquela permissão sozinha (ver ajuste de permissão). Todo escritório precisa de pelo menos uma pessoa que gerencie a equipe — o sistema não deixa tirar a última.",
+      "O papel de quem responde pelo escritório: cuida da equipe, das configurações, das integrações e da auditoria, e é quem aprova ou recusa o acesso de suporte da plataforma. A lista abaixo, lida do banco agora, mostra o que o papel permite. Para dar só uma dessas coisas a alguém, não é preciso torná-lo administrador: dá para conceder aquela permissão sozinha (veja ajuste de permissão). Todo escritório precisa de pelo menos uma pessoa que gerencie a equipe — o sistema não deixa tirar a última.",
     veja: ["equipe", "ajuste-de-permissao", "auditoria", "acesso-suporte", "token-mcp", "prorrogacao"],
   },
   {
@@ -129,7 +129,7 @@ export const TERMOS: Array<Termo> = [
     publico: "interno",
     papel: "advogado",
     definicao:
-      "O papel de quem toca os casos. Cria e edita clientes e casos, tarefas, agenda, documentos, andamentos e análises; lê publicações, processos e a senha do MEU INSS; usa a IA; gerencia parceiros, etiquetas e templates. Não vê Equipe, Auditoria nem integrações, e não exclui cliente nem parceiro — isso é do administrador, porque não tem volta (só se ele conceder a exclusão a uma pessoa em particular). É o “interno” de antes dos papéis.",
+      "O papel de quem toca os casos no dia a dia, do cadastro do cliente ao protocolo, com as tarefas, a agenda, os documentos e a IA. A lista abaixo, lida do banco agora, mostra o que o papel permite. O que não tem volta e o que é do escritório inteiro fica com o administrador, que pode conceder uma dessas permissões a uma pessoa em particular. É o “interno” de antes dos papéis.",
     veja: ["assistente", "admin", "ajuste-de-permissao", "caso"],
   },
   {
@@ -139,7 +139,7 @@ export const TERMOS: Array<Termo> = [
     publico: "interno",
     papel: "assistente",
     definicao:
-      "Apoio ao advogado. Vê todos os casos, clientes e documentos, cadastra e edita, envia documentos e usa a IA — mas só mexe nas tarefas e compromissos atribuídos a ele, e só lê a senha do MEU INSS nos casos atribuídos a ele. Não gerencia parceiros, etiquetas nem templates, e não vê comercial nem repasses.",
+      "Apoio ao advogado: trabalha nos casos do escritório, mas em tarefas e agenda o alcance dele é o que está atribuído a ele (veja escopo). A lista abaixo, lida do banco agora, mostra o que o papel permite. O administrador pode ampliar ou reduzir uma permissão para uma pessoa específica.",
     veja: ["escopo", "tarefa", "advogado"],
   },
   {
@@ -150,7 +150,7 @@ export const TERMOS: Array<Termo> = [
     publico: "interno",
     papel: "financeiro",
     definicao:
-      "Vê os casos, as tarefas, a agenda e os repasses para conferir o que há a pagar e a receber — mas não cria nem edita nada do trabalho jurídico: sem “Novo caso”, sem criar tarefa ou compromisso, sem enviar documento, sem andamentos internos, sem senha do INSS. O menu fica sem Comercial, Processos, Publicações, Parceiros e Etiquetas.",
+      "O papel de quem confere o que há a pagar e a receber: acompanha os casos e os repasses sem atuar no trabalho jurídico. A lista abaixo, lida do banco agora, mostra o que o papel permite.",
     veja: ["repasse", "percentual-parceiro"],
   },
   {
@@ -160,7 +160,7 @@ export const TERMOS: Array<Termo> = [
     categoria: "parceria",
     papel: "parceiro",
     definicao:
-      "O alcance do parceiro: ele enxerga e movimenta apenas os casos que indicou. Não é ajuste de tela nem configuração por pessoa — é a regra do papel, conferida pelo banco a cada consulta. Caso que ele não indicou não aparece na lista, não abre pelo endereço direto e não volta em nenhuma busca. Dentro dos casos indicados, o parceiro vê os andamentos marcados como visíveis, envia documentos, cumpre solicitações, lê publicações e processos e vê a senha do MEU INSS do cliente.",
+      "O alcance do parceiro: o que ele pode, vale só nos casos que indicou. Não é ajuste de tela nem configuração por pessoa — é a regra do papel, conferida pelo banco a cada consulta. Caso que ele não indicou não aparece na lista, não abre pelo endereço direto e não volta em nenhuma busca. O que ele pode dentro dos casos indicados está na lista abaixo, lida do banco agora.",
     veja: ["parceiro", "caso", "visivel-parceiro", "solicitacao-documento"],
   },
   {
@@ -170,7 +170,7 @@ export const TERMOS: Array<Termo> = [
     categoria: "papeis",
     papel: "parceiro",
     definicao:
-      "Advogado de fora que indica clientes e acompanha só os casos que indicou. Nesses casos vê os andamentos marcados como visíveis ao parceiro, envia documentos, cumpre solicitações, lê publicações e processos e vê os próprios repasses. Não vê os outros casos do escritório nem a equipe. Entra pelo convite feito em Parceiros, cria a senha e aceita os termos no primeiro acesso; enquanto não aceita a versão atual, não recebe dado de cliente por e-mail nem por WhatsApp.",
+      "Advogado de fora que indica clientes e acompanha só os casos que indicou (veja casos indicados), sem acesso aos outros casos do escritório nem à equipe. A lista abaixo, lida do banco agora, mostra o que o papel permite nesses casos. Entra pelo convite feito em Parceiros, define a senha e aceita os termos no primeiro acesso; enquanto não aceita a versão atual, não recebe dado de cliente por e-mail nem por WhatsApp.",
     veja: ["indicados", "parceria", "visivel-parceiro", "repasse", "aceite-termos", "aviso-sem-aceite"],
   },
   {
@@ -641,8 +641,8 @@ export const TERMOS: Array<Termo> = [
     sinonimos: ["honorários do parceiro", "a pagar", "pago"],
     categoria: "parceria",
     definicao:
-      "O valor devido ao parceiro por um caso: previsto (enquanto o caso corre), a pagar (honorário recebido) e pago. Fica na aba Repasses do caso. O parceiro vê só os seus; o financeiro e o advogado veem todos; o assistente não vê.",
-    veja: ["percentual-parceiro", "financeiro"],
+      "O valor devido ao parceiro por um caso: previsto (enquanto o caso corre), a pagar (honorário recebido) e pago. Fica na aba Repasses do caso. O parceiro acompanha só os seus; na equipe, quem tem acesso depende da permissão de repasses de cada papel (veja os papéis, com a lista lida do banco).",
+    veja: ["percentual-parceiro", "financeiro", "advogado", "assistente", "parceiro"],
   },
   {
     id: "aceite-termos",
