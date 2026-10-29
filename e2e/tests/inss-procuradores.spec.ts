@@ -1,9 +1,9 @@
 // E2E do #503: quem é o procurador nos e-mails do INSS é do escritório.
 //
 // Antes, a lista era fixa no código com nomes de pessoas do escritório padrão.
-// Agora contam o marcador "(procurador)", a equipe interna ativa e os nomes
-// "como o INSS escreve" que o escritório cadastra (Integrações → Gmail do
-// INSS). Aqui: a lista é salva pela RPC (com as travas), a caixa do Canário é
+// Agora contam o marcador "(procurador)", a pessoa da equipe que o escritório
+// escolheu (uma só, num menu com busca) e os nomes "como o INSS escreve" que
+// ele cadastra (Integrações → "Procurador nos e-mails do INSS"). Aqui: a lista é salva pela RPC (com as travas), a caixa do Canário é
 // conectada pelo Google SIMULADO e o processador roda em dry_run com nomes
 // diferentes no e-mail — sem criar andamento nem tarefa.
 //
@@ -16,6 +16,7 @@ import {
   chamadorComo,
   contaDoCanario,
   escritorioCanario,
+  idDe,
   limpezaLocal,
   segredoDeSistemaLocal,
   sessaoComo,
@@ -72,17 +73,26 @@ test.describe.serial("procurador nos e-mails do INSS (#503)", () => {
 
   test("a lista é do escritório: salva com travas, auditada, e só por quem gerencia integrações", async () => {
     const { sb } = await sessaoComo(contaDoCanario("admin"), ESC2);
-    const sozinho = await sb.rpc("escritorio_definir_inss_procuradores", { p_nomes: ["Fulana"] });
+    const sozinho = await sb.rpc("escritorio_definir_inss_procuradores", { p_nomes: ["Fulana"], p_procurador_id: null });
     expect(sozinho.error?.message, "um nome só casaria com cliente").toMatch(/sobrenome/);
 
-    const ok = await sb.rpc("escritorio_definir_inss_procuradores", { p_nomes: [`  ${PROCURADOR} `, PROCURADOR.toUpperCase(), ""] });
+    // Quem não é da equipe ativa do escritório não pode ser o procurador.
+    const fora = await sb.rpc("escritorio_definir_inss_procuradores", {
+      p_nomes: [], p_procurador_id: await idDe(contaDoCanario("parceiro")),
+    });
+    expect(fora.error?.message).toMatch(/equipe/);
+
+    const advogadoId = await idDe(contaDoCanario("advogado"));
+    const ok = await sb.rpc("escritorio_definir_inss_procuradores", {
+      p_nomes: [`  ${PROCURADOR} `, PROCURADOR.toUpperCase(), ""], p_procurador_id: advogadoId,
+    });
     expect(ok.error, ok.error?.message).toBeNull();
-    expect(ok.data).toEqual([PROCURADOR]);
+    expect(ok.data).toEqual({ procurador_id: advogadoId, nomes: [PROCURADOR] });
     const trilha = await ultimaLinhaDaTrilha(ESC2, "escritorio.inss_procuradores");
-    expect(trilha?.detalhes.depois).toEqual([PROCURADOR]);
+    expect(trilha?.detalhes.depois).toEqual({ procurador_id: advogadoId, nomes: [PROCURADOR] });
 
     const adv = await sessaoComo(contaDoCanario("advogado"), ESC2);
-    const negado = await adv.sb.rpc("escritorio_definir_inss_procuradores", { p_nomes: ["Outra Pessoa"] });
+    const negado = await adv.sb.rpc("escritorio_definir_inss_procuradores", { p_nomes: ["Outra Pessoa"], p_procurador_id: null });
     expect(negado.error?.code).toBe("42501");
   });
 
@@ -107,12 +117,17 @@ test.describe.serial("procurador nos e-mails do INSS (#503)", () => {
       .toBe(1);
     await page.goto("/configuracoes?tab=integracoes");
     await expect(page.locator("[data-card-gmail]")).toContainText(/Conectado como/i, { timeout: 20_000 });
-    // O cartão novo mostra a lista salva.
+    // O cartão mostra o procurador escolhido (menu com busca) e a lista salva.
+    await expect(page.locator('[data-selecao="inss-procurador"]')).toContainText("Diego Prado");
     await expect(page.locator("[data-procuradores-cadastrados]")).toHaveValue(PROCURADOR);
     await ctx.close();
 
     expect(await classificar(PROCURADOR.toUpperCase())).toBe("cliente_eh_procurador");
     expect(await classificar("BELTRANO DE TAL (PROCURADOR)")).toBe("cliente_eh_procurador");
+    // O escolhido na equipe conta pelo nome do cadastro…
+    expect(await classificar("DIEGO PRADO (ADVOGADO DO CANÁRIO)")).toBe("cliente_eh_procurador");
+    // …e o resto da equipe não (antes contava todo mundo).
+    expect(await classificar("ELISA ROCHA (ASSISTENTE DO CANÁRIO)")).not.toBe("cliente_eh_procurador");
     expect(await classificar("JOANA REIS CAMARGO")).not.toBe("cliente_eh_procurador");
     // O primeiro nome do procurador sozinho NÃO basta (era o furo do "naira").
     expect(await classificar("FULANA SILVA SANTOS")).not.toBe("cliente_eh_procurador");

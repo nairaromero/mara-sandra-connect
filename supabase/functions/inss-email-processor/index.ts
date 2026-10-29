@@ -50,7 +50,7 @@ import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-
 import { decryptSecret } from "../_shared/crypto.ts";
 import { chatWith, type Credencial } from "../_shared/ia-providers.ts";
 import { abrirCredencial, carregarIntegracao, type IntegracaoIA, registroDeUso } from "../_shared/ia-integracao.ts";
-import { ehProcurador, lerProcuradoresCadastrados, nomesDeProcurador } from "../_shared/inss-procurador.ts";
+import { ehProcurador, lerProcuradorEscolhido, lerProcuradoresCadastrados, nomesDeProcurador } from "../_shared/inss-procurador.ts";
 
 // Sobrescritos so no ambiente LOCAL (mock de e2e/demo/mocks); fora dele, Google.
 const GOOGLE_TOKEN_URL = Deno.env.get("GOOGLE_TOKEN_URL") ?? "https://oauth2.googleapis.com/token";
@@ -748,19 +748,20 @@ async function carregarLookups(sb: SupabaseClient, escritorioId: string): Promis
     .eq("status", "ativo")
     .order("created_at");
   const map = new Map<string, string>();
-  const nomesEquipe: string[] = [];
+  const nomePorUsuario = new Map<string, string>();
   let primeiroAdmin: string | null = null;
   for (const m of (data ?? []) as Array<Record<string, unknown>>) {
     const u = m.usuarios as { email?: string | null; nome?: string | null; ativo?: boolean | null } | null;
     const p = m.papeis as { chave?: string; tipo_acesso?: string } | null;
     if (!u || u.ativo === false || p?.tipo_acesso !== "interno") continue;
     if (u.email) map.set(String(u.email).toLowerCase(), m.usuario_id as string);
-    if (u.nome) nomesEquipe.push(String(u.nome));
+    if (u.nome) nomePorUsuario.set(m.usuario_id as string, String(u.nome));
     if (!primeiroAdmin && p?.chave === "admin") primeiroAdmin = m.usuario_id as string;
   }
-  // Nomes "como o INSS escreve" que o escritório cadastrou (#503). Erro de
-  // leitura estoura: sem saber quem é o procurador, o e-mail seria classificado
-  // como de cliente.
+  // O procurador escolhido na equipe e os nomes "como o INSS escreve" que o
+  // escritório cadastrou (#503). Procurador que saiu da equipe ativa deixa de
+  // contar. Erro de leitura estoura: sem saber quem é o procurador, o e-mail
+  // seria classificado como de cliente.
   const { data: cfg, error: eCfg } = await sb
     .from("escritorio_config").select("extras").eq("escritorio_id", escritorioId).maybeSingle();
   if (eCfg) throw new Error(`escritorio_config (procuradores no INSS): ${eCfg.message}`);
@@ -768,7 +769,10 @@ async function carregarLookups(sb: SupabaseClient, escritorioId: string): Promis
     escritorioId,
     emailParaUsuarioId: map,
     nairaUsuarioId: map.get(NAIRA_EMAIL_DEFAULT) ?? primeiroAdmin,
-    procuradores: nomesDeProcurador(nomesEquipe, lerProcuradoresCadastrados(cfg?.extras)),
+    procuradores: nomesDeProcurador(
+      nomePorUsuario.get(lerProcuradorEscolhido(cfg?.extras) ?? "") ?? null,
+      lerProcuradoresCadastrados(cfg?.extras),
+    ),
   };
 }
 
