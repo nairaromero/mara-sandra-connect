@@ -18,10 +18,6 @@ const RAIZ = join(import.meta.dir, "../..");
 const EXCECOES: Record<string, string> = {
   "src/routes/index.tsx": "página pública de entrada: é o site do escritório (decisão da Naira, 28/10)",
   "src/lib/site-publico.ts": "dados do site público do escritório (página de entrada e /privacidade)",
-  // Não é marca: é LÓGICA — os nomes que identificam o procurador nos e-mails do
-  // INSS são de pessoas do escritório padrão. Virar lista por escritório muda a
-  // leitura dos e-mails; tem card próprio.
-  "supabase/functions/inss-email-processor/index.ts": "detector de procurador com nomes do escritório padrão (card próprio)",
 };
 
 const NOME = /Mara\s+Sandra|Mara\s+Vian|maravian/i;

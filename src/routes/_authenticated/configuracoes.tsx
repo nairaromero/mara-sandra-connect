@@ -26,6 +26,7 @@ import { ClientOnly } from "@/components/client-only";
 import { IntegracaoIaCard } from "@/components/ia/integracao-ia-card";
 import { ConexaoClaudeCard } from "@/components/ia/conexao-claude-card";
 import { IntegracaoGmailCard } from "@/components/integracoes/integracao-gmail-card";
+import { ProcuradoresInssCard } from "@/components/integracoes/procuradores-inss-card";
 import { IntegracaoWhatsappCard } from "@/components/integracoes/integracao-whatsapp-card";
 import { IntegracaoLegalmailCard } from "@/components/integracoes/integracao-legalmail-card";
 import { IntegracaoTiCard } from "@/components/integracoes/integracao-ti-card";
@@ -701,6 +702,7 @@ function ConfiguracoesPage() {
 
                 {/* Card: Integração Gmail (INSS) — a caixa deste escritório */}
                 <IntegracaoGmailCard />
+                <ProcuradoresInssCard />
 
                 {/* Card: WhatsApp (Evolution) — a instância deste escritório */}
                 <IntegracaoWhatsappCard />

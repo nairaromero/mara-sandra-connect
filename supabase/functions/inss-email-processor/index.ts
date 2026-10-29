@@ -50,6 +50,7 @@ import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-
 import { decryptSecret } from "../_shared/crypto.ts";
 import { chatWith, type Credencial } from "../_shared/ia-providers.ts";
 import { abrirCredencial, carregarIntegracao, type IntegracaoIA, registroDeUso } from "../_shared/ia-integracao.ts";
+import { ehProcurador, lerProcuradoresCadastrados, nomesDeProcurador } from "../_shared/inss-procurador.ts";
 
 // Sobrescritos so no ambiente LOCAL (mock de e2e/demo/mocks); fora dele, Google.
 const GOOGLE_TOKEN_URL = Deno.env.get("GOOGLE_TOKEN_URL") ?? "https://oauth2.googleapis.com/token";
@@ -387,8 +388,6 @@ function normalize(s: string): string {
     .trim();
 }
 
-const DETECTORES_PROCURADOR = ["(procurador)", "mara sandra vian", "naira"];
-
 const PENDENTE_SUBTIPOS: Array<{ id: string; patterns: string[] }> = [
   {
     id: "pendente_cumprimento_protocolado",
@@ -423,15 +422,15 @@ const CLASSIFICACAO_ORDEM: Array<{ id: string; patterns: string[] }> = [
   { id: "sobrestado", patterns: ["sobrestad", "diligenc"] },
 ];
 
-function classificar(subject: string, c: CamposEmail): string {
+function classificar(subject: string, c: CamposEmail, procuradores: string[]): string {
   // 1) Requerimento aberto pelo assunto
   if (/requerimento realizado com sucesso/i.test(subject)) {
     return "requerimento_aberto";
   }
 
-  // 2) Cliente é procurador (nome contém marcador) → fluxo especial
-  const nomeNorm = normalize(c.nome_cliente);
-  if (DETECTORES_PROCURADOR.some((p) => nomeNorm.includes(normalize(p)))) {
+  // 2) Cliente é procurador → fluxo especial. Quem conta: o marcador do INSS,
+  // a equipe do escritório e os nomes que ele cadastrou (_shared/inss-procurador.ts).
+  if (ehProcurador(c.nome_cliente, procuradores)) {
     return "cliente_eh_procurador";
   }
 
@@ -645,6 +644,8 @@ interface Lookups {
   escritorioId: string;
   emailParaUsuarioId: Map<string, string>;
   nairaUsuarioId: string | null;
+  /** Nomes que identificam o procurador no e-mail (equipe + cadastrados), normalizados. */
+  procuradores: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -743,22 +744,31 @@ async function carregarLookups(sb: SupabaseClient, escritorioId: string): Promis
   // 1); nos outros, o primeiro administrador ativo.
   const { data } = await sb
     .from("membros")
-    .select("usuario_id, created_at, usuarios!membros_usuario_id_fkey(email, ativo), papeis!membros_papel_id_fkey(chave, tipo_acesso)")
+    .select("usuario_id, created_at, usuarios!membros_usuario_id_fkey(email, nome, ativo), papeis!membros_papel_id_fkey(chave, tipo_acesso)")
     .eq("status", "ativo")
     .order("created_at");
   const map = new Map<string, string>();
+  const nomesEquipe: string[] = [];
   let primeiroAdmin: string | null = null;
   for (const m of (data ?? []) as Array<Record<string, unknown>>) {
-    const u = m.usuarios as { email?: string | null; ativo?: boolean | null } | null;
+    const u = m.usuarios as { email?: string | null; nome?: string | null; ativo?: boolean | null } | null;
     const p = m.papeis as { chave?: string; tipo_acesso?: string } | null;
     if (!u || u.ativo === false || p?.tipo_acesso !== "interno") continue;
     if (u.email) map.set(String(u.email).toLowerCase(), m.usuario_id as string);
+    if (u.nome) nomesEquipe.push(String(u.nome));
     if (!primeiroAdmin && p?.chave === "admin") primeiroAdmin = m.usuario_id as string;
   }
+  // Nomes "como o INSS escreve" que o escritório cadastrou (#503). Erro de
+  // leitura estoura: sem saber quem é o procurador, o e-mail seria classificado
+  // como de cliente.
+  const { data: cfg, error: eCfg } = await sb
+    .from("escritorio_config").select("extras").eq("escritorio_id", escritorioId).maybeSingle();
+  if (eCfg) throw new Error(`escritorio_config (procuradores no INSS): ${eCfg.message}`);
   return {
     escritorioId,
     emailParaUsuarioId: map,
     nairaUsuarioId: map.get(NAIRA_EMAIL_DEFAULT) ?? primeiroAdmin,
+    procuradores: nomesDeProcurador(nomesEquipe, lerProcuradoresCadastrados(cfg?.extras)),
   };
 }
 
@@ -860,7 +870,7 @@ async function processarMensagem(
     const d = new Date(msg.date);
     return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
   })();
-  const classificacao = classificar(msg.subject, campos);
+  const classificacao = classificar(msg.subject, campos, lookups.procuradores);
   res.classificacao = classificacao;
   res.subject = msg.subject;
   // Sempre: a auditoria guarda o que foi extraído mesmo na execução real, que
