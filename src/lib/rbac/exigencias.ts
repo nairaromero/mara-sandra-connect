@@ -130,6 +130,7 @@ export const RPC: Record<string, Exigencia> = {
   escritorio_definir_checklist: { permissao: "templates:gerenciar" },
   escritorio_definir_responsaveis: { permissao: "escritorio:configurar" },
   escritorio_definir_dados_legais: { permissao: "escritorio:configurar" },
+  escritorio_definir_inss_procuradores: { permissao: "integracoes:gerenciar" },
 };
 
 /** Edge functions que pedem permissão em `exigirUsuario`. */
