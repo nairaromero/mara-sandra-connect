@@ -36,7 +36,7 @@ const envLocal = (nome) => {
 const st = STAGING
   ? { API_URL: "https://alhqbpbekmxpoibrrnbi.supabase.co", ANON_KEY: envLocal("STAGING_PUBLISHABLE_KEY") || envLocal("VITE_SUPABASE_PUBLISHABLE_KEY"), SERVICE_ROLE_KEY: envLocal("STAGING_SERVICE_ROLE_KEY") }
   : JSON.parse(execSync("bunx supabase status -o json", { stdio: ["ignore", "pipe", "ignore"] }).toString());
-if (STAGING && (!st.ANON_KEY || !st.SERVICE_ROLE_KEY)) { console.error("--staging precisa de STAGING_PUBLISHABLE_KEY e STAGING_SERVICE_ROLE_KEY no .env.local"); process.exit(1); }
+if (STAGING && (!st.ANON_KEY || !st.SERVICE_ROLE_KEY)) { console.error("--staging precisa de STAGING_PUBLISHABLE_KEY e STAGING_SERVICE_ROLE_KEY no .env.local / ambiente"); process.exit(1); }
 const API = st.API_URL;
 // Sem --staging o alvo TEM de ser a pilha local: o seed grava muita coisa e um
 // engano de flag não pode cair em nuvem nenhuma. Com --staging, o alvo é o
@@ -49,9 +49,11 @@ if (STAGING && !API.includes("alhqbpbekmxpoibrrnbi")) {
   console.error(`--staging aponta para outro projeto: ${API}`);
   process.exit(1);
 }
-const SENHA = fs.readFileSync(".env.local", "utf8").match(/^STAGING_SYNTH_PASSWORD=(.*)$/m)?.[1]?.replace(/^"|"$/g, "").trim();
+// Pelo mesmo envLocal das chaves: no Actions não há .env.local, e ler o arquivo
+// direto derrubou o seed no espelho de 02/11 — o staging ficou sem o Canário.
+const SENHA = envLocal("STAGING_SYNTH_PASSWORD");
 if (!SENHA) {
-  console.error("STAGING_SYNTH_PASSWORD ausente no .env.local");
+  console.error("STAGING_SYNTH_PASSWORD ausente no .env.local / ambiente");
   process.exit(1);
 }
 
@@ -335,4 +337,4 @@ console.table((staff ?? []).map((s) => ({ email: s.usuario.email, papel: s.papel
 // O autenticador do seed some: a conta do QG volta a ficar sem fator, e quem
 // abrir o QG de verdade (ou o filme) passa pelo cadastro na tela.
 if (baixarQg) { await baixarQg(); log("autenticador descartável do QG removido"); }
-console.log(`senha de todas as contas: STAGING_SYNTH_PASSWORD (.env.local)`);
+console.log(`senha de todas as contas: STAGING_SYNTH_PASSWORD (.env.local / ambiente)`);
