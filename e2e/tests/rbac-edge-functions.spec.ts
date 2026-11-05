@@ -108,21 +108,16 @@ test.describe.serial("RBAC nas edge functions", () => {
     const upd = await cAdmin("update-parceiro", { usuario_id: duplo!.id, email: "novo-duplo@example.invalid", enviar_link: false });
     expect(upd.status, upd.texto).toBe(409);
 
-    // excluir do canário: o vínculo sai, a conta e o vínculo do escritório 1 ficam
+    // excluir do canário: ele TEM casos lá (Kleber…), então é recusado e nada
+    // muda — o caminho é Desligar (#202). A saída de um escritório sem
+    // histórico, preservando a conta, está em excluir-parceiro.spec.ts.
     const del = await cAdmin("excluir-parceiro", { usuario_id: duplo!.id, confirmar: true });
-    expect(del.status, del.texto).toBe(200);
-    expect(del.json?.conta_preservada).toBe(true);
+    expect(del.status, del.texto).toBe(409);
+    expect(del.json?.codigo).toBe("parceiro_com_historico");
     const { data: vinculos } = await admin.from("membros").select("escritorio_id").eq("usuario_id", duplo!.id);
-    expect(vinculos!.map((v) => v.escritorio_id)).toEqual([ESC1]);
+    expect(vinculos!.map((v) => v.escritorio_id).sort()).toEqual([ESC1, ESC2].sort());
     const { data: conta } = await admin.from("usuarios").select("id").eq("id", duplo!.id).maybeSingle();
     expect(conta, "a conta não pode ter sido apagada").toBeTruthy();
-
-    // repõe o vínculo (o seed e os outros specs contam com ele) — pelo caminho oficial
-    const sb = await clienteComo(contaDoCanario("admin"), ESC2);
-    expect((await sb.rpc("vincular_pessoa", { p_email: `rbac+duplo@${DOM}`, p_papel: "parceiro" })).error).toBeNull();
-    // os casos dele no canário foram desvinculados pela exclusão: religa
-    await admin.from("casos").update({ parceiro_id: duplo!.id }).eq("escritorio_id", ESC2).is("parceiro_id", null)
-      .in("cliente_id", (await admin.from("clientes").select("id").eq("escritorio_id", ESC2).like("nome", "Kleber%")).data!.map((c) => c.id));
   });
 
   test("convite nasce no escritório de quem convida, com o papel pedido", async () => {
