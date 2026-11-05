@@ -134,6 +134,17 @@ Pipeline:
    (`STAGING_SYNTH_PASSWORD` no `.env.local`) — nenhuma credencial real existe
    no staging. E-mails da equipe (`nairaromerovian*`, `e2e+*`) são preservados
    pra login familiar; parceiros reais ficam mascarados.
+5. contas de papel (`seed-staging-contas.mjs`: `e2e+admin/interno/parceiro`);
+6. vínculos do RBAC (`espelho-reconstruir-acesso.sql`) e o Canário/QG de teste
+   (`seed-local-rbac.mjs --staging`).
+
+   Desde 2026-11-05, falha no 5 ou no 6 **não aborta** (os dados já estão no
+   staging), mas o run termina com erro e lista o que faltou — o workflow abre
+   o card "Espelho do staging falhou". Antes virava um `AVISO` com o run verde:
+   em 02/11 o seed do RBAC estourou no Actions (lia a senha só do `.env.local`,
+   que lá não existe) e o staging ficou sem o Canário até a suíte do release
+   de 05/11 acusar. Os seeds leem `.env.local` **ou** o ambiente
+   (`e2e/unit/espelho-seeds-no-actions.test.ts` é a régua).
 
 Storage (documentos) **não é copiado** — downloads falham graciosamente no
 staging. Texto de publicações DJEN/DataJud é mantido (fonte pública oficial).
