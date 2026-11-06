@@ -1,16 +1,14 @@
 // supabase/functions/excluir-parceiro/index.ts
 //
-// Exclui um parceiro do sistema, com cascade que preserva o historico
-// dos casos/andamentos/documentos. Util pra apagar parceiros de teste
-// ou desligar parceiros que sairam do escritorio.
+// Apaga um parceiro SEM histórico — o convite que nunca virou trabalho
+// ("Cancelar convite" na aba Convites de /parceiros).
 //
-// Estrategia de cascade:
-//   - casos.parceiro_id = NULL      (caso fica como "cliente interno")
-//   - andamentos.criado_por = NULL  (preserva timeline, perde autoria)
-//   - documentos.uploaded_by = NULL (preserva docs, perde autoria)
-//   - comentarios do parceiro: DELETE (cascade kills replies)
-//   - usuarios: DELETE
-//   - auth.users: DELETE via admin API
+// Parceiro com caso ou qualquer histórico (andamento, documento, comentário,
+// pedido de documento) é RECUSADO com 409 `parceiro_com_historico`: o caminho
+// é Desligar (RPC desligar_parceiro), que bloqueia o acesso e preserva tudo no
+// nome dele (#202). Antes, a exclusão desvinculava os casos sem perguntar,
+// apagava os comentários dele e fazia isso em passos soltos — se um falhava,
+// os anteriores ficavam feitos.
 //
 // Chamada do frontend:
 //   await supabase.functions.invoke("excluir-parceiro", {
@@ -63,7 +61,7 @@ serve(async (req) => {
   if (quem instanceof Response) return quem;
   const escritorioId = quem.perfil.escritorio_id;
   // Service role ignora RLS: o client sai PRESO ao escritório de quem pediu —
-  // desvincular casos e apagar andamentos do parceiro só AQUI, nunca no outro
+  // o histórico é conferido e o vínculo removido só AQUI, nunca no outro
   // escritório em que ele também possa atuar.
   const supabase = escopado(createClient(SUPABASE_URL, SERVICE_ROLE), escritorioId);
 
@@ -86,11 +84,12 @@ serve(async (req) => {
   }
 
   // Verifica que alvo eh parceiro
-  const { data: alvo } = await supabase
+  const { data: alvo, error: alvoErr } = await supabase
     .from("usuarios")
     .select("id, nome, tipo")
     .eq("id", usuarioId)
     .maybeSingle();
+  if (alvoErr) return jsonResponse({ error: "falha ao ler o parceiro" }, 503);
   if (!alvo) {
     return jsonResponse({ error: "parceiro nao encontrado" }, 404);
   }
@@ -119,109 +118,62 @@ serve(async (req) => {
   }
 
   // ---------------------------------------------------------------------------
-  // 3) Cascade preservando historico
+  // 3) Só sem histórico NESTE escritório (#202). Erro de contagem estoura:
+  //    "não consegui contar" não pode virar "não tem nada".
   // ---------------------------------------------------------------------------
-  const erros: string[] = [];
-
-  // Trilha ANTES do cascade: depois dele o nome do parceiro nao existe mais, e
-  // quantos casos ele indicava deixa de ser calculavel — gap 4 do
-  // planning/AUDITABILIDADE.md.
-  {
-    const { count: casosIndicados } = await supabase
-      .from("casos").select("id", { count: "exact", head: true }).eq("parceiro_id", usuarioId);
-    await auditar(quem, {
-      acao: "parceiro.excluido",
-      recurso: "usuarios",
-      recurso_id: usuarioId,
-      detalhes: {
-        nome: (alvo as { nome?: string }).nome ?? null,
-        casos_desvinculados: casosIndicados ?? 0,
-        outros_vinculos: outrosVinculos,
-      },
-    });
+  const contar = async (tabela: string, coluna: string): Promise<number | Response> => {
+    const { count, error } = await supabase.from(tabela).select("id", { count: "exact", head: true }).eq(coluna, usuarioId);
+    if (error) {
+      console.error(`excluir-parceiro: contar ${tabela}.${coluna}:`, error.message);
+      return jsonResponse({ error: `falha ao conferir o histórico (${tabela})` }, 503);
+    }
+    return count ?? 0;
+  };
+  const historico: Record<string, number> = {};
+  for (const [nome, tabela, coluna] of [
+    ["casos", "casos", "parceiro_id"],
+    ["andamentos", "andamentos", "criado_por"],
+    ["documentos", "documentos", "uploaded_by"],
+    ["comentarios", "comentarios", "autor_id"],
+    ["solicitacoes", "solicitacoes_documento", "solicitado_por"],
+    ["solicitacoes_atribuidas", "solicitacoes_documento", "responsavel_id"],
+  ] as const) {
+    const n = await contar(tabela, coluna);
+    if (n instanceof Response) return n;
+    historico[nome] = n;
+  }
+  if (Object.values(historico).some((n) => n > 0)) {
+    return jsonResponse({
+      error: historico.casos > 0
+        ? `Este parceiro tem ${historico.casos} caso(s). Excluir apagaria o vínculo com eles — use Desligar: bloqueia o acesso e mantém o histórico.`
+        : "Este parceiro já tem histórico no escritório (andamentos, documentos, comentários ou pedidos). Use Desligar: bloqueia o acesso e mantém o histórico.",
+      codigo: "parceiro_com_historico",
+      historico,
+    }, 409);
   }
 
-  // 3.1) Desvincula casos (parceiro_id = NULL)
-  const casosResp = await supabase
-    .from("casos")
-    .update({ parceiro_id: null })
-    .eq("parceiro_id", usuarioId);
-  if (casosResp.error) {
-    erros.push("casos: " + casosResp.error.message);
+  // Mensagens do chat antigo (tabela legada): sem caso, não há o que preservar.
+  const delMsg = await supabase.from("mensagens").delete().eq("remetente_id", usuarioId);
+  if (delMsg.error && delMsg.error.code !== "42P01") {
+    return jsonResponse({ error: "erro ao limpar mensagens antigas", detail: delMsg.error.message }, 500);
   }
 
-  // 3.2) Andamentos - preserva timeline, perde autoria
-  try {
-    const andResp = await supabase
-      .from("andamentos")
-      .update({ criado_por: null })
-      .eq("criado_por", usuarioId);
-    if (andResp.error) erros.push("andamentos: " + andResp.error.message);
-  } catch (e) {
-    erros.push("andamentos: " + (e as Error).message);
-  }
-
-  // 3.3) Documentos - preserva docs, perde autoria
-  try {
-    const docResp = await supabase
-      .from("documentos")
-      .update({ uploaded_by: null })
-      .eq("uploaded_by", usuarioId);
-    if (docResp.error) erros.push("documentos: " + docResp.error.message);
-  } catch (e) {
-    erros.push("documentos: " + (e as Error).message);
-  }
-
-  // 3.4) Comentarios do parceiro - delete (cascade kills replies)
-  try {
-    const comResp = await supabase
-      .from("comentarios")
-      .delete()
-      .eq("autor_id", usuarioId);
-    if (comResp.error) erros.push("comentarios: " + comResp.error.message);
-  } catch (e) {
-    // Tabela pode nao existir se migration nao rodou - nao bloqueia
-    console.warn("comentarios delete falhou (ok se tabela nao existe):", e);
-  }
-
-  // 3.5) Solicitacoes de documento - set null em criado_por se existir
-  try {
-    await supabase
-      .from("solicitacoes_documento")
-      .update({ criado_por: null })
-      .eq("criado_por", usuarioId);
-  } catch {
-    // Ignora se coluna nao existir
-  }
-
-  // 3.6) Acessos senha INSS (CASCADE no usuario_id pode ser SET NULL ja)
-  try {
-    await supabase
-      .from("acessos_senha_inss")
-      .update({ usuario_id: null })
-      .eq("usuario_id", usuarioId);
-  } catch {
-    // Tabela ja tem on delete set null no FK
-  }
-
-  // 3.7) Mensagens legacy (tabela antiga do Chat)
-  try {
-    await supabase
-      .from("mensagens")
-      .delete()
-      .eq("remetente_id", usuarioId);
-  } catch {
-    // Ignora se ja foi removida ou nao tem
-  }
+  const registrarTrilha = () => auditar(quem, {
+    acao: "parceiro.excluido",
+    recurso: "usuarios",
+    recurso_id: usuarioId,
+    detalhes: { nome: (alvo as { nome?: string }).nome ?? null, outros_vinculos: outrosVinculos },
+  });
 
   // A pessoa também atua em OUTRO escritório: sai só daqui. A conta, o login e
   // o histórico dela no outro escritório não são nossos para apagar.
   if (outrosVinculos > 0) {
     const delVinc = await supabase.from("membros").delete().eq("usuario_id", usuarioId);
     if (delVinc.error) {
-      return jsonResponse({ error: "erro ao remover o vínculo", detail: delVinc.error.message, erros_cascade: erros }, 500);
+      return jsonResponse({ error: "erro ao remover o vínculo", detail: delVinc.error.message }, 500);
     }
-    return jsonResponse({ ok: true, conta_preservada: true, erros_cascade: erros });
+    await registrarTrilha();
+    return jsonResponse({ ok: true, conta_preservada: true });
   }
 
   // ---------------------------------------------------------------------------
@@ -229,15 +181,11 @@ serve(async (req) => {
   // ---------------------------------------------------------------------------
   const delUsr = await supabase.from("usuarios").delete().eq("id", usuarioId);
   if (delUsr.error) {
-    return jsonResponse(
-      {
-        error: "erro ao deletar usuarios",
-        detail: delUsr.error.message,
-        erros_cascade: erros,
-      },
-      500,
-    );
+    return jsonResponse({ error: "erro ao deletar usuarios", detail: delUsr.error.message }, 500);
   }
+  // Trilha só depois de apagar de fato (antes ela registrava exclusão que
+  // podia nem acontecer). O nome veio da leitura do começo.
+  await registrarTrilha();
 
   // ---------------------------------------------------------------------------
   // 5) Delete auth.users via admin
@@ -250,14 +198,12 @@ serve(async (req) => {
       auth_excluido: false,
       warning: "Parceiro excluido do app mas auth.users falhou: " +
         delAuth.error.message,
-      erros_cascade: erros,
     });
   }
 
   return jsonResponse({
     excluido: true,
     auth_excluido: true,
-    erros_cascade: erros,
     nome: (alvo as { nome: string | null }).nome,
   });
 });

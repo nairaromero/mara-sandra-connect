@@ -72,6 +72,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { mensagemDeErroEdge } from "@/lib/edge-function-error";
 import { parceiroSemAceite } from "@/lib/legal/termos";
+import { buscarPaginado } from "@/lib/supabase-paginado";
 import { nomeDoEscritorio } from "@/lib/marca-escritorio";
 
 export const Route = createFileRoute("/_authenticated/parceiros")({
@@ -297,10 +298,13 @@ function ParceirosPage() {
   const [editEnviarLink, setEditEnviarLink] = useState(false);
 
   // ---- Excluir parceiro ----
-  // Acao destrutiva mas com cascade que preserva historico: casos viram
-  // sem parceiro indicador, andamentos/documentos perdem autoria, mas
-  // continuam existindo. So comentarios feitos pelo parceiro sao apagados.
+  // Cancelar convite = apagar o parceiro. Só para quem não tem caso nem
+  // histórico; o servidor (excluir-parceiro) recusa os outros com 409 e a tela
+  // oferece Desligar no lugar (#202).
   const [excluirAlvo, setExcluirAlvo] = useState<ParceiroRow | null>(null);
+  // Quantos casos cada convidado já tem. null = não deu para contar: a
+  // lixeira some (na dúvida, não oferecer apagar).
+  const [casosPorParceiro, setCasosPorParceiro] = useState<Map<string, number> | null>(null);
   const [excluindo, setExcluindo] = useState(false);
 
   // ---- Desligar / reativar parceiro (soft delete, issue #202) ----
@@ -535,7 +539,23 @@ function ParceirosPage() {
       console.error(error);
       toast.error("Falha ao carregar parceiros.");
     } else {
-      setParceiros((data as ParceiroRow[]) ?? []);
+      const lista = (data as ParceiroRow[]) ?? [];
+      setParceiros(lista);
+      // Casos dos convites pendentes (a lixeira só vale para quem não tem).
+      const convites = lista.filter((p) => !p.onboarded_em).map((p) => p.id);
+      try {
+        const linhas = convites.length
+          ? await buscarPaginado<{ parceiro_id: string }>((ini, fim) =>
+              supabase.from("casos").select("parceiro_id").in("parceiro_id", convites).order("id").range(ini, fim),
+            )
+          : [];
+        const mapa = new Map<string, number>();
+        for (const l of linhas) mapa.set(l.parceiro_id, (mapa.get(l.parceiro_id) ?? 0) + 1);
+        setCasosPorParceiro(mapa);
+      } catch (e) {
+        console.error(e);
+        setCasosPorParceiro(null);
+      }
     }
     setLoading(false);
   }
@@ -867,6 +887,9 @@ function ParceirosPage() {
                               {p.email ?? "(sem e-mail)"}
                               {p.oab && <> · OAB {p.oab}</>}
                               {p.percentual_parceiro != null && <> · {p.percentual_parceiro}%</>}
+                              {(casosPorParceiro?.get(p.id) ?? 0) > 0 && (
+                                <> · {casosPorParceiro?.get(p.id)} caso(s)</>
+                              )}
                             </p>
                           </div>
                           <div className="flex items-center gap-1">
@@ -895,9 +918,24 @@ function ParceirosPage() {
                                 <Pencil className="h-3.5 w-3.5" />
                               </Button>
                             )}
-                            {/* apaga o parceiro: so quem tem parceiros:excluir
-                                (admin, migration_rbac_08); o banco recusa os demais */}
-                            {pode("parceiros:excluir") && (
+                            {/* Com caso: Desligar (preserva o histórico). Sem caso:
+                                a lixeira apaga o convite — só quem tem
+                                parceiros:excluir; o servidor recusa com 409 quem
+                                tiver histórico (#202). */}
+                            {(casosPorParceiro?.get(p.id) ?? 0) > 0 && !ehDaEquipe(p) && p.ativo && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setDesligarAlvo(p)}
+                                aria-label="Desligar parceiro"
+                                title={`Tem ${casosPorParceiro?.get(p.id)} caso(s): desligar bloqueia o acesso e mantém o histórico`}
+                                className="text-muted-foreground hover:text-destructive"
+                                data-convite-desligar
+                              >
+                                <UserX className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                            {pode("parceiros:excluir") && casosPorParceiro !== null && !casosPorParceiro.get(p.id) && (
                               <Button
                                 size="sm"
                                 variant="ghost"
@@ -1468,27 +1506,13 @@ function ParceirosPage() {
               <AlertDialogDescription asChild>
                 <div className="space-y-2 text-sm">
                   <p>
-                    Esta ação é <strong>irreversível</strong>. O parceiro será removido do sistema
-                    (login + cadastro).
+                    Esta ação é <strong>irreversível</strong>: o convite é cancelado e o cadastro e
+                    o login do parceiro são apagados.
                   </p>
-                  <p>Cascade que preserva histórico:</p>
-                  <ul className="list-disc pl-5 space-y-0.5 text-muted-foreground">
-                    <li>
-                      <strong>Casos</strong> vinculados ficarão sem parceiro indicador (parceiro_id
-                      = null). Você pode reatribuir depois.
-                    </li>
-                    <li>
-                      <strong>Andamentos e documentos</strong> do parceiro continuam existindo, mas
-                      perdem a autoria.
-                    </li>
-                    <li>
-                      <strong>Comentários</strong> feitos pelo parceiro são apagados (respostas
-                      também).
-                    </li>
-                    <li>
-                      <strong>Login</strong> e cadastro (auth.users + usuarios) são removidos.
-                    </li>
-                  </ul>
+                  <p className="text-muted-foreground">
+                    Só vale para quem ainda não tem caso nem histórico no escritório. Para quem já
+                    tem, use <strong>Desligar</strong>: bloqueia o acesso e mantém tudo no nome dele.
+                  </p>
                 </div>
               </AlertDialogDescription>
             </AlertDialogHeader>

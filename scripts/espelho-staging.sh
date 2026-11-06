@@ -197,10 +197,15 @@ psql "$STG_URL" -q -v ON_ERROR_STOP=1 -v senha_sintetica="$SYNTH_PW" \
 # recria aqui. Precisa de STAGING_SERVICE_ROLE_KEY e STAGING_PUBLISHABLE_KEY
 # (no .env.local ou como secret do workflow); sem elas, avisa e segue.
 echo "==> 5/6 contas sintéticas de papel…"
+# Falha de seed não aborta (os dados já estão no staging), mas o run termina
+# com erro no fim: sem isso o Actions ficava verde, o card de falha não abria e
+# o staging passou de 02/11 a 05/11 sem as contas do Canário.
+AVISOS=()
+avisar() { echo "AVISO: $1"; AVISOS+=("$1"); }
 if command -v node >/dev/null 2>&1; then
-  node "$(dirname "$0")/seed-staging-contas.mjs" || echo "AVISO: seed de contas falhou — rode `node scripts/seed-staging-contas.mjs` à mão."
+  node "$(dirname "$0")/seed-staging-contas.mjs" || avisar "seed de contas falhou — rode \`node scripts/seed-staging-contas.mjs\` à mão."
 else
-  echo "AVISO: node ausente — rode `node scripts/seed-staging-contas.mjs` à mão."
+  avisar "node ausente — rode \`node scripts/seed-staging-contas.mjs\` à mão."
 fi
 
 # RBAC: os usuários restaurados de produção precisam voltar a ser membros do
@@ -212,8 +217,8 @@ echo "==> 6/6 RBAC: vínculos de quem veio de produção e seed do Canário/QG�
 # credencial e, de qualquer forma, já não reaplica a rbac_01 (#481). Agora é
 # um SQL próprio pelo psql (tem a senha do staging aqui) + o seed.
 psql "$STG_URL" -q -v ON_ERROR_STOP=1 -f "$(dirname "$0")/espelho-reconstruir-acesso.sql" ||
-  echo "AVISO: vínculos não reconstruídos — rode: psql \"\$STG_URL\" -f scripts/espelho-reconstruir-acesso.sql"
-node "$(dirname "$0")/seed-local-rbac.mjs" --staging || echo "AVISO: seed do RBAC no staging falhou — rode \`node scripts/seed-local-rbac.mjs --staging\` à mão."
+  avisar "vínculos não reconstruídos — rode: psql \"\$STG_URL\" -f scripts/espelho-reconstruir-acesso.sql"
+node "$(dirname "$0")/seed-local-rbac.mjs" --staging || avisar "seed do RBAC no staging falhou — rode \`node scripts/seed-local-rbac.mjs --staging\` à mão."
 
 # (e) Pós-condição: o staging continua chamando as PRÓPRIAS edge functions.
 #     A trava (d) cobre a exclusão; esta cobre o resto — alguém tirar o
@@ -229,4 +234,9 @@ case "$edge_stg" in
   *) echo "ABORTANDO: o edge_base_url do staging sumiu ou é inesperado — os triggers do staging não vão alcançar as edge functions."; exit 1 ;;
 esac
 
+if [ "${#AVISOS[@]}" -gt 0 ]; then
+  echo "==> Espelho concluído COM ${#AVISOS[@]} aviso(s) — os dados estão no staging, mas falta:"
+  printf '  - %s\n' "${AVISOS[@]}"
+  exit 1
+fi
 echo "==> Espelho concluído: $(date '+%Y-%m-%d %H:%M')"
