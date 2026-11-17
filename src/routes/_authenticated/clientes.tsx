@@ -2,7 +2,6 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Selecao } from "@/components/ui/selecao";
 import { useEffect, useMemo, useState } from "react";
 import {
-  CalendarPlus,
   Check,
   ChevronRight,
   ChevronsUpDown,
@@ -47,7 +46,6 @@ import {
 import { ImportarClientesExcelDialog } from "@/components/importar-clientes-excel-dialog";
 import { exportarClientesExcel } from "@/lib/clientes-excel";
 import { beneficiosDasEtiquetas, ordenarEtiquetasDoCliente } from "@/lib/etiquetas";
-import { TarefaSheet, type TarefaSheetModo } from "@/components/tarefas/tarefa-sheet";
 
 export const Route = createFileRoute("/_authenticated/clientes")({
   component: ClientesPage,
@@ -206,10 +204,6 @@ function ClientesPage() {
   >(new Map());
   const [exportando, setExportando] = useState(false);
   const [importarDialogAberto, setImportarDialogAberto] = useState(false);
-  // "+ Perícia" no cliente abre o TarefaSheet com o template
-  // "pericia_parceiro" pré-selecionado. O TarefaSheet detecta destino=agenda
-  // e cria o evento na agenda + 2 tarefas (lembrete antes + verificação).
-  const [tarefaSheet, setTarefaSheet] = useState<TarefaSheetModo | null>(null);
 
   useEffect(() => {
     if (!usuario) return;
@@ -923,25 +917,6 @@ function ClientesPage() {
                             </TableCell>
                             <TableCell>
                               <div className="flex items-center gap-1 justify-end">
-                                {pode("agenda:gerenciar") && casoMaisRecente && (
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="h-7 px-2 text-xs"
-                                    title={`Agendar perícia para ${c.nome}`}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setTarefaSheet({
-                                        kind: "criar",
-                                        casoIdInicial: casoMaisRecente.id,
-                                        templateInicial: "pericia_parceiro",
-                                      });
-                                    }}
-                                  >
-                                    <CalendarPlus className="h-3.5 w-3.5" />
-                                    <span className="hidden sm:inline ml-1">Perícia</span>
-                                  </Button>
-                                )}
                                 <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
                               </div>
                             </TableCell>
@@ -970,14 +945,6 @@ function ClientesPage() {
           </CardContent>
         </Card>
       </ClientOnly>
-
-      <TarefaSheet
-        modo={tarefaSheet}
-        onClose={() => setTarefaSheet(null)}
-        onSaved={() => {
-          /* tarefas + perícia (agenda) criadas; aparecem em /agenda e /tarefas */
-        }}
-      />
 
       <ImportarClientesExcelDialog
         aberto={importarDialogAberto}

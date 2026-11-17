@@ -176,12 +176,6 @@ export const Route = createFileRoute("/_authenticated/casos/$id")({
 // Tipos (alinhados ao schema real)
 // ===========================================================================
 
-interface TagTI {
-  id: number;
-  name: string;
-  color: string;
-}
-
 interface Cliente {
   id: string;
   nome: string;
@@ -191,7 +185,6 @@ interface Cliente {
   email: string | null;
   endereco: string | null;
   observacoes: string | null;
-  tags: Array<TagTI> | null;
   ti_customer_id: number | null;
 }
 
@@ -816,7 +809,7 @@ function CasoDetalhePage() {
         supabase
           .from("clientes")
           .select(
-            "id, nome, cpf, data_nascimento, telefone, email, endereco, observacoes, tags, ti_customer_id",
+            "id, nome, cpf, data_nascimento, telefone, email, endereco, observacoes, ti_customer_id",
           )
           .eq("id", casoData.cliente_id)
           .maybeSingle(),
