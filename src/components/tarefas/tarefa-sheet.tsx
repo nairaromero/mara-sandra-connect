@@ -136,15 +136,14 @@ type Modo =
   | {
       kind: "criar";
       casoIdInicial?: string | null;
-      templateInicial?: string;        // nome do template a pré-selecionar
       // Próxima tarefa sugerida pela IA ao concluir a anterior (card #306):
       // só PREENCHE o formulário — a pessoa confere e salva.
       sugestao?: SugestaoProximaTarefa | null;
     }
   | { kind: "editar"; tarefa: TarefaComJoins };
 
-// Export pra outras telas abrirem o sheet (ex: /clientes "+ Perícia" com
-// template pré-selecionado) sem redeclarar o Modo.
+// Export pra outras telas abrirem o sheet (Atividades do caso, Agenda, Tarefas)
+// sem redeclarar o Modo.
 export type TarefaSheetModo = Modo;
 
 interface Props {
@@ -696,7 +695,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
       ignorarAvisosAgenda.current = false;
       setPericiaEvento(true);
       setExtrasResp([]);
-      setTemplateSelecionado(modo.templateInicial ?? "");
+      setTemplateSelecionado("");
       // Sugestão da IA: preenche o que ela trouxe; o resto segue o padrão.
       const sug = modo.sugestao;
       if (sug) {
