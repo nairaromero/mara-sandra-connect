@@ -1,17 +1,19 @@
-// Filme do PR #515 no STAGING — o OUTRO caminho de agendar perícia: pela tela
-// de Clientes (botão "Perícia" da linha do cliente, que abre a ficha de tarefa
-// com o template de perícia e cria o evento na agenda + as tarefas).
+// Filme do PR #515 no STAGING — agendar perícia pela aba ATIVIDADES do caso do
+// cliente ("Nova tarefa" + template "Perícia INSS", que cria o evento na agenda
+// + as tarefas). É o caminho que fica: o botão "Perícia" da tela de Clientes
+// sai (pedido da Naira, 17/11).
 //
 //   Ato 1  Cliente com STATUS:ATIVO, BENEFICIO e AGUARDANDO_AGENDAMENTO. Agenda
-//          a perícia por Clientes → "Perícia". Sai a etiqueta de espera, entra
-//          PERICIA_AGENDADA_INSS, as da equipe continuam.
+//          a perícia por Atividades → Nova tarefa → Perícia INSS. Sai a
+//          etiqueta de espera, entra PERICIA_AGENDADA_INSS, as da equipe
+//          continuam.
 //   Ato 2  Ela também teve uma perícia há 10 dias. A rotina das etiquetas roda
 //          (`select public.trocar_etiqueta_pos_pericia()`) e não troca nada: a
 //          perícia nova ainda vai acontecer.
 //
 // Rodar da raiz do repo:
-//   DEMO_BASE_URL=https://staging.marasandraconnect.com node e2e/demo/roteiros/prova-pr515-staging-cliente.cjs
-//   node e2e/demo/montar-filme.cjs prova-pr515-staging-cliente prova-pr515-staging-cliente
+//   DEMO_BASE_URL=https://staging.marasandraconnect.com node e2e/demo/roteiros/prova-pr515-staging-atividades.cjs
+//   node e2e/demo/montar-filme.cjs prova-pr515-staging-atividades prova-pr515-staging-atividades
 //
 // Apaga no fim o cliente descartável (caso, eventos e tarefas juntos).
 
@@ -70,26 +72,24 @@ async function main() {
   log.antes = await etiquetas(cli);
 
   const { session } = await sessao(`canario+admin@${DOM}`, esc);
-  const estudio = await abrirEstudio("prova-pr515-staging-cliente");
+  const estudio = await abrirEstudio("prova-pr515-staging-atividades");
   try {
-    // ---------- Ato 1: agendar pela tela de Clientes ----------
+    // ---------- Ato 1: agendar pela aba Atividades do caso ----------
     {
       const { page, fechar } = await estudio.novaParte(estadoNavegador(session, esc));
       await verEtiquetas(page, caso, "AGUARDANDO_AGENDAMENTO_DE_PERICIA");
       await narrar(page, "Staging · Canário. A Helena tem STATUS:ATIVO e BENEFICIO (marcadas pela equipe) e AGUARDANDO_AGENDAMENTO_DE_PERICIA.", 6000);
       await estudio.still(page, "ato1-01-antes");
 
-      await page.goto(`${BASE}/clientes`);
-      const busca = page.getByPlaceholder(/Ex: João/);
-      await busca.waitFor({ timeout: 60_000 });
-      await narrar(page, "Agora pelo outro caminho: a tela de Clientes, botão “Perícia” na linha da cliente.", 4200);
-      await clicar(page, busca);
-      await busca.pressSequentially("Helena Duarte", { delay: 70 });
-      const botao = page.getByTitle(`Agendar perícia para ${NOME}`);
-      await botao.waitFor({ timeout: 30_000 });
-      await ler(page, 800);
-      await estudio.still(page, "ato1-02-lista");
-      await clicar(page, botao);
+      await clicar(page, page.getByRole("tab", { name: /Atividades/ }));
+      await narrar(page, "Agora a equipe agenda a perícia pela aba Atividades do caso dela: “Nova tarefa”.", 4200);
+      await clicar(page, page.getByRole("button", { name: /Nova tarefa/ }));
+      const template = page.getByRole("combobox").filter({ hasText: "Escolha um template" });
+      await template.waitFor({ timeout: 30_000 });
+      await clicar(page, template);
+      await clicar(page, page.getByRole("option", { name: /^Perícia INSS/ }).first());
+      await narrar(page, "Template “Perícia INSS”: cria a perícia na agenda e as tarefas de acompanhamento.", 4200);
+      await estudio.still(page, "ato1-02-template");
 
       const due = page.locator("#t-due");
       await due.waitFor({ timeout: 30_000 });
@@ -107,7 +107,7 @@ async function main() {
       if ((await due.inputValue()) !== quando) throw new Error(`data da perícia não ficou no campo: "${await due.inputValue()}"`);
       const titulo = page.locator("#t-titulo");
       if (!(await titulo.inputValue().catch(() => ""))) await titulo.fill("Perícia médica INSS - Helena");
-      await narrar(page, "A ficha já vem com o template de perícia: só a data e a hora.", 3600);
+      await narrar(page, "Falta só a data e a hora da perícia.", 3600);
       await due.evaluate((el) => el.scrollIntoView({ block: "center", behavior: "smooth" }));
       await ler(page, 900);
       await estudio.still(page, "ato1-03-ficha");
@@ -119,7 +119,7 @@ async function main() {
 
       await verEtiquetas(page, caso, "PERICIA_AGENDADA_INSS");
       log.depois_agendar = await etiquetas(cli);
-      await narrar(page, "Depois de agendar por Clientes: saiu AGUARDANDO_AGENDAMENTO, entrou PERICIA_AGENDADA_INSS — e STATUS:ATIVO e BENEFICIO continuam.", 6400);
+      await narrar(page, "Depois de agendar pela aba Atividades: saiu AGUARDANDO_AGENDAMENTO, entrou PERICIA_AGENDADA_INSS — e STATUS:ATIVO e BENEFICIO continuam.", 6400);
       await estudio.still(page, "ato1-04-depois");
       await fechar();
     }
@@ -138,7 +138,7 @@ async function main() {
       [{ n: log.trocados }] = sqlStaging("select public.trocar_etiqueta_pos_pericia() as n");
       log.depois_rotina = await etiquetas(cli);
       await verEtiquetas(page, caso, "PERICIA_AGENDADA_INSS");
-      await narrar(page, "…e ela continua com PERICIA_AGENDADA_INSS, porque a perícia agendada por Clientes ainda vai acontecer.", 5600);
+      await narrar(page, "…e ela continua com PERICIA_AGENDADA_INSS, porque a perícia agendada pela aba Atividades ainda vai acontecer.", 5600);
       await estudio.still(page, "ato2-01-depois-rotina");
       await fechar();
     }
