@@ -81,7 +81,7 @@ async function clicar(page, locator) {
 }
 
 /**
- * Letreiro de narração no rodapé do vídeo — explica a cena pro espectador
+ * Letreiro de narração no topo do vídeo — explica a cena pro espectador
  * (pedido da Naira: "comentários nos vídeos"). Some ao navegar de página;
  * narre de novo depois de cada goto/reload. O tempo é o de LEITURA da frase.
  */
@@ -92,7 +92,9 @@ async function narrar(page, texto, ms = 3200) {
       bar = document.createElement("div");
       bar.id = "__demo_narracao";
       bar.style.cssText =
-        "position:fixed;left:50%;bottom:24px;transform:translateX(-50%);" +
+        // No TOPO, logo abaixo da barra do app (56px): embaixo, a barra de play
+        // do player cobria a legenda (pedido da Naira, 17/11).
+        "position:fixed;left:50%;top:66px;transform:translateX(-50%);" +
         "z-index:2147483647;max-width:78%;background:rgba(22,17,12,.93);" +
         "color:#fff;padding:10px 18px;border-radius:10px;" +
         "font:500 15px/1.45 -apple-system,'Segoe UI',Roboto,sans-serif;" +
