@@ -4,9 +4,11 @@
 // Dado um CPF (e opcionalmente caso_id), busca no TI e:
 //
 //   1. Atualiza dados do cliente em `clientes`:
-//      - clientes.tags (jsonb)
 //      - clientes.ti_customer_id
 //      - clientes.email, telefone, data_nascimento (so se vazios localmente)
+//      - tags do TI NAO sao mais importadas (2026-11): as etiquetas vivem em
+//        etiquetas/clientes_etiquetas e o escritorio parou de manter o TI —
+//        importar substituia o que a equipe marcou na tela.
 //
 //   2. Se caso_id for fornecido, importa as notas do cliente como andamentos:
 //      - Busca GET /notas?customer_id=<ti_customer_id> (filtro server-side validado)
@@ -31,7 +33,6 @@
 //     achou_no_ti: boolean,
 //     atualizado: boolean,
 //     cliente_id?: uuid,
-//     tags_aplicadas?: number,
 //     notas_importadas?: number,     // novas notas inseridas como andamentos
 //     notas_ja_existentes?: number,  // notas que ja estavam (dedup)
 //     ti_customer_id?: number,
@@ -71,16 +72,6 @@ function extrairNumerosProcesso(texto: string): Array<string> {
     if (d.length >= 8) out.add(d);
   }
   return [...out];
-}
-
-// deno-lint-ignore no-explicit-any
-function tagsKey(tags: any): string {
-  if (!Array.isArray(tags)) return "";
-  return tags
-    .map((t) => String(t?.id ?? t?.name ?? ""))
-    .filter(Boolean)
-    .sort()
-    .join(",");
 }
 
 function jsonResponse(body: unknown, status = 200) {
@@ -270,7 +261,7 @@ serve(async (req) => {
   // faria o maybeSingle estourar — ou pior, atualizar o cliente do outro.
   let qCliente = supabase
     .from("clientes")
-    .select("id, nome, email, telefone, data_nascimento, tags, ti_customer_id")
+    .select("id, nome, email, telefone, data_nascimento, ti_customer_id")
     .eq("cpf", cpfNorm);
   if (quem.perfil.escritorio_id) qCliente = qCliente.eq("escritorio_id", quem.perfil.escritorio_id);
   const { data: clienteLocal, error: selErr } = await qCliente.maybeSingle();
@@ -300,9 +291,8 @@ serve(async (req) => {
     });
   }
 
-  // ---- Passo 3: UPDATE do cliente (tags + ti_customer_id sempre; resto so se vazio) ----
+  // ---- Passo 3: UPDATE do cliente (ti_customer_id sempre; resto so se vazio) ----
   const update: Record<string, unknown> = {
-    tags: customer.tags || [],
     ti_customer_id: customer.id,
   };
   if (!clienteLocal.email && customer.email) update.email = customer.email;
@@ -312,9 +302,6 @@ serve(async (req) => {
   if (!clienteLocal.data_nascimento && customer.birthdate) {
     update.data_nascimento = customer.birthdate;
   }
-
-  const tagsAntes = tagsKey(clienteLocal.tags);
-  const tagsDepois = tagsKey(customer.tags || []);
 
   const { error: upErr } = await supabase
     .from("clientes")
@@ -326,21 +313,6 @@ serve(async (req) => {
       { error: "erro update cliente", detail: upErr.message },
       500,
     );
-  }
-
-  // Notifica mudanca de tags (mesma regra do sync global).
-  if (tagsAntes !== tagsDepois) {
-    const { error: nErr } = await supabase.from("notificacoes").insert({
-      tipo: "tags",
-      titulo: `Tags atualizadas: ${clienteLocal.nome || "cliente"}`,
-      descricao: "As tags do cliente mudaram no TI.",
-      cliente_id: clienteLocal.id,
-      caso_id: casoId,
-      metadata: { cpf: cpfNorm },
-    });
-    if (nErr && nErr.code !== "23505") {
-      console.error("erro notificacao tags", nErr);
-    }
   }
 
   // ---- Passo 4: se caso_id fornecido, importar notas como andamentos ----
@@ -357,7 +329,6 @@ serve(async (req) => {
           error: "cliente atualizado mas falha ao buscar notas",
           detail: String(err),
           cliente_id: clienteLocal.id,
-          tags_aplicadas: customer.tags?.length || 0,
           ti_customer_id: customer.id,
         },
         502,
@@ -542,7 +513,6 @@ serve(async (req) => {
     achou_no_ti: true,
     atualizado: true,
     cliente_id: clienteLocal.id,
-    tags_aplicadas: customer.tags?.length || 0,
     ti_customer_id: customer.id,
     notas_importadas: notasImportadas,
     notas_ja_existentes: notasJaExistentes,
