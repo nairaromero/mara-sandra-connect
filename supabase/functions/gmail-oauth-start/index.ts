@@ -84,7 +84,9 @@ serve(async (req) => {
     response_type: "code",
     scope: GMAIL_SCOPES,
     access_type: "offline",      // <- garante refresh_token
-    prompt: "consent",            // <- força entrega de refresh_token em re-conexão
+    // consent: força a entrega do refresh_token em re-conexão;
+    // select_account: o Google pergunta QUAL conta — é o que deixa conectar a segunda caixa
+    prompt: "consent select_account",
     include_granted_scopes: "true",
     state,
   });

@@ -1,8 +1,8 @@
 // Card genérico de integração com credencial POR ESCRITÓRIO (Legalmail,
-// Tramitação Inteligente): campos de config + chave/token cifrados na function
+// Tramitação Inteligente, ZapSign): campos de config + chave/token cifrados na function
 // `integracoes-escritorio` (nunca voltam ao navegador), Testar e o estado.
 // Mesmo padrão do card do WhatsApp (integracao-whatsapp-card.tsx).
-import { useCallback, useEffect, useState, type ComponentType } from "react";
+import { useCallback, useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { Loader2, Save, PlugZap } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { Selecao, type OpcaoSelecao } from "@/components/ui/selecao";
 import { toast } from "sonner";
 import { dataHoraBR } from "@/lib/fuso";
 import { useIntegracoesEscritorio } from "@/hooks/use-integracoes";
@@ -27,16 +28,26 @@ export interface CampoCredencial {
   chave: string;
   rotulo: string;
   placeholder?: string;
+  /** Com opções, o campo vira escolha em vez de texto livre. */
+  opcoes?: Array<OpcaoSelecao>;
+  /** Valor da tela quando o escritório ainda não escolheu. */
+  padrao?: string;
 }
 
 export function IntegracaoCredencialCard(props: {
-  tipo: "legalmail" | "ti";
+  tipo: "legalmail" | "ti" | "zapsign";
   titulo: string;
   descricao: string;
   icone: ComponentType<{ className?: string }>;
-  campos: Array<CampoCredencial>;
+  /** Constante de módulo (referência estável): lista nova a cada render refaz a leitura e apaga o que a pessoa digitou. */
+  campos: ReadonlyArray<CampoCredencial>;
   rotuloSegredo: string;
   ajudaSegredo?: string;
+  /**
+   * Bloco extra depois dos botões, com a configuração salva (sem segredo).
+   * `gerarToken` troca o segredo de entrada do webhook (só tipos que têm um).
+   */
+  rodape?: (config: Record<string, string | undefined>, configurada: boolean, acoes: { gerarToken: () => Promise<void>; ocupado: boolean }) => ReactNode;
 }) {
   const { tipo, titulo, descricao, campos, rotuloSegredo, ajudaSegredo } = props;
   const Icone = props.icone;
@@ -75,7 +86,7 @@ export function IntegracaoCredencialCard(props: {
       const r = (await chamar({ action: "status" })) as Status;
       setStatus(r);
       const v: Record<string, string> = {};
-      for (const c of campos) v[c.chave] = r.config?.[c.chave] ?? "";
+      for (const c of campos) v[c.chave] = r.config?.[c.chave] ?? c.padrao ?? "";
       setValores(v);
     } catch (e) {
       setErro(e instanceof Error ? e.message : String(e));
@@ -96,6 +107,19 @@ export function IntegracaoCredencialCard(props: {
       integracoes.recarregar();
     } catch (e) {
       toast.error(`Não salvou: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  async function gerarToken() {
+    setSalvando(true);
+    try {
+      await chamar({ action: "gerar_token" });
+      toast.success(`${titulo}: endereço novo gerado. O antigo parou de funcionar.`);
+      await carregar();
+    } catch (e) {
+      toast.error(`Não gerou: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setSalvando(false);
     }
@@ -149,12 +173,21 @@ export function IntegracaoCredencialCard(props: {
               {campos.map((c) => (
                 <div key={c.chave} className="space-y-1">
                   <Label htmlFor={`${tipo}-${c.chave}`}>{c.rotulo}</Label>
-                  <Input semGerenciadorDeSenha
-                    id={`${tipo}-${c.chave}`}
-                    value={valores[c.chave] ?? ""}
-                    onChange={(e) => setValores((v) => ({ ...v, [c.chave]: e.target.value }))}
-                    placeholder={c.placeholder}
-                  />
+                  {c.opcoes ? (
+                    <Selecao
+                      id={`${tipo}-${c.chave}`}
+                      opcoes={c.opcoes}
+                      value={valores[c.chave] || undefined}
+                      onChange={(novo) => setValores((v) => ({ ...v, [c.chave]: novo }))}
+                    />
+                  ) : (
+                    <Input semGerenciadorDeSenha
+                      id={`${tipo}-${c.chave}`}
+                      value={valores[c.chave] ?? ""}
+                      onChange={(e) => setValores((v) => ({ ...v, [c.chave]: e.target.value }))}
+                      placeholder={c.placeholder}
+                    />
+                  )}
                 </div>
               ))}
               <div className="space-y-1">
@@ -192,6 +225,7 @@ export function IntegracaoCredencialCard(props: {
                 </label>
               )}
             </div>
+            {props.rodape?.(status.config ?? {}, configurada, { gerarToken, ocupado: salvando })}
             {teste && (
               <p className={"text-sm " + (teste.ok ? "text-emerald-700" : "text-red-700")} data-teste-integracao={tipo}>
                 {teste.ok ? `Conectado (HTTP ${teste.http})` : `Falhou: ${teste.erro ?? `HTTP ${teste.http}`}${teste.detalhe ? ` — ${teste.detalhe}` : ""}`}

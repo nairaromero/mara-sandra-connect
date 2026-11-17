@@ -40,7 +40,8 @@ export type AcaoAuditada =
   | "parceiro.excluido"
   | "integracao.salvar"
   | "integracao.testar"
-  | "integracao.token";
+  | "integracao.token"
+  | "assinatura.enviada";
 
 export interface EntradaAuditoria {
   acao: AcaoAuditada;

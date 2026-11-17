@@ -1,4 +1,4 @@
-// Integrações POR ESCRITÓRIO (Legalmail, Tramitação Inteligente): a credencial
+// Integrações POR ESCRITÓRIO (Legalmail, Tramitação Inteligente, ZapSign): a credencial
 // vem de `escritorio_integracoes` do escritório ativo, decifrada aqui — nunca
 // de uma variável global. O escritório padrão do sistema ainda pode cair na
 // variável de ambiente antiga (LEGALMAIL_TOKEN / TI_TOKEN) enquanto não
@@ -7,7 +7,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decryptSecret } from "./crypto.ts";
 
-export type TipoIntegracao = "legalmail" | "ti";
+export type TipoIntegracao = "legalmail" | "ti" | "zapsign";
 export interface Integracao {
   tipo: TipoIntegracao;
   config: Record<string, unknown>;
@@ -16,7 +16,10 @@ export interface Integracao {
   origem: "escritorio" | "ambiente";
 }
 
-const ENV_LEGADO: Record<TipoIntegracao, string> = { legalmail: "LEGALMAIL_TOKEN", ti: "TI_TOKEN" };
+// O ZapSign nasceu depois do legado: não tem variável global, só a credencial
+// cadastrada pelo escritório.
+const ENV_LEGADO: Record<TipoIntegracao, string | null> = { legalmail: "LEGALMAIL_TOKEN", ti: "TI_TOKEN", zapsign: null };
+const NOME: Record<TipoIntegracao, string> = { legalmail: "Legalmail", ti: "Tramitação Inteligente", zapsign: "ZapSign" };
 
 export async function integracaoDoEscritorio(
   admin: SupabaseClient,
@@ -36,7 +39,8 @@ export async function integracaoDoEscritorio(
     return { tipo, config: (data.config ?? {}) as Record<string, unknown>, segredo, origem: "escritorio" };
   }
   // legado: só o escritório padrão do sistema, e só enquanto a variável existir
-  const legado = Deno.env.get(ENV_LEGADO[tipo]);
+  const variavel = ENV_LEGADO[tipo];
+  const legado = variavel ? Deno.env.get(variavel) : null;
   if (!legado) return null;
   const { data: esc } = await admin.from("escritorios").select("padrao_sistema").eq("id", escritorioId).maybeSingle();
   if (!esc?.padrao_sistema) return null;
@@ -45,7 +49,7 @@ export async function integracaoDoEscritorio(
 
 /** Resposta padrão quando o escritório não tem a integração: 412, com código pra tela. */
 export function semIntegracao(tipo: TipoIntegracao, corsHeaders: Record<string, string>): Response {
-  const nome = tipo === "legalmail" ? "Legalmail" : "Tramitação Inteligente";
+  const nome = NOME[tipo];
   return new Response(
     JSON.stringify({ error: `${nome} não está configurado neste escritório`, code: "integracao_nao_configurada", tipo }),
     { status: 412, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -61,4 +65,12 @@ export function baseLegalmail(): string {
 export function baseTI(config: Record<string, unknown>): string {
   const cfg = typeof config.base_url === "string" && config.base_url.trim() ? config.base_url.trim() : null;
   return (Deno.env.get("TI_BASE_URL") ?? cfg ?? "https://planilha.tramitacaointeligente.com.br/api/v1").replace(/\/+$/, "");
+}
+/**
+ * ZapSign: produção ou sandbox conforme `config.ambiente` do escritório (o
+ * sandbox não tem validade jurídica e não gasta a cota do plano).
+ */
+export function baseZapsign(config: Record<string, unknown>): string {
+  const padrao = config.ambiente === "sandbox" ? "https://sandbox.api.zapsign.com.br" : "https://api.zapsign.com.br";
+  return (Deno.env.get("ZAPSIGN_BASE_URL") ?? padrao).replace(/\/+$/, "");
 }

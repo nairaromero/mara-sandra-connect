@@ -89,14 +89,14 @@ const sql = (q) => JSON.parse(execSync(`node scripts/msc-sql.mjs --local ${JSON.
       const p = await abrir(`canario+admin@${DOM}`, ESC2);
       let webhook = "";
       await item("L1", "Admin vê os cards Gmail e WhatsApp; advogado não vê a aba", async () => {
-        await p.goto(`${BASE}/configuracoes?tab=integracoes`);
+        await p.goto(`${BASE}/configuracoes?tab=integracoes&abrir=todas`);
         await legenda(p, "L1", "cards Gmail (INSS) e WhatsApp (Evolution) para o admin");
         await visivel(p.locator("[data-card-gmail]"), "card do Gmail não apareceu");
         await textoContem(p.locator("[data-card-gmail]"), /Nenhuma caixa conectada neste escritório/i, "card do Gmail sem 'Nenhuma caixa conectada neste escritório'");
         await textoContem(p.locator("[data-card-whatsapp]"), /não configurado/i, "card do WhatsApp sem 'não configurado'");
         await still(p, "L1-admin-cards");
         const pa = await abrir(`canario+advogado@${DOM}`, ESC2);
-        await pa.goto(`${BASE}/configuracoes?tab=integracoes`);
+        await pa.goto(`${BASE}/configuracoes?tab=integracoes&abrir=todas`);
         await visivel(pa.getByRole("tab", { name: /Perfil/ }), "abas de Configurações não carregaram (advogado)");
         await ausente(pa.getByRole("tab", { name: /Integrações/ }), "advogado vê a aba Integrações");
         await legenda(pa, "L1", "advogado: a aba Integrações não existe (caiu em Perfil)");
@@ -104,7 +104,7 @@ const sql = (q) => JSON.parse(execSync(`node scripts/msc-sql.mjs --local ${JSON.
         await fechar(pa);
       });
       await item("L2", "WhatsApp: salvar (chave cifrada, some do campo), gerar token, copiar", async () => {
-        await p.goto(`${BASE}/configuracoes?tab=integracoes`);
+        await p.goto(`${BASE}/configuracoes?tab=integracoes&abrir=todas`);
         const wa = p.locator("[data-card-whatsapp]");
         await visivel(wa, "card do WhatsApp");
         await deslizar(p, wa);
@@ -134,7 +134,7 @@ const sql = (q) => JSON.parse(execSync(`node scripts/msc-sql.mjs --local ${JSON.
       });
       await item("L4", "Escritório 1 (e2e+admin): WhatsApp 'não configurado' — a do Canário não vaza", async () => {
         const p1 = await abrir(`e2e+admin@${DOM}`, ESC1);
-        await p1.goto(`${BASE}/configuracoes?tab=integracoes`);
+        await p1.goto(`${BASE}/configuracoes?tab=integracoes&abrir=todas`);
         await legenda(p1, "L4", "escritório 1 não vê a integração do Canário");
         await textoContem(p1.locator("[data-card-whatsapp]"), /não configurado/i, "escritório 1 não mostra 'não configurado'");
         await still(p1, "L4-escritorio1-isolado");
@@ -164,7 +164,7 @@ const sql = (q) => JSON.parse(execSync(`node scripts/msc-sql.mjs --local ${JSON.
         return "200 / 401 / 401; mensagem no Canário";
       });
       await item("L6", "Gmail: botão 'Conectar Gmail' e card fala do escritório (+ extra: OAuth e processador com o Google simulado)", async () => {
-        await p.goto(`${BASE}/configuracoes?tab=integracoes`);
+        await p.goto(`${BASE}/configuracoes?tab=integracoes&abrir=todas`);
         const gm = p.locator("[data-card-gmail]");
         await visivel(gm.getByRole("button", { name: /Conectar Gmail/ }), "botão Conectar Gmail ausente");
         await textoContem(gm, /escritório/i, "card do Gmail não fala do escritório");
@@ -483,7 +483,7 @@ const sql = (q) => JSON.parse(execSync(`node scripts/msc-sql.mjs --local ${JSON.
       let seq = 0;
       const mcp = async (tok, method, params) => { const r = await fetch(`${FN}/ia-mcp`, { method: "POST", headers: { Authorization: `Bearer ${tok}`, "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: ++seq, method, params }) }); return { status: r.status, corpo: await r.json().catch(() => null) }; };
       await item("P1", "'Para quem' lista as pessoas do Canário (Para mim, Gilda · Parceiro, Elisa · Assistente…)", async () => {
-        await p.goto(`${BASE}/configuracoes?tab=integracoes`);
+        await p.goto(`${BASE}/configuracoes?tab=integracoes&abrir=todas`);
         const sel = p.getByRole("combobox", { name: "Para quem emitir o token" });
         await visivel(sel, "campo 'Para quem' ausente");
         await deslizar(p, sel);
@@ -526,7 +526,7 @@ const sql = (q) => JSON.parse(execSync(`node scripts/msc-sql.mjs --local ${JSON.
         const r = await fn("ia-config", adv.jwt, ESC2, { action: "token_criar", nome: `${MARCA} adv` });
         if (r.status !== 403) falha(`token_criar como advogado: HTTP ${r.status}`);
         const pa = await abrir(`canario+advogado@${DOM}`, ESC2);
-        await pa.goto(`${BASE}/configuracoes?tab=integracoes`);
+        await pa.goto(`${BASE}/configuracoes?tab=integracoes&abrir=todas`);
         await visivel(pa.getByRole("tab", { name: /Perfil/ }), "abas não carregaram");
         await ausente(pa.getByRole("tab", { name: /Integrações/ }), "advogado vê Integrações");
         await legenda(pa, "P4", "advogado: sem a aba; API 403");
@@ -542,7 +542,7 @@ const sql = (q) => JSON.parse(execSync(`node scripts/msc-sql.mjs --local ${JSON.
           const nomes = (lista.json?.tokens ?? []).map((t) => t.nome);
           if (nomes.some((n) => /Gilda/.test(n))) falha(`outro admin viu: ${nomes.join(", ")}`);
           const pa = await abrir(`canario+advogado@${DOM}`, ESC2);
-          await pa.goto(`${BASE}/configuracoes?tab=integracoes`);
+          await pa.goto(`${BASE}/configuracoes?tab=integracoes&abrir=todas`);
           await visivel(pa.getByRole("combobox", { name: "Para quem emitir o token" }), "Diego admin não vê o card");
           await legenda(pa, "P5", "Diego como admin: card sem o token da Gilda");
           await ausente(pa.getByText(/Claude de Gilda/), "Diego (admin) vê o token da Gilda na tela");
@@ -553,7 +553,7 @@ const sql = (q) => JSON.parse(execSync(`node scripts/msc-sql.mjs --local ${JSON.
         }
       });
       await item("P6", "Revogar → MCP 401; emissor rebaixado → 403", async () => {
-        await p.goto(`${BASE}/configuracoes?tab=integracoes`);
+        await p.goto(`${BASE}/configuracoes?tab=integracoes&abrir=todas`);
         await visivel(p.getByRole("button", { name: "Revogar token" }).first(), "botão Revogar ausente");
         await legenda(p, "P6", "Revogar o token da Gilda");
         await clicar(p, p.getByRole("button", { name: "Revogar token" }).first());
@@ -694,7 +694,7 @@ const sql = (q) => JSON.parse(execSync(`node scripts/msc-sql.mjs --local ${JSON.
       });
       let webhook = "";
       await item("S2", "WhatsApp: 'Envio de mensagens · Pausado' (sai por function, sem n8n); salvar, Testar e o webhook de entrada seguem funcionando", async () => {
-        await p.goto(`${BASE}/configuracoes?tab=integracoes`);
+        await p.goto(`${BASE}/configuracoes?tab=integracoes&abrir=todas`);
         const wa = p.locator("[data-card-whatsapp]");
         await visivel(wa, "card do WhatsApp");
         await deslizar(p, wa);
@@ -763,7 +763,7 @@ const sql = (q) => JSON.parse(execSync(`node scripts/msc-sql.mjs --local ${JSON.
       const p = await abrir(`canario+admin@${DOM}`, ESC2);
       const pa = await abrir(`canario+advogado@${DOM}`, ESC2);
       await item("T1", "Sem credencial: cards 'não configurado'; advogado não vê 'Buscar no Legalmail' no caso nem os diálogos em Novo caso", async () => {
-        await p.goto(`${BASE}/configuracoes?tab=integracoes`);
+        await p.goto(`${BASE}/configuracoes?tab=integracoes&abrir=todas`);
         for (const t of ["legalmail", "ti"]) {
           await visivel(p.locator(`[data-card-integracao="${t}"]`), `card ${t} ausente`);
           await textoContem(p.locator(`[data-card-integracao="${t}"] [data-integracao-estado]`), /não configurado/, `${t}: badge não é 'não configurado'`);
@@ -782,7 +782,7 @@ const sql = (q) => JSON.parse(execSync(`node scripts/msc-sql.mjs --local ${JSON.
         await still(pa, "T1-novo-caso-sem-botoes");
       });
       await item("T2", "Admin cadastra Legalmail e TI: badge 'ativo', chave some do campo, Testar → conectado (provedores simulados)", async () => {
-        await p.goto(`${BASE}/configuracoes?tab=integracoes`);
+        await p.goto(`${BASE}/configuracoes?tab=integracoes&abrir=todas`);
         const lm = p.locator('[data-card-integracao="legalmail"]');
         await visivel(lm, "card legalmail");
         await deslizar(p, lm);
@@ -826,7 +826,7 @@ const sql = (q) => JSON.parse(execSync(`node scripts/msc-sql.mjs --local ${JSON.
       });
       await item("T4", "Escritório 1 (padrão): cards no legado ('configuração do sistema'); a busca não usa a chave do Canário", async () => {
         const p1 = await abrir(`e2e+admin@${DOM}`, ESC1);
-        await p1.goto(`${BASE}/configuracoes?tab=integracoes`);
+        await p1.goto(`${BASE}/configuracoes?tab=integracoes&abrir=todas`);
         await visivel(p1.locator('[data-card-integracao="legalmail"]'), "card legalmail (escritório 1)");
         await deslizar(p1, p1.locator('[data-card-integracao="legalmail"]'));
         await textoContem(p1.locator('[data-card-integracao="legalmail"] [data-integracao-estado]'), /configuração do sistema/, "escritório 1 não mostra o legado");
@@ -839,7 +839,7 @@ const sql = (q) => JSON.parse(execSync(`node scripts/msc-sql.mjs --local ${JSON.
         return `escritório 1: HTTP ${r.status} (sem variável de ambiente no local), sem dados do Canário`;
       });
       await item("T5", "Desligar a integração some com os botões; religar traz de volta", async () => {
-        await p.goto(`${BASE}/configuracoes?tab=integracoes`);
+        await p.goto(`${BASE}/configuracoes?tab=integracoes&abrir=todas`);
         const lm = p.locator('[data-card-integracao="legalmail"]');
         await visivel(lm, "card legalmail");
         await deslizar(p, lm);
@@ -868,7 +868,7 @@ const sql = (q) => JSON.parse(execSync(`node scripts/msc-sql.mjs --local ${JSON.
       await mock("/_reset");
       const p = await abrir(`canario+admin@${DOM}`, ESC2);
       await item("U1", "Admin cadastra a instância do Canário (Evolution simulado): Testar → conectado; a linha do envio diz 'Pausado'", async () => {
-        await p.goto(`${BASE}/configuracoes?tab=integracoes`);
+        await p.goto(`${BASE}/configuracoes?tab=integracoes&abrir=todas`);
         const wa = p.locator("[data-card-whatsapp]");
         await visivel(wa, "card do WhatsApp");
         await deslizar(p, wa);

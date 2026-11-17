@@ -5,15 +5,16 @@
 // nunca volta ao navegador. Quem chama: quem gerencia integrações no
 // escritório ativo (admin). Ações:
 //   salvar      { tipo, config, segredo?, ativo? }  — upsert; segredo só se vier
-//   gerar_token { tipo: "whatsapp" }                — novo token de entrada do webhook
-//   testar      { tipo: "whatsapp" }                — GET connectionState no Evolution
+//   gerar_token { tipo: "whatsapp" | "zapsign" }    — novo token de entrada do webhook
+//   testar      { tipo }                            — uma leitura barata no provedor (whatsapp, legalmail, ti, zapsign, ia)
 //   status      { tipo }                            — config sem segredo + "segredo definido em"
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { exigirUsuario, fetchT } from "../_shared/auth.ts";
 import { auditar, type AcaoAuditada } from "../_shared/auditoria.ts";
 import { encryptSecret, decryptSecret } from "../_shared/crypto.ts";
-import { baseLegalmail, baseTI } from "../_shared/integracoes.ts";
+import { baseLegalmail, baseTI, integracaoDoEscritorio } from "../_shared/integracoes.ts";
+import { testarToken } from "../_shared/zapsign.ts";
 import { chatWith, classeDoErro, type Credencial, listarModelos, mensagemDoErro, modeloAposentado, PROVIDERS } from "../_shared/ia-providers.ts";
 import { abrirCredencial, integracaoDaLinha, registroDeUso } from "../_shared/ia-integracao.ts";
 import { lerEsforcos } from "../_shared/ia-esforco.ts";
@@ -29,13 +30,16 @@ const corsHeaders = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-const TIPOS = new Set(["whatsapp", "legalmail", "ti", "djen", "ia"]);
+const TIPOS = new Set(["whatsapp", "legalmail", "ti", "djen", "ia", "zapsign"]);
 // campos de config aceitos por tipo (o resto é descartado: nada de segredo em config)
 const CAMPOS: Record<string, string[]> = {
   whatsapp: ["base_url", "instance", "inbound_token", "numero"],
   legalmail: ["usuario"],
   ti: ["base_url", "usuario"],
   djen: [],
+  // ZapSign (#517): produção ou sandbox; o token de entrada do webhook só nasce
+  // por `gerar_token` (não se aceita um escolhido pela tela).
+  zapsign: ["ambiente"],
   // IA (#451): provedor, modelo e — para chave da Anthropic que vale para mais
   // de um workspace — o ID do workspace; a chave vai no segredo.
   // + o esforço por tarefa que o escritório trocou (_shared/ia-esforco.ts).
@@ -106,8 +110,13 @@ serve(async (req) => {
       }
     }
     if (body.action === "gerar_token") {
-      if (tipo !== "whatsapp") return json({ error: "token de entrada só existe para whatsapp" }, 400);
+      if (tipo !== "whatsapp" && tipo !== "zapsign") return json({ error: "token de entrada só existe para whatsapp e zapsign" }, 400);
       configNova.inbound_token = tokenAleatorio();
+    }
+    if (tipo === "zapsign") {
+      configNova.ambiente = configNova.ambiente === "sandbox" ? "sandbox" : "producao";
+      // o webhook precisa de um segredo desde o primeiro salvamento
+      if (!configNova.inbound_token) configNova.inbound_token = tokenAleatorio();
     }
     if (tipo === "ia") {
       const provider = String(configNova.provider ?? "");
@@ -139,6 +148,19 @@ serve(async (req) => {
       updated_at: new Date().toISOString(),
     };
     const segredo = typeof body.segredo === "string" ? body.segredo.trim() : "";
+    if (segredo && tipo === "zapsign") {
+      // Uma conta do ZapSign por escritório: o aviso de lá vale para a conta
+      // inteira, e dois escritórios com o mesmo token receberiam (e adotariam)
+      // os contratos um do outro.
+      const { data: outros, error: eOutros } = await admin
+        .from("escritorio_integracoes").select("segredo_cipher, segredo_iv").eq("tipo", "zapsign").neq("escritorio_id", escritorioId).not("segredo_cipher", "is", null);
+      if (eOutros) return json({ error: `conferindo o token: ${eOutros.message}` }, 500);
+      for (const o of outros ?? []) {
+        if ((await decryptSecret(o.segredo_cipher, o.segredo_iv)) === segredo) {
+          return json({ error: "Este token do ZapSign já está em uso em outro escritório. Cada escritório precisa da sua própria conta do ZapSign.", code: "token_em_uso" }, 409);
+        }
+      }
+    }
     if (segredo) {
       try {
         const { cipher, iv } = await encryptSecret(segredo);
@@ -260,8 +282,21 @@ serve(async (req) => {
     }
   }
 
+  if (body.action === "testar" && tipo === "zapsign") {
+    // o mesmo caminho do envio (`_shared/zapsign.ts`): se o teste passa, o envio fala com o mesmo lugar
+    const integ = await integracaoDoEscritorio(admin, escritorioId, "zapsign");
+    if (!integ) return json({ ok: false, erro: atual?.segredo_cipher ? "a integração está desligada" : "informe o token da API" });
+    try {
+      const r = await testarToken(integ);
+      await registrar("integracao.testar", { http: r.http, ok: r.ok, ambiente: integ.config.ambiente ?? "producao" });
+      return json({ ok: r.ok, http: r.http, detalhe: r.ok ? null : "o ZapSign recusou o token (confira se ele é do ambiente escolhido)" });
+    } catch (e) {
+      return json({ ok: false, erro: `não alcancei o ZapSign: ${String((e as Error)?.message ?? e)}` });
+    }
+  }
+
   if (body.action === "testar") {
-    if (tipo !== "whatsapp") return json({ error: "teste só existe para whatsapp, legalmail, ti e ia" }, 400);
+    if (tipo !== "whatsapp") return json({ error: "teste só existe para whatsapp, legalmail, ti, zapsign e ia" }, 400);
     if (!atual) return json({ ok: false, erro: "integração ainda não configurada" });
     const cfg = (atual.config ?? {}) as { base_url?: string; instance?: string };
     if (!cfg.base_url || !cfg.instance) return json({ ok: false, erro: "informe a URL e a instância" });

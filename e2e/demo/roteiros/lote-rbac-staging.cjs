@@ -218,7 +218,7 @@ async function painel(page, titulo, corpoHtml, ms = 5000) {
       await fechar(pAdv);
 
       const p = (await parte(`canario+admin@${DOM}`, ESC2)).page;
-      await p.goto(`${BASE}/configuracoes?tab=integracoes`);
+      await p.goto(`${BASE}/configuracoes?tab=integracoes&abrir=todas`);
       const lm = p.locator('[data-card-integracao="legalmail"]');
       await lm.waitFor({ timeout: 25000 });
       await deslizar(p, lm);
@@ -341,7 +341,7 @@ async function painel(page, titulo, corpoHtml, ms = 5000) {
     if (ato(5)) {
       const p = (await parte(`canario+admin@${DOM}`, ESC2)).page;
       await cartao(p, "5 · Token do MCP para outra pessoa", "O admin emite; o Claude da pessoa roda COMO ela e vê só o que ela vê. Dono e emissor veem e revogam.");
-      await p.goto(`${BASE}/configuracoes?tab=integracoes`);
+      await p.goto(`${BASE}/configuracoes?tab=integracoes&abrir=todas`);
       const sel = p.getByRole("combobox", { name: "Para quem emitir o token" });
       await sel.waitFor({ timeout: 25000 });
       await deslizar(p, sel);
@@ -380,7 +380,7 @@ async function painel(page, titulo, corpoHtml, ms = 5000) {
         await narrar(p, "Chamada real à function do staging com o token da Elisa: voltam os casos do Canário que ela enxerga.");
         await still(p, "ato5-03-mcp-chamada");
 
-        await p.goto(`${BASE}/configuracoes?tab=integracoes`);
+        await p.goto(`${BASE}/configuracoes?tab=integracoes&abrir=todas`);
         await p.locator("[data-token-dono]").first().waitFor({ timeout: 25000 });
         await deslizar(p, p.locator("[data-token-dono]").first());
         await narrar(p, "Na lista fica de quem é o token e quem emitiu. A dona e a emissora veem e revogam; outro admin, não.");

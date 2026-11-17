@@ -310,6 +310,7 @@ const FN_DEVEM_ESCOPAR = {
   "listar-clientes-ti": "lista clientes (vazou em 24/09 antes do escopo)",
   "listar-processos-legalmail": "lista processos (idem)",
   "whatsapp-inbound": "casa a mensagem com caso e documento pelo telefone",
+  "zapsign-webhook": "acha a assinatura pelo token do documento e grava o PDF assinado no caso",
   "excluir-parceiro": "cascata de desvínculo em casos, documentos e andamentos",
 };
 let conferidasEscopo = 0;
