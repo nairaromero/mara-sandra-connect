@@ -201,6 +201,13 @@ o sistema em produção. Quando chegar, vale o seguinte:
   do caso vira o aviso genérico de `_shared/aviso-sem-aceite.ts` (um por dia,
   `reservar_aviso_aceite`) e a linha dele no WhatsApp vira `cancelado`. Régua:
   `e2e/unit/aceite-antes-do-email.test.ts`.
+  Etiquetas (#514): a fonte é uma só — `etiquetas` + `clientes_etiquetas`. O JSON
+  legado `clientes.tags` não tem escritor (não voltar a gravá-lo: o espelhador que
+  o sincronizava apagou etiquetas da tela em 09/11) e rotina de sistema aplica
+  etiqueta por `private.garantir_etiqueta_cliente(cliente, nome)` (escritório
+  herdado do cliente). A rotina da perícia só troca PERICIA_AGENDADA_* quando a
+  ÚLTIMA perícia do cliente já passou. Régua: `e2e/unit/etiquetas-fonte-unica.test.ts`;
+  prova: `e2e/tests/etiquetas-fonte-unica.spec.ts`.
   Catálogo do escritório (#486): `private.semear_catalogo(escritório)` copia do
   padrão os tipos de benefício e modelos de tarefa que estiverem vazios — chamado
   pelo `qg_criar_escritorio` e pelo passo 6 do espelho (o Canário perde o catálogo
