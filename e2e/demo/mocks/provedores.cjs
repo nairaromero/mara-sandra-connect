@@ -27,12 +27,14 @@ const estado = {
     msg_id: "mock-msg-1",
     legalmail_key: "chave-legalmail-canario",
     ti_token: "token-ti-canario",
+    zapsign_token: "token-zapsign-canario",
   },
   emails: [],          // Resend: o que as functions mandaram
   claude: [],          // "conversa" do Claude simulado
   painel: [],          // blocos {titulo, html} do painel
   evolution: [],       // mensagens que o Evolution simulado 'enviou' ({instance, number, text})
   chamadas: [],        // log curto pra depurar
+  zapsign: new Map(),  // documentos do ZapSign simulado, por token
 };
 
 const b64url = (s) => Buffer.from(s, "utf8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -64,6 +66,8 @@ function emailInss() {
       mimeType: "multipart/alternative",
       headers: [
         { name: "Subject", value: "Status do requerimento 1234567890 alterado para EXIGÊNCIA" },
+        // o mesmo e-mail em duas caixas tem ids de Gmail diferentes e ESTE cabeçalho igual
+        { name: "Message-ID", value: `<inss-${c.msg_id}@mock.inss.gov.br>` },
         { name: "From", value: "INSS <naoresponda@inss.gov.br>" },
         { name: "Date", value: new Date().toUTCString() },
       ],
@@ -167,7 +171,7 @@ const server = http.createServer(async (req, res) => {
     if (p === "/_config" && req.method === "POST") { Object.assign(estado.config, JSON.parse(await lerCorpo(req) || "{}")); return json(res, { ok: true, config: estado.config }); }
     // O que as functions mandaram pelo Resend (as specs conferem o conteúdo).
     if (p === "/_emails") return json(res, { emails: estado.emails });
-    if (p === "/_reset" && req.method === "POST") { estado.emails = []; estado.claude = []; estado.painel = []; estado.evolution = []; return json(res, { ok: true }); }
+    if (p === "/_reset" && req.method === "POST") { estado.emails = []; estado.claude = []; estado.painel = []; estado.evolution = []; estado.zapsign.clear(); return json(res, { ok: true }); }
 
     // ---- Evolution API (WhatsApp)
     if (p.startsWith("/evolution/")) {
@@ -242,6 +246,70 @@ button{background:#1a73e8;color:#fff;border:0;border-radius:6px;padding:10px 26p
         ] });
       }
       return json(res, { message: "rota não simulada", p }, 404);
+    }
+
+    // ---- ZapSign (Bearer) — criar / detalhar / listar documento
+    // Utilidades sem Bearer (as specs fazem o papel do signatário):
+    //   POST /zapsign/_assinar/<token>?quem=<i|todos>   POST /zapsign/_recusar/<token>
+    //   POST /zapsign/_excluir/<token>                  GET  /zapsign/_docs
+    //   GET  /zapsign/_arquivo/<token>.pdf  (o "PDF assinado")
+    if (p.startsWith("/zapsign/")) {
+      const docs = estado.zapsign;
+      let m;
+      if (p === "/zapsign/_docs") return json(res, [...docs.values()]);
+      if ((m = p.match(/^\/zapsign\/_arquivo\/([^/.]+)\.pdf$/))) {
+        const pdf = Buffer.from("%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Count 0/Kids[]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n% assinado (simulação) " + m[1] + "\n");
+        res.writeHead(200, { "content-type": "application/pdf", "content-length": pdf.length });
+        return res.end(pdf);
+      }
+      if ((m = p.match(/^\/zapsign\/_(assinar|recusar|excluir)\/([^/]+)$/)) && req.method === "POST") {
+        const d = docs.get(m[2]);
+        if (!d) return json(res, { detail: "Not found." }, 404);
+        const agora = new Date().toISOString();
+        if (m[1] === "excluir") d.deleted = true;
+        if (m[1] === "recusar") d.status = "refused";
+        if (m[1] === "assinar") {
+          const quem = url.searchParams.get("quem") ?? "todos";
+          d.signers.forEach((sg, i) => { if (quem === "todos" || Number(quem) === i) { sg.status = "signed"; sg.signed_at = agora; } });
+          if (d.signers.every((sg) => sg.status === "signed")) d.status = "signed";
+        }
+        d.last_update_at = agora;
+        return json(res, { ok: true, status: d.status });
+      }
+      if (req.headers.authorization !== `Bearer ${estado.config.zapsign_token}`) return json(res, { detail: "Token inválido." }, 401);
+      const visivel = (d) => ({
+        sandbox: true, external_id: d.external_id, open_id: d.open_id, token: d.token, name: d.name, status: d.status,
+        deleted: !!d.deleted, original_file: null,
+        // o link do assinado aponta para este mesmo servidor, no endereço por onde a function chegou
+        signed_file: d.status === "signed" ? `http://${req.headers.host}/zapsign/_arquivo/${d.token}.pdf` : null,
+        created_at: d.created_at, last_update_at: d.last_update_at, signers: d.signers,
+        // documento "criado no painel": respostas do modelo e quem criou (a spec manda no corpo)
+        answers: d.answers, created_by: { email: d.created_by_email },
+      });
+      if (p === "/zapsign/api/v1/docs/" && req.method === "GET") return json(res, { count: docs.size, next: null, previous: null, results: [...docs.values()].map(visivel) });
+      if (p === "/zapsign/api/v1/docs/" && req.method === "POST") {
+        const c = JSON.parse(await lerCorpo(req) || "{}");
+        if (!c.name || !(c.base64_pdf || c.base64_docx) || !Array.isArray(c.signers) || !c.signers.length) return json(res, { detail: "name, arquivo e signers são obrigatórios" }, 400);
+        const token = require("crypto").randomUUID();
+        const agora = new Date().toISOString();
+        const d = {
+          token, open_id: docs.size + 1, name: c.name, external_id: c.external_id ?? "", status: "pending", created_at: agora, last_update_at: agora,
+          answers: Array.isArray(c.answers) ? c.answers : [], created_by_email: c.created_by_email ?? "painel@exemplo.com.br",
+          signers: c.signers.map((sg) => {
+            const t = require("crypto").randomUUID();
+            return { token: t, sign_url: `https://app.zapsign.co/verificar/${t}`, status: "new", name: sg.name, email: sg.email ?? "", phone_country: sg.phone_country ?? "", phone_number: sg.phone_number ?? "", external_id: sg.external_id ?? "", cpf: sg.cpf ?? "", times_viewed: 0, last_view_at: null, signed_at: null, send_automatic_email: !!sg.send_automatic_email, send_automatic_whatsapp: !!sg.send_automatic_whatsapp };
+          }),
+        };
+        docs.set(token, d);
+        // "[sem resposta]" no nome: o documento É criado, mas a resposta se perde (a spec prova que o envio não é dado por perdido)
+        if (String(c.name).includes("[sem resposta]")) return json(res, { detail: "erro interno (simulado)" }, 500);
+        return json(res, visivel(d));
+      }
+      if ((m = p.match(/^\/zapsign\/api\/v1\/docs\/([^/]+)\/$/)) && req.method === "GET") {
+        const d = docs.get(decodeURIComponent(m[1]));
+        return d ? json(res, visivel(d)) : json(res, { detail: "Not found." }, 404);
+      }
+      return json(res, { detail: "rota não simulada", p }, 404);
     }
 
     // ---- Tramitação Inteligente (Bearer) — clientes / notas

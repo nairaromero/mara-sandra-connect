@@ -2,7 +2,7 @@
 //
 // Recebe o redirect do Google após consent. Valida o `state` (HMAC + TTL),
 // troca `code` por tokens, cifra o refresh_token e faz upsert em
-// usuario_gmail_oauth. Por fim, redireciona o navegador de volta para
+// usuario_gmail_oauth (uma linha por caixa; o escritório pode ter várias). Por fim, redireciona o navegador de volta para
 // Configurações com `?gmail=ok` (ou `?gmail=error&motivo=...`).
 //
 // Tem que ser GET (Google faz redirect com query params, não POST).
@@ -147,17 +147,20 @@ serve(async (req) => {
   }
   if (!escritorioId) return redirectBack("error", "sem_escritorio");
 
+  // A linha é a CAIXA: única por (escritório, e-mail). Conectar de novo a
+  // mesma caixa troca a credencial dela; outra caixa vira outra linha — o
+  // escritório pode ter várias (migration_gmail_inss_varias_caixas).
   const { error: upsertErr } = await sb
     .from("usuario_gmail_oauth")
     .upsert({
       usuario_id: usuarioId,
       escritorio_id: escritorioId,
-      email_conectado: emailConectado || "(desconhecido)",
+      email_conectado: emailConectado.trim().toLowerCase() || "(desconhecido)",
       refresh_cipher: cipher,
       refresh_iv: iv,
       scope: tok.scope ?? "https://www.googleapis.com/auth/gmail.readonly",
       connected_at: new Date().toISOString(),
-    });
+    }, { onConflict: "escritorio_id,email_conectado" });
   if (upsertErr) {
     console.error("Upsert gmail oauth falhou:", upsertErr);
     return redirectBack("error", "db_upsert_falhou");

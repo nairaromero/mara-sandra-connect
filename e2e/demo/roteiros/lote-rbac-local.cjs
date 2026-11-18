@@ -174,7 +174,7 @@ async function cartao(page, titulo, sub, ms = 3800) {
     if (ato(2)) {
       const p = (await parte(`canario+admin@${DOM}`, ESC2)).page;
       await cartao(p, "2 · Integrações por escritório", "WhatsApp, caixa do INSS e DJEN: cada escritório configura o seu. Chaves cifradas no banco; provedores simulados nesta gravação.");
-      await p.goto(`${BASE}/configuracoes?tab=integracoes`);
+      await p.goto(`${BASE}/configuracoes?tab=integracoes&abrir=todas`);
       const wa = p.locator("[data-card-whatsapp]");
       await wa.waitFor({ timeout: 20000 });
       await narrar(p, "WhatsApp do Canário: a URL do Evolution, a instância e a chave da API — a chave é cifrada e nunca volta para a tela.");
@@ -217,7 +217,7 @@ async function cartao(page, titulo, sub, ms = 3800) {
       });
 
       // Gmail do INSS
-      await p.goto(`${BASE}/configuracoes?tab=integracoes`);
+      await p.goto(`${BASE}/configuracoes?tab=integracoes&abrir=todas`);
       const gm = p.locator("[data-card-gmail]");
       await gm.waitFor({ timeout: 20000 });
       await deslizar(p, gm);
@@ -267,7 +267,7 @@ async function cartao(page, titulo, sub, ms = 3800) {
 
       await tentar("isolamento no escritório 1", async () => {
         const p1 = (await parte(`e2e+admin@${DOM}`, ESC1)).page;
-        await p1.goto(`${BASE}/configuracoes?tab=integracoes`);
+        await p1.goto(`${BASE}/configuracoes?tab=integracoes&abrir=todas`);
         await p1.locator("[data-card-whatsapp]").waitFor({ timeout: 20000 });
         await narrar(p1, "No escritório 1 nada disso existe: integrações são por escritório.");
         await deslizar(p1, p1.locator("[data-card-whatsapp]"));
@@ -391,7 +391,7 @@ async function cartao(page, titulo, sub, ms = 3800) {
     if (ato(5)) {
       const p = (await parte(`canario+admin@${DOM}`, ESC2)).page;
       await cartao(p, "5 · Token do MCP para outra pessoa", "O admin emite o token; o Claude da pessoa roda COMO ela e vê só o que ela vê. Dono e emissor veem e revogam.");
-      await p.goto(`${BASE}/configuracoes?tab=integracoes`);
+      await p.goto(`${BASE}/configuracoes?tab=integracoes&abrir=todas`);
       const sel = p.getByRole("combobox", { name: "Para quem emitir o token" });
       await sel.waitFor({ timeout: 20000 });
       await deslizar(p, sel);
@@ -425,7 +425,7 @@ async function cartao(page, titulo, sub, ms = 3800) {
         await still(p, "ato5-03-claude");
       });
 
-      await p.goto(`${BASE}/configuracoes?tab=integracoes`);
+      await p.goto(`${BASE}/configuracoes?tab=integracoes&abrir=todas`);
       await p.locator("[data-token-dono]").first().waitFor({ timeout: 20000 });
       await deslizar(p, p.locator("[data-token-dono]").first());
       await narrar(p, "Na lista: \"de Gilda Moura\". A Carla (emissora) e a Gilda (dona) veem e revogam; outro admin, não.");
@@ -502,7 +502,7 @@ async function cartao(page, titulo, sub, ms = 3800) {
       await narrar(p, "Webhooks: o endereço antigo ainda abre a aba, mas o módulo não é oferecido — \"Em breve\". A entrega era do n8n; volta por function.");
       await ler(p, 1500);
       await still(p, "ato8-01-webhooks");
-      await p.goto(`${BASE}/configuracoes?tab=integracoes`);
+      await p.goto(`${BASE}/configuracoes?tab=integracoes&abrir=todas`);
       const wa = p.locator("[data-card-whatsapp]");
       await wa.waitFor({ timeout: 20000 });
       await deslizar(p, wa);
@@ -553,7 +553,7 @@ async function cartao(page, titulo, sub, ms = 3800) {
       await fechar(pa);
       // 2) admin cadastra
       const p = (await parte(`canario+admin@${DOM}`, ESC2)).page;
-      await p.goto(`${BASE}/configuracoes?tab=integracoes`);
+      await p.goto(`${BASE}/configuracoes?tab=integracoes&abrir=todas`);
       const lm = p.locator('[data-card-integracao="legalmail"]');
       await lm.waitFor({ timeout: 20000 });
       await deslizar(p, lm);
@@ -605,7 +605,7 @@ async function cartao(page, titulo, sub, ms = 3800) {
       // 4) escritório 1
       await tentar("isolamento do escritório 1", async () => {
         const p1 = (await parte(`e2e+admin@${DOM}`, ESC1)).page;
-        await p1.goto(`${BASE}/configuracoes?tab=integracoes`);
+        await p1.goto(`${BASE}/configuracoes?tab=integracoes&abrir=todas`);
         const c1 = p1.locator('[data-card-integracao="legalmail"]');
         await c1.waitFor({ timeout: 20000 });
         await deslizar(p1, c1);
@@ -628,7 +628,7 @@ async function cartao(page, titulo, sub, ms = 3800) {
       await mock("/_reset");
       const p = (await parte(`canario+admin@${DOM}`, ESC2)).page;
       await cartao(p, "Complemento · Saída de WhatsApp sem n8n", "A fila de mensagens ao parceiro passa a ser entregue por uma function do sistema, chamada pelo pg_cron, com a instância e a chave do escritório de cada mensagem. O n8n sai do caminho.", 6000);
-      await p.goto(`${BASE}/configuracoes?tab=integracoes`);
+      await p.goto(`${BASE}/configuracoes?tab=integracoes&abrir=todas`);
       const wa = p.locator("[data-card-whatsapp]");
       await wa.waitFor({ timeout: 20000 });
       await deslizar(p, wa);

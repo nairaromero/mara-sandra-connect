@@ -82,14 +82,15 @@ test("admin: webhooks saíram da sidebar e /webhooks abre a aba nas Configuraç�
   // Trocar de aba atualiza a URL (deep-link) e mostra o conteúdo certo.
   await clicar(page, page.getByRole("tab", { name: "Integrações" }));
   await expect(page).toHaveURL(/\/configuracoes\?tab=integracoes/);
-  await expect(page.getByText(/Integração Gmail/).first()).toBeVisible();
+  // a aba abre o catálogo: a linha do Gmail está lá, o formulário só abre a pedido
+  await expect(page.locator('[data-integracao-linha="gmail"]')).toBeVisible();
   await clicar(page, page.getByRole("tab", { name: "Perfil" }));
   await expect(page).toHaveURL(/\/configuracoes$/);
   await expect(page.getByText("Meu perfil", { exact: true })).toBeVisible();
 
   // Deep-link direto abre a aba. É a contraprova do teste do interno comum
   // (autoria-tarefas-admin.spec): a mesma URL, pra ele, cai em Perfil.
-  await page.goto("/configuracoes?tab=integracoes");
+  await page.goto("/configuracoes?tab=integracoes&abrir=todas");
   await expect(page.getByRole("tab", { name: "Integrações" })).toHaveAttribute(
     "data-state",
     "active",

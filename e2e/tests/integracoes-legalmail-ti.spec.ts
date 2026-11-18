@@ -145,7 +145,7 @@ test.describe.serial("Legalmail e TI por escritório", () => {
     const page = await ctx.newPage();
     await cursorVisivel(page);
     try {
-      await page.goto("/configuracoes?tab=integracoes");
+      await page.goto("/configuracoes?tab=integracoes&abrir=todas");
       await expect(page.locator('[data-card-integracao="legalmail"]')).toBeVisible();
       await expect(page.locator('[data-card-integracao="ti"]')).toBeVisible();
       await expect(page.locator('[data-card-integracao="legalmail"] [data-integracao-estado]')).toHaveText("ativo");

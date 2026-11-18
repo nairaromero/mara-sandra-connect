@@ -106,7 +106,7 @@ test.describe.serial("procurador nos e-mails do INSS (#503)", () => {
     await page.locator('input[type="password"]').first().fill(ENV.internoPassword);
     await page.locator('button[type="submit"]').first().click();
     await page.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: 30_000 });
-    await page.goto("/configuracoes?tab=integracoes");
+    await page.goto("/configuracoes?tab=integracoes&abrir=todas");
     const gm = page.locator("[data-card-gmail]");
     await gm.getByRole("button", { name: /Conectar Gmail/ }).first().click();
     await page.locator("#permitir").click({ timeout: 20_000 });
@@ -115,7 +115,7 @@ test.describe.serial("procurador nos e-mails do INSS (#503)", () => {
     await expect
       .poll(async () => (await admin.from("usuario_gmail_oauth").select("escritorio_id").eq("escritorio_id", ESC2)).data?.length ?? 0, { timeout: 20_000 })
       .toBe(1);
-    await page.goto("/configuracoes?tab=integracoes");
+    await page.goto("/configuracoes?tab=integracoes&abrir=todas");
     await expect(page.locator("[data-card-gmail]")).toContainText(/Conectado como/i, { timeout: 20_000 });
     // O cartão mostra o procurador escolhido (menu com busca) e a lista salva.
     await expect(page.locator('[data-selecao="inss-procurador"]')).toContainText("Diego Prado");

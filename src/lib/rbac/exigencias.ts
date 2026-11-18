@@ -155,6 +155,7 @@ export const FUNCTION: Record<string, Exigencia> = {
   "sync-datajud-movimentacoes": { permissao: "casos:editar" },
   "sync-djen-caso": { permissao: "casos:editar" },
   "sync-legalmail-caso": { permissao: "casos:editar" },
+  "zapsign-enviar": { permissao: "documentos:enviar" },
   "sync-ti-cliente": { permissao: "casos:editar" },
   "listar-processos-legalmail": { permissao: "processos:ler" },
   "listar-clientes-ti": { permissao: "casos:ler" },

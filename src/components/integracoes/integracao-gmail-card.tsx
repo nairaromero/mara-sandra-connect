@@ -7,9 +7,11 @@
 //      ao escritório.
 //   3. Callback redireciona de volta para /configuracoes?gmail=ok|error.
 //
-// A caixa é DO ESCRITÓRIO (RBAC 09): o card mostra a caixa ativa no escritório
-// (RPC gmail_inss_status — só quem gerencia integrações), quem conectou e se é
-// a própria pessoa. Nunca recebe o token em claro — só e-mail e datas.
+// As caixas são DO ESCRITÓRIO (RBAC 09) e podem ser várias: o card lista todas
+// as caixas conectadas no escritório ativo (RPC gmail_inss_status — só quem
+// gerencia integrações), quem conectou cada uma, e deixa conectar outra ou
+// desconectar qualquer uma. A rotina lê TODAS. Nunca recebe o token em claro —
+// só e-mail e datas.
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -21,6 +23,7 @@ import { formatarBR } from "@/lib/fuso";
 import { useAuth } from "@/hooks/use-auth";
 
 interface VinculoGmail {
+  id: string;
   email_conectado: string;
   connected_at: string;
   last_used_at: string | null;
@@ -31,10 +34,11 @@ interface VinculoGmail {
 export function IntegracaoGmailCard() {
   const { usuario, pode } = useAuth();
   const [carregando, setCarregando] = useState(true);
-  const [vinculo, setVinculo] = useState<VinculoGmail | null>(null);
+  const [caixas, setCaixas] = useState<Array<VinculoGmail>>([]);
   const [erro, setErro] = useState<string | null>(null);
   const [conectando, setConectando] = useState(false);
-  const [desconectando, setDesconectando] = useState(false);
+  /** id da caixa que está sendo desconectada */
+  const [desconectando, setDesconectando] = useState<string | null>(null);
 
   const carregar = useCallback(async () => {
     if (!usuario?.id) {
@@ -46,10 +50,10 @@ export function IntegracaoGmailCard() {
     if (error) {
       // erro NAO vira "nao conectado": o admin precisa saber que a leitura falhou
       setErro(error.message);
-      setVinculo(null);
+      setCaixas([]);
     } else {
       setErro(null);
-      setVinculo(((data ?? []) as Array<VinculoGmail>)[0] ?? null);
+      setCaixas((data ?? []) as Array<VinculoGmail>);
     }
     setCarregando(false);
   }, [usuario?.id]);
@@ -94,18 +98,18 @@ export function IntegracaoGmailCard() {
     }
   }
 
-  // So a propria pessoa apaga a conexao dela (RLS self-delete). A caixa de
-  // outra pessoa do escritorio se substitui reconectando.
-  async function desconectar() {
-    if (!usuario?.id) return;
-    setDesconectando(true);
-    const { error } = await supabase.from("usuario_gmail_oauth").delete().eq("usuario_id", usuario.id);
-    setDesconectando(false);
+  // Quem gerencia integrações desconecta qualquer caixa DO ESCRITÓRIO (a RLS
+  // confere a permissão e o escritório). As outras caixas continuam sendo lidas.
+  async function desconectar(caixa: VinculoGmail) {
+    if (!window.confirm(`Desconectar ${caixa.email_conectado}? Os e-mails do INSS que chegarem nessa caixa deixam de ser lidos.`)) return;
+    setDesconectando(caixa.id);
+    const { error } = await supabase.from("usuario_gmail_oauth").delete().eq("id", caixa.id);
+    setDesconectando(null);
     if (error) {
       toast.error("Falha ao desconectar.");
       return;
     }
-    toast.success("Gmail desconectado.");
+    toast.success(`${caixa.email_conectado} desconectada.`);
     void carregar();
   }
 
@@ -119,64 +123,60 @@ export function IntegracaoGmailCard() {
           Integração Gmail (INSS)
         </CardTitle>
         <CardDescription>
-          A caixa de entrada que recebe os e-mails do INSS <strong>deste escritório</strong>. A rotina{" "}
-          <code>inss-email-processor</code> lê essa caixa e cria andamentos e tarefas nos casos daqui — cada
-          escritório tem a sua. Permissão pedida ao Google: <strong>leitura</strong> (gmail.readonly).
+          As caixas de entrada que recebem os e-mails do INSS <strong>deste escritório</strong> — pode ser mais de
+          uma. A rotina <code>inss-email-processor</code> lê todas e cria andamentos e tarefas nos casos daqui.
+          Permissão pedida ao Google: <strong>leitura</strong> (gmail.readonly).
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        {erro && <p className="text-sm text-red-700">Não consegui ler o estado da caixa: {erro}</p>}
+        {erro && <p className="text-sm text-red-700">Não consegui ler o estado das caixas: {erro}</p>}
         {carregando ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" /> Carregando…
           </div>
-        ) : vinculo ? (
-          <div className="space-y-3">
-            <div className="flex items-start gap-2 text-sm">
-              <CheckCircle2 className="h-4 w-4 mt-0.5 text-green-600" />
-              <div>
-                <div>
-                  Conectado como <strong className="font-medium">{vinculo.email_conectado}</strong>
-                  {vinculo.conectado_por && (
-                    <span className="text-muted-foreground">
-                      {" "}
-                      · por {vinculo.e_minha ? "você" : vinculo.conectado_por}
-                    </span>
-                  )}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  Desde {formatarBR(vinculo.connected_at, { dateStyle: "short", timeStyle: "medium" })}
-                  {vinculo.last_used_at && (
-                    <>
-                      {" · "}último uso {formatarBR(vinculo.last_used_at, { dateStyle: "short", timeStyle: "medium" })}
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              {vinculo.e_minha && (
-                <Button variant="outline" size="sm" onClick={desconectar} disabled={desconectando}>
-                  {desconectando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unplug className="h-4 w-4" />}
-                  Desconectar
-                </Button>
-              )}
-              <Button variant="outline" size="sm" onClick={conectar} disabled={conectando}>
-                {conectando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plug className="h-4 w-4" />}
-                {vinculo.e_minha ? "Reconectar" : "Conectar outra caixa"}
-              </Button>
-            </div>
-          </div>
         ) : (
           <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              Nenhuma caixa conectada neste escritório. Clique para autorizar o acesso à caixa que recebe os
-              e-mails do INSS.
-            </p>
-            <Button onClick={conectar} disabled={conectando}>
-              {conectando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plug className="h-4 w-4" />}
-              Conectar Gmail
-            </Button>
+            {caixas.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Nenhuma caixa conectada neste escritório. Clique para autorizar o acesso à caixa que recebe os
+                e-mails do INSS.
+              </p>
+            ) : (
+              <ul className="divide-y rounded-md border" data-caixas-gmail>
+                {caixas.map((c) => (
+                  <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2" data-caixa-gmail={c.email_conectado}>
+                    <div className="flex min-w-0 items-start gap-2 text-sm">
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-600" />
+                      <div className="min-w-0">
+                        <div>
+                          Conectado como <strong className="font-medium">{c.email_conectado}</strong>
+                          {c.conectado_por && <span className="text-muted-foreground"> · por {c.e_minha ? "você" : c.conectado_por}</span>}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          Desde {formatarBR(c.connected_at, { dateStyle: "short", timeStyle: "medium" })}
+                          {c.last_used_at && <> · último uso {formatarBR(c.last_used_at, { dateStyle: "short", timeStyle: "medium" })}</>}
+                        </div>
+                      </div>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => desconectar(c)} disabled={desconectando === c.id}>
+                      {desconectando === c.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unplug className="h-4 w-4" />}
+                      Desconectar
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant={caixas.length === 0 ? "default" : "outline"} size={caixas.length === 0 ? "default" : "sm"} onClick={conectar} disabled={conectando}>
+                {conectando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plug className="h-4 w-4" />}
+                {caixas.length === 0 ? "Conectar Gmail" : "Conectar outra caixa"}
+              </Button>
+              {caixas.length > 0 && (
+                <span className="text-xs text-muted-foreground">
+                  O Google pergunta qual conta usar. Conectar de novo uma caixa da lista só renova o acesso dela.
+                </span>
+              )}
+            </div>
           </div>
         )}
       </CardContent>
