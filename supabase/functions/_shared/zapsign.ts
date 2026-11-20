@@ -11,11 +11,12 @@
 // ZapSign não assina o webhook; o corpo só serve para saber QUAL documento
 // olhar.
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { type CampoDoModelo, formatoAssinavel, type ModeloZapsign, type Signatario, type StatusAssinatura, type StatusSignatario } from "./assinatura.ts";
+import { formatoAssinavel, type ModeloZapsign, type Signatario, type StatusAssinatura, type StatusSignatario } from "./assinatura.ts";
 import { fetchT } from "./auth.ts";
 import { cpfValido } from "./documento-campos.ts";
 import { equipeInterna } from "./equipe.ts";
 import { baseZapsign, type Integracao } from "./integracoes.ts";
+import { type CampoDoModelo, camposDoModelo, type EntradaDoModelo, type ParagrafoDoContrato, paragrafosDoDocx, previaDoContrato } from "./modelo-contrato.ts";
 import { telefoneGuardado } from "./telefone.ts";
 
 /** Teto do arquivo enviado (o ZapSign documenta 10 MB para PDF por URL). */
@@ -238,20 +239,30 @@ function sugestaoPara(rotulo: string, c: DadosDoCliente): string {
   return "";
 }
 
-/** Nome e campos de UM modelo, já com o que o cadastro do cliente responde. */
-export async function detalharModelo(integ: Integracao, modeloToken: string, cliente: DadosDoCliente): Promise<{ modelo: ModeloZapsign; campos: CampoDoModelo[] }> {
+/**
+ * Nome e campos de UM modelo, já com o que o cadastro do cliente responde e
+ * com as regras do texto de ajuda (`camposDoModelo`). `arquivo` é o endereço
+ * do DOCX do modelo — de vida curta, só para a prévia ler agora.
+ */
+export async function detalharModelo(integ: Integracao, modeloToken: string, cliente: DadosDoCliente): Promise<{ modelo: ModeloZapsign; campos: CampoDoModelo[]; arquivo: string }> {
   const m = (await chamar(integ, `/api/v1/templates/${encodeURIComponent(modeloToken)}/`)) as {
-    token?: string; name?: string; folder_path?: string;
-    inputs?: Array<{ variable?: string; label?: string; help_text?: string; required?: boolean; order?: number }>;
+    token?: string; name?: string; folder_path?: string; template_file?: string; inputs?: EntradaDoModelo[];
   };
-  const campos = [...(m.inputs ?? [])]
-    .filter((i) => typeof i.variable === "string" && i.variable)
-    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-    .map((i) => {
-      const rotulo = String(i.label || i.variable).replace(/[{}]/g, "").trim();
-      return { variavel: i.variable as string, rotulo, ajuda: String(i.help_text ?? ""), obrigatorio: i.required === true, sugestao: sugestaoPara(rotulo, cliente) };
-    });
-  return { modelo: { token: m.token ?? modeloToken, nome: String(m.name ?? "Modelo sem nome"), pasta: String(m.folder_path || "/") }, campos };
+  return {
+    modelo: { token: m.token ?? modeloToken, nome: String(m.name ?? "Modelo sem nome"), pasta: String(m.folder_path || "/") },
+    campos: camposDoModelo(m.inputs ?? [], (rotulo) => sugestaoPara(rotulo, cliente)),
+    arquivo: String(m.template_file ?? ""),
+  };
+}
+
+/** Teto do DOCX de um modelo (o ZapSign aceita até 10 MB). */
+const MODELO_MAX_BYTES = 10 * 1024 * 1024;
+
+/** O contrato do modelo com os campos preenchidos, para a pessoa conferir ANTES de enviar. Não cria nada no ZapSign. */
+export async function previaDoModelo(arquivo: string, respostas: ReadonlyArray<{ variavel: string; valor: string }>): Promise<ParagrafoDoContrato[]> {
+  if (!arquivo) throw new Error("o ZapSign não informou o arquivo deste modelo");
+  const docx = await baixarDoZapsign(arquivo, MODELO_MAX_BYTES, "o arquivo do modelo");
+  return previaDoContrato(await paragrafosDoDocx(docx), respostas);
 }
 
 /** Cria o documento a partir do modelo, com os campos preenchidos e o cliente como signatário. */
@@ -587,24 +598,25 @@ function nomeNoStorage(nome: string): string {
   return nome.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 120);
 }
 
-/** Baixa o PDF assinado, com teto ANTES de carregar e sem seguir endereço estranho. */
-async function baixarAssinado(url: string): Promise<Uint8Array> {
+/** Baixa um arquivo que o ZapSign apontou, com teto ANTES de carregar e sem seguir endereço estranho. */
+async function baixarDoZapsign(url: string, teto: number, oQue: string): Promise<Uint8Array> {
   // https sempre; http só quando a base é a do simulador local (ZAPSIGN_BASE_URL)
   const destino = new URL(url);
   if (destino.protocol !== "https:" && !(destino.protocol === "http:" && Deno.env.get("ZAPSIGN_BASE_URL"))) {
-    throw new Error("endereço do PDF assinado não é https");
+    throw new Error(`endereço de ${oQue} não é https`);
   }
   const r = await fetchT(url, { timeoutMs: 60_000 });
   const declarado = Number(r.headers.get("content-length") ?? 0);
-  if (!r.ok || declarado > ASSINADO_MAX_BYTES) {
+  if (!r.ok || declarado > teto) {
     await r.body?.cancel();
-    throw new Error(r.ok ? "PDF assinado maior que o limite do armazenamento" : `baixando o PDF assinado: HTTP ${r.status}`);
+    throw new Error(r.ok ? `${oQue} maior que o limite` : `baixando ${oQue}: HTTP ${r.status}`);
   }
   const bytes = new Uint8Array(await r.arrayBuffer());
-  if (!bytes.length) throw new Error("PDF assinado veio vazio");
-  if (bytes.length > ASSINADO_MAX_BYTES) throw new Error("PDF assinado maior que o limite do armazenamento");
+  if (!bytes.length) throw new Error(`${oQue} veio vazio`);
+  if (bytes.length > teto) throw new Error(`${oQue} maior que o limite`);
   return bytes;
 }
+const baixarAssinado = (url: string) => baixarDoZapsign(url, ASSINADO_MAX_BYTES, "o PDF assinado");
 
 /**
  * Traz para a linha o que o ZapSign diz AGORA. Quando todos assinaram, baixa o

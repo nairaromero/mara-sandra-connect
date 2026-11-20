@@ -43,6 +43,76 @@ const json = (res, corpo, status = 200) => { res.writeHead(status, { "content-ty
 const html = (res, corpo, status = 200) => { res.writeHead(status, { "content-type": "text/html; charset=utf-8" }); res.end(corpo); };
 const lerCorpo = (req) => new Promise((ok) => { let t = ""; req.on("data", (c) => (t += c)); req.on("end", () => ok(t)); });
 
+// ---- DOCX do modelo "KIT" simulado: é dele que o sistema monta a prévia do contrato.
+// Um ZIP de verdade (compactado), com um campo que o Word partiu em dois pedaços,
+// negrito, título ao centro e um "&" — o que o leitor da prévia precisa aguentar.
+// ZAPSIGN_MOCK_KIT_DOCX=<arquivo.docx> troca pelo Word de um kit real (teste na mão).
+function crc32(buf) {
+  let c, crc = 0xffffffff;
+  for (let n = 0; n < buf.length; n++) {
+    c = (crc ^ buf[n]) & 0xff;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    crc = (crc >>> 8) ^ c;
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+function zipDe(arquivos) {
+  const locais = [], centrais = [];
+  let offset = 0;
+  for (const [nome, texto] of arquivos) {
+    const bruto = Buffer.from(texto, "utf8"), dados = require("zlib").deflateRawSync(bruto), n = Buffer.from(nome, "utf8");
+    const cab = Buffer.alloc(30);
+    cab.writeUInt32LE(0x04034b50, 0); cab.writeUInt16LE(20, 4); cab.writeUInt16LE(8, 8); cab.writeUInt32LE(crc32(bruto), 14);
+    cab.writeUInt32LE(dados.length, 18); cab.writeUInt32LE(bruto.length, 22); cab.writeUInt16LE(n.length, 26);
+    const cen = Buffer.alloc(46);
+    cen.writeUInt32LE(0x02014b50, 0); cen.writeUInt16LE(20, 4); cen.writeUInt16LE(20, 6); cen.writeUInt16LE(8, 10); cen.writeUInt32LE(crc32(bruto), 16);
+    cen.writeUInt32LE(dados.length, 20); cen.writeUInt32LE(bruto.length, 24); cen.writeUInt16LE(n.length, 28); cen.writeUInt32LE(offset, 42);
+    locais.push(cab, n, dados); centrais.push(cen, n);
+    offset += 30 + n.length + dados.length;
+  }
+  const dir = Buffer.concat(centrais), fim = Buffer.alloc(22);
+  fim.writeUInt32LE(0x06054b50, 0); fim.writeUInt16LE(arquivos.length, 8); fim.writeUInt16LE(arquivos.length, 10); fim.writeUInt32LE(dir.length, 12); fim.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locais, dir, fim]);
+}
+function docxDoKit() {
+  const real = process.env.ZAPSIGN_MOCK_KIT_DOCX;
+  if (real) return require("fs").readFileSync(real);
+  const r = (t, negrito) => `<w:r><w:rPr><w:b${negrito ? "" : ' w:val="0"'}/></w:rPr><w:t xml:space="preserve">${t}</w:t></w:r>`;
+  const par = (runs, centro) => `<w:p><w:pPr>${centro ? '<w:jc w:val="center"/>' : '<w:jc w:val="both"/>'}</w:pPr>${runs}</w:p>`;
+  const corpo = [
+    par(r("CONTRATO DE HONORÁRIOS (modelo simulado)", true), true),
+    par(r("CONTRATANTE: ", true) + r("{{NOME_ASSINANTE}}, CPF {{CPF_ASSINANTE}}, {{QUALIFICACAO_CONTRATANTE}}.")),
+    par(r("• ") + r("O que será feito:", true) + r(" {{OBJETO_SERVICO}}, para obter {{BENEFICIO_OBJETO}}.")),
+    par(r("• ") + r("Quanto:", true) + r(" {{PERCENTUAL_ATRASADOS}} dos valores atrasados recebidos e mais valor equivalente a {{QTD_PRESTACOES}} prestações do benefício.")),
+    // o campo partido em dois pedaços pela formatação
+    par(r("a) ", true) + r("{{PERCENTUAL_") + r("ATRASADOS}} ({{PERCENTUAL_ATRASADOS_EXTENSO}})", true) + r(" sobre os valores retroativos;")),
+    par(r("b) ", true) + r("um valor equivalente a ") + r("{{QTD_PRESTACOES}} ({{QTD_PRESTACOES_EXTENSO}}) vezes a renda mensal", true) + r(", em prestações não superiores a 35% (trinta e cinco por cento) da renda.")),
+    par(r("Sigilo &amp; dados. Parceiro indicador: {{TEXTO_PARCEIRO}}")),
+    par(r("{{CIDADE}}, {{DATA}}. Foro: {{FORO}}.")),
+  ].join("");
+  return zipDe([
+    ["[Content_Types].xml", '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>'],
+    ["word/document.xml", `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${corpo}</w:body></w:document>`],
+  ]);
+}
+// Os campos do KIT, como estão no modelo de verdade: o padrão dos honorários mora no
+// texto de ajuda e os "_EXTENSO" são escritos pelo sistema.
+const CAMPOS_DO_KIT = [
+  ["NOME_ASSINANTE", "Nome de quem assina", "", true],
+  ["CPF_ASSINANTE", "CPF de quem assina", "", true],
+  ["QUALIFICACAO_CONTRATANTE", "Qualificação do contratante", "Nacionalidade, estado civil, profissão, RG e endereço.", true],
+  ["OBJETO_SERVICO", "Objeto do serviço", "O que será feito, em uma frase.", true],
+  ["BENEFICIO_OBJETO", "Benefício ou serviço", "Como deve aparecer nas procurações.", true],
+  ["PERCENTUAL_ATRASADOS", "Honorários sobre os atrasados (%)", "Padrão: 35% · Máximo: 50%", true],
+  ["PERCENTUAL_ATRASADOS_EXTENSO", "Honorários sobre os atrasados por extenso", "O sistema escreve a partir do percentual.", true],
+  ["QTD_PRESTACOES", "Quantidade de prestações do benefício", "Padrão: 5", true],
+  ["QTD_PRESTACOES_EXTENSO", "Quantidade de prestações por extenso", "O sistema escreve a partir da quantidade.", true],
+  ["TEXTO_PARCEIRO", "Parceiro indicador", "Nome do parceiro que indicou o caso, ou \"não há\".", false],
+  ["CIDADE", "Cidade da assinatura", "", true],
+  ["DATA", "Data da assinatura", "", true],
+  ["FORO", "Foro (comarca)", "", true],
+].map(([v, label, help_text, required], i) => ({ variable: `{{${v}}}`, input_type: "input", label, help_text, options: "", required, order: i + 1 }));
+
 // Modelos de contrato da conta do ZapSign simulada (#522): mais de 20 (o ZapSign
 // pagina de 20 em 20), em pastas, com um de PDF e um inativo que NÃO devem
 // aparecer no sistema.
@@ -66,6 +136,8 @@ function modelosZapsign() {
     ...Array.from({ length: 11 }, (_, i) => um(12 + i, `Contrato cível ${String(i + 1).padStart(2, "0")}`, "/Cível/")),
     um(23, "Formulário em PDF (não gera documento por aqui)", "/", { template_type: "pdf" }),
     um(24, "Contrato antigo (desativado)", "/Previdenciário/", { active: false }),
+    // o kit com honorários variáveis: campos com padrão, extenso e DOCX para a prévia
+    { ...um(25, "KIT Previdenciário - Aposentadoria e Revisão", "/Kits"), token: "modelo-kit", inputs: CAMPOS_DO_KIT, docx: true },
   ];
   return lista;
 }
@@ -291,6 +363,13 @@ button{background:#1a73e8;color:#fff;border:0;border-radius:6px;padding:10px 26p
         res.writeHead(200, { "content-type": "application/pdf", "content-length": pdf.length });
         return res.end(pdf);
       }
+      // o DOCX do modelo: como no ZapSign, o endereço abre sem credencial
+      if ((m = p.match(/^\/zapsign\/_modelo\/([^/]+)\.docx$/)) && req.method === "GET") {
+        if (!modelosZapsign().some((x) => x.token === m[1] && x.docx)) return json(res, { detail: "Not found." }, 404);
+        const arquivo = docxDoKit();
+        res.writeHead(200, { "content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "content-length": arquivo.length });
+        return res.end(arquivo);
+      }
       if ((m = p.match(/^\/zapsign\/_sumir\/([^/]+)$/)) && req.method === "POST") return json(res, { ok: docs.delete(m[1]) });
       if ((m = p.match(/^\/zapsign\/_(assinar|recusar|excluir)\/([^/]+)$/)) && req.method === "POST") {
         const d = docs.get(m[2]);
@@ -326,12 +405,15 @@ button{background:#1a73e8;color:#fff;border:0;border-radius:6px;padding:10px 26p
       if (p === "/zapsign/api/v1/templates/" && req.method === "GET") {
         const pagina = Math.max(1, Number(url.searchParams.get("page") || 1));
         const fatia = modelos.slice((pagina - 1) * 20, pagina * 20);
-        const resumo = ({ inputs: _i, ...m }) => m;
+        const resumo = ({ inputs: _i, docx: _d, ...m }) => m;
         return json(res, { count: modelos.length, next: pagina * 20 < modelos.length ? `http://${req.headers.host}/zapsign/api/v1/templates/?page=${pagina + 1}` : null, previous: null, results: fatia.map(resumo) });
       }
       if ((m = p.match(/^\/zapsign\/api\/v1\/templates\/([^/]+)\/$/)) && req.method === "GET") {
         const modelo = modelos.find((x) => x.token === decodeURIComponent(m[1]));
-        return modelo ? json(res, modelo) : json(res, { detail: "Not found." }, 404);
+        if (!modelo) return json(res, { detail: "Not found." }, 404);
+        const { docx, ...visivelDoModelo } = modelo;
+        // como no ZapSign: o endereço do DOCX do modelo (aqui, neste mesmo servidor)
+        return json(res, { ...visivelDoModelo, template_file: docx ? `http://${req.headers.host}/zapsign/_modelo/${modelo.token}.docx` : "" });
       }
       if (p === "/zapsign/api/v1/models/create-doc/" && req.method === "POST") {
         const c = JSON.parse(await lerCorpo(req) || "{}");

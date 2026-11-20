@@ -41,13 +41,5 @@ export interface ModeloZapsign {
   /** pasta do modelo no ZapSign ("/" = raiz): a tela agrupa por ela */
   pasta: string;
 }
-/** Um campo do modelo, com o valor que o cadastro do cliente já responde. */
-export interface CampoDoModelo {
-  /** como o ZapSign chama a variável, com as chaves: "{{NOME COMPLETO}}" */
-  variavel: string;
-  rotulo: string;
-  ajuda: string;
-  obrigatorio: boolean;
-  /** valor tirado do cadastro do cliente ("" = a pessoa preenche) */
-  sugestao: string;
-}
+/** Um campo do modelo: as regras moram em `modelo-contrato.ts`. */
+export type { CampoDoModelo } from "./modelo-contrato.ts";

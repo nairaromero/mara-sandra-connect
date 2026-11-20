@@ -530,8 +530,8 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
     const lista = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "modelos" });
     expect(lista.status, lista.texto.slice(0, 200)).toBe(200);
     const modelos = lista.json?.modelos as Array<{ token: string; nome: string; pasta: string }>;
-    // 24 no ZapSign simulado (2 páginas): saem o de PDF e o desativado
-    expect(modelos).toHaveLength(22);
+    // 25 no ZapSign simulado (2 páginas): saem o de PDF e o desativado
+    expect(modelos).toHaveLength(23);
     expect(modelos.some((m) => /PDF|desativado/.test(m.nome))).toBe(false);
     expect(modelos.some((m) => m.nome === "Contrato cível 11"), "modelo da segunda página do ZapSign").toBe(true);
     expect(modelos.map((m) => m.pasta)).toEqual([...modelos.map((m) => m.pasta)].sort((a, b) => a.localeCompare(b, "pt-BR")));
@@ -640,15 +640,15 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
       await page.goto(`/casos/${casoId}?tab=documentos`);
       await page.locator("[data-gerar-contrato]").click();
       const dlg = page.locator("[data-dialog-modelos]");
-      await expect(dlg.locator("[data-contagem-modelos]")).toHaveText("22 modelos");
+      await expect(dlg.locator("[data-contagem-modelos]")).toHaveText("23 modelos");
       await expect(dlg.locator("[data-modelo]").first()).toBeVisible();
       // sugeridos: só quando o tipo de benefício do caso casa com o nome de algum modelo
       const esperaSugestao = /aposentadoria|aux[ií]lio|pens[aã]o|revis[aã]o|bpc|sal[aá]rio/i.test(doCaso.tipo_beneficio);
       await expect(dlg.locator("[data-modelos-sugeridos]")).toHaveCount(esperaSugestao ? 1 : 0);
-      await expect(dlg.locator("[data-modelos-pasta]")).toHaveCount(3);
+      await expect(dlg.locator("[data-modelos-pasta]")).toHaveCount(4);
       // busca sem acento, por palavra do nome
       await dlg.locator("[data-busca-modelo]").fill("pensao");
-      await expect(dlg.locator("[data-contagem-modelos]")).toHaveText("1 de 22 modelos");
+      await expect(dlg.locator("[data-contagem-modelos]")).toHaveText("1 de 23 modelos");
       await expect(dlg.locator("[data-modelo]")).toHaveCount(1);
       await expect(dlg.locator("[data-modelos-sugeridos]")).toHaveCount(0);
       await dlg.locator("[data-modelo]").click();
@@ -673,7 +673,117 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
       await expect(dlg.getByRole("button", { name: "Enviar para assinatura" })).toBeEnabled();
       // "Outro modelo" volta à lista inteira
       await dlg.getByRole("button", { name: "Outro modelo" }).click();
-      await expect(dlg.locator("[data-contagem-modelos]")).toHaveText("1 de 22 modelos");
+      await expect(dlg.locator("[data-contagem-modelos]")).toHaveText("1 de 23 modelos");
+      await dlg.getByRole("button", { name: "Cancelar" }).click();
+      await expect(dlg).toHaveCount(0);
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  test("honorários do modelo: padrão vem do texto de ajuda, o extenso é do sistema, a faixa é cobrada e a prévia não cria documento", async () => {
+    test.skip(!mockVivo || !segredoWebhook, "depende da integração");
+    const adv = await sessaoComo(contaDoCanario("advogado"), ESC2);
+    type Campo = { variavel: string; rotulo: string; sugestao: string; padrao: string; tipo: string; maximo: number | null; extensoDe: string | null; ajuda: string };
+    const det = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "modelo", caso_id: casoId, modelo_token: "modelo-kit" });
+    expect(det.status, det.texto.slice(0, 200)).toBe(200);
+    const campos = Object.fromEntries((det.json?.campos as Array<Campo>).map((c) => [c.variavel, c]));
+    const perc = campos["{{PERCENTUAL_ATRASADOS}}"];
+    expect([perc.tipo, perc.padrao, perc.sugestao, perc.maximo, perc.ajuda]).toEqual(["percentual", "35%", "35%", 50, ""]);
+    expect([campos["{{QTD_PRESTACOES}}"].tipo, campos["{{QTD_PRESTACOES}}"].sugestao]).toEqual(["inteiro", "5"]);
+    expect(campos["{{PERCENTUAL_ATRASADOS_EXTENSO}}"].extensoDe).toBe("{{PERCENTUAL_ATRASADOS}}");
+    expect(campos["{{QUALIFICACAO_CONTRATANTE}}"].ajuda, "ajuda que não é regra continua na tela").toContain("Nacionalidade");
+
+    const antes = ((await (await fetch(`${MOCK}/zapsign/_docs`)).json()) as Array<unknown>).length;
+    const respostas = {
+      "{{NOME_ASSINANTE}}": "Helena Bastos Ferraz", "{{CPF_ASSINANTE}}": "770.000.001-80", "{{QUALIFICACAO_CONTRATANTE}}": "brasileira, aposentada",
+      "{{OBJETO_SERVICO}}": "revisão de aposentadoria", "{{BENEFICIO_OBJETO}}": "a revisão do benefício",
+      "{{PERCENTUAL_ATRASADOS}}": "30", "{{QTD_PRESTACOES}}": "4", "{{CIDADE}}": "São Paulo", "{{DATA}}": "20 de novembro de 2026", "{{FORO}}": "São Paulo",
+      // o que a tela mandar no extenso não vale: quem escreve é o servidor
+      "{{PERCENTUAL_ATRASADOS_EXTENSO}}": "noventa por cento",
+    };
+    type Par = { centro: boolean; trechos: Array<{ t: string; n: boolean; marca?: string }> };
+    const previa = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "previa_modelo", caso_id: casoId, modelo_token: "modelo-kit", respostas });
+    expect(previa.status, previa.texto.slice(0, 200)).toBe(200);
+    const pars = previa.json?.paragrafos as Array<Par>;
+    const texto = pars.map((p) => p.trechos.map((t) => t.t).join(""));
+    expect(pars[0].centro).toBe(true);
+    // o campo partido em dois pedaços no Word também é trocado; o 35% fixo da parcela não muda
+    expect(texto).toContain("a) 30% (trinta por cento) sobre os valores retroativos;");
+    expect(texto).toContain("b) um valor equivalente a 4 (quatro) vezes a renda mensal, em prestações não superiores a 35% (trinta e cinco por cento) da renda.");
+    expect(texto).toContain("Sigilo & dados. Parceiro indicador: (em branco)");
+    expect(pars.flatMap((p) => p.trechos).filter((t) => t.marca === "vazio")).toHaveLength(1);
+    expect(pars.flatMap((p) => p.trechos).some((t) => t.marca === "preenchido" && t.t === "trinta por cento")).toBe(true);
+    expect(previa.json?.pendencias).toEqual([]);
+    expect(((await (await fetch(`${MOCK}/zapsign/_docs`)).json()) as Array<unknown>).length, "a prévia NÃO cria documento no ZapSign").toBe(antes);
+    // prévia com campo faltando sai mesmo assim, dizendo o que falta; modelo sem arquivo avisa e não derruba
+    const parcial = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "previa_modelo", caso_id: casoId, modelo_token: "modelo-kit", respostas: {} });
+    expect([parcial.status, String((parcial.json?.pendencias as Array<string>)[0])]).toEqual([200, expect.stringContaining("Preencha: Nome de quem assina")]);
+    const semArquivo = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "previa_modelo", caso_id: casoId, modelo_token: "modelo-03", respostas: {} });
+    expect([semArquivo.status, semArquivo.json?.code]).toEqual([422, "previa_indisponivel"]);
+
+    // envio: acima do máximo do modelo é recusado ANTES de ir ao ZapSign
+    const base = { action: "enviar_modelo", caso_id: casoId, modelo_token: "modelo-kit", cliente: { email: "cliente.e2e@exemplo.com.br" } };
+    const acima = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { ...base, respostas: { ...respostas, "{{PERCENTUAL_ATRASADOS}}": "60%" } });
+    expect([acima.status, acima.json?.code]).toEqual([400, "campos_faltando"]);
+    expect(String(acima.json?.error)).toContain("o máximo deste modelo é 50%");
+    const texto2 = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { ...base, respostas: { ...respostas, "{{QTD_PRESTACOES}}": "cinco" } });
+    expect([texto2.status, String(texto2.json?.error)]).toEqual([400, expect.stringContaining("use só o número")]);
+    expect(((await (await fetch(`${MOCK}/zapsign/_docs`)).json()) as Array<unknown>).length).toBe(antes);
+
+    const ok = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { ...base, respostas });
+    expect(ok.status, ok.texto.slice(0, 200)).toBe(200);
+    const token = (ok.json?.assinatura as { zapsign_doc_token: string }).zapsign_doc_token;
+    const lado = (await (await fetch(`${MOCK}/zapsign/_docs`)).json()) as Array<{ token: string; answers: Array<{ variable: string; value: string }> }>;
+    const foi = Object.fromEntries(lado.find((d) => d.token === token)!.answers.map((x) => [x.variable, x.value]));
+    expect([foi.PERCENTUAL_ATRASADOS, foi.PERCENTUAL_ATRASADOS_EXTENSO, foi.QTD_PRESTACOES, foi.QTD_PRESTACOES_EXTENSO]).toEqual(["30%", "trinta por cento", "4", "quatro"]);
+    expect(foi.TEXTO_PARCEIRO, "campo opcional vazio não vai").toBeUndefined();
+    // sai de cena para os próximos testes
+    await fetch(`${MOCK}/zapsign/_excluir/${token}`, { method: "POST" });
+    expect((await avisar(segredoWebhook, { event_type: "doc_deleted", token })).json.status).toBe("cancelado");
+  });
+
+  test("tela: o kit abre com os honorários do modelo, mostra o extenso, segura o que passa do máximo e deixa conferir o contrato antes de enviar", async ({ browser, baseURL }) => {
+    test.skip(!mockVivo || !segredoWebhook, "depende da integração");
+    const { session } = await sessaoComo(contaDoCanario("admin"), ESC2);
+    const ctx = await contexto(browser, baseURL!, session, ESC2);
+    const page = await ctx.newPage();
+    await cursorVisivel(page);
+    try {
+      await page.goto(`/casos/${casoId}?tab=documentos`);
+      await page.locator("[data-gerar-contrato]").click();
+      const dlg = page.locator("[data-dialog-modelos]");
+      await dlg.locator("[data-busca-modelo]").fill("kit");
+      await dlg.locator('[data-modelo="modelo-kit"]').click();
+      await expect(dlg.locator("[data-campos-modelo]")).toBeVisible();
+      const perc = dlg.locator('[data-campo="{{PERCENTUAL_ATRASADOS}}"]');
+      await expect(perc.locator("input")).toHaveValue("35%");
+      await expect(perc.locator("[data-origem-do-valor]")).toHaveText("padrão do modelo");
+      await expect(perc.locator("[data-extenso]")).toHaveText("No contrato: 35% (trinta e cinco por cento)");
+      // os campos "por extenso" não são pedidos: quem escreve é o sistema
+      await expect(dlg.locator('[data-campo="{{PERCENTUAL_ATRASADOS_EXTENSO}}"]')).toHaveCount(0);
+      await expect(dlg.locator('[data-campo="{{QTD_PRESTACOES}}"] [data-extenso]')).toHaveText("No contrato: 5 (cinco)");
+      await perc.locator("input").fill("30");
+      await expect(perc.locator("[data-extenso]")).toHaveText("No contrato: 30% (trinta por cento)");
+      await expect(perc.locator("[data-origem-do-valor]")).toHaveText("padrão do modelo: 35%");
+      for (const [campo, valor] of [["QUALIFICACAO_CONTRATANTE", "brasileira, aposentada"], ["OBJETO_SERVICO", "revisão de aposentadoria"], ["BENEFICIO_OBJETO", "a revisão do benefício"], ["CIDADE", "São Paulo"], ["DATA", "20 de novembro de 2026"], ["FORO", "São Paulo"]]) {
+        await dlg.locator(`[data-campo="{{${campo}}}"] textarea`).fill(valor);
+      }
+      const enviar = dlg.locator("[data-enviar-modelo]");
+      await expect(enviar).toBeEnabled();
+      await perc.locator("input").fill("60");
+      await expect(enviar, "acima do máximo do modelo").toBeDisabled();
+      await perc.locator("input").fill("30");
+      // conferir: o contrato montado, com o que foi preenchido em destaque
+      await dlg.locator("[data-conferir-contrato]").click();
+      const previa = dlg.locator("[data-previa-contrato]");
+      await expect(previa).toContainText("30% (trinta por cento) sobre");
+      await expect(previa.locator('[data-trecho="preenchido"]', { hasText: "trinta por cento" })).toBeVisible();
+      await expect(previa.locator("[data-previa-vazios]")).toContainText("1 campo vai em branco");
+      await expect(enviar).toBeEnabled();
+      // voltar para corrigir mantém o que foi digitado
+      await dlg.locator("[data-voltar-aos-campos]").click();
+      await expect(perc.locator("input")).toHaveValue("30");
       await dlg.getByRole("button", { name: "Cancelar" }).click();
       await expect(dlg).toHaveCount(0);
     } finally {
