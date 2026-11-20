@@ -18,6 +18,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { TelefoneComPais } from "@/components/telefone-com-pais";
 
 const ROTULO_STATUS: Record<StatusAssinatura, string> = {
   enviando: "Enviando…",
@@ -202,7 +203,8 @@ export function EnviarAssinaturaDialog(props: {
               </div>
               <div className="space-y-1">
                 <Label htmlFor="assin-telefone">WhatsApp</Label>
-                <Input id="assin-telefone" value={telefone} onChange={(e) => setTelefone(e.target.value)} placeholder="do cadastro" />
+                {/* remonta a cada documento: o país volta ao Brasil */}
+                <TelefoneComPais key={documentoId ?? "fechado"} id="assin-telefone" onChange={setTelefone} placeholder="do cadastro" />
               </div>
             </div>
           </div>

@@ -26,7 +26,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useVerComoParceiro } from "@/hooks/use-ver-como-parceiro";
 import { supabase } from "@/lib/supabase";
 import { formatarBR } from "@/lib/fuso";
-import { formatarTelefone } from "@/lib/telefone";
+import { formatarTelefone, mascararTelefoneBR } from "@/lib/telefone";
 import { ClientOnly } from "@/components/client-only";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -193,14 +193,6 @@ table{border-collapse:collapse;width:100%;margin:10px 0}td{border:1px solid #ddd
   link.click();
   document.body.removeChild(link);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-function maskTelefone(v: string) {
-  const d = v.replace(/\D/g, "").slice(0, 11);
-  if (d.length <= 10) {
-    return d.replace(/(\d{2})(\d)/, "($1) $2").replace(/(\d{4})(\d)/, "$1-$2");
-  }
-  return d.replace(/(\d{2})(\d)/, "($1) $2").replace(/(\d{5})(\d)/, "$1-$2");
 }
 
 const schema = z.object({
@@ -752,7 +744,7 @@ function ParceirosPage() {
                           placeholder="(00) 00000-0000"
                           inputMode="tel"
                           value={field.value}
-                          onChange={(e) => field.onChange(maskTelefone(e.target.value))}
+                          onChange={(e) => field.onChange(mascararTelefoneBR(e.target.value))}
                         />
                       </FormControl>
                       <FormMessage />
@@ -1423,7 +1415,7 @@ function ParceirosPage() {
                   <Label className="text-xs">Telefone</Label>
                   <Input
                     value={editTelefone}
-                    onChange={(e) => setEditTelefone(maskTelefone(e.target.value))}
+                    onChange={(e) => setEditTelefone(mascararTelefoneBR(e.target.value))}
                     placeholder="(00) 00000-0000"
                     inputMode="tel"
                   />

@@ -24,6 +24,7 @@ import { auditar } from "../_shared/auditoria.ts";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { integracaoDoEscritorio, semIntegracao } from "../_shared/integracoes.ts";
 import { EM_CURSO, formatoAssinavel } from "../_shared/assinatura.ts";
+import { telefoneDe } from "../_shared/telefone.ts";
 import { TIPOS_DOCUMENTO } from "../_shared/tipos-documento.ts";
 import {
   abrirTarefaAcompanhar, COLUNAS_ASSINATURA, criarDocumento, criarDocumentoDeModelo, detalharModelo, ehSandbox, ehUuid, envioAceito,
@@ -34,26 +35,6 @@ import {
 const ENVIANDO_VELHO_MS = 2 * 60 * 1000;
 const EMAIL_RE =/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/**
- * "(17) 99999-9999" ou "+55 17 99999-9999" → { ddi: "55", numero: "17999999999" }.
- * Número de fora do Brasil precisa vir como "+<código do país> <número>" (com
- * espaço): "+34 613761609" → { ddi: "34", numero: "613761609" }. Sem o "+", é
- * sempre Brasil. `null` = não dá para mandar WhatsApp para isso.
- */
-function telefoneDe(bruto: unknown): { ddi: string; numero: string } | null {
-  const texto = String(bruto ?? "").trim();
-  const fora = texto.match(/^\+(\d{1,3})[\s.-]+(.+)$/);
-  if (fora && fora[1] !== "55") {
-    const numero = fora[2].replace(/\D/g, "");
-    return numero.length >= 6 && numero.length <= 14 ? { ddi: fora[1], numero } : null;
-  }
-  let d = texto.replace(/\D/g, "");
-  // "+34613761609" (sem espaço) não dá para saber onde o código do país termina:
-  // recusar é melhor do que mandar como se fosse um DDD brasileiro.
-  if (texto.startsWith("+") && !d.startsWith("55")) return null;
-  if (d.length > 11 && d.startsWith("55")) d = d.slice(2);
-  return d.length === 10 || d.length === 11 ? { ddi: "55", numero: d } : null;
-}
 function emailValido(bruto: unknown): string {
   const e = String(bruto ?? "").trim().toLowerCase();
   return EMAIL_RE.test(e) ? e : "";

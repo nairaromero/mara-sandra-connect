@@ -180,7 +180,10 @@ o sistema em produção. Quando chegar, vale o seguinte:
   header, conta por papel e leitura da trilha nas specs), `src/lib/fuso.ts` (o
   fuso do escritório — o eslint barra `America/Sao_Paulo` fora dele),
   `src/lib/leitura.ts` (`lerLista`/`lerUm`/`lerContagem`: erro estoura, vazio é
-  vazio), `buscarPaginado` e `private.funcoes_fechadas_no_caminho()` (o que
+  vazio), `src/lib/telefone.ts` (`mascararTelefoneBR` é a única máscara de digitação
+  de telefone; `<TelefoneComPais>` é o campo com país — Brasil por padrão — e só
+  produz o que `telefoneDe`, de `_shared/telefone.ts`, aceita; régua
+  `e2e/unit/telefone.test.ts`), `buscarPaginado` e `private.funcoes_fechadas_no_caminho()` (o que
   gatilho INVOKER ou policy chama por dentro e está sem EXECUTE para
   `authenticated` — a tela estoura "permission denied for function" no meio da
   escrita; trava as migrations de EXECUTE e o conferidor acusa).

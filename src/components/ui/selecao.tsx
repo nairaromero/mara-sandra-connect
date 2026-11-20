@@ -42,6 +42,12 @@ export interface OpcaoSelecao {
    * some da busca é um item que a pessoa não acha.
    */
   conteudo?: ReactNode;
+  /**
+   * O que aparece NO BOTÃO quando esta é a escolhida, se for diferente do que a
+   * lista mostra — para campo estreito (ex.: só a bandeira e o código do país,
+   * com o nome do país na lista).
+   */
+  noBotao?: ReactNode;
   /** Cabeçalho do bloco. Opções sem grupo aparecem antes dos grupos. */
   grupo?: string;
 }
@@ -58,6 +64,11 @@ interface SelecaoProps {
   vazio?: string;
   disabled?: boolean;
   className?: string;
+  /**
+   * Largura da lista (CSS). Sem isto, a lista tem a largura do botão — o que
+   * corta o texto das opções quando o botão é estreito.
+   */
+  larguraLista?: string;
   /**
    * Nome acessível do campo. O `SelectTrigger` do Radix herdava isto do
    * `<Label>`; um botão não herda. Sem ele, leitor de tela anuncia só o valor
@@ -96,6 +107,7 @@ export function Selecao({
   vazio,
   disabled,
   className,
+  larguraLista,
   ...resto
 }: SelecaoProps) {
   const [aberto, setAberto] = useState(false);
@@ -161,7 +173,7 @@ export function Selecao({
           data-selecao={resto["data-selecao"]}
         >
           <span className={cn("truncate", !escolhida && "text-muted-foreground")}>
-            {escolhida ? (escolhida.conteudo ?? escolhida.label) : placeholder || "Selecione..."}
+            {escolhida ? (escolhida.noBotao ?? escolhida.conteudo ?? escolhida.label) : placeholder || "Selecione..."}
           </span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
@@ -169,7 +181,7 @@ export function Selecao({
       <PopoverContent
         className="p-0"
         align="start"
-        style={{ width: "var(--radix-popover-trigger-width)" }}
+        style={{ width: larguraLista ?? "var(--radix-popover-trigger-width)" }}
       >
         <Command
           filter={(itemValue, procura) =>
