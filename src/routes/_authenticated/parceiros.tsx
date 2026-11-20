@@ -26,7 +26,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { useVerComoParceiro } from "@/hooks/use-ver-como-parceiro";
 import { supabase } from "@/lib/supabase";
 import { formatarBR } from "@/lib/fuso";
-import { formatarTelefone, mascararTelefoneBR } from "@/lib/telefone";
+import { formatarTelefone, telefoneCompleto } from "@/lib/telefone";
+import { TelefoneComPais } from "@/components/telefone-com-pais";
 import { ClientOnly } from "@/components/client-only";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -199,7 +200,7 @@ const schema = z.object({
   nome: z.string().trim().min(3, "Informe o nome completo").max(150),
   email: z.string().trim().email("E-mail inválido").max(150),
   oab: z.string().trim().min(3, "Informe o número da OAB").max(30),
-  telefone: z.string().trim().min(14, "Telefone incompleto").max(16),
+  telefone: z.string().trim().refine(telefoneCompleto, "Telefone incompleto"),
   percentual: z.coerce.number().min(0, "0 a 100").max(100, "0 a 100"),
   observacoes: z.string().max(1000).optional().or(z.literal("")),
 });
@@ -740,12 +741,7 @@ function ParceirosPage() {
                     <FormItem>
                       <FormLabel>Telefone *</FormLabel>
                       <FormControl>
-                        <Input
-                          placeholder="(00) 00000-0000"
-                          inputMode="tel"
-                          value={field.value}
-                          onChange={(e) => field.onChange(mascararTelefoneBR(e.target.value))}
-                        />
+                        <TelefoneComPais value={field.value} onChange={field.onChange} onBlur={field.onBlur} somenteBrasil />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -1413,12 +1409,7 @@ function ParceirosPage() {
                 </div>
                 <div>
                   <Label className="text-xs">Telefone</Label>
-                  <Input
-                    value={editTelefone}
-                    onChange={(e) => setEditTelefone(mascararTelefoneBR(e.target.value))}
-                    placeholder="(00) 00000-0000"
-                    inputMode="tel"
-                  />
+                  <TelefoneComPais value={editTelefone} onChange={setEditTelefone} somenteBrasil />
                 </div>
                 <div>
                   <Label className="text-xs">% de repasse ao parceiro</Label>

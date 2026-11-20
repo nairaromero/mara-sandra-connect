@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { MessageCircle, Scale, User } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { DDI_BRASIL, separarTelefone, telefoneCompleto } from "@/lib/telefone";
+import { TelefoneComPais } from "@/components/telefone-com-pais";
 
 // Formulário público de captação de leads (home). Visitante anônimo insere
 // direto na tabela `leads` — RLS garante insert-only. Depois do envio, oferece
@@ -107,12 +109,14 @@ export function LeadForm({ origem, dark, tab: tabProp, onTabChange }: LeadFormPr
     e.preventDefault();
     setErro(null);
 
-    const digitos = soDigitos(whatsapp);
+    // Brasil: só os dígitos, como sempre foi gravado; de fora: "+34 613761609"
+    const pais = separarTelefone(whatsapp);
+    const contato = pais.ddi === DDI_BRASIL ? soDigitos(whatsapp) : whatsapp.trim();
     if (nome.trim().length < 2) {
       setErro("Escreva seu nome, por favor.");
       return;
     }
-    if (digitos.length < 10 || digitos.length > 13) {
+    if (!telefoneCompleto(whatsapp)) {
       setErro("Confira o número do WhatsApp (com DDD).");
       return;
     }
@@ -135,7 +139,7 @@ export function LeadForm({ origem, dark, tab: tabProp, onTabChange }: LeadFormPr
     const { error } = await supabase.from("leads").insert({
       tipo: tab,
       nome: nome.trim().slice(0, 200),
-      whatsapp: digitos,
+      whatsapp: contato,
       situacao: tab === "cliente" ? situacao : null,
       inss_status: tab === "cliente" ? inssStatus || null : null,
       oab: tab === "parceiro" ? oab.trim().slice(0, 40) : null,
@@ -234,15 +238,9 @@ export function LeadForm({ origem, dark, tab: tabProp, onTabChange }: LeadFormPr
       <label className={label} htmlFor={`${origem}-whatsapp`}>
         WhatsApp
       </label>
-      <input
-        id={`${origem}-whatsapp`}
-        className={`${input} mb-4`}
-        placeholder="(17) 99999-0000"
-        value={whatsapp}
-        onChange={(e) => setWhatsapp(e.target.value)}
-        inputMode="tel"
-        autoComplete="tel"
-      />
+      <div className="mb-4">
+        <TelefoneComPais id={`${origem}-whatsapp`} value={whatsapp} onChange={setWhatsapp} placeholder="(17) 99999-0000" className={`${input} h-auto`} />
+      </div>
 
       {tab === "cliente" ? (
         <>

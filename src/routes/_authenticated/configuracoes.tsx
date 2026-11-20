@@ -21,7 +21,8 @@ import { supabase } from "@/lib/supabase";
 import { AbaSuporte } from "@/components/suporte/aba-suporte";
 import { EscritorioMarcaCard } from "@/components/configuracoes/escritorio-marca-card";
 import { DuasEtapasCard } from "@/components/configuracoes/duas-etapas-card";
-import { formatarTelefone, mascararTelefoneBR } from "@/lib/telefone";
+import { formatarTelefone } from "@/lib/telefone";
+import { TelefoneComPais } from "@/components/telefone-com-pais";
 import { ClientOnly } from "@/components/client-only";
 import { AbaIntegracoes } from "@/components/integracoes/aba-integracoes";
 import { EmBreveCard } from "@/components/integracoes/em-breve-card";
@@ -505,14 +506,7 @@ function ConfiguracoesPage() {
                   <div className="sm:col-span-2">
                     <Label className="text-xs">Telefone</Label>
                     {editando ? (
-                      <Input
-                        value={telefone}
-                        onChange={(e) =>
-                          setTelefone(mascararTelefoneBR(e.target.value))
-                        }
-                        placeholder="(00) 00000-0000"
-                        inputMode="tel"
-                      />
+                      <TelefoneComPais value={telefone} onChange={setTelefone} somenteBrasil={usuario?.tipo === "parceiro"} />
                     ) : (
                       <p className="text-sm py-2">{formatarTelefone(dados.telefone) || "-"}</p>
                     )}

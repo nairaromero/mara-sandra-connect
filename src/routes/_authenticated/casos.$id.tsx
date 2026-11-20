@@ -69,6 +69,7 @@ import { descreverSolicitante } from "@/lib/documentos/solicitante";
 import { iaAnalise } from "@/lib/ia/client";
 import { supabase } from "@/lib/supabase";
 import { formatarTelefone } from "@/lib/telefone";
+import { TelefoneComPais } from "@/components/telefone-com-pais";
 import { SeletorDestinatario } from "@/components/seletor-destinatario";
 import {
   sugerirDestinatario,
@@ -2210,7 +2211,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                 </div>
                 <div>
                   <Label className="text-xs">Telefone</Label>
-                  <Input value={clTelefone} onChange={(e) => setClTelefone(e.target.value)} />
+                  <TelefoneComPais value={clTelefone} onChange={setClTelefone} />
                 </div>
                 <div>
                   <Label className="text-xs">E-mail</Label>

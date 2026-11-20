@@ -14,7 +14,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { mascararTelefoneBR } from "@/lib/telefone";
+import { telefoneCompleto } from "@/lib/telefone";
+import { TelefoneComPais } from "@/components/telefone-com-pais";
 
 interface ParceiroCriado {
   id: string;
@@ -55,7 +56,7 @@ export function NovoParceiroDialog(
       toast.error("Informe o número da OAB");
       return;
     }
-    if (telefone.replace(/\D/g, "").length < 10) {
+    if (!telefoneCompleto(telefone)) {
       toast.error("Telefone incompleto");
       return;
     }
@@ -163,12 +164,7 @@ export function NovoParceiroDialog(
             </div>
             <div>
               <Label className="text-xs">Telefone *</Label>
-              <Input
-                value={telefone}
-                inputMode="tel"
-                onChange={(e) => setTelefone(mascararTelefoneBR(e.target.value))}
-                placeholder="(00) 00000-0000"
-              />
+              <TelefoneComPais value={telefone} onChange={setTelefone} somenteBrasil />
             </div>
           </div>
           <div>

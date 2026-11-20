@@ -17,17 +17,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/lib/supabase";
 import { lerUm } from "@/lib/leitura";
+import { TelefoneComPais } from "@/components/telefone-com-pais";
 import { useAuth } from "@/hooks/use-auth";
 import { dadosLegaisDe, faltamDadosLegais, type DadosLegais } from "@/lib/legal/termos";
 
-const CAMPOS: Array<{ chave: keyof DadosLegais; rotulo: string; placeholder: string; largo?: boolean }> = [
+const CAMPOS: Array<{ chave: keyof DadosLegais; rotulo: string; placeholder: string; largo?: boolean; telefone?: boolean }> = [
   { chave: "razao_social", rotulo: "Razão social", placeholder: "Nome jurídico do escritório", largo: true },
   { chave: "cnpj", rotulo: "CNPJ", placeholder: "00.000.000/0000-00" },
   { chave: "foro", rotulo: "Foro (comarca)", placeholder: "Cidade/UF" },
   { chave: "endereco", rotulo: "Endereço da sede", placeholder: "Rua, nº, bairro – cidade/UF – CEP", largo: true },
   { chave: "privacidade_contato", rotulo: "Contato de privacidade (LGPD)", placeholder: "Nome de quem responde" },
   { chave: "privacidade_email", rotulo: "E-mail de privacidade", placeholder: "privacidade@escritorio.com.br" },
-  { chave: "privacidade_tel", rotulo: "Telefone de privacidade (opcional)", placeholder: "(00) 00000-0000" },
+  { chave: "privacidade_tel", rotulo: "Telefone de privacidade (opcional)", placeholder: "(00) 00000-0000", telefone: true },
 ];
 
 export function DadosLegaisCard() {
@@ -114,14 +115,18 @@ export function DadosLegaisCard() {
                   <Label htmlFor={`dl-${c.chave}`} className="text-xs">
                     {c.rotulo}
                   </Label>
-                  <Input
-                    semGerenciadorDeSenha
-                    id={`dl-${c.chave}`}
-                    value={rascunho[c.chave]}
-                    onChange={(e) => setRascunho((r) => (r ? { ...r, [c.chave]: e.target.value } : r))}
-                    placeholder={c.placeholder}
-                    maxLength={300}
-                  />
+                  {c.telefone ? (
+                    <TelefoneComPais id={`dl-${c.chave}`} value={rascunho[c.chave]} onChange={(tel) => setRascunho((r) => (r ? { ...r, [c.chave]: tel } : r))} />
+                  ) : (
+                    <Input
+                      semGerenciadorDeSenha
+                      id={`dl-${c.chave}`}
+                      value={rascunho[c.chave]}
+                      onChange={(e) => setRascunho((r) => (r ? { ...r, [c.chave]: e.target.value } : r))}
+                      placeholder={c.placeholder}
+                      maxLength={300}
+                    />
+                  )}
                 </div>
               ))}
             </div>

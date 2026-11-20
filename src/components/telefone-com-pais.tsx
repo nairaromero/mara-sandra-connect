@@ -1,16 +1,22 @@
-// Telefone com país: um seletor de país (Brasil por padrão) e o número ao lado.
-// No Brasil o número ganha a máscara de DDD enquanto a pessoa digita —
-// "(17) 99999-9999"; nos outros países são só os dígitos. O valor que sai
-// (`onChange`) já é o que o servidor entende: no Brasil o número com DDD, fora
-// "+34 613761609"; campo vazio é "".
+// Telefone com país: a caixa do país (Brasil por padrão) e o número ao lado.
+// É O campo de telefone do sistema — todo formulário usa este.
 //
-// O país é estado do campo: quem usa remonta (prop `key`) para voltar ao Brasil.
+// No Brasil o número ganha a máscara de DDD enquanto a pessoa digita —
+// "(17) 99999-9999"; nos outros países são só os dígitos. O valor (`value` /
+// `onChange`) é o que se guarda e o que o servidor entende: no Brasil o número
+// com DDD, fora "+34 613761609"; campo vazio é "".
+//
+// `somenteBrasil`: o país fica fixo. É para o telefone de PARCEIRO, que o
+// WhatsApp do sistema usa para reconhecer quem escreveu — e ele só casa número
+// brasileiro (`whatsapp_canon_br`). Oferecer outro país ali seria convidar a um
+// cadastro que não funciona.
 import { useState } from "react";
-import { DDI_BRASIL, mascararTelefoneDoPais, PAISES_TELEFONE, telefoneParaEnvio } from "@/lib/telefone";
+import { DDI_BRASIL, mascararTelefoneDoPais, PAISES_TELEFONE, separarTelefone, telefoneParaEnvio } from "@/lib/telefone";
 import { Input } from "@/components/ui/input";
 import { Selecao, type OpcaoSelecao } from "@/components/ui/selecao";
+import { cn } from "@/lib/utils";
 
-const OPCOES: Array<OpcaoSelecao> = PAISES_TELEFONE.map((p) => ({
+const opcaoDe = (p: { ddi: string; nome: string; bandeira: string }): OpcaoSelecao => ({
   value: p.ddi,
   // a busca procura no rótulo: nome e código
   label: `${p.nome} +${p.ddi}`,
@@ -23,57 +29,85 @@ const OPCOES: Array<OpcaoSelecao> = PAISES_TELEFONE.map((p) => ({
     </span>
   ),
   noBotao: (
-    <span className="flex items-center gap-1.5">
+    <span className="flex items-center gap-1">
       <span aria-hidden>{p.bandeira}</span>
       <span>+{p.ddi}</span>
     </span>
   ),
-}));
+});
+const OPCOES: Array<OpcaoSelecao> = PAISES_TELEFONE.map(opcaoDe);
 
 export function TelefoneComPais(props: {
   id?: string;
-  /** Chamado com o telefone pronto para o servidor ("" = vazio). */
+  /** O telefone como está guardado: "(17) 99999-0000", "17999990000" ou "+34 613761609". */
+  value: string;
+  /** Chamado com o telefone pronto para guardar/enviar ("" = vazio). */
   onChange: (telefone: string) => void;
   /** O que aparece no campo vazio (ex.: o telefone do cadastro). */
   placeholder?: string;
   disabled?: boolean;
+  /** País fixo no Brasil (telefone de parceiro: ver o cabeçalho). */
+  somenteBrasil?: boolean;
+  onBlur?: () => void;
+  "aria-invalid"?: boolean;
+  "aria-describedby"?: string;
+  /** Classe do campo do número (formulários com estilo próprio). */
+  className?: string;
 }) {
-  const [ddi, setDdi] = useState(DDI_BRASIL);
-  const [numero, setNumero] = useState("");
+  const guardado = separarTelefone(props.value);
+  // o país escolhido enquanto o campo está vazio (com número, quem manda é o valor)
+  const [ddiVazio, setDdiVazio] = useState(guardado.ddi);
+  const ddi = props.somenteBrasil ? DDI_BRASIL : guardado.numero ? guardado.ddi : ddiVazio;
+  // país que veio do banco e não está na lista continua aparecendo (e escolhível)
+  const opcoes = OPCOES.some((o) => o.value === ddi) ? OPCOES : [...OPCOES, opcaoDe({ ddi, nome: "Outro país", bandeira: "🌐" })];
 
-  function mudar(novoDdi: string, digitado: string) {
-    const mascarado = mascararTelefoneDoPais(novoDdi, digitado);
-    setDdi(novoDdi);
-    setNumero(mascarado);
-    props.onChange(telefoneParaEnvio(novoDdi, mascarado));
-  }
+  const emitir = (novoDdi: string, digitado: string) => props.onChange(telefoneParaEnvio(novoDdi, mascararTelefoneDoPais(novoDdi, digitado)));
 
   return (
-    <div className="flex gap-2" data-telefone-com-pais>
-      <div className="w-[8rem] shrink-0">
-        <Selecao
-          opcoes={OPCOES}
-          value={ddi}
-          // trocar de país refaz a máscara do que já foi digitado
-          onChange={(novo) => mudar(novo, numero)}
-          busca
-          buscaPlaceholder="Buscar país"
-          larguraLista="17rem"
-          aria-label="País do telefone"
-          disabled={props.disabled}
-          data-selecao="telefone-pais"
-        />
-      </div>
+    <div className="flex gap-1.5" data-telefone-com-pais>
+      {props.somenteBrasil ? (
+        <span
+          className="flex min-h-9 shrink-0 items-center gap-1 rounded-md border bg-muted/50 px-2 text-sm text-muted-foreground"
+          title="Este telefone é usado pelo WhatsApp do sistema, que atende números do Brasil."
+          data-telefone-pais-fixo
+        >
+          <span aria-hidden>🇧🇷</span>
+          <span>+55</span>
+        </span>
+      ) : (
+        <div className="shrink-0">
+          <Selecao
+            opcoes={opcoes}
+            value={ddi}
+            // trocar de país refaz a máscara do que já foi digitado
+            onChange={(novo) => {
+              setDdiVazio(novo);
+              emitir(novo, guardado.numero);
+            }}
+            busca
+            buscaPlaceholder="Buscar país"
+            larguraLista="17rem"
+            aria-label="País do telefone"
+            disabled={props.disabled}
+            // h-full: acompanha a altura do campo do número (formulários com campo mais alto)
+            className="h-full min-h-9 gap-0 px-2"
+            data-selecao="telefone-pais"
+          />
+        </div>
+      )}
       <Input
         id={props.id}
         type="tel"
         inputMode="tel"
         autoComplete="off"
-        value={numero}
-        onChange={(e) => mudar(ddi, e.target.value)}
+        value={ddi === guardado.ddi ? guardado.numero : mascararTelefoneDoPais(ddi, guardado.numero)}
+        onChange={(e) => emitir(ddi, e.target.value)}
+        onBlur={props.onBlur}
         placeholder={props.placeholder ?? (ddi === DDI_BRASIL ? "(00) 00000-0000" : "número com código de área")}
         disabled={props.disabled}
-        className="min-w-0 flex-1"
+        aria-invalid={props["aria-invalid"]}
+        aria-describedby={props["aria-describedby"]}
+        className={cn("min-w-0 flex-1", props.className)}
       />
     </div>
   );

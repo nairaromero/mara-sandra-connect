@@ -55,6 +55,8 @@ import {
 } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { digitosInternacionais } from "@/lib/telefone";
+import { TelefoneComPais } from "@/components/telefone-com-pais";
 
 export const Route = createFileRoute("/_authenticated/comercial")({
   component: ComercialPage,
@@ -166,8 +168,7 @@ function soDigitos(s: string) {
 }
 
 function linkWhatsApp(lead: Lead, escritorioNome: string) {
-  let d = soDigitos(lead.whatsapp);
-  if (d.length <= 11) d = `55${d}`;
+  const d = digitosInternacionais(lead.whatsapp);
   const primeiroNome = lead.nome.trim().split(/\s+/)[0];
   const msg = `Olá, ${primeiroNome}! Aqui é do escritório ${escritorioNome}. Recebemos seu contato pelo site e queremos entender melhor o seu caso.`;
   return `https://wa.me/${d}?text=${encodeURIComponent(msg)}`;
@@ -1149,7 +1150,7 @@ function ConverterClienteDialog({
   useEffect(() => {
     if (lead) {
       setCpf("");
-      setTelefone(soDigitos(lead.whatsapp));
+      setTelefone(lead.whatsapp ?? "");
     }
   }, [lead]);
 
@@ -1226,12 +1227,7 @@ function ConverterClienteDialog({
           </div>
           <div className="space-y-1">
             <Label htmlFor="conv-tel">Telefone</Label>
-            <Input
-              id="conv-tel"
-              inputMode="numeric"
-              value={telefone}
-              onChange={(e) => setTelefone(e.target.value)}
-            />
+            <TelefoneComPais id="conv-tel" value={telefone} onChange={setTelefone} />
           </div>
           <p className="text-xs text-muted-foreground">
             Cria o cliente no sistema com os dados do lead e marca o lead como fechado. O caso
