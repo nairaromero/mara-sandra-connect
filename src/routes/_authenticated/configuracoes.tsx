@@ -21,7 +21,7 @@ import { supabase } from "@/lib/supabase";
 import { AbaSuporte } from "@/components/suporte/aba-suporte";
 import { EscritorioMarcaCard } from "@/components/configuracoes/escritorio-marca-card";
 import { DuasEtapasCard } from "@/components/configuracoes/duas-etapas-card";
-import { formatarTelefone } from "@/lib/telefone";
+import { formatarTelefone, mascararTelefoneBR } from "@/lib/telefone";
 import { ClientOnly } from "@/components/client-only";
 import { AbaIntegracoes } from "@/components/integracoes/aba-integracoes";
 import { EmBreveCard } from "@/components/integracoes/em-breve-card";
@@ -79,15 +79,6 @@ interface UsuarioCompleto {
 // ===========================================================================
 // Helpers
 // ===========================================================================
-
-function maskTelefone(v: string): string {
-  const d = v.replace(/\D/g, "").slice(0, 11);
-  if (d.length === 0) return "";
-  if (d.length <= 10) {
-    return d.replace(/(\d{2})(\d)/, "($1) $2").replace(/(\d{4})(\d)/, "$1-$2");
-  }
-  return d.replace(/(\d{2})(\d)/, "($1) $2").replace(/(\d{5})(\d)/, "$1-$2");
-}
 
 // Aba da barra de Configurações. No celular a barra rola na horizontal (cinco
 // abas não cabem em 375px) e começa na ponta esquerda: quem chegava por
@@ -517,7 +508,7 @@ function ConfiguracoesPage() {
                       <Input
                         value={telefone}
                         onChange={(e) =>
-                          setTelefone(maskTelefone(e.target.value))
+                          setTelefone(mascararTelefoneBR(e.target.value))
                         }
                         placeholder="(00) 00000-0000"
                         inputMode="tel"

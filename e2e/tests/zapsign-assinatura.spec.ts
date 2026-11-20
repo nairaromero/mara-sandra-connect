@@ -580,6 +580,16 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
       await expect(dlg.getByLabel(/^CPF/)).toHaveValue(/^\d{3}\.\d{3}\.\d{3}-\d{2}$/);
       await expect(dlg.getByLabel(/NOME DA MÃE/)).toHaveValue("");
       await expect(dlg.getByRole("button", { name: "Enviar para assinatura" })).toBeDisabled();
+      // WhatsApp: país com o Brasil por padrão e máscara de DDD; fora do Brasil, só os dígitos
+      const campoTel = dlg.locator("[data-telefone-com-pais]");
+      await expect(campoTel.locator('[data-selecao="telefone-pais"]')).toContainText("+55");
+      await campoTel.locator("input[type=tel]").pressSequentially("17999990000");
+      await expect(campoTel.locator("input[type=tel]")).toHaveValue("(17) 99999-0000");
+      await campoTel.locator('[data-selecao="telefone-pais"]').click();
+      await page.locator("[data-selecao-busca]").fill("espanha");
+      await page.getByRole("option", { name: /Espanha/ }).click();
+      await expect(campoTel.locator('[data-selecao="telefone-pais"]')).toContainText("+34");
+      await expect(campoTel.locator("input[type=tel]"), "trocar de país tira a máscara do Brasil").toHaveValue("17999990000");
       await dlg.getByLabel(/VALOR DOS HONORÁRIOS/).fill("30%");
       await expect(dlg.getByRole("button", { name: "Enviar para assinatura" })).toBeEnabled();
       // "Outro modelo" volta à lista inteira
@@ -624,6 +634,10 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
       await expect(page.locator(`[data-assinar-documento="${assinado.id}"]`)).toHaveCount(0);
       await doOriginal.click();
       await expect(page.locator("[data-dialog-assinatura]")).toContainText("conta um documento no plano do ZapSign");
+      // o WhatsApp do envio de arquivo é o mesmo campo: Brasil por padrão, com DDD
+      const telDoEnvio = page.locator("[data-dialog-assinatura] [data-telefone-com-pais]");
+      await telDoEnvio.locator("input[type=tel]").pressSequentially("1133334444");
+      await expect(telDoEnvio.locator("input[type=tel]")).toHaveValue("(11) 3333-4444");
       await page.getByRole("button", { name: "Cancelar" }).click();
       // catálogo: a linha do ZapSign mostra o estado deste escritório e abre a configuração pelo endereço
       await page.goto("/configuracoes?tab=integracoes&abrir=zapsign");

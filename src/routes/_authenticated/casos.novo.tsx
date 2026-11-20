@@ -48,6 +48,7 @@ import {
   isGoogleDriveConfigured,
   type DrivePickedFile,
 } from "@/lib/google-drive";
+import { mascararTelefoneBR } from "@/lib/telefone";
 
 export const Route = createFileRoute("/_authenticated/casos/novo")({
   component: NovoCasoPage,
@@ -74,14 +75,6 @@ function maskCPF(v: string) {
     .replace(/(\d{3})(\d)/, "$1.$2")
     .replace(/(\d{3})(\d)/, "$1.$2")
     .replace(/(\d{3})(\d{1,2})$/, "$1-$2");
-}
-
-function maskTelefone(v: string) {
-  const d = v.replace(/\D/g, "").slice(0, 11);
-  if (d.length <= 10) {
-    return d.replace(/(\d{2})(\d)/, "($1) $2").replace(/(\d{4})(\d)/, "$1-$2");
-  }
-  return d.replace(/(\d{2})(\d)/, "($1) $2").replace(/(\d{5})(\d)/, "$1-$2");
 }
 
 function isValidCPF(cpf: string): boolean {
@@ -280,7 +273,7 @@ function NovoCasoPage() {
       campos++;
     }
     if (c.telefone) {
-      form.setValue("telefone", maskTelefone(c.telefone), {
+      form.setValue("telefone", mascararTelefoneBR(c.telefone), {
         shouldValidate: true,
         shouldDirty: true,
       });
@@ -933,7 +926,7 @@ function NovoCasoPage() {
                           placeholder="(00) 00000-0000"
                           inputMode="tel"
                           value={field.value}
-                          onChange={(e) => field.onChange(maskTelefone(e.target.value))}
+                          onChange={(e) => field.onChange(mascararTelefoneBR(e.target.value))}
                         />
                       </FormControl>
                       <FormMessage />

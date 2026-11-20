@@ -22,6 +22,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Selecao } from "@/components/ui/selecao";
+import { TelefoneComPais } from "@/components/telefone-com-pais";
+import { formatarTelefone } from "@/lib/telefone";
 
 interface Detalhe {
   modelo: ModeloZapsign;
@@ -218,7 +220,13 @@ export function GerarContratoDialog(props: {
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="modelo-telefone">WhatsApp</Label>
-                  <Input id="modelo-telefone" value={telefone} onChange={(e) => setTelefone(e.target.value)} placeholder={detalhe.cliente.telefone || "sem telefone no cadastro"} />
+                  {/* remonta a cada modelo aberto: o país volta ao Brasil */}
+                  <TelefoneComPais
+                    key={detalhe.modelo.token}
+                    id="modelo-telefone"
+                    onChange={setTelefone}
+                    placeholder={detalhe.cliente.telefone ? formatarTelefone(detalhe.cliente.telefone) : "sem telefone no cadastro"}
+                  />
                 </div>
               </div>
             </div>
