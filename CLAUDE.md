@@ -262,6 +262,13 @@ o sistema em produção. Quando chegar, vale o seguinte:
   mesmo caminho do arquivo (`concluirEnvio` em `zapsign-enviar`). A linha guarda
   `modelo_token` (um envio em curso por modelo e caso) e `tipo_documento` (com que tipo
   o PDF assinado entra no caso).
+  Campos do modelo e prévia: `_shared/modelo-contrato.ts` (`@shared/modelo-contrato`, puro) é a ÚNICA conta
+  do valor de cada campo — a tela mostra e o servidor refaz (`respostasDoModelo`). O padrão e a faixa moram
+  no TEXTO DE AJUDA do campo no ZapSign ("Padrão: 35% · Máximo: 50%"; o ZapSign não tem valor padrão);
+  `{{X_EXTENSO}}` é escrito pelo sistema a partir de `{{X}}` ("30%" → "trinta por cento") e não é pedido na
+  tela. "Conferir o contrato" (`previa_modelo`) lê o DOCX do modelo (`template_file`) e mostra o texto
+  preenchido SEM criar documento (no ZapSign, criado conta no plano e excluir não devolve). Modelo novo
+  pela API: `POST /templates/create/` + `/templates/update-form/`. Régua: `e2e/unit/modelo-contrato.test.ts`.
   Quem é da equipe interna de um escritório (ZapSign e e-mails do INSS) é
   `equipeInterna` de `_shared/equipe.ts` — pelo vínculo, nunca por `usuarios.tipo`.
   Provas: `e2e/tests/zapsign-assinatura.spec.ts` e a régua `e2e/unit/zapsign-fonte-unica.test.ts`.

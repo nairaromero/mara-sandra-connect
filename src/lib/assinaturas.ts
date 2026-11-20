@@ -5,6 +5,7 @@
 import { supabase } from "@/lib/supabase";
 import { mensagemDeErroEdge } from "@/lib/edge-function-error";
 import type { CampoDoModelo, ModeloZapsign, Signatario, StatusAssinatura } from "@shared/assinatura";
+import type { ParagrafoDoContrato } from "@shared/modelo-contrato";
 
 export { EM_CURSO, formatoAssinavel, type CampoDoModelo, type ModeloZapsign, type Signatario, type StatusAssinatura } from "@shared/assinatura";
 
@@ -52,5 +53,15 @@ export async function listarModelosZapsign(): Promise<Array<ModeloZapsign>> {
 export function detalharModeloZapsign(casoId: string, modeloToken: string) {
   return invocar<{ modelo: ModeloZapsign; campos: Array<CampoDoModelo>; cliente: { nome: string; email: string; telefone: string } }>({
     action: "modelo", caso_id: casoId, modelo_token: modeloToken,
+  });
+}
+
+/**
+ * O contrato do modelo com os campos preenchidos, para conferir antes de
+ * enviar. Não cria documento no ZapSign. `pendencias` = o que ainda impede o envio.
+ */
+export function previaDoModeloZapsign(casoId: string, modeloToken: string, respostas: Record<string, string>) {
+  return invocar<{ paragrafos: Array<ParagrafoDoContrato>; pendencias: Array<string> }>({
+    action: "previa_modelo", caso_id: casoId, modelo_token: modeloToken, respostas,
   });
 }

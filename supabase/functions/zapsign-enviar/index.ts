@@ -8,7 +8,11 @@
 //   modelos        {}
 //                  os modelos de contrato da conta do ZapSign do escritório.
 //   modelo         { caso_id, modelo_token }
-//                  os campos do modelo, já com o que o cadastro do cliente responde.
+//                  os campos do modelo, já com o que o cadastro do cliente responde
+//                  e com o padrão que o modelo define (texto de ajuda do campo).
+//   previa_modelo  { caso_id, modelo_token, respostas }
+//                  o contrato preenchido, para conferir antes de enviar. Não cria
+//                  documento no ZapSign.
 //   enviar_modelo  { caso_id, modelo_token, respostas: { "<variável>": "<valor>" },
 //                    cliente?: { email?, telefone? }, tipo_documento? }
 //                  cria o documento no ZapSign a partir do MODELO preenchido.
@@ -24,11 +28,12 @@ import { auditar } from "../_shared/auditoria.ts";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { integracaoDoEscritorio, semIntegracao } from "../_shared/integracoes.ts";
 import { EM_CURSO, formatoAssinavel } from "../_shared/assinatura.ts";
+import { respostasDoModelo } from "../_shared/modelo-contrato.ts";
 import { telefoneDe } from "../_shared/telefone.ts";
 import { TIPOS_DOCUMENTO } from "../_shared/tipos-documento.ts";
 import {
   abrirTarefaAcompanhar, COLUNAS_ASSINATURA, criarDocumento, criarDocumentoDeModelo, detalharModelo, DocumentoForaDaConta, ehSandbox, ehUuid, envioAceito,
-  ErroZapsign, fraseDoErroZapsign, type LinhaAssinatura, listarModelos, type NovoSignatario, sincronizarAssinatura, ZAPSIGN_MAX_BYTES,
+  ErroZapsign, fraseDoErroZapsign, type LinhaAssinatura, listarModelos, type NovoSignatario, previaDoModelo, sincronizarAssinatura, ZAPSIGN_MAX_BYTES,
 } from "../_shared/zapsign.ts";
 
 /** A chamada ao ZapSign tem teto de 45s; `enviando` além disto não tem dono. */
@@ -101,7 +106,7 @@ serve(async (req) => {
     }
   }
 
-  const ACOES = ["enviar", "modelos", "modelo", "enviar_modelo"];
+  const ACOES = ["enviar", "modelos", "modelo", "previa_modelo", "enviar_modelo"];
   if (!ACOES.includes(String(body.action))) return jsonResponse({ error: "ação desconhecida" }, 400);
 
   /** O cliente do caso, lido no escopo do escritório. */
@@ -223,16 +228,29 @@ serve(async (req) => {
       const modeloToken = String(body.modelo_token ?? "").trim();
       if (!modeloToken) return jsonResponse({ error: "modelo_token obrigatório" }, 400);
       const cliente = await clienteDoCaso(body.caso_id!);
-      const { modelo, campos } = await detalharModelo(integ, modeloToken, cliente);
+      const { modelo, campos, arquivo } = await detalharModelo(integ, modeloToken, cliente);
       if (body.action === "modelo") {
         return jsonResponse({ ok: true, modelo, campos, cliente: { nome: cliente.nome, email: cliente.email ?? "", telefone: cliente.telefone ?? "" } });
       }
 
-      // enviar_modelo: só os campos que o modelo TEM, e todos os obrigatórios preenchidos
+      // O valor de cada campo sai de UMA conta (`respostasDoModelo`): só os campos que o
+      // modelo TEM, o extenso escrito pelo sistema e a faixa que o modelo aceita.
       const dadas = body.respostas && typeof body.respostas === "object" ? body.respostas : {};
-      const respostas = campos.map((c) => ({ variavel: c.variavel, valor: String(dadas[c.variavel] ?? "").trim().slice(0, 2000) }));
-      const faltando = campos.filter((c, i) => c.obrigatorio && !respostas[i].valor).map((c) => c.rotulo);
-      if (faltando.length) return jsonResponse({ error: `Preencha: ${faltando.join(", ")}.`, code: "campos_faltando" }, 400);
+      const { respostas, erros } = respostasDoModelo(campos, dadas);
+
+      // previa_modelo: o contrato já preenchido, lido do DOCX do modelo. Não cria documento
+      // no ZapSign (lá, documento criado conta no plano mesmo sem assinar). Campo que falta
+      // não impede a prévia: ele aparece marcado em branco.
+      if (body.action === "previa_modelo") {
+        try {
+          return jsonResponse({ ok: true, paragrafos: await previaDoModelo(arquivo, respostas), pendencias: erros });
+        } catch (e) {
+          console.warn(`[zapsign-enviar] prévia do modelo ${modelo.token}:`, String((e as Error)?.message ?? e));
+          return jsonResponse({ error: "Não consegui montar a prévia deste modelo. O envio continua disponível.", code: "previa_indisponivel" }, 422);
+        }
+      }
+
+      if (erros.length) return jsonResponse({ error: erros.join(" "), code: "campos_faltando" }, 400);
       const tipoDocumento = body.tipo_documento ?? "contrato_honorarios";
       if (!TIPOS_DOCUMENTO.includes(tipoDocumento)) return jsonResponse({ error: "tipo de documento desconhecido" }, 400);
       const signatario = contatoDoCliente(cliente);

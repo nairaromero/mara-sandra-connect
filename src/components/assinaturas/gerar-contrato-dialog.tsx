@@ -7,13 +7,18 @@
 //      os sugeridos para o tipo de benefício do caso no topo e o resto agrupado
 //      pela pasta do ZapSign;
 //   2. PREENCHER — os campos do modelo, o contato do cliente e o tipo com que o
-//      PDF assinado entra nos documentos do caso.
+//      PDF assinado entra nos documentos do caso. O que o modelo define como
+//      padrão (ex.: honorários de 35%) já vem preenchido e pode ser trocado; o
+//      extenso do número é escrito pelo sistema;
+//   3. CONFERIR — o contrato já preenchido, com cada valor destacado, antes de
+//      qualquer coisa ir ao ZapSign.
 // Quem escreve é a function `zapsign-enviar`; daqui em diante o fluxo é o mesmo
 // do envio de um arquivo (tarefas, painel de assinaturas, PDF assinado).
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, FileSignature, Folder, Loader2, Search, Sparkles } from "lucide-react";
+import { ArrowLeft, Eye, FileSignature, Folder, Loader2, Search, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { chamarZapsign, detalharModeloZapsign, listarModelosZapsign, type CampoDoModelo, type ModeloZapsign } from "@/lib/assinaturas";
+import { chamarZapsign, detalharModeloZapsign, listarModelosZapsign, previaDoModeloZapsign, type CampoDoModelo, type ModeloZapsign } from "@/lib/assinaturas";
+import { type ParagrafoDoContrato, respostasDoModelo } from "@shared/modelo-contrato";
 import { filtrarModelos, modelosSugeridos, porPasta } from "@/lib/assinaturas-modelos";
 import { TIPOS_DOCUMENTO_OPTIONS } from "@/lib/documentos/tipos";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +27,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Selecao } from "@/components/ui/selecao";
+import { Textarea } from "@/components/ui/textarea";
 import { TelefoneComPais } from "@/components/telefone-com-pais";
 import { AvisoDoEnvio } from "@/components/assinaturas/assinaturas-caso";
 import { formatarTelefone, telefoneCompleto } from "@/lib/telefone";
@@ -51,6 +57,9 @@ export function GerarContratoDialog(props: {
   const [telefone, setTelefone] = useState("");
   const [tipoDocumento, setTipoDocumento] = useState("contrato_honorarios");
   const [enviando, setEnviando] = useState(false);
+  // null = preenchendo; com valor = conferindo o contrato montado
+  const [previa, setPrevia] = useState<Array<ParagrafoDoContrato> | null>(null);
+  const [montando, setMontando] = useState(false);
   // Qual pedido de "abrir modelo" ainda vale. A leitura vai ao ZapSign e demora:
   // sem isto, a resposta atrasada do modelo A trocava o modelo B que a pessoa
   // já estava preenchendo (ou abria sozinha um diálogo fechado e reaberto).
@@ -65,6 +74,7 @@ export function GerarContratoDialog(props: {
     setErro(null);
     setBusca("");
     setDetalhe(null);
+    setPrevia(null);
     setAbrindo(null);
     listarModelosZapsign().then(
       (lista) => vivo && setModelos(lista),
@@ -90,6 +100,7 @@ export function GerarContratoDialog(props: {
       setEmail("");
       setTelefone("");
       setTipoDocumento("contrato_honorarios");
+      setPrevia(null);
       setDetalhe(d);
     } catch (e) {
       if (pedido === pedidoDeModelo.current) toast.error(e instanceof Error ? e.message : String(e));
@@ -124,7 +135,25 @@ export function GerarContratoDialog(props: {
     }
   }
 
-  const faltando = detalhe ? detalhe.campos.filter((c) => c.obrigatorio && !(respostas[c.variavel] ?? "").trim()) : [];
+  async function conferir() {
+    if (!detalhe) return;
+    const pedido = pedidoDeModelo.current;
+    setMontando(true);
+    try {
+      const r = await previaDoModeloZapsign(casoId, detalhe.modelo.token, respostas);
+      if (pedido === pedidoDeModelo.current) setPrevia(r.paragrafos);
+    } catch (e) {
+      if (pedido === pedidoDeModelo.current) toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setMontando(false);
+    }
+  }
+
+  // A MESMA conta que o servidor refaz no envio: o valor de cada campo (com o
+  // extenso escrito pelo sistema) e o que impede o envio.
+  const conta = useMemo(() => respostasDoModelo(detalhe?.campos ?? [], respostas), [detalhe, respostas]);
+  const valorDe = (variavel: string) => conta.respostas.find((r) => r.variavel === variavel)?.valor ?? "";
+  const visiveis = detalhe ? detalhe.campos.filter((c) => !c.extensoDe) : [];
 
   return (
     <Dialog open={aberto} onOpenChange={(a) => !a && !enviando && onFechar()}>
@@ -132,8 +161,10 @@ export function GerarContratoDialog(props: {
         <DialogHeader>
           <DialogTitle>{detalhe ? detalhe.modelo.nome : "Gerar contrato pelo ZapSign"}</DialogTitle>
           <DialogDescription>
-            {detalhe
-              ? "Confira os campos: o que o cadastro do cliente já sabe veio preenchido. Depois o contrato segue para assinatura."
+            {previa
+              ? "É assim que o contrato vai ao cliente. O que foi preenchido está destacado. Nada foi enviado ainda."
+              : detalhe
+              ? "Confira os campos: o que o cadastro do cliente e o próprio modelo já sabem veio preenchido. Antes de enviar, veja o contrato montado."
               : "Escolha o modelo do serviço que será prestado. São os modelos da conta do ZapSign deste escritório."}
           </DialogDescription>
         </DialogHeader>
@@ -192,28 +223,24 @@ export function GerarContratoDialog(props: {
               </>
             )}
           </div>
+        ) : previa ? (
+          <PreviaDoContrato paragrafos={previa} />
         ) : (
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1" data-campos-modelo>
-            {detalhe.campos.length === 0 ? (
+            {visiveis.length === 0 ? (
               <p className="text-sm text-muted-foreground">Este modelo não tem campo para preencher.</p>
             ) : (
               <div className="grid gap-3 sm:grid-cols-2">
-                {detalhe.campos.map((c) => (
-                  <div key={c.variavel} className="space-y-1">
-                    <Label htmlFor={`campo-${c.variavel}`}>
-                      {c.rotulo}
-                      {c.obrigatorio && <span className="text-red-600"> *</span>}
-                      {c.sugestao && respostas[c.variavel] === c.sugestao && (
-                        <span className="ml-2 text-xs font-normal text-muted-foreground">do cadastro</span>
-                      )}
-                    </Label>
-                    <Input
-                      id={`campo-${c.variavel}`}
-                      value={respostas[c.variavel] ?? ""}
-                      onChange={(e) => setRespostas((r) => ({ ...r, [c.variavel]: e.target.value }))}
-                    />
-                    {c.ajuda && <p className="text-xs text-muted-foreground">{c.ajuda}</p>}
-                  </div>
+                {visiveis.map((c) => (
+                  <CampoDoContrato
+                    key={c.variavel}
+                    campo={c}
+                    valor={respostas[c.variavel] ?? ""}
+                    onChange={(v) => setRespostas((r) => ({ ...r, [c.variavel]: v }))}
+                    // o campo que o sistema escreve a partir deste (ex.: o percentual por extenso)
+                    extenso={detalhe.campos.some((x) => x.extensoDe === c.variavel) ? valorDe(detalhe.campos.find((x) => x.extensoDe === c.variavel)!.variavel) : null}
+                    valorFinal={valorDe(c.variavel)}
+                  />
                 ))}
               </div>
             )}
@@ -255,19 +282,29 @@ export function GerarContratoDialog(props: {
         )}
 
         <DialogFooter className="gap-2 sm:justify-between">
-          {detalhe ? (
-            <Button variant="ghost" onClick={() => setDetalhe(null)} disabled={enviando}>
+          {previa ? (
+            <Button variant="ghost" onClick={() => setPrevia(null)} disabled={enviando} data-voltar-aos-campos>
+              <ArrowLeft className="mr-2 h-4 w-4" /> Corrigir os campos
+            </Button>
+          ) : detalhe ? (
+            <Button variant="ghost" onClick={() => setDetalhe(null)} disabled={enviando || montando}>
               <ArrowLeft className="mr-2 h-4 w-4" /> Outro modelo
             </Button>
           ) : (
             <span />
           )}
-          <div className="flex gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             <Button variant="outline" onClick={onFechar} disabled={enviando}>
               Cancelar
             </Button>
+            {detalhe && !previa && (
+              <Button variant="outline" onClick={conferir} disabled={montando || enviando} data-conferir-contrato>
+                {montando ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Eye className="mr-2 h-4 w-4" />}
+                Conferir o contrato
+              </Button>
+            )}
             {detalhe && (
-              <Button onClick={enviar} disabled={enviando || faltando.length > 0} title={faltando.length ? `Falta preencher: ${faltando.map((c) => c.rotulo).join(", ")}` : undefined}>
+              <Button onClick={enviar} disabled={enviando || montando || conta.erros.length > 0} title={conta.erros.length ? conta.erros.join(" ") : undefined} data-enviar-modelo>
                 {enviando ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileSignature className="mr-2 h-4 w-4" />}
                 Enviar para assinatura
               </Button>
@@ -309,5 +346,90 @@ function ListaDeModelos(props: {
         </li>
       ))}
     </ul>
+  );
+}
+
+/**
+ * Um campo do modelo. Número (percentual, quantidade) tem a faixa do modelo e
+ * mostra como o contrato vai escrever; texto cresce com o que se digita, para
+ * caber uma cláusula inteira.
+ */
+function CampoDoContrato(props: {
+  campo: CampoDoModelo;
+  valor: string;
+  onChange: (v: string) => void;
+  /** como o sistema escreve este valor por extenso; null = o modelo não pede extenso */
+  extenso: string | null;
+  /** o valor como vai ao contrato (ex.: "30" digitado vira "30%") */
+  valorFinal: string;
+}) {
+  const { campo: c, valor, onChange, extenso, valorFinal } = props;
+  const numero = c.tipo !== "texto";
+  // de onde veio o valor que já está no campo: do cadastro do cliente ou do padrão do modelo
+  const doCadastro = !!valor && !c.padrao && valor === c.sugestao;
+  const padrao = !c.padrao ? "" : valorFinal === c.padrao ? "padrão do modelo" : `padrão do modelo: ${c.padrao}`;
+  const faixa = [c.minimo !== null ? `mínimo ${c.minimo}` : "", c.maximo !== null ? `máximo ${c.maximo}` : ""].filter(Boolean).join(", ");
+  return (
+    <div className={numero ? "space-y-1" : "space-y-1 sm:col-span-2"} data-campo={c.variavel}>
+      <Label htmlFor={`campo-${c.variavel}`}>
+        {c.rotulo}
+        {c.obrigatorio && <span className="text-red-600"> *</span>}
+        {doCadastro && <span className="ml-2 text-xs font-normal text-muted-foreground">do cadastro</span>}
+      </Label>
+      {numero ? (
+        <Input id={`campo-${c.variavel}`} inputMode="decimal" value={valor} onChange={(e) => onChange(e.target.value)} />
+      ) : (
+        <Textarea
+          id={`campo-${c.variavel}`}
+          rows={1}
+          value={valor}
+          onChange={(e) => onChange(e.target.value)}
+          // cresce com o texto (até um teto), sem barra de rolagem para uma linha
+          className="min-h-9 resize-none [field-sizing:content] max-h-48"
+        />
+      )}
+      {extenso !== null && valorFinal && (
+        <p className="text-xs text-muted-foreground" data-extenso>
+          No contrato: <span className="font-medium text-foreground">{extenso ? `${valorFinal} (${extenso})` : valorFinal}</span>
+        </p>
+      )}
+      {(c.ajuda || faixa || padrao) && (
+        <p className="text-xs text-muted-foreground">
+          {padrao && <span data-origem-do-valor>{padrao}</span>}
+          {padrao && (c.ajuda || faixa) ? " · " : ""}
+          {[c.ajuda, faixa && `aceita ${faixa}${c.tipo === "percentual" ? "%" : ""}`].filter(Boolean).join(" · ")}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** O contrato montado: texto exato, com negrito e títulos; a aparência final (fonte, margens) é a do PDF do ZapSign. */
+function PreviaDoContrato(props: { paragrafos: ReadonlyArray<ParagrafoDoContrato> }) {
+  const vazios = props.paragrafos.reduce((n, p) => n + p.trechos.filter((t) => t.marca === "vazio").length, 0);
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-2" data-previa-contrato>
+      {vazios > 0 && (
+        <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900" data-previa-vazios>
+          {vazios === 1 ? "1 campo vai em branco" : `${vazios} campos vão em branco`} no contrato (marcados em amarelo). Se não era a intenção, volte e preencha.
+        </p>
+      )}
+      <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto rounded-md border bg-white px-6 py-5 text-[13px] leading-relaxed text-neutral-900">
+        {props.paragrafos.map((p, i) => (
+          <p key={i} className={p.centro ? "whitespace-pre-wrap text-center" : "whitespace-pre-wrap text-justify"}>
+            {p.trechos.map((t, j) => (
+              <span
+                key={j}
+                data-trecho={t.marca}
+                className={[t.n ? "font-semibold" : "", t.marca === "preenchido" ? "rounded bg-emerald-100 px-0.5" : "", t.marca === "vazio" ? "rounded bg-amber-200 px-0.5 italic" : ""].join(" ")}
+              >
+                {t.t}
+              </span>
+            ))}
+          </p>
+        ))}
+      </div>
+      <p className="text-xs text-muted-foreground">O texto é o do modelo. Fonte, margens e quebra de página são as do PDF que o ZapSign gera.</p>
+    </div>
   );
 }
