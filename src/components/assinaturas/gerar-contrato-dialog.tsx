@@ -10,7 +10,7 @@
 //      PDF assinado entra nos documentos do caso.
 // Quem escreve é a function `zapsign-enviar`; daqui em diante o fluxo é o mesmo
 // do envio de um arquivo (tarefas, painel de assinaturas, PDF assinado).
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, FileSignature, Folder, Loader2, Search, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { chamarZapsign, detalharModeloZapsign, listarModelosZapsign, type CampoDoModelo, type ModeloZapsign } from "@/lib/assinaturas";
@@ -23,7 +23,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Selecao } from "@/components/ui/selecao";
 import { TelefoneComPais } from "@/components/telefone-com-pais";
-import { formatarTelefone } from "@/lib/telefone";
+import { AvisoDoEnvio } from "@/components/assinaturas/assinaturas-caso";
+import { formatarTelefone, telefoneCompleto } from "@/lib/telefone";
 
 interface Detalhe {
   modelo: ModeloZapsign;
@@ -50,9 +51,14 @@ export function GerarContratoDialog(props: {
   const [telefone, setTelefone] = useState("");
   const [tipoDocumento, setTipoDocumento] = useState("contrato_honorarios");
   const [enviando, setEnviando] = useState(false);
+  // Qual pedido de "abrir modelo" ainda vale. A leitura vai ao ZapSign e demora:
+  // sem isto, a resposta atrasada do modelo A trocava o modelo B que a pessoa
+  // já estava preenchendo (ou abria sozinha um diálogo fechado e reaberto).
+  const pedidoDeModelo = useRef(0);
 
   // Cada abertura começa na lista, lida de novo (o modelo criado agora no ZapSign já aparece).
   useEffect(() => {
+    pedidoDeModelo.current++; // abrir ou fechar descarta o modelo que ainda estava chegando
     if (!aberto) return;
     let vivo = true;
     setModelos(null);
@@ -75,18 +81,20 @@ export function GerarContratoDialog(props: {
   const grupos = useMemo(() => porPasta(achados), [achados]);
 
   async function escolher(m: ModeloZapsign) {
+    const pedido = ++pedidoDeModelo.current;
     setAbrindo(m.token);
     try {
       const d = await detalharModeloZapsign(casoId, m.token);
+      if (pedido !== pedidoDeModelo.current) return;
       setRespostas(Object.fromEntries(d.campos.map((c) => [c.variavel, c.sugestao])));
       setEmail("");
       setTelefone("");
       setTipoDocumento("contrato_honorarios");
       setDetalhe(d);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      if (pedido === pedidoDeModelo.current) toast.error(e instanceof Error ? e.message : String(e));
     } finally {
-      setAbrindo(null);
+      if (pedido === pedidoDeModelo.current) setAbrindo(null);
     }
   }
 
@@ -97,7 +105,7 @@ export function GerarContratoDialog(props: {
       const cliente: Record<string, string> = {};
       if (email.trim()) cliente.email = email.trim();
       if (telefone.trim()) cliente.telefone = telefone.trim();
-      await chamarZapsign({
+      const { aviso } = await chamarZapsign({
         action: "enviar_modelo",
         caso_id: casoId,
         modelo_token: detalhe.modelo.token,
@@ -106,6 +114,7 @@ export function GerarContratoDialog(props: {
         ...(Object.keys(cliente).length ? { cliente } : {}),
       });
       toast.success("Contrato enviado para assinatura. O cliente recebe o link pelo ZapSign.");
+      if (aviso) toast.warning(aviso);
       onEnviado();
       onFechar();
     } catch (e) {
@@ -230,14 +239,18 @@ export function GerarContratoDialog(props: {
                   />
                 </div>
               </div>
+              {!telefone && detalhe.cliente.telefone && !telefoneCompleto(detalhe.cliente.telefone) && (
+                <p className="text-xs text-amber-700" data-telefone-do-cadastro-invalido>
+                  O telefone do cadastro ({detalhe.cliente.telefone}) não serve para WhatsApp: sem outro número aqui, o
+                  link vai só por e-mail.
+                </p>
+              )}
             </div>
             <div className="space-y-1">
               <Label htmlFor="modelo-tipo">O PDF assinado entra no caso como</Label>
               <Selecao id="modelo-tipo" opcoes={TIPOS_DOCUMENTO_OPTIONS} value={tipoDocumento} onChange={setTipoDocumento} />
             </div>
-            <p className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
-              Cada envio conta um documento no plano do ZapSign, mesmo que depois seja cancelado.
-            </p>
+            <AvisoDoEnvio />
           </div>
         )}
 

@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Mail, Plug, Unplug, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, Loader2, Mail, Plug, Unplug, CheckCircle2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
@@ -29,6 +29,9 @@ interface VinculoGmail {
   last_used_at: string | null;
   conectado_por: string | null;
   e_minha: boolean;
+  /** a rotina não conseguiu ler esta caixa na última rodada (acesso revogado no Google, por exemplo) */
+  ultimo_erro: string | null;
+  ultimo_erro_em: string | null;
 }
 
 export function IntegracaoGmailCard() {
@@ -98,12 +101,14 @@ export function IntegracaoGmailCard() {
     }
   }
 
-  // Quem gerencia integrações desconecta qualquer caixa DO ESCRITÓRIO (a RLS
-  // confere a permissão e o escritório). As outras caixas continuam sendo lidas.
+  // Quem gerencia integrações desconecta qualquer caixa DO ESCRITÓRIO, inclusive
+  // a que outra pessoa conectou. Pela RPC (confere permissão e escritório e
+  // deixa trilha): o DELETE direto apagava zero linhas, sem erro, quando a
+  // caixa era de outra pessoa, e a tela dizia "desconectada".
   async function desconectar(caixa: VinculoGmail) {
     if (!window.confirm(`Desconectar ${caixa.email_conectado}? Os e-mails do INSS que chegarem nessa caixa deixam de ser lidos.`)) return;
     setDesconectando(caixa.id);
-    const { error } = await supabase.from("usuario_gmail_oauth").delete().eq("id", caixa.id);
+    const { error } = await supabase.rpc("gmail_inss_desconectar", { p_id: caixa.id });
     setDesconectando(null);
     if (error) {
       toast.error("Falha ao desconectar.");
@@ -146,7 +151,11 @@ export function IntegracaoGmailCard() {
                 {caixas.map((c) => (
                   <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2" data-caixa-gmail={c.email_conectado}>
                     <div className="flex min-w-0 items-start gap-2 text-sm">
-                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-600" />
+                      {c.ultimo_erro ? (
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                      ) : (
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-600" />
+                      )}
                       <div className="min-w-0">
                         <div>
                           Conectado como <strong className="font-medium">{c.email_conectado}</strong>
@@ -156,6 +165,12 @@ export function IntegracaoGmailCard() {
                           Desde {formatarBR(c.connected_at, { dateStyle: "short", timeStyle: "medium" })}
                           {c.last_used_at && <> · último uso {formatarBR(c.last_used_at, { dateStyle: "short", timeStyle: "medium" })}</>}
                         </div>
+                        {c.ultimo_erro && (
+                          <div className="text-xs text-amber-700" data-caixa-gmail-erro>
+                            {c.ultimo_erro}
+                            {c.ultimo_erro_em && <> (desde {formatarBR(c.ultimo_erro_em, { dateStyle: "short", timeStyle: "short" })})</>}
+                          </div>
+                        )}
                       </div>
                     </div>
                     <Button variant="outline" size="sm" onClick={() => desconectar(c)} disabled={desconectando === c.id}>

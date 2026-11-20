@@ -114,6 +114,8 @@ interface CaixaInss {
   email_conectado: string;
   refresh_cipher: string;
   refresh_iv: string;
+  /** a falha da última rodada, se houve (o card mostra; some quando a caixa volta a ser lida) */
+  ultimo_erro: string | null;
 }
 
 /**
@@ -124,12 +126,35 @@ interface CaixaInss {
 async function caixasDoEscritorio(sb: SupabaseClient, escritorioId: string): Promise<CaixaInss[]> {
   const { data, error } = await sb
     .from("usuario_gmail_oauth")
-    .select("id, email_conectado, refresh_cipher, refresh_iv")
+    .select("id, email_conectado, refresh_cipher, refresh_iv, ultimo_erro")
     .eq("escritorio_id", escritorioId)
     .order("connected_at")
     .order("id");
   if (error) throw new Error(`Falha lendo usuario_gmail_oauth: ${error.message}`);
   return (data ?? []) as CaixaInss[];
+}
+
+/**
+ * A caixa não pôde ser lida nesta rodada: fica escrito NA LINHA dela, e é o
+ * que `gmail_inss_status` devolve para o card pedir a reconexão. Sem isto a
+ * falha só existia no corpo da resposta ao cron, que ninguém lê — o Google
+ * revogava o acesso e a tela seguia mostrando "conectado". A frase é nossa; o
+ * texto cru do Google vai para o log.
+ */
+async function marcarFalhaDaCaixa(sb: SupabaseClient, caixa: CaixaInss, erro: unknown): Promise<void> {
+  const cru = String(erro);
+  const frase = /invalid_grant|unauthorized_client|invalid_client/i.test(cru)
+    ? "O Google recusou o acesso desta caixa (revogado ou expirado). Conecte a caixa de novo."
+    : "Não consegui ler esta caixa na última rodada. Se continuar, conecte a caixa de novo.";
+  const { error } = await sb.from("usuario_gmail_oauth")
+    .update({ ultimo_erro: frase, ultimo_erro_em: new Date().toISOString() }).eq("id", caixa.id);
+  if (error) console.error(`[inss-email-processor] não marquei a falha da caixa ${caixa.email_conectado}: ${error.message}`);
+}
+/** A caixa voltou a ser lida: some o aviso. */
+async function limparFalhaDaCaixa(sb: SupabaseClient, caixa: CaixaInss): Promise<void> {
+  if (!caixa.ultimo_erro) return;
+  const { error } = await sb.from("usuario_gmail_oauth").update({ ultimo_erro: null, ultimo_erro_em: null }).eq("id", caixa.id);
+  if (error) console.error(`[inss-email-processor] não limpei a falha da caixa ${caixa.email_conectado}: ${error.message}`);
 }
 
 async function obterAccessToken(sb: SupabaseClient, caixa: CaixaInss): Promise<{ token: string; gmailAddress: string }> {
@@ -1405,7 +1430,11 @@ serve(async (req) => {
           // Se body.message_id(s) foi passado, processa só esses (sem precisar
           // listar). Caso contrário, lista pela label/janela.
           ids = onlyIds ?? await gmailListMessages(token, gmailAddress, query, limite);
+          if (!dryRun) await limparFalhaDaCaixa(sb, caixa);
         } catch (e) {
+          // No log (o corpo da resposta ao cron ninguém lê) e na linha da caixa (o card mostra).
+          console.error(`[inss-email-processor] caixa ${caixa.email_conectado} do escritório ${escritorioId} não foi lida: ${String(e)}`);
+          if (!dryRun) await marcarFalhaDaCaixa(sb, caixa, e);
           porCaixa.push({ caixa: caixa.email_conectado, mensagens_listadas: 0, error: String(e) });
           continue;
         }
@@ -1440,6 +1469,7 @@ serve(async (req) => {
         auditoria_erros: auditoriaErros,
         query,
         caixas: porCaixa,
+        caixas_com_falha: caixasComFalha.length,
         mensagens_listadas: porCaixa.reduce((n, c) => n + c.mensagens_listadas, 0),
         processadas: resultados.filter((r) => !r.pulado_por_dedup && r.erros.length === 0 && r.tarefas_criadas.length > 0).length,
         puladas_dedup: resultados.filter((r) => r.pulado_por_dedup).length,
@@ -1458,6 +1488,8 @@ serve(async (req) => {
     return jsonResponse({
       escritorios: porEscritorio,
       com_falha: porEscritorio.filter((e) => e.error).length,
+      // falha PARCIAL também conta: com duas caixas e uma quebrada o escritório não entra em `com_falha`
+      caixas_com_falha: porEscritorio.reduce((n, e) => n + Number(e.caixas_com_falha ?? 0), 0),
     });
   } catch (e) {
     return jsonResponse({ error: String(e) }, 500);

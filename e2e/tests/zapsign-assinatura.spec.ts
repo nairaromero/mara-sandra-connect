@@ -59,9 +59,10 @@ async function clientesDeTeste() {
   return data ?? [];
 }
 
-async function avisar(token: string | null, corpo: Record<string, unknown>) {
-  const r = await fetch(token === null ? WEBHOOK : `${WEBHOOK}?token=${encodeURIComponent(token)}`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(corpo),
+async function avisar(token: string | null, corpo: Record<string, unknown>, onde: "url" | "cabecalho" = "url") {
+  // o segredo vai no cabeçalho `x-inbound-token` (o que o ZapSign recomenda) ou, como antes, em `?token=`
+  const r = await fetch(token === null || onde === "cabecalho" ? WEBHOOK : `${WEBHOOK}?token=${encodeURIComponent(token)}`, {
+    method: "POST", headers: { "Content-Type": "application/json", ...(token !== null && onde === "cabecalho" ? { "x-inbound-token": token } : {}) }, body: JSON.stringify(corpo),
   });
   const texto = await r.text();
   let json: Record<string, unknown> = {};
@@ -298,10 +299,10 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
     expect([ok.status, (ok.json?.assinatura as { status?: string })?.status]).toEqual([200, "assinado"]);
   });
 
-  test("telefone de fora do Brasil vai com o código do país; sem espaço depois do código é recusado", async () => {
+  test("telefone de fora do Brasil vai com o código do país; código de país desconhecido colado ao número é recusado", async () => {
     test.skip(!mockVivo || !assinaturaId, "depende do envio");
     const adv = await sessaoComo(contaDoCanario("advogado"), ESC2);
-    const colado = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "enviar", documento_id: docId, cliente: { email: "cliente.e2e@exemplo.com.br", telefone: "+34613761609" } });
+    const colado = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "enviar", documento_id: docId, cliente: { email: "cliente.e2e@exemplo.com.br", telefone: "+999613761609" } });
     expect(colado.status, "não adivinha onde o código do país termina").toBe(400);
     const r = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "enviar", documento_id: docId, cliente: { email: "cliente.e2e@exemplo.com.br", telefone: "+34 613761609" } });
     expect(r.status, r.texto.slice(0, 200)).toBe(200);
@@ -331,6 +332,45 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
     expect([recusa.status, recusa.json.status]).toEqual([200, "recusado"]);
     const { data: linha, error } = await admin.from("assinaturas").select("status").eq("id", venceu.id).single();
     expect([error, linha?.status]).toEqual([null, "recusado"]);
+
+    // A documentação do ZapSign escreve a recusa de dois jeitos ("refused" e "recusado") e a abertura do
+    // link também ("link-opened" e "abriu-link"): as duas formas valem, senão o recusado ficaria "enviado".
+    const emPt = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, corpo);
+    expect(emPt.status, emPt.texto.slice(0, 160)).toBe(200);
+    const pt = emPt.json?.assinatura as { id: string; zapsign_doc_token: string };
+    await fetch(`${MOCK}/zapsign/_recusar/${pt.zapsign_doc_token}?forma=pt`, { method: "POST" });
+    expect((await avisar(segredoWebhook, { event_type: "doc_refused", token: pt.zapsign_doc_token })).json.status).toBe("recusado");
+    const { data: ptLinha } = await admin.from("assinaturas").select("signatarios").eq("id", pt.id).single();
+    expect((ptLinha?.signatarios as Array<{ status: string }>)[0].status).toBe("abriu");
+  });
+
+  test("documento que não está na conta ligada (404, ou envio de outro ambiente) NÃO vira cancelado nem libera envio em dobro", async () => {
+    test.skip(!mockVivo || !assinaturaId, "depende do envio");
+    const adv = await sessaoComo(contaDoCanario("advogado"), ESC2);
+    const corpo = { action: "enviar", documento_id: docId, cliente: { email: "cliente.e2e@exemplo.com.br" } };
+    const envio = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, corpo);
+    expect(envio.status, envio.texto.slice(0, 160)).toBe(200);
+    const linha = envio.json?.assinatura as { id: string; zapsign_doc_token: string };
+    const statusNoBanco = async () => (await admin.from("assinaturas").select("status").eq("id", linha.id).single()).data?.status;
+    const sinc = () => chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "sincronizar", assinatura_id: linha.id });
+    try {
+      // excluir no ZapSign é só uma marca (o documento continua respondendo); 404 é documento de OUTRA conta
+      await fetch(`${MOCK}/zapsign/_sumir/${linha.zapsign_doc_token}`, { method: "POST" });
+      const aviso = await avisar(segredoWebhook, { event_type: "doc_signed", token: linha.zapsign_doc_token });
+      expect([aviso.status, aviso.json.ignorado], "200 para o ZapSign não ficar reenviando").toEqual([200, "documento fora da conta ligada"]);
+      const pelaTela = await sinc();
+      expect([pelaTela.status, pelaTela.json?.code]).toEqual([409, "documento_fora_da_conta"]);
+      expect(await statusNoBanco(), "o envio fica como estava").toBe("enviado");
+      expect((await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, corpo)).status, "segue em curso: não libera um segundo envio").toBe(409);
+      // envio feito na produção com a integração hoje no sandbox: nem pergunta ao ZapSign
+      expect((await admin.from("assinaturas").update({ sandbox: false }).eq("id", linha.id)).error).toBeNull();
+      expect((await sinc()).json?.code).toBe("documento_fora_da_conta");
+      expect(await statusNoBanco()).toBe("enviado");
+    } finally {
+      // sai de cena: os testes de tela querem o botão do original ligado
+      const { error } = await admin.from("assinaturas").delete().eq("id", linha.id);
+      if (error) throw new Error(error.message);
+    }
   });
 
   test("resposta do ZapSign que se perde não é dada como 'não enviou': a linha fica e o aviso de criação religa", async () => {
@@ -378,6 +418,9 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
     expect(segredoNovo).not.toBe(segredoWebhook);
     expect((await avisar(segredoWebhook, { event_type: "doc_signed", token: docToken })).status).toBe(401);
     expect((await avisar(segredoNovo, { event_type: "doc_signed", token: docToken })).status).toBe(200);
+    // o segredo no cabeçalho (o que o card ensina a cadastrar) vale igual; o antigo, nem no cabeçalho
+    expect((await avisar(segredoNovo, { event_type: "doc_signed", token: docToken }, "cabecalho")).status).toBe(200);
+    expect((await avisar(segredoWebhook, { event_type: "doc_signed", token: docToken }, "cabecalho")).status).toBe(401);
     segredoWebhook = segredoNovo;
   });
 
@@ -402,6 +445,18 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
     const interno = await criarNoPainel({ name: "E2E ZapSign - painel interno.pdf", signers: [{ name: "Admin Canário", email: contaDoCanario("admin"), cpf: CPF_ADOTADO }] });
     const r2 = await avisar(segredoWebhook, { event_type: "doc_created", token: interno });
     expect(r2.json.ignorado).toBe("todos os signatários são da equipe");
+    // CPF só num campo que fala de OUTRA pessoa, ou dois CPFs diferentes nas respostas: não dá para saber
+    // qual é o do cliente — vira a tarefa de cadastro, em vez de o contrato entrar no cliente errado
+    const deOutro = await criarNoPainel({
+      name: "E2E ZapSign - painel CPF do representante.pdf", signers: [{ name: "E2E ZapSign Representado", email: "representado.e2e@exemplo.com.br" }],
+      answers: [{ variable: "CPF DO REPRESENTANTE LEGAL", value: "529.982.247-25" }],
+    });
+    expect((await avisar(segredoWebhook, { event_type: "doc_created", token: deOutro })).json.ignorado).toBe("signatário sem CPF");
+    const doisCpfs = await criarNoPainel({
+      name: "E2E ZapSign - painel dois CPFs.pdf", signers: [{ name: "E2E ZapSign Dois Cpfs", email: "doiscpfs.e2e@exemplo.com.br" }],
+      answers: [{ variable: "CPF", value: "529.982.247-25" }, { variable: "CPF DO CONTRATANTE 2", value: "111.444.777-35" }],
+    });
+    expect((await avisar(segredoWebhook, { event_type: "doc_created", token: doisCpfs })).json.ignorado).toBe("signatário sem CPF");
     // aviso que não é de criação, de documento desconhecido, não adota (contrato antigo não vira cliente)
     const antigo = await criarNoPainel({ name: "E2E ZapSign - painel antigo.pdf", signers: [{ name: "E2E ZapSign Antigo", cpf: CPF_ADOTADO }] });
     expect((await avisar(segredoWebhook, { event_type: "doc_signed", token: antigo })).json.ignorado).toBeTruthy();
@@ -549,6 +604,30 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
     expect((await avisar(segredoWebhook, { event_type: "doc_deleted", token: tokenNovo })).json.status).toBe("cancelado");
   });
 
+  test("envio por modelo que falha sem criar o documento não trava o modelo no caso para sempre", async () => {
+    test.skip(!mockVivo || !segredoWebhook, "depende da integração");
+    const adv = await sessaoComo(contaDoCanario("advogado"), ESC2);
+    const base = { action: "enviar_modelo", caso_id: casoId, modelo_token: "modelo-03", cliente: { email: "cliente.e2e@exemplo.com.br" } };
+    const boas = { "{{NOME COMPLETO}}": "Helena Bastos Ferraz", "{{CPF}}": "770.000.001-80", "{{VALOR DOS HONORÁRIOS}}": "30%" };
+    // o ZapSign responde 500 e NÃO cria o documento: não dá para saber, então a linha fica `enviando`
+    const falhou = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { ...base, respostas: { ...boas, "{{VALOR DOS HONORÁRIOS}}": "30% [fora do ar]" } });
+    expect([falhou.status, falhou.json?.code], falhou.texto.slice(0, 160)).toEqual([502, "envio_incerto"]);
+    const { data: presas, error: ePresas } = await admin.from("assinaturas").select("id, status").eq("caso_id", casoId).eq("modelo_token", "modelo-03").eq("status", "enviando");
+    if (ePresas) throw new Error(ePresas.message);
+    expect(presas).toHaveLength(1);
+    // na hora, segue barrado (pode ser só a resposta que se perdeu: reenviar gastaria a cota em dobro)
+    expect((await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { ...base, respostas: boas })).status).toBe(409);
+    // passados os 2 minutos sem o aviso de criação religar, a linha morta sai e o modelo volta a poder ser enviado
+    expect((await admin.from("assinaturas").update({ created_at: new Date(Date.now() - 3 * 60 * 1000).toISOString() }).eq("id", presas![0].id)).error).toBeNull();
+    const denovo = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { ...base, respostas: boas });
+    expect(denovo.status, denovo.texto.slice(0, 160)).toBe(200);
+    const { data: restou } = await admin.from("assinaturas").select("id").eq("id", presas![0].id);
+    expect(restou, "a linha morta foi removida").toHaveLength(0);
+    const token = (denovo.json?.assinatura as { zapsign_doc_token: string }).zapsign_doc_token;
+    await fetch(`${MOCK}/zapsign/_excluir/${token}`, { method: "POST" });
+    expect((await avisar(segredoWebhook, { event_type: "doc_deleted", token })).json.status).toBe("cancelado");
+  });
+
   test("tela: 'Gerar contrato' lista todos os modelos, sugere os do tipo de benefício do caso, busca sem acento e abre os campos preenchidos", async ({ browser, baseURL }) => {
     test.skip(!mockVivo || !segredoWebhook, "depende da integração");
     const { session } = await sessaoComo(contaDoCanario("admin"));
@@ -638,13 +717,22 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
       const telDoEnvio = page.locator("[data-dialog-assinatura] [data-telefone-com-pais]");
       await telDoEnvio.locator("input[type=tel]").pressSequentially("1133334444");
       await expect(telDoEnvio.locator("input[type=tel]")).toHaveValue("(11) 3333-4444");
+      // colar o número com o código do país: o 55 não vira DDD, e o de fora troca a caixa do país
+      await telDoEnvio.locator("input[type=tel]").fill("+55 17 99999-0000");
+      await expect(telDoEnvio.locator("input[type=tel]")).toHaveValue("(17) 99999-0000");
+      await telDoEnvio.locator("input[type=tel]").fill("+34 613761609");
+      await expect(telDoEnvio.locator("input[type=tel]")).toHaveValue("613761609");
+      await expect(telDoEnvio).toContainText("+34");
       await page.getByRole("button", { name: "Cancelar" }).click();
       // catálogo: a linha do ZapSign mostra o estado deste escritório e abre a configuração pelo endereço
       await page.goto("/configuracoes?tab=integracoes&abrir=zapsign");
       await expect(page.locator('[data-integracao-linha="zapsign"] [data-integracao-linha-estado]')).toHaveAttribute("data-integracao-linha-estado", "ativa");
       const card = page.locator('[data-card-integracao="zapsign"]');
       await expect(card.locator("[data-integracao-estado]")).toHaveText("ativo");
-      await expect(card.locator("[data-zapsign-aviso]")).toContainText("/functions/v1/zapsign-webhook?token=");
+      // o segredo vai num cabeçalho, não na URL (que fica no histórico de avisos do painel do ZapSign)
+      await expect(card.locator('[data-zapsign-copiavel="endereco"]')).toHaveText(/\/functions\/v1\/zapsign-webhook$/);
+      await expect(card.locator('[data-zapsign-copiavel="cabecalho"]')).toHaveText("x-inbound-token");
+      await expect(card.locator('[data-zapsign-copiavel="segredo"]')).toHaveText(/^[0-9a-f]{48}$/);
     } finally {
       await ctx.close();
     }

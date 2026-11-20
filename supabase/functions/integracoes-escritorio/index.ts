@@ -14,7 +14,7 @@ import { exigirUsuario, fetchT } from "../_shared/auth.ts";
 import { auditar, type AcaoAuditada } from "../_shared/auditoria.ts";
 import { encryptSecret, decryptSecret } from "../_shared/crypto.ts";
 import { baseLegalmail, baseTI, integracaoDoEscritorio } from "../_shared/integracoes.ts";
-import { testarToken } from "../_shared/zapsign.ts";
+import { fraseDoErroZapsign, testarToken } from "../_shared/zapsign.ts";
 import { chatWith, classeDoErro, type Credencial, listarModelos, mensagemDoErro, modeloAposentado, PROVIDERS } from "../_shared/ia-providers.ts";
 import { abrirCredencial, integracaoDaLinha, registroDeUso } from "../_shared/ia-integracao.ts";
 import { lerEsforcos } from "../_shared/ia-esforco.ts";
@@ -156,7 +156,14 @@ serve(async (req) => {
         .from("escritorio_integracoes").select("segredo_cipher, segredo_iv").eq("tipo", "zapsign").neq("escritorio_id", escritorioId).not("segredo_cipher", "is", null);
       if (eOutros) return json({ error: `conferindo o token: ${eOutros.message}` }, 500);
       for (const o of outros ?? []) {
-        if ((await decryptSecret(o.segredo_cipher, o.segredo_iv)) === segredo) {
+        // Credencial que não abre (cifrada com outra chave: cópia de outro
+        // ambiente, troca de chave) não é igual a nada — e não pode derrubar o
+        // "salvar" de todos os outros escritórios com um 500.
+        const doOutro = await decryptSecret(o.segredo_cipher, o.segredo_iv).catch((e) => {
+          console.warn(`[integracoes-escritorio] token do ZapSign de outro escritório não abriu: ${String((e as Error)?.message ?? e)}`);
+          return null;
+        });
+        if (doOutro === segredo) {
           return json({ error: "Este token do ZapSign já está em uso em outro escritório. Cada escritório precisa da sua própria conta do ZapSign.", code: "token_em_uso" }, 409);
         }
       }
@@ -289,7 +296,7 @@ serve(async (req) => {
     try {
       const r = await testarToken(integ);
       await registrar("integracao.testar", { http: r.http, ok: r.ok, ambiente: integ.config.ambiente ?? "producao" });
-      return json({ ok: r.ok, http: r.http, detalhe: r.ok ? null : "o ZapSign recusou o token (confira se ele é do ambiente escolhido)" });
+      return json({ ok: r.ok, http: r.http, detalhe: r.ok ? null : fraseDoErroZapsign(r.http, "O ZapSign recusou a chamada. Confira o token e o ambiente escolhido.") });
     } catch (e) {
       return json({ ok: false, erro: `não alcancei o ZapSign: ${String((e as Error)?.message ?? e)}` });
     }

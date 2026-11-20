@@ -49,6 +49,8 @@ export function TelefoneComPais(props: {
   /** País fixo no Brasil (telefone de parceiro: ver o cabeçalho). */
   somenteBrasil?: boolean;
   onBlur?: () => void;
+  /** Preenchimento automático do navegador ("tel" no formulário público). Padrão: desligado. */
+  autoComplete?: string;
   "aria-invalid"?: boolean;
   "aria-describedby"?: string;
   /** Classe do campo do número (formulários com estilo próprio). */
@@ -62,6 +64,28 @@ export function TelefoneComPais(props: {
   const opcoes = OPCOES.some((o) => o.value === ddi) ? OPCOES : [...OPCOES, opcaoDe({ ddi, nome: "Outro país", bandeira: "🌐" })];
 
   const emitir = (novoDdi: string, digitado: string) => props.onChange(telefoneParaEnvio(novoDdi, mascararTelefoneDoPais(novoDdi, digitado)));
+  /**
+   * O que a pessoa pôs no campo do número. Digitando, vale o país da caixa.
+   * COLANDO (ou vindo do preenchimento automático do navegador) um número que
+   * já traz o código do país — "+55 17 99999-0000", "5517999990000",
+   * "+34 613761609" — o código sai do número e, se for de outro país, a caixa
+   * muda junto. Sem isso o "55" virava DDD e o campo aceitava "(55) 17999-9900".
+   * Colar = o texto ganhou mais de um dígito de uma vez.
+   */
+  const aoMudarNumero = (texto: string) => {
+    const digitos = texto.replace(/\D/g, "");
+    const comMais = texto.trim().startsWith("+");
+    const colou = digitos.length - guardado.numero.replace(/\D/g, "").length > 1 && digitos.length > 11;
+    if (!comMais && !colou) return emitir(ddi, texto);
+    const lido = separarTelefone(texto);
+    // Sem o "+", só troca de país com certeza: abre com o 55, ou com o código de
+    // um país da lista. Número comprido de outro país (12 dígitos num campo da
+    // Alemanha) continua sendo do país da caixa.
+    if (!comMais && !digitos.startsWith(DDI_BRASIL) && lido.ddi === DDI_BRASIL) return emitir(ddi, texto);
+    // país fixo no Brasil: número de fora não entra (fica o que a máscara do Brasil fizer dele)
+    if (props.somenteBrasil && lido.ddi !== DDI_BRASIL) return emitir(ddi, texto);
+    emitir(lido.ddi, lido.numero);
+  };
 
   return (
     <div className="flex gap-1.5" data-telefone-com-pais>
@@ -99,9 +123,9 @@ export function TelefoneComPais(props: {
         id={props.id}
         type="tel"
         inputMode="tel"
-        autoComplete="off"
+        autoComplete={props.autoComplete ?? "off"}
         value={ddi === guardado.ddi ? guardado.numero : mascararTelefoneDoPais(ddi, guardado.numero)}
-        onChange={(e) => emitir(ddi, e.target.value)}
+        onChange={(e) => aoMudarNumero(e.target.value)}
         onBlur={props.onBlur}
         placeholder={props.placeholder ?? (ddi === DDI_BRASIL ? "(00) 00000-0000" : "número com código de área")}
         disabled={props.disabled}

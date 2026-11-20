@@ -9,6 +9,9 @@
 // chama `recarregar()` e o botão do caso e o catálogo mudam juntos. Antes cada
 // uso do hook fazia a sua própria consulta (três na tela do caso).
 // `tem(tipo)` devolve null enquanto carrega — quem usa esconde o botão até saber.
+// Leitura que FALHA não vira "nenhuma integração": a lista fica null (botão
+// escondido, como enquanto carrega) e `erro` diz o que houve — o catálogo
+// mostrava "Não configurada" e o botão "Integrar" em integração que estava ativa.
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
@@ -26,6 +29,7 @@ const VALIDADE_MS = 30_000;
 const estado = {
   escritorioId: null as string | null,
   lista: null as Array<IntegracaoStatus> | null,
+  erro: null as string | null,
   lidaEm: 0,
   pedido: 0,
 };
@@ -42,13 +46,20 @@ function buscar(escritorioId: string) {
   if (estado.escritorioId !== escritorioId) {
     estado.escritorioId = escritorioId;
     estado.lista = null; // outro escritório: nada do anterior fica na tela
+    estado.erro = null;
   }
   estado.lidaEm = Date.now();
   supabase.rpc("minhas_integracoes").then(({ data, error }) => {
     if (pedido !== estado.pedido) return; // resposta de um pedido que já foi substituído
-    // erro de consulta não vira "nenhuma integração" em silêncio: some o botão e o console avisa
-    if (error) console.error("minhas_integracoes:", error.message);
-    estado.lista = error ? [] : ((data ?? []) as Array<IntegracaoStatus>);
+    if (error) {
+      console.error("minhas_integracoes:", error.message);
+      estado.erro = error.message;
+      estado.lidaEm = 0; // o próximo componente que aparecer tenta de novo, sem esperar a validade
+      // a lista que já estava na tela fica: uma releitura que falha não apaga o que se sabia
+    } else {
+      estado.erro = null;
+      estado.lista = (data ?? []) as Array<IntegracaoStatus>;
+    }
     for (const ouvinte of ouvintes) ouvinte();
   });
 }
@@ -57,6 +68,7 @@ export function useIntegracoesEscritorio() {
   const { escritorio } = useAuth();
   const escritorioId = escritorio?.escritorio_id ?? null;
   const lista = useSyncExternalStore(assinar, () => (estado.escritorioId === escritorioId ? estado.lista : null));
+  const erro = useSyncExternalStore(assinar, () => (estado.escritorioId === escritorioId ? estado.erro : null));
 
   useEffect(() => {
     if (!escritorioId) return;
@@ -74,5 +86,5 @@ export function useIntegracoesEscritorio() {
   const recarregar = useCallback(() => {
     if (escritorioId) buscar(escritorioId);
   }, [escritorioId]);
-  return { lista, tem, recarregar };
+  return { lista, erro, tem, recarregar };
 }
