@@ -4,7 +4,8 @@
 // nas telas isso aparecia cru. `formatarTelefone` é só de EXIBIÇÃO — não altera
 // o que está salvo. A máscara de DIGITAÇÃO dos formulários é `mascararTelefoneBR`
 // (uma só: antes cada tela tinha a sua `maskTelefone`), e o telefone com país
-// (`<TelefoneComPais>`) usa `PAISES_TELEFONE` e `telefoneParaEnvio`.
+// (`<TelefoneComPais>`) usa `PAISES_TELEFONE`, `separarTelefone` e
+// `telefoneParaEnvio`. Número de fora do Brasil é guardado como "+34 613761609".
 //
 // Aceita DDI 55 na frente (13 dígitos) e descarta. Qualquer outra coisa que
 // não seja 10 ou 11 dígitos volta como está (não inventa formato pra número
@@ -85,4 +86,35 @@ export function telefoneParaEnvio(ddi: string, numero: string): string {
   const d = numero.replace(/\D/g, "");
   if (!d) return "";
   return ddi === DDI_BRASIL ? mascararTelefoneBR(d) : `+${ddi} ${d}`;
+}
+
+/**
+ * Do valor guardado (ou do que o campo emitiu) para país + número como aparece
+ * no campo. "+34 613761609" → Espanha; qualquer outra coisa é Brasil (com ou
+ * sem o 55 na frente), já com a máscara.
+ */
+export function separarTelefone(valor: string | null | undefined): { ddi: string; numero: string } {
+  const texto = String(valor ?? "").trim();
+  const fora = texto.match(/^\+(\d{1,3})(?:[\s.-]+(.*))?$/);
+  if (fora && fora[1] !== DDI_BRASIL) return { ddi: fora[1], numero: mascararTelefoneDoPais(fora[1], fora[2] ?? "") };
+  let d = texto.replace(/\D/g, "");
+  if (d.length > 11 && d.startsWith(DDI_BRASIL)) d = d.slice(2);
+  return { ddi: DDI_BRASIL, numero: mascararTelefoneBR(d) };
+}
+
+/** O telefone está completo? Brasil: DDD + 8 ou 9 dígitos. Fora: de 6 a 14 dígitos depois do código do país. */
+export function telefoneCompleto(valor: string | null | undefined): boolean {
+  const { ddi, numero } = separarTelefone(valor);
+  const d = numero.replace(/\D/g, "");
+  return ddi === DDI_BRASIL ? d.length === 10 || d.length === 11 : d.length >= 6 && d.length <= 14;
+}
+
+/**
+ * Só os dígitos, COM o código do país — o que um link `wa.me` precisa.
+ * "(17) 99999-0000" → "5517999990000"; "+34 613761609" → "34613761609". "" se não há número.
+ */
+export function digitosInternacionais(valor: string | null | undefined): string {
+  const { ddi, numero } = separarTelefone(valor);
+  const d = numero.replace(/\D/g, "");
+  return d ? `${ddi}${d}` : "";
 }

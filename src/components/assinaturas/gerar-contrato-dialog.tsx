@@ -224,6 +224,7 @@ export function GerarContratoDialog(props: {
                   <TelefoneComPais
                     key={detalhe.modelo.token}
                     id="modelo-telefone"
+                    value={telefone}
                     onChange={setTelefone}
                     placeholder={detalhe.cliente.telefone ? formatarTelefone(detalhe.cliente.telefone) : "sem telefone no cadastro"}
                   />

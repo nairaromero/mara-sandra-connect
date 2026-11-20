@@ -7,7 +7,9 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { DDI_BRASIL, mascararTelefoneBR, mascararTelefoneDoPais, PAISES_TELEFONE, telefoneParaEnvio } from "../../src/lib/telefone";
+import {
+  DDI_BRASIL, digitosInternacionais, mascararTelefoneBR, mascararTelefoneDoPais, PAISES_TELEFONE, separarTelefone, telefoneCompleto, telefoneParaEnvio,
+} from "../../src/lib/telefone";
 import { telefoneDe } from "../../supabase/functions/_shared/telefone";
 
 const RAIZ = join(import.meta.dir, "../..");
@@ -45,6 +47,43 @@ describe("telefone", () => {
     expect(resto).toEqual([...resto].sort((a, b) => a.localeCompare(b, "pt-BR")));
     expect(new Set(PAISES_TELEFONE.map((p) => p.ddi)).size).toBe(PAISES_TELEFONE.length);
     expect(PAISES_TELEFONE.every((p) => /^\d{1,3}$/.test(p.ddi))).toBe(true);
+  });
+
+  test("o valor guardado volta para o campo: país e número, de qualquer formato que já existe no banco", () => {
+    expect(separarTelefone("17999990000")).toEqual({ ddi: "55", numero: "(17) 99999-0000" });
+    expect(separarTelefone("(17) 99999-0000")).toEqual({ ddi: "55", numero: "(17) 99999-0000" });
+    expect(separarTelefone("5517999990000"), "com o 55 na frente").toEqual({ ddi: "55", numero: "(17) 99999-0000" });
+    expect(separarTelefone("+55 17 99999-0000")).toEqual({ ddi: "55", numero: "(17) 99999-0000" });
+    expect(separarTelefone("+34 613761609")).toEqual({ ddi: "34", numero: "613761609" });
+    expect(separarTelefone("+34"), "só o país escolhido").toEqual({ ddi: "34", numero: "" });
+    expect(separarTelefone(null)).toEqual({ ddi: "55", numero: "" });
+    // ida e volta: o que o campo emite é o que ele lê de volta
+    for (const [ddi, numero] of [["55", "(17) 99999-0000"], ["34", "613761609"], ["351", "912345678"]]) {
+      expect(separarTelefone(telefoneParaEnvio(ddi, numero))).toEqual({ ddi, numero });
+    }
+  });
+
+  test("telefone completo: DDD + 8 ou 9 dígitos no Brasil; de 6 a 14 dígitos fora", () => {
+    expect(["(17) 99999-0000", "(17) 3333-4444", "17999990000", "+34 613761609"].map(telefoneCompleto)).toEqual([true, true, true, true]);
+    expect(["", "(17) 9999", "179999", "+34 613", "+34", null].map(telefoneCompleto)).toEqual([false, false, false, false, false, false]);
+  });
+
+  test("link do WhatsApp: os dígitos sempre com o código do país", () => {
+    expect(digitosInternacionais("(17) 99999-0000")).toBe("5517999990000");
+    expect(digitosInternacionais("17999990000")).toBe("5517999990000");
+    expect(digitosInternacionais("5517999990000"), "não dobra o 55").toBe("5517999990000");
+    expect(digitosInternacionais("+34 613761609"), "número de fora não ganha 55 na frente").toBe("34613761609");
+    expect(digitosInternacionais("")).toBe("");
+  });
+
+  test("todo campo de telefone do sistema é o <TelefoneComPais>: ninguém monta o seu com <Input type/inputMode tel>", () => {
+    const soltos = readdirSync(join(RAIZ, "src"), { recursive: true, withFileTypes: true })
+      .filter((d) => d.isFile() && /\.tsx$/.test(d.name))
+      .map((d) => join(d.parentPath, d.name))
+      .filter((p) => !p.endsWith("src/components/telefone-com-pais.tsx"))
+      .filter((p) => /(inputMode|type)=["']tel["']/.test(readFileSync(p, "utf8")))
+      .map((p) => p.slice(RAIZ.length + 1));
+    expect(soltos, "use <TelefoneComPais> de @/components/telefone-com-pais").toEqual([]);
   });
 
   test("ninguém escreve a própria máscara de telefone: é mascararTelefoneBR, de src/lib/telefone.ts", () => {

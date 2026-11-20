@@ -204,7 +204,7 @@ export function EnviarAssinaturaDialog(props: {
               <div className="space-y-1">
                 <Label htmlFor="assin-telefone">WhatsApp</Label>
                 {/* remonta a cada documento: o país volta ao Brasil */}
-                <TelefoneComPais key={documentoId ?? "fechado"} id="assin-telefone" onChange={setTelefone} placeholder="do cadastro" />
+                <TelefoneComPais key={documentoId ?? "fechado"} id="assin-telefone" value={telefone} onChange={setTelefone} placeholder="do cadastro" />
               </div>
             </div>
           </div>
