@@ -18,7 +18,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Eye, FileSignature, Folder, Loader2, Search, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { chamarZapsign, detalharModeloZapsign, listarModelosZapsign, previaDoModeloZapsign, type CampoDoModelo, type ModeloZapsign } from "@/lib/assinaturas";
-import { type ParagrafoDoContrato, respostasDoModelo } from "@shared/modelo-contrato";
+import { ESTADOS_CIVIS, NACIONALIDADES, type ParagrafoDoContrato, type PartesDaQualificacao, PROFISSOES, qualificacaoDe, respostasDoModelo } from "@shared/modelo-contrato";
 import { filtrarModelos, modelosSugeridos, porPasta } from "@/lib/assinaturas-modelos";
 import { TIPOS_DOCUMENTO_OPTIONS } from "@/lib/documentos/tipos";
 import { Badge } from "@/components/ui/badge";
@@ -35,7 +35,7 @@ import { formatarTelefone, telefoneCompleto } from "@/lib/telefone";
 interface Detalhe {
   modelo: ModeloZapsign;
   campos: Array<CampoDoModelo>;
-  cliente: { nome: string; email: string; telefone: string };
+  cliente: { nome: string; email: string; telefone: string; cpf: string; endereco: string };
 }
 
 export function GerarContratoDialog(props: {
@@ -153,7 +153,8 @@ export function GerarContratoDialog(props: {
   // extenso escrito pelo sistema) e o que impede o envio.
   const conta = useMemo(() => respostasDoModelo(detalhe?.campos ?? [], respostas), [detalhe, respostas]);
   const valorDe = (variavel: string) => conta.respostas.find((r) => r.variavel === variavel)?.valor ?? "";
-  const visiveis = detalhe ? detalhe.campos.filter((c) => !c.extensoDe) : [];
+  // o que o sistema escreve sozinho (o extenso, o benefício repetido) não vira campo
+  const visiveis = detalhe ? detalhe.campos.filter((c) => !c.extensoDe && !c.copiaDe) : [];
 
   return (
     <Dialog open={aberto} onOpenChange={(a) => !a && !enviando && onFechar()}>
@@ -233,8 +234,9 @@ export function GerarContratoDialog(props: {
               <div className="grid gap-3 sm:grid-cols-2">
                 {visiveis.map((c) => (
                   <CampoDoContrato
-                    key={c.variavel}
+                    key={`${detalhe.modelo.token}:${c.variavel}`}
                     campo={c}
+                    cliente={detalhe.cliente}
                     valor={respostas[c.variavel] ?? ""}
                     onChange={(v) => setRespostas((r) => ({ ...r, [c.variavel]: v }))}
                     // o campo que o sistema escreve a partir deste (ex.: o percentual por extenso)
@@ -356,6 +358,7 @@ function ListaDeModelos(props: {
  */
 function CampoDoContrato(props: {
   campo: CampoDoModelo;
+  cliente: { nome: string; cpf: string; endereco: string };
   valor: string;
   onChange: (v: string) => void;
   /** como o sistema escreve este valor por extenso; null = o modelo não pede extenso */
@@ -364,20 +367,29 @@ function CampoDoContrato(props: {
   valorFinal: string;
 }) {
   const { campo: c, valor, onChange, extenso, valorFinal } = props;
+  if (c.especie === "qualificacao") return <CampoQualificacao campo={c} cliente={props.cliente} valor={valor} onChange={onChange} />;
   const numero = c.tipo !== "texto";
   // de onde veio o valor que já está no campo: do cadastro do cliente ou do padrão do modelo
-  const doCadastro = !!valor && !c.padrao && valor === c.sugestao;
+  // a data que o sistema escreve é a de hoje, não um dado do cadastro
+  const hoje = !!valor && valor === c.sugestao && /^data\b/i.test(c.rotulo);
+  const doCadastro = !!valor && !c.padrao && valor === c.sugestao && !c.especie && !hoje;
+  const doCaso = !!valor && (c.especie === "beneficio" || c.especie === "parceiro") && valor === c.sugestao;
   const padrao = !c.padrao ? "" : valorFinal === c.padrao ? "padrão do modelo" : `padrão do modelo: ${c.padrao}`;
   const faixa = [c.minimo !== null ? `mínimo ${c.minimo}` : "", c.maximo !== null ? `máximo ${c.maximo}` : ""].filter(Boolean).join(", ");
   return (
     <div className={numero ? "space-y-1" : "space-y-1 sm:col-span-2"} data-campo={c.variavel}>
       <Label htmlFor={`campo-${c.variavel}`}>
-        {c.rotulo}
+        {/* o modelo chama de "objeto do serviço" ou "benefício ou serviço"; para quem preenche é o benefício */}
+        {c.especie === "beneficio" ? "Benefício" : c.rotulo}
         {c.obrigatorio && <span className="text-red-600"> *</span>}
         {doCadastro && <span className="ml-2 text-xs font-normal text-muted-foreground">do cadastro</span>}
+        {doCaso && <span className="ml-2 text-xs font-normal text-muted-foreground">do caso</span>}
+        {hoje && <span className="ml-2 text-xs font-normal text-muted-foreground">hoje</span>}
       </Label>
       {numero ? (
         <Input id={`campo-${c.variavel}`} inputMode="decimal" value={valor} onChange={(e) => onChange(e.target.value)} />
+      ) : c.opcoes.length > 0 ? (
+        <EscolhaOuTexto id={`campo-${c.variavel}`} opcoes={c.opcoes} value={valor} onChange={onChange} rotulo={c.rotulo} />
       ) : (
         <Textarea
           id={`campo-${c.variavel}`}
@@ -401,6 +413,103 @@ function CampoDoContrato(props: {
         </p>
       )}
     </div>
+  );
+}
+
+const OUTRO = "__outro__";
+
+/**
+ * Escolher numa lista em vez de digitar. "Outro…" abre o campo de texto para o
+ * que a lista não tem — e o valor que já veio fora da lista abre direto nele.
+ */
+function EscolhaOuTexto(props: { id?: string; opcoes: ReadonlyArray<string>; value: string; onChange: (v: string) => void; rotulo: string; placeholder?: string }) {
+  const { opcoes, value, onChange } = props;
+  const [escrevendo, setEscrevendo] = useState(() => !!value && !opcoes.includes(value));
+  if (escrevendo) {
+    return (
+      <div className="flex gap-2">
+        <Input id={props.id} autoFocus={!value} value={value} onChange={(e) => onChange(e.target.value)} aria-label={props.rotulo} />
+        <Button
+          type="button"
+          variant="outline"
+          className="shrink-0"
+          onClick={() => {
+            setEscrevendo(false);
+            if (!opcoes.includes(value)) onChange("");
+          }}
+        >
+          Lista
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <Selecao
+      id={props.id}
+      aria-label={props.rotulo}
+      placeholder={props.placeholder ?? "Escolher"}
+      opcoes={[...opcoes.map((o) => ({ value: o, label: o })), { value: OUTRO, label: "Outro… (escrever)" }]}
+      value={value || undefined}
+      onChange={(v) => {
+        if (v !== OUTRO) return onChange(v);
+        onChange("");
+        setEscrevendo(true);
+      }}
+    />
+  );
+}
+
+/**
+ * A qualificação do contratante sem digitar a frase: nome, CPF e endereço vêm
+ * do cadastro; nacionalidade, estado civil e profissão se escolhem em lista. O
+ * sistema escreve a frase (`qualificacaoDe`) e mostra como vai ao contrato.
+ */
+function CampoQualificacao(props: { campo: CampoDoModelo; cliente: { nome: string; cpf: string; endereco: string }; valor: string; onChange: (v: string) => void }) {
+  const { campo: c, cliente, valor, onChange } = props;
+  const [p, setP] = useState<PartesDaQualificacao>({ nome: cliente.nome, nacionalidade: NACIONALIDADES[0], estadoCivil: "", profissao: "", rg: "", cpf: cliente.cpf, endereco: cliente.endereco });
+  const mudar = (parte: Partial<PartesDaQualificacao>) => {
+    const novo = { ...p, ...parte };
+    setP(novo);
+    onChange(qualificacaoDe(novo));
+  };
+  const id = `campo-${c.variavel}`;
+  return (
+    <fieldset className="space-y-2 rounded-md border p-3 sm:col-span-2" data-campo={c.variavel} data-qualificacao>
+      <legend className="px-1 text-sm font-medium">
+        {c.rotulo}
+        {c.obrigatorio && <span className="text-red-600"> *</span>}
+      </legend>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="space-y-1" data-parte="nacionalidade">
+          <Label htmlFor={`${id}-nac`}>Nacionalidade</Label>
+          <EscolhaOuTexto id={`${id}-nac`} rotulo="Nacionalidade" opcoes={NACIONALIDADES} value={p.nacionalidade} onChange={(v) => mudar({ nacionalidade: v })} />
+        </div>
+        <div className="space-y-1" data-parte="estado-civil">
+          <Label htmlFor={`${id}-civil`}>Estado civil</Label>
+          <EscolhaOuTexto id={`${id}-civil`} rotulo="Estado civil" opcoes={ESTADOS_CIVIS} value={p.estadoCivil} onChange={(v) => mudar({ estadoCivil: v })} />
+        </div>
+        <div className="space-y-1" data-parte="profissao">
+          <Label htmlFor={`${id}-prof`}>Profissão</Label>
+          <EscolhaOuTexto id={`${id}-prof`} rotulo="Profissão" opcoes={PROFISSOES} value={p.profissao} onChange={(v) => mudar({ profissao: v })} />
+        </div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="space-y-1">
+          <Label htmlFor={`${id}-rg`}>RG</Label>
+          <Input id={`${id}-rg`} value={p.rg} onChange={(e) => mudar({ rg: e.target.value })} placeholder="opcional" />
+        </div>
+        <div className="space-y-1 sm:col-span-2">
+          <Label htmlFor={`${id}-end`}>
+            Endereço
+            {p.endereco && p.endereco === cliente.endereco && <span className="ml-2 text-xs font-normal text-muted-foreground">do cadastro</span>}
+          </Label>
+          <Input id={`${id}-end`} value={p.endereco} onChange={(e) => mudar({ endereco: e.target.value })} placeholder="sem endereço no cadastro" />
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground" data-qualificacao-texto>
+        No contrato: <span className="font-medium text-foreground">{valor || "—"}</span>
+      </p>
+    </fieldset>
   );
 }
 

@@ -269,6 +269,12 @@ o sistema em produção. Quando chegar, vale o seguinte:
   tela. "Conferir o contrato" (`previa_modelo`) lê o DOCX do modelo (`template_file`) e mostra o texto
   preenchido SEM criar documento (no ZapSign, criado conta no plano e excluir não devolve). Modelo novo
   pela API: `POST /templates/create/` + `/templates/update-form/`. Régua: `e2e/unit/modelo-contrato.test.ts`.
+  O mesmo módulo decide o que a pessoa NÃO digita (`especie`): a qualificação do contratante (nome, CPF e
+  endereço do cadastro; nacionalidade, estado civil e profissão em lista; `qualificacaoDe` escreve a frase),
+  o benefício (o do caso, na lista de `tipos_beneficio`; o segundo campo de benefício do modelo é `copiaDe`
+  do primeiro e não aparece), o parceiro do caso (ou "não há") e a data de hoje. O reconhecimento é pelo
+  COMEÇO do nome do campo, ou por "Sistema: benefício|qualificação|parceiro|nenhum" no texto de ajuda; lista
+  própria do modelo vem de `options` do ZapSign.
   Quem é da equipe interna de um escritório (ZapSign e e-mails do INSS) é
   `equipeInterna` de `_shared/equipe.ts` — pelo vínculo, nunca por `usuarios.tipo`.
   Provas: `e2e/tests/zapsign-assinatura.spec.ts` e a régua `e2e/unit/zapsign-fonte-unica.test.ts`.

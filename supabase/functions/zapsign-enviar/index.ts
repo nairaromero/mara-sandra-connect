@@ -111,11 +111,24 @@ serve(async (req) => {
 
   /** O cliente do caso, lido no escopo do escritório. */
   const clienteDoCaso = async (casoId: string) => {
-    const { data: caso, error: eCaso } = await sb.from("casos").select("id, cliente_id").eq("id", casoId).maybeSingle();
+    const { data: caso, error: eCaso } = await sb.from("casos").select("id, cliente_id, tipo_beneficio, parceiro_id").eq("id", casoId).maybeSingle();
     if (eCaso || !caso) throw new ErroInterno(`lendo o caso: ${eCaso?.message ?? "não encontrado"}`);
     const { data: cliente, error: eCli } = await sb.from("clientes").select("nome, cpf, email, telefone, endereco, data_nascimento").eq("id", caso.cliente_id).maybeSingle();
     if (eCli || !cliente) throw new ErroInterno(`lendo o cliente: ${eCli?.message ?? "não encontrado"}`);
-    return cliente;
+    // o parceiro que indicou o caso: o contrato o nomeia na cláusula de compartilhamento de dados
+    let parceiro = "";
+    if (caso.parceiro_id) {
+      const { data: p, error: eP } = await quem.admin.from("usuarios").select("nome").eq("id", caso.parceiro_id).maybeSingle();
+      if (eP) throw new ErroInterno(`lendo o parceiro do caso: ${eP.message}`);
+      parceiro = String(p?.nome ?? "");
+    }
+    return { ...cliente, tipoBeneficio: (caso.tipo_beneficio as string | null) ?? null, parceiro };
+  };
+  /** Os tipos de benefício do escritório, na ordem do catálogo: a lista de onde o contrato escolhe o benefício. */
+  const beneficiosDoEscritorio = async (): Promise<string[]> => {
+    const { data, error } = await sb.from("tipos_beneficio").select("nome").eq("ativo", true).order("ordem").order("nome");
+    if (error) throw new ErroInterno(`lendo os tipos de benefício: ${error.message}`);
+    return (data ?? []).map((t) => String(t.nome));
   };
   /** Contato do cliente: o que a tela mandou (corrigido na hora) ou o cadastro. Devolve a recusa quando não serve. */
   const contatoDoCliente = (cliente: { nome: string; email: string | null; telefone: string | null }): NovoSignatario | Response => {
@@ -228,9 +241,10 @@ serve(async (req) => {
       const modeloToken = String(body.modelo_token ?? "").trim();
       if (!modeloToken) return jsonResponse({ error: "modelo_token obrigatório" }, 400);
       const cliente = await clienteDoCaso(body.caso_id!);
-      const { modelo, campos, arquivo } = await detalharModelo(integ, modeloToken, cliente);
+      const { modelo, campos, arquivo } = await detalharModelo(integ, modeloToken, cliente, { beneficios: await beneficiosDoEscritorio(), beneficioDoCaso: cliente.tipoBeneficio, parceiro: cliente.parceiro });
       if (body.action === "modelo") {
-        return jsonResponse({ ok: true, modelo, campos, cliente: { nome: cliente.nome, email: cliente.email ?? "", telefone: cliente.telefone ?? "" } });
+        // nome, CPF e endereço vão à tela para ela montar a qualificação com as listas
+        return jsonResponse({ ok: true, modelo, campos, cliente: { nome: cliente.nome, email: cliente.email ?? "", telefone: cliente.telefone ?? "", cpf: cliente.cpf ?? "", endereco: cliente.endereco ?? "" } });
       }
 
       // O valor de cada campo sai de UMA conta (`respostasDoModelo`): só os campos que o
