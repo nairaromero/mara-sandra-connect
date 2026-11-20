@@ -1185,8 +1185,9 @@ function CasoDetalhePage() {
 //
 // Regras de acesso são as MESMAS da Visão geral:
 //   interno  → CPF formatado + copiar; senha revelada pelo olhinho + copiar.
-//   parceiro → CPF mascarado, olhinho revela, SEM copiar (select-none);
-//              senha idem (olhinho revela, sem copiar).
+//   parceiro → CPF mascarado até o olhinho revelar; senha revelada pelo olhinho.
+//              Seleciona e copia como a equipe (o que a pessoa vê na tela, ela
+//              já consegue digitar: travar a cópia só atrapalhava o trabalho).
 // A senha vem por RPC (get_senha_meu_inss) que decripta e registra auditoria;
 // o valor fica em cache na visita pra não gerar um log a cada toggle.
 function IdentidadeClienteLinha(props: { cliente: Cliente; isInterno: boolean }) {
@@ -1300,11 +1301,7 @@ function IdentidadeClienteLinha(props: { cliente: Cliente; isInterno: boolean })
           </>
         ) : (
           <>
-            <span
-              className="select-none"
-              onCopy={(e) => e.preventDefault()}
-              onContextMenu={(e) => e.preventDefault()}
-            >
+            <span>
               {cpfVisivelParc ? maskCPF(cliente.cpf) : maskCPFParceiro(cliente.cpf)}
             </span>
             <Button
@@ -1320,6 +1317,15 @@ function IdentidadeClienteLinha(props: { cliente: Cliente; isInterno: boolean })
                 <Eye className="h-3.5 w-3.5" />
               )}
             </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 w-6 p-0"
+              onClick={copiarCpf}
+              title="Copiar CPF"
+            >
+              <Copy className="h-3.5 w-3.5" />
+            </Button>
           </>
         )}
       </span>
@@ -1334,13 +1340,7 @@ function IdentidadeClienteLinha(props: { cliente: Cliente; isInterno: boolean })
           </span>
           {senhaVisivel ? (
             senhaValor !== null ? (
-              <span
-                className={"font-mono" + (isInterno ? "" : " select-none")}
-                onCopy={isInterno ? undefined : (e) => e.preventDefault()}
-                onContextMenu={isInterno ? undefined : (e) => e.preventDefault()}
-              >
-                {senhaValor}
-              </span>
+              <span className="font-mono">{senhaValor}</span>
             ) : (
               <span className="text-xs text-muted-foreground italic">não cadastrada</span>
             )
@@ -1363,18 +1363,16 @@ function IdentidadeClienteLinha(props: { cliente: Cliente; isInterno: boolean })
               <Eye className="h-3.5 w-3.5" />
             )}
           </Button>
-          {isInterno && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-6 w-6 p-0"
-              onClick={copiarSenha}
-              disabled={carregandoSenha}
-              title="Copiar senha"
-            >
-              <Copy className="h-3.5 w-3.5" />
-            </Button>
-          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 w-6 p-0"
+            onClick={copiarSenha}
+            disabled={carregandoSenha}
+            title="Copiar senha"
+          >
+            <Copy className="h-3.5 w-3.5" />
+          </Button>
         </span>
       )}
 
@@ -1997,12 +1995,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                 </>
               ) : (
                 <>
-                  {/* select-none + copy bloqueado: parceiro ve, nao copia */}
-                  <span
-                    className="text-sm select-none"
-                    onCopy={(e) => e.preventDefault()}
-                    onContextMenu={(e) => e.preventDefault()}
-                  >
+                  <span className="text-sm">
                     {cpfVisivelParc ? maskCPF(cliente.cpf) : maskCPFParceiro(cliente.cpf)}
                   </span>
                   <Button
@@ -2017,6 +2010,15 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                     ) : (
                       <Eye className="h-3.5 w-3.5" />
                     )}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 w-6 p-0"
+                    onClick={copiarCpf}
+                    title="Copiar CPF"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
                   </Button>
                 </>
               )}
@@ -2106,8 +2108,8 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
               </div>
             )}
             {!isInterno && (
-              // Parceiro: olhinho revela a senha (RPC com audit; sem copiar
-              // nem selecionar). Alterar continua write-only via dialog.
+              // Parceiro: olhinho revela a senha e o copiar fica ao lado (os dois
+              // pela RPC com audit). Alterar continua write-only via dialog.
               <div className="pt-2 border-t flex items-center justify-between gap-2">
                 <span className="text-xs text-muted-foreground flex items-center gap-1 shrink-0">
                   <KeyRound className="h-3.5 w-3.5" />
@@ -2116,13 +2118,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                 <div className="flex items-center gap-1 min-w-0">
                   {senhaVisivel &&
                     (senhaValor !== null ? (
-                      <span
-                        className="text-sm font-mono truncate select-none"
-                        onCopy={(e) => e.preventDefault()}
-                        onContextMenu={(e) => e.preventDefault()}
-                      >
-                        {senhaValor}
-                      </span>
+                      <span className="text-sm font-mono truncate">{senhaValor}</span>
                     ) : (
                       <span className="text-xs text-muted-foreground italic">
                         não cadastrada
@@ -2143,6 +2139,16 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                     ) : (
                       <Eye className="h-3.5 w-3.5" />
                     )}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 w-7 p-0"
+                    onClick={copiarSenha}
+                    disabled={carregandoSenha}
+                    title="Copiar senha"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
                   </Button>
                   <Button size="sm" variant="outline" onClick={abrirAlterarSenhaParceiro}>
                     <Pencil className="h-3.5 w-3.5 mr-1" />
