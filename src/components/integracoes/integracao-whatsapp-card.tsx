@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase";
+import { copiarTexto } from "@/lib/copiar";
 import { dataHoraBR } from "@/lib/fuso";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -212,7 +213,7 @@ export function IntegracaoWhatsappCard() {
                     className="h-8 w-8"
                     aria-label="Copiar URL do webhook"
                     onClick={() => {
-                      void navigator.clipboard.writeText(webhookUrl).then(() => toast.success("URL copiada."), () => toast.error("Não consegui copiar."));
+                      void copiarTexto(webhookUrl, "URL copiada.");
                     }}
                   >
                     <Copy className="h-4 w-4" />

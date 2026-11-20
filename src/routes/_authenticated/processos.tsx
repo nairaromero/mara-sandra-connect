@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { copiarTexto } from "@/lib/copiar";
 import { buscarPaginado } from "@/lib/supabase-paginado";
 import { usePaginaLocal } from "@/hooks/use-lista-paginada";
 import { Paginador } from "@/components/paginador";
@@ -336,10 +337,7 @@ function ProcessosPage() {
   }
 
   function copiarNumero(numero: string) {
-    navigator.clipboard
-      .writeText(numero)
-      .then(() => toast.success("Número copiado."))
-      .catch(() => toast.error("Não foi possível copiar."));
+    void copiarTexto(numero, "Número copiado.");
   }
 
   if (!isInterno) return null;
