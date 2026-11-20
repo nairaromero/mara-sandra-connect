@@ -45,6 +45,7 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { useIntegracoesEscritorio } from "@/hooks/use-integracoes";
 import { EnviarAssinaturaDialog, PainelAssinaturas } from "@/components/assinaturas/assinaturas-caso";
+import { GerarContratoDialog } from "@/components/assinaturas/gerar-contrato-dialog";
 import { useAssinaturasCaso } from "@/hooks/use-assinaturas";
 import { EM_CURSO, formatoAssinavel } from "@/lib/assinaturas";
 import { useTiposBeneficio } from "@/hooks/use-tipos-beneficio";
@@ -1075,6 +1076,7 @@ function CasoDetalhePage() {
           <TabsContent value="documentos" className="mt-4">
             <TabDocumentos
               casoId={casoId}
+              tipoBeneficio={caso.tipo_beneficio ?? null}
               documentos={documentos}
               solicitacoes={solicitacoes}
               isInterno={isInterno}
@@ -4069,6 +4071,8 @@ function TabAndamentos(props: TabAndamentosProps) {
 
 interface TabDocumentosProps {
   casoId: string;
+  /** Tipo de benefício do caso: sugere o modelo de contrato do ZapSign (#522). */
+  tipoBeneficio: string | null;
   documentos: Array<Documento>;
   solicitacoes: Array<SolicitacaoDocumento>;
   // Processos do caso: o pedido ao parceiro precisa dizer de qual frente ele é
@@ -4088,6 +4092,7 @@ interface TabDocumentosProps {
 function TabDocumentos(props: TabDocumentosProps) {
   const {
     casoId,
+    tipoBeneficio,
     documentos,
     solicitacoes,
     isInterno,
@@ -4109,6 +4114,7 @@ function TabDocumentos(props: TabDocumentosProps) {
   const assinaturas = useAssinaturasCaso(casoId, isInterno);
   const podeAssinar = isInterno && podeChamar("zapsign-enviar") && integracoesDoc.tem("zapsign") === true;
   const [docParaAssinar, setDocParaAssinar] = useState<Documento | null>(null);
+  const [gerandoContrato, setGerandoContrato] = useState(false);
   const docsEmAssinatura = useMemo(
     () => new Set((assinaturas.lista ?? []).filter((a) => EM_CURSO.includes(a.status) && a.documento_id).map((a) => a.documento_id as string)),
     [assinaturas.lista],
@@ -5456,6 +5462,13 @@ function TabDocumentos(props: TabDocumentosProps) {
                   Importar arquivos
                 </Button>
               )}
+              {/* contrato a partir de um modelo da conta do ZapSign do escritório (#522) */}
+              {podeAssinar && (
+                <Button variant="outline" size="sm" onClick={() => setGerandoContrato(true)} data-gerar-contrato>
+                  <FileSignature className="h-4 w-4 mr-2" />
+                  Gerar contrato
+                </Button>
+              )}
               {/* enviar documento escreve na tabela `documentos` (documentos:enviar) */}
               {podeEscrever("documentos") && (
                 <UploadDoc
@@ -5485,6 +5498,13 @@ function TabDocumentos(props: TabDocumentosProps) {
           <EnviarAssinaturaDialog
             documento={docParaAssinar}
             onFechar={() => setDocParaAssinar(null)}
+            onEnviado={() => assinaturas.recarregar()}
+          />
+          <GerarContratoDialog
+            aberto={gerandoContrato}
+            casoId={casoId}
+            tipoBeneficio={tipoBeneficio}
+            onFechar={() => setGerandoContrato(false)}
             onEnviado={() => assinaturas.recarregar()}
           />
           {lista.length === 0 ? (

@@ -40,6 +40,12 @@ describe("ZapSign: fonte única", () => {
     expect(aspas(indice![1]).sort()).toEqual([...EM_CURSO].sort());
   });
 
+  test("o índice de 'um envio em curso por modelo e caso' também usa a lista EM_CURSO", () => {
+    const indice = ler("planning/sql-migrations/migration_zapsign_modelos.sql").match(/assinaturas_um_em_curso_por_modelo[\s\S]*?status in \(([^)]+)\)/);
+    expect(indice, "a régua não achou o índice assinaturas_um_em_curso_por_modelo").toBeTruthy();
+    expect(aspas(indice![1]).sort()).toEqual([...EM_CURSO].sort());
+  });
+
   test("ninguém reescreve a lista 'em curso' nem o teste de PDF/DOCX fora de _shared/assinatura.ts", () => {
     const copias: string[] = [];
     for (const p of codigo) {

@@ -229,6 +229,14 @@ o sistema em produção. Quando chegar, vale o seguinte:
   cadastrado é reaproveitado, no caso mais recente), caso "a_definir" e a tarefa de
   acompanhar; sem CPF nasce só a tarefa pedindo o cadastro (`sem_cpf:<documento>`).
   Envio cuja resposta se perde NÃO é apagado: o aviso de criação religa a linha.
+  Contrato a partir de MODELO da conta do ZapSign (#522): "Gerar contrato" na aba
+  Documentos do caso lista todos os modelos (`listarModelos`, todas as páginas, só DOCX
+  ativo), com busca, sugeridos pelo tipo de benefício e pastas (funções puras em
+  `src/lib/assinaturas-modelos.ts`); os campos vêm respondidos pelo cadastro
+  (`detalharModelo`) e o envio (`enviar_modelo` → `criarDocumentoDeModelo`) segue o
+  mesmo caminho do arquivo (`concluirEnvio` em `zapsign-enviar`). A linha guarda
+  `modelo_token` (um envio em curso por modelo e caso) e `tipo_documento` (com que tipo
+  o PDF assinado entra no caso).
   Quem é da equipe interna de um escritório (ZapSign e e-mails do INSS) é
   `equipeInterna` de `_shared/equipe.ts` — pelo vínculo, nunca por `usuarios.tipo`.
   Provas: `e2e/tests/zapsign-assinatura.spec.ts` e a régua `e2e/unit/zapsign-fonte-unica.test.ts`.

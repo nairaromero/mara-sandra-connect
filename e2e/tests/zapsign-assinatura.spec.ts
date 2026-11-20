@@ -88,6 +88,22 @@ async function limpar() {
   if (!ESC2) return;
   const e0 = await admin.from("tarefas").delete().eq("escritorio_id", ESC2).eq("origem", "zapsign_assinatura");
   if (e0.error) throw new Error(`limpeza de tarefas: ${e0.error.message}`);
+  // envios que nasceram de um modelo (#522): o PDF assinado deles não tem o prefixo "E2E ZapSign"
+  const { data: deModelo, error: eMod } = await admin.from("assinaturas").select("id, documento_assinado_id").eq("escritorio_id", ESC2).not("modelo_token", "is", null);
+  if (eMod) throw new Error(`limpeza dos envios de modelo: ${eMod.message}`);
+  if (deModelo?.length) {
+    const eDelMod = await admin.from("assinaturas").delete().in("id", deModelo.map((a) => a.id));
+    if (eDelMod.error) throw new Error(`limpeza dos envios de modelo: ${eDelMod.error.message}`);
+    const idsDocs = deModelo.map((a) => a.documento_assinado_id).filter((x): x is string => !!x);
+    if (idsDocs.length) {
+      const { data: docsMod } = await admin.from("documentos").select("id, storage_path").in("id", idsDocs);
+      if (docsMod?.length) {
+        await admin.storage.from("documentos").remove(docsMod.map((d) => d.storage_path));
+        const eDocMod = await admin.from("documentos").delete().in("id", docsMod.map((d) => d.id));
+        if (eDocMod.error) throw new Error(`limpeza dos PDFs de modelo: ${eDocMod.error.message}`);
+      }
+    }
+  }
   const e1 = await admin.from("assinaturas").delete().eq("escritorio_id", ESC2).like("nome", "E2E ZapSign%");
   if (e1.error) throw new Error(`limpeza de assinaturas: ${e1.error.message}`);
   const { data: docs, error: e2 } = await admin.from("documentos").select("id, storage_path").eq("escritorio_id", ESC2).like("nome_arquivo", "E2E ZapSign%");
@@ -453,6 +469,129 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
     ]);
   });
 
+  test("modelos da conta: lista inteira (todas as páginas), só DOCX ativo, com os campos já respondidos pelo cadastro", async () => {
+    test.skip(!mockVivo || !segredoWebhook, "depende da integração");
+    const adv = await sessaoComo(contaDoCanario("advogado"), ESC2);
+    const lista = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "modelos" });
+    expect(lista.status, lista.texto.slice(0, 200)).toBe(200);
+    const modelos = lista.json?.modelos as Array<{ token: string; nome: string; pasta: string }>;
+    // 24 no ZapSign simulado (2 páginas): saem o de PDF e o desativado
+    expect(modelos).toHaveLength(22);
+    expect(modelos.some((m) => /PDF|desativado/.test(m.nome))).toBe(false);
+    expect(modelos.some((m) => m.nome === "Contrato cível 11"), "modelo da segunda página do ZapSign").toBe(true);
+    expect(modelos.map((m) => m.pasta)).toEqual([...modelos.map((m) => m.pasta)].sort((a, b) => a.localeCompare(b, "pt-BR")));
+    // financeiro não tem documentos:enviar; caso de outro escritório é 404
+    const fin = await sessaoComo(contaDoCanario("financeiro"), ESC2);
+    expect((await chamarFuncao("zapsign-enviar", fin.jwt, ESC2, { action: "modelos" })).status).toBe(403);
+    const { data: alheio } = await admin.from("casos").select("id").eq("escritorio_id", ESC1).limit(1).single();
+    expect((await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "modelo", caso_id: alheio!.id, modelo_token: "modelo-03" })).status).toBe(404);
+
+    const { data: caso } = await admin.from("casos").select("clientes(nome, cpf)").eq("id", casoId).single();
+    const cli = (caso as unknown as { clientes: { nome: string; cpf: string } }).clientes;
+    const det = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "modelo", caso_id: casoId, modelo_token: "modelo-03" });
+    expect(det.status, det.texto.slice(0, 200)).toBe(200);
+    const campos = Object.fromEntries((det.json?.campos as Array<{ rotulo: string; sugestao: string; obrigatorio: boolean; variavel: string }>).map((c) => [c.rotulo, c]));
+    expect(campos["NOME COMPLETO"].sugestao).toBe(cli.nome);
+    expect(campos["CPF"].sugestao.replace(/\D/g, "")).toBe(cli.cpf);
+    expect(campos["CPF"].sugestao, "CPF vem formatado para o contrato").toMatch(/^\d{3}\.\d{3}\.\d{3}-\d{2}$/);
+    expect(campos["NOME DA MÃE"].sugestao, "nome da mãe NÃO é o nome do cliente").toBe("");
+    expect([campos["VALOR DOS HONORÁRIOS"].sugestao, campos["VALOR DOS HONORÁRIOS"].obrigatorio]).toEqual(["", true]);
+    expect(campos["CPF"].variavel).toBe("{{CPF}}");
+    expect((await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "modelo", caso_id: casoId, modelo_token: "nao-existe" })).status).toBe(404);
+  });
+
+  test("contrato gerado de um modelo: campos obrigatórios cobrados, um envio em curso por modelo, PDF assinado entra com o tipo escolhido", async () => {
+    test.skip(!mockVivo || !segredoWebhook, "depende da integração");
+    const adv = await sessaoComo(contaDoCanario("advogado"), ESC2);
+    const MODELO = "Contrato de honorários - Aposentadoria por idade";
+    const base = { action: "enviar_modelo", caso_id: casoId, modelo_token: "modelo-03", cliente: { email: "cliente.e2e@exemplo.com.br" }, tipo_documento: "procuracao" };
+    const incompleto = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { ...base, respostas: { "{{NOME COMPLETO}}": "Helena Bastos Ferraz" } });
+    expect([incompleto.status, incompleto.json?.code]).toEqual([400, "campos_faltando"]);
+    expect(String(incompleto.json?.error)).toContain("VALOR DOS HONORÁRIOS");
+    expect((await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { ...base, tipo_documento: "inventado", respostas: {} })).status).toBe(400);
+
+    const respostas = { "{{NOME COMPLETO}}": "Helena Bastos Ferraz", "{{CPF}}": "770.000.001-80", "{{VALOR DOS HONORÁRIOS}}": "30%", "{{CAMPO QUE NÃO EXISTE}}": "x" };
+    // dois cliques ao mesmo tempo: um envio só
+    const [a, b] = await Promise.all([
+      chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { ...base, respostas }),
+      chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { ...base, respostas }),
+    ]);
+    expect([a.status, b.status].sort(), `${a.texto.slice(0, 120)} | ${b.texto.slice(0, 120)}`).toEqual([200, 409]);
+    const ass = (a.status === 200 ? a : b).json?.assinatura as { id: string; nome: string; status: string; zapsign_doc_token: string; documento_id: string | null; modelo_token: string; signatarios: Array<{ papel: string; email: string }> };
+    expect([ass.nome, ass.status, ass.documento_id, ass.modelo_token]).toEqual([MODELO, "enviado", null, "modelo-03"]);
+    expect(ass.signatarios.map((s) => [s.papel, s.email])).toEqual([["cliente", "cliente.e2e@exemplo.com.br"]]);
+    // o que chegou no ZapSign: o nosso id, só os campos que o modelo tem, e-mail automático
+    const lado = (await (await fetch(`${MOCK}/zapsign/_docs`)).json()) as Array<{ token: string; external_id: string; template_id: string; answers: Array<{ variable: string; value: string }>; signers: Array<{ send_automatic_email: boolean }> }>;
+    const la = lado.find((d) => d.token === ass.zapsign_doc_token)!;
+    expect([la.external_id, la.template_id, la.signers[0].send_automatic_email]).toEqual([ass.id, "modelo-03", true]);
+    expect(la.answers.map((x) => x.variable).sort()).toEqual(["CPF", "NOME COMPLETO", "VALOR DOS HONORÁRIOS"]);
+    expect((await tarefasDaAssinatura(ass.id)).map((t) => `${t.status} ${t.titulo}`)).toEqual([`a_fazer Acompanhar assinatura: ${MODELO}`]);
+    // o aviso de criação do próprio envio não vira "documento criado direto no ZapSign"
+    expect((await avisar(segredoWebhook, { event_type: "doc_created", token: ass.zapsign_doc_token })).json.status).toBe("enviado");
+
+    // o cliente assina: PDF no caso com o tipo escolhido e troca das tarefas
+    await fetch(`${MOCK}/zapsign/_assinar/${ass.zapsign_doc_token}?quem=todos`, { method: "POST" });
+    const fim = await avisar(segredoWebhook, { event_type: "doc_signed", token: ass.zapsign_doc_token });
+    expect(fim.json.status, fim.texto.slice(0, 200)).toBe("assinado");
+    const { data: linha } = await admin.from("assinaturas").select("documento_assinado_id").eq("id", ass.id).single();
+    const { data: pdf, error: ePdf } = await admin.from("documentos").select("nome_arquivo, tipo, caso_id").eq("id", linha!.documento_assinado_id).single();
+    expect(ePdf).toBeNull();
+    expect([pdf!.nome_arquivo, pdf!.tipo, pdf!.caso_id]).toEqual([`${MODELO} (assinado).pdf`, "procuracao", casoId]);
+    expect((await tarefasDaAssinatura(ass.id)).map((t) => `${t.status} ${t.titulo}`).sort()).toEqual([
+      `a_fazer Contrato assinado — dar prosseguimento: ${MODELO}`,
+      `feito Acompanhar assinatura: ${MODELO}`,
+    ]);
+    // assinado não está mais em curso: o mesmo modelo pode ser enviado de novo neste caso (e sai de cena para o próximo teste)
+    const denovo = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { ...base, respostas });
+    expect(denovo.status, denovo.texto.slice(0, 160)).toBe(200);
+    const tokenNovo = (denovo.json?.assinatura as { zapsign_doc_token: string }).zapsign_doc_token;
+    await fetch(`${MOCK}/zapsign/_excluir/${tokenNovo}`, { method: "POST" });
+    expect((await avisar(segredoWebhook, { event_type: "doc_deleted", token: tokenNovo })).json.status).toBe("cancelado");
+  });
+
+  test("tela: 'Gerar contrato' lista todos os modelos, sugere os do tipo de benefício do caso, busca sem acento e abre os campos preenchidos", async ({ browser, baseURL }) => {
+    test.skip(!mockVivo || !segredoWebhook, "depende da integração");
+    const { session } = await sessaoComo(contaDoCanario("admin"));
+    const ctx = await contexto(browser, baseURL!, session, ESC2);
+    const page = await ctx.newPage();
+    await cursorVisivel(page);
+    try {
+      const { data: caso } = await admin.from("casos").select("tipo_beneficio, clientes(nome)").eq("id", casoId).single();
+      const doCaso = caso as unknown as { tipo_beneficio: string; clientes: { nome: string } };
+      await page.goto(`/casos/${casoId}?tab=documentos`);
+      await page.locator("[data-gerar-contrato]").click();
+      const dlg = page.locator("[data-dialog-modelos]");
+      await expect(dlg.locator("[data-contagem-modelos]")).toHaveText("22 modelos");
+      await expect(dlg.locator("[data-modelo]").first()).toBeVisible();
+      // sugeridos: só quando o tipo de benefício do caso casa com o nome de algum modelo
+      const esperaSugestao = /aposentadoria|aux[ií]lio|pens[aã]o|revis[aã]o|bpc|sal[aá]rio/i.test(doCaso.tipo_beneficio);
+      await expect(dlg.locator("[data-modelos-sugeridos]")).toHaveCount(esperaSugestao ? 1 : 0);
+      await expect(dlg.locator("[data-modelos-pasta]")).toHaveCount(3);
+      // busca sem acento, por palavra do nome
+      await dlg.locator("[data-busca-modelo]").fill("pensao");
+      await expect(dlg.locator("[data-contagem-modelos]")).toHaveText("1 de 22 modelos");
+      await expect(dlg.locator("[data-modelo]")).toHaveCount(1);
+      await expect(dlg.locator("[data-modelos-sugeridos]")).toHaveCount(0);
+      await dlg.locator("[data-modelo]").click();
+      // passo 2: campos do modelo já com o cadastro; obrigatório vazio segura o envio
+      await expect(dlg.locator("[data-campos-modelo]")).toBeVisible();
+      await expect(dlg.getByRole("heading", { name: "Contrato de honorários - Pensão por morte" })).toBeVisible();
+      await expect(dlg.getByLabel(/NOME COMPLETO/)).toHaveValue(doCaso.clientes.nome);
+      await expect(dlg.getByLabel(/^CPF/)).toHaveValue(/^\d{3}\.\d{3}\.\d{3}-\d{2}$/);
+      await expect(dlg.getByLabel(/NOME DA MÃE/)).toHaveValue("");
+      await expect(dlg.getByRole("button", { name: "Enviar para assinatura" })).toBeDisabled();
+      await dlg.getByLabel(/VALOR DOS HONORÁRIOS/).fill("30%");
+      await expect(dlg.getByRole("button", { name: "Enviar para assinatura" })).toBeEnabled();
+      // "Outro modelo" volta à lista inteira
+      await dlg.getByRole("button", { name: "Outro modelo" }).click();
+      await expect(dlg.locator("[data-contagem-modelos]")).toHaveText("1 de 22 modelos");
+      await dlg.getByRole("button", { name: "Cancelar" }).click();
+      await expect(dlg).toHaveCount(0);
+    } finally {
+      await ctx.close();
+    }
+  });
+
   test("tela: o caso mostra o envio como Assinado e o botão no PDF; Integrações mostra o endereço do webhook", async ({ browser, baseURL }) => {
     test.skip(!mockVivo || !assinaturaId, "depende do envio");
     const { session } = await sessaoComo(contaDoCanario("admin"));
@@ -471,12 +610,17 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
       if (eDocs) throw new Error(`documentos do caso: ${eDocs.message}`);
       const assinaveis = (docsDoCaso ?? []).filter((d) => formatoAssinavel(d.nome_arquivo));
       expect(assinaveis.some((d) => d.nome_arquivo.includes("(assinado)"))).toBe(true);
-      await expect(page.getByRole("button", { name: "Enviar para assinatura" })).toHaveCount(assinaveis.length - 1);
+      // os PDFs que voltaram assinados (o do arquivo e o do modelo) são os únicos sem botão
+      const { data: voltaram, error: eVolta } = await admin.from("assinaturas").select("documento_assinado_id").eq("caso_id", casoId).not("documento_assinado_id", "is", null);
+      if (eVolta) throw new Error(`assinados do caso: ${eVolta.message}`);
+      const jaAssinados = new Set((voltaram ?? []).map((a) => a.documento_assinado_id as string));
+      expect(jaAssinados.size).toBeGreaterThan(0);
+      await expect(page.getByRole("button", { name: "Enviar para assinatura" })).toHaveCount(assinaveis.filter((d) => !jaAssinados.has(d.id)).length);
       // o original já foi assinado e o último envio foi recusado: pode ser enviado de novo (botão ligado)
       const doOriginal = page.locator(`[data-assinar-documento="${docId}"]`);
       await expect(doOriginal).toBeEnabled();
       // o assinado não tem botão nenhum
-      const assinado = assinaveis.find((d) => d.nome_arquivo.includes("(assinado)"))!;
+      const assinado = assinaveis.find((d) => jaAssinados.has(d.id))!;
       await expect(page.locator(`[data-assinar-documento="${assinado.id}"]`)).toHaveCount(0);
       await doOriginal.click();
       await expect(page.locator("[data-dialog-assinatura]")).toContainText("conta um documento no plano do ZapSign");
