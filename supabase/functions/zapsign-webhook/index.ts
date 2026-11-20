@@ -3,8 +3,11 @@
 //
 // Segurança (o ZapSign NÃO assina a chamada):
 //   1. o segredo de entrada (`config.inbound_token`, 48 caracteres aleatórios
-//      gerados pelo servidor em Configurações → Integrações) vem em `?token=`
-//      e diz de QUAL escritório é a chamada; o banco garante que é único;
+//      gerados pelo servidor em Configurações → Integrações) diz de QUAL
+//      escritório é a chamada; o banco garante que é único. Vem no header
+//      `x-inbound-token` — é o que o ZapSign recomenda (o cadastro do webhook
+//      lá aceita headers) e não deixa o segredo na URL, que fica nos logs de
+//      webhook do painel deles — ou, para quem já cadastrou assim, em `?token=`;
 //   2. o corpo só diz qual documento olhar — o token do documento tem de casar
 //      com uma linha de `assinaturas` DESSE escritório;
 //   3. status e arquivo vêm de uma leitura NOSSA na API do ZapSign com o token
@@ -17,7 +20,7 @@
 // quando vale a pena ele tentar de novo.
 import { clienteAdmin, escopado } from "../_shared/auth.ts";
 import { integracaoDoEscritorio } from "../_shared/integracoes.ts";
-import { adotarDocumento, COLUNAS_ASSINATURA, type LinhaAssinatura, sincronizarAssinatura } from "../_shared/zapsign.ts";
+import { adotarDocumento, COLUNAS_ASSINATURA, DocumentoForaDaConta, type LinhaAssinatura, sincronizarAssinatura } from "../_shared/zapsign.ts";
 
 const admin = clienteAdmin();
 
@@ -27,7 +30,7 @@ const json = (body: unknown, status = 200) =>
 Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
 
-  const segredo = new URL(req.url).searchParams.get("token") ?? "";
+  const segredo = (req.headers.get("x-inbound-token") ?? new URL(req.url).searchParams.get("token") ?? "").trim();
   if (!segredo) return json({ error: "unauthorized" }, 401);
 
   let corpo: { token?: unknown; event_type?: unknown } | null;
@@ -74,6 +77,12 @@ Deno.serve(async (req) => {
     console.log(`[zapsign-webhook] ${evento} → assinatura ${atual.id} = ${atual.status}`);
     return json({ ok: true, status: atual.status });
   } catch (e) {
+    // documento de outra conta/ambiente: reenviar não muda nada (e qualquer
+    // resposta diferente de 200 faz o ZapSign reenviar)
+    if (e instanceof DocumentoForaDaConta) {
+      console.warn(`[zapsign-webhook] ${evento} ${docToken}: ${e.message}`);
+      return json({ ok: true, ignorado: "documento fora da conta ligada" });
+    }
     // 5xx: o ZapSign reenvia (a trava de `sincronizarAssinatura` já foi solta)
     console.error(`[zapsign-webhook] ${evento} ${docToken}:`, String((e as Error)?.message ?? e));
     return json({ error: "não consegui processar o aviso" }, 502);

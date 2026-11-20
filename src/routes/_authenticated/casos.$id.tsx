@@ -5488,6 +5488,7 @@ function TabDocumentos(props: TabDocumentosProps) {
               <PainelAssinaturas
                 lista={assinaturas.lista}
                 erro={assinaturas.erro}
+                podeAtualizar={podeAssinar}
                 onMudou={(a) => {
                   assinaturas.recarregar();
                   // o PDF assinado acabou de entrar nos documentos do caso

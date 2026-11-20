@@ -16,6 +16,7 @@ import { fetchT } from "./auth.ts";
 import { cpfValido } from "./documento-campos.ts";
 import { equipeInterna } from "./equipe.ts";
 import { baseZapsign, type Integracao } from "./integracoes.ts";
+import { telefoneGuardado } from "./telefone.ts";
 
 /** Teto do arquivo enviado (o ZapSign documenta 10 MB para PDF por URL). */
 export const ZAPSIGN_MAX_BYTES = 10 * 1024 * 1024;
@@ -83,6 +84,31 @@ export class ErroZapsign extends Error {
   constructor(public http: number, mensagem: string) {
     super(mensagem);
   }
+}
+
+/**
+ * O documento do envio não está na conta do ZapSign ligada AGORA: o escritório
+ * trocou de ambiente (produção ↔ teste) ou de conta depois de enviar. Não é
+ * cancelamento — excluir no ZapSign é só uma marca (`deleted`), o documento
+ * continua respondendo. Quem chama não muda o status da linha.
+ */
+export class DocumentoForaDaConta extends Error {
+  constructor() {
+    super("o documento não está na conta do ZapSign ligada agora");
+  }
+}
+
+/**
+ * A frase que a tela mostra para um erro do ZapSign, pelo código que ele
+ * devolveu (docs.zapsign.com.br/status-de-erros). Um lugar só: o envio, os
+ * modelos e o "Atualizar" dizem a mesma coisa para o mesmo erro.
+ */
+export function fraseDoErroZapsign(http: number, padrao: string): string {
+  if (http === 401) return "O ZapSign recusou o token. Confira a integração em Configurações → Integrações.";
+  if (http === 403) return "O token do ZapSign não é do ambiente escolhido (produção ou teste). Confira a integração em Configurações → Integrações.";
+  if (http === 402) return "A conta do ZapSign não tem um plano com acesso à API. Confira o plano no painel do ZapSign.";
+  if (http === 429) return "O ZapSign limitou as chamadas agora. Espere um minuto e tente de novo.";
+  return padrao;
 }
 
 async function chamar(integ: Integracao, caminho: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<unknown> {
@@ -191,10 +217,15 @@ export interface DadosDoCliente {
 }
 const cpfFormatado = (cpf: string) => (/^\d{11}$/.test(cpf) ? `${cpf.slice(0, 3)}.${cpf.slice(3, 6)}.${cpf.slice(6, 9)}-${cpf.slice(9)}` : cpf);
 
+/** Nome de campo do modelo sem acento e em minúsculas, para casar com as regras abaixo. */
+const semAcento = (v: string): string => v.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+/** O campo fala de OUTRA pessoa que não o cliente ("nome da mãe", "CPF do representante legal"). */
+const DE_OUTRA_PESSOA = /\b(mae|pai|advogad|escritorio|testemunha|conjuge|representante|procurador|contratad)/;
+
 /** Valor do cadastro para um campo do modelo, pelo nome que o campo tem lá. "" = não sabemos. */
 function sugestaoPara(rotulo: string, c: DadosDoCliente): string {
-  const r = rotulo.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-  if (/\bcpf\b/.test(r)) return cpfFormatado(String(c.cpf ?? "").replace(/\D/g, ""));
+  const r = semAcento(rotulo);
+  if (/\bcpf\b/.test(r)) return DE_OUTRA_PESSOA.test(r) ? "" : cpfFormatado(String(c.cpf ?? "").replace(/\D/g, ""));
   if (/e-?mail/.test(r)) return String(c.email ?? "");
   if (/telefone|celular|whats/.test(r)) return String(c.telefone ?? "");
   if (/endereco/.test(r)) return String(c.endereco ?? "");
@@ -203,7 +234,7 @@ function sugestaoPara(rotulo: string, c: DadosDoCliente): string {
     return m ? `${m[3]}/${m[2]}/${m[1]}` : "";
   }
   // "nome", "nome completo", "nome do contratante" — mas não "nome da mãe" nem "nome do advogado"
-  if (/\bnome\b/.test(r) && !/\b(mae|pai|advogad|escritorio|testemunha|conjuge|representante)/.test(r)) return String(c.nome ?? "");
+  if (/\bnome\b/.test(r) && !DE_OUTRA_PESSOA.test(r)) return String(c.nome ?? "");
   return "";
 }
 
@@ -252,9 +283,18 @@ export async function criarDocumentoDeModelo(
 // ---------------------------------------------------------------------------
 // Do que o ZapSign diz para o que a gente guarda
 // ---------------------------------------------------------------------------
+// A documentação do ZapSign escreve os mesmos status de dois jeitos: em inglês
+// nas tabelas ("refused", "link-opened", "signed") e em português nos exemplos
+// de aviso ("recusado", "abriu-link") e na listagem ("assinou", "abriu"). As
+// duas formas valem: com uma só, um contrato recusado ficaria "enviado" para sempre.
+const SIGNATARIO_ASSINOU = ["signed", "assinou"];
+const SIGNATARIO_ABRIU = ["link-opened", "abriu-link", "abriu"];
+const DOCUMENTO_ASSINADO = ["signed", "assinado"];
+const DOCUMENTO_RECUSADO = ["refused", "recusado"];
+
 function statusDoSignatario(bruto: string | undefined): StatusSignatario {
-  if (bruto === "signed") return "assinou";
-  if (bruto === "link-opened") return "abriu";
+  if (SIGNATARIO_ASSINOU.includes(String(bruto))) return "assinou";
+  if (SIGNATARIO_ABRIU.includes(String(bruto))) return "abriu";
   return "pendente";
 }
 
@@ -287,8 +327,8 @@ function signatariosDe(doc: DocumentoZapsign, anteriores: Signatario[], papelDe?
 /** Status do envio a partir da leitura do ZapSign (sem o passo de gravar o PDF). */
 function statusDe(doc: DocumentoZapsign, signatarios: Signatario[]): "enviado" | "aberto" | "todos_assinaram" | "recusado" | "cancelado" {
   if (doc.deleted) return "cancelado";
-  if (doc.status === "signed") return "todos_assinaram";
-  if (doc.status === "refused") return "recusado";
+  if (DOCUMENTO_ASSINADO.includes(String(doc.status))) return "todos_assinaram";
+  if (DOCUMENTO_RECUSADO.includes(String(doc.status))) return "recusado";
   return signatarios.some((s) => s.status !== "pendente") ? "aberto" : "enviado";
 }
 
@@ -386,12 +426,23 @@ function respostaDoModelo(doc: DocumentoZapsign, padrao: RegExp): string[] {
   return (doc.answers ?? []).filter((r) => padrao.test(String(r?.variable ?? ""))).map((r) => String(r?.value ?? "").trim()).filter(Boolean);
 }
 
+/**
+ * O CPF do cliente: o do próprio signatário; sem ele, o das respostas do
+ * modelo — mas só quando elas apontam UM CPF só, e nunca o de um campo que
+ * fala de outra pessoa ("CPF do representante legal", "CPF do advogado").
+ * Na dúvida não há CPF: nasce a tarefa de cadastro à mão, em vez de o contrato
+ * entrar no cliente errado.
+ */
 function cpfDoSignatario(doc: DocumentoZapsign, signer: SignerZapsign): string {
-  for (const candidato of [signer.cpf, ...respostaDoModelo(doc, /cpf/i)]) {
-    const d = soDigitos(candidato);
-    if (cpfValido(d)) return d;
-  }
-  return "";
+  const doSigner = soDigitos(signer.cpf);
+  if (cpfValido(doSigner)) return doSigner;
+  const doModelo = new Set(
+    (doc.answers ?? [])
+      .filter((r) => { const v = semAcento(String(r?.variable ?? "")); return /cpf/.test(v) && !DE_OUTRA_PESSOA.test(v); })
+      .map((r) => soDigitos(r?.value))
+      .filter(cpfValido),
+  );
+  return doModelo.size === 1 ? [...doModelo][0] : "";
 }
 
 /**
@@ -448,7 +499,7 @@ export async function adotarDocumento(
   const cpf = cpfDoSignatario(doc, sCli);
   if (!cpf) {
     // Sem CPF não há cadastro: fica uma tarefa para ninguém perder o contrato.
-    const contato = [sCli.name, sCli.email, sCli.phone_number ? `+${sCli.phone_country || "55"} ${sCli.phone_number}` : ""].filter(Boolean).join(" · ");
+    const contato = [sCli.name, sCli.email, telefoneGuardado(sCli.phone_country, sCli.phone_number)].filter(Boolean).join(" · ");
     await criarTarefa(sb, {
       ref: `sem_cpf:${docToken}`, casoId: null, responsavel, tipo: "interna", dias: 1,
       titulo: `Cadastrar cliente do contrato enviado pelo ZapSign: ${nomeDoc}`,
@@ -467,7 +518,8 @@ export async function adotarDocumento(
     const ins = await sb.from("clientes").insert({
       nome: String(sCli.name ?? "").trim().slice(0, 200) || "Cliente sem nome", cpf,
       email: emailDe(sCli.email) || null,
-      telefone: soDigitos(sCli.phone_number) || null, created_by: responsavel,
+      // com o código do país quando é de fora: é como a tela guarda e o `telefoneDe` lê
+      telefone: telefoneGuardado(sCli.phone_country, sCli.phone_number) || null, created_by: responsavel,
       // endereço: só de modelo que tenha uma variável de endereço
       endereco: respostaDoModelo(doc, /endere[cç]o/i)[0]?.slice(0, 500) ?? null,
     }).select("id").single();
@@ -585,13 +637,19 @@ export async function sincronizarAssinatura(sb: SupabaseClient, integ: Integraca
     return certa;
   }
 
+  // Envio feito num ambiente e integração ligada no outro (o escritório trocou
+  // produção ↔ teste com contratos pendentes): o documento não existe na base
+  // de agora. Nem pergunta — e, principalmente, não cancela.
+  if (linha.sandbox !== ehSandbox(integ)) throw new DocumentoForaDaConta();
   let doc: DocumentoZapsign;
   try {
     doc = await detalharDocumento(integ, linha.zapsign_doc_token);
   } catch (e) {
-    // documento que sumiu do ZapSign não melhora com nova tentativa: é cancelado
-    if (!(e instanceof ErroZapsign) || e.http !== 404) throw e;
-    return (await gravarSe(["enviado", "aberto", "recusado", "cancelado"], { status: "cancelado" })) ?? (await ler());
+    // 404 NÃO é cancelamento: documento excluído continua respondendo, com
+    // `deleted: true` (tratado em `statusDe`). 404 é documento de outra conta.
+    // Marcar "cancelado" aqui liberaria um segundo envio do mesmo contrato.
+    if (e instanceof ErroZapsign && e.http === 404) throw new DocumentoForaDaConta();
+    throw e;
   }
   const signatarios = signatariosDe(doc, linha.signatarios ?? []);
   const situacao = statusDe(doc, signatarios);

@@ -32,11 +32,15 @@ async function invocar<T>(body: Record<string, unknown>): Promise<T> {
   return dados;
 }
 
-/** Envio e atualização: devolvem a linha de `assinaturas`. */
-export async function chamarZapsign(body: Record<string, unknown>): Promise<{ assinatura: Assinatura }> {
-  const dados = await invocar<{ assinatura?: Assinatura }>(body);
+/**
+ * Envio e atualização: devolvem a linha de `assinaturas`. `aviso` vem quando o
+ * envio saiu, mas não como a pessoa espera (ex.: sem WhatsApp, porque o
+ * telefone do cadastro não serve) — a tela mostra, não esconde.
+ */
+export async function chamarZapsign(body: Record<string, unknown>): Promise<{ assinatura: Assinatura; aviso?: string }> {
+  const dados = await invocar<{ assinatura?: Assinatura; aviso?: string }>(body);
   if (!dados.assinatura) throw new Error("resposta sem a assinatura");
-  return { assinatura: dados.assinatura };
+  return { assinatura: dados.assinatura, aviso: dados.aviso };
 }
 
 /** Os modelos de contrato da conta do ZapSign do escritório ativo (#522). */

@@ -10,7 +10,7 @@ import { join } from "node:path";
 import {
   DDI_BRASIL, digitosInternacionais, mascararTelefoneBR, mascararTelefoneDoPais, PAISES_TELEFONE, separarTelefone, telefoneCompleto, telefoneParaEnvio,
 } from "../../src/lib/telefone";
-import { telefoneDe } from "../../supabase/functions/_shared/telefone";
+import { lerTelefone, telefoneDe, telefoneGuardado } from "../../supabase/functions/_shared/telefone";
 
 const RAIZ = join(import.meta.dir, "../..");
 
@@ -66,6 +66,55 @@ describe("telefone", () => {
   test("telefone completo: DDD + 8 ou 9 dígitos no Brasil; de 6 a 14 dígitos fora", () => {
     expect(["(17) 99999-0000", "(17) 3333-4444", "17999990000", "+34 613761609"].map(telefoneCompleto)).toEqual([true, true, true, true]);
     expect(["", "(17) 9999", "179999", "+34 613", "+34", null].map(telefoneCompleto)).toEqual([false, false, false, false, false, false]);
+  });
+
+  test("tela e servidor leem o telefone pela MESMA função: o que a tela diz completo é o que o ZapSign recebe", () => {
+    // os formatos que existem no banco e os que as pessoas colam (revisão de 20/11/2026)
+    const casos = [
+      "(17) 99999-0000", "17999990000", "5517999990000", "+55 17 99999-0000", "+5517999990000", "+34 613761609",
+      "+34613761609", "351912345678", "+999613761609", "613761609", "(55) 17999-9900", "", "+34", "17 9999",
+    ];
+    for (const c of casos) expect(telefoneCompleto(c), c).toBe(telefoneDe(c) !== null);
+    // código de país colado ao número: se é de um país da lista, dá para ler
+    expect(telefoneDe("+34613761609")).toEqual({ ddi: "34", numero: "613761609" });
+    expect(separarTelefone("+34613761609")).toEqual({ ddi: "34", numero: "613761609" });
+    // lead antigo do site, sem "+": longo demais para o Brasil e abre com um código da lista
+    expect(separarTelefone("351912345678")).toEqual({ ddi: "351", numero: "912345678" });
+    expect(digitosInternacionais("351912345678"), "não ganha 55 na frente").toBe("351912345678");
+    // código desconhecido colado: não se adivinha onde termina
+    expect(lerTelefone("+999613761609")).toBeNull();
+    expect(telefoneCompleto("+999613761609")).toBe(false);
+    // DDD 11 a 19 com um dígito a mais NÃO vira Estados Unidos (+1)
+    expect(lerTelefone("119999900001")?.ddi).toBe("55");
+    // o 55 nunca vira DDD: colar com o código do país dá o mesmo número
+    expect(separarTelefone("+55 17 99999-0000")).toEqual(separarTelefone("(17) 99999-0000"));
+    // DDD 55 (RS) de verdade continua sendo DDD
+    expect(telefoneDe("55999990000")).toEqual({ ddi: "55", numero: "55999990000" });
+  });
+
+  test("o que o ZapSign devolve (país e número separados) volta para o formato que o sistema guarda e lê", () => {
+    expect(telefoneGuardado("55", "17999990000")).toBe("17999990000");
+    expect(telefoneGuardado("", "17999990000"), "sem país informado é Brasil").toBe("17999990000");
+    expect(telefoneGuardado("34", "613761609")).toBe("+34 613761609");
+    expect(telefoneGuardado("34", "")).toBe("");
+    for (const pais of PAISES_TELEFONE) {
+      const numero = pais.ddi === DDI_BRASIL ? "17999990000" : "613761609";
+      expect(telefoneDe(telefoneGuardado(pais.ddi, numero)), pais.nome).toEqual({ ddi: pais.ddi, numero });
+    }
+  });
+
+  test("a leitura de telefone e a lista de países existem num lugar só: _shared/telefone.ts", () => {
+    const tela = readFileSync(join(RAIZ, "src/lib/telefone.ts"), "utf8");
+    expect(tela, "a tela importa a leitura do módulo compartilhado").toMatch(/from "@shared\/telefone"/);
+    expect(tela, "a lista de países não é repetida na tela").not.toMatch(/bandeira:\s*"/);
+    // nas functions, ninguém monta "+código número" nem tira o 55 à mão fora do módulo
+    const copias = readdirSync(join(RAIZ, "supabase/functions"), { recursive: true, withFileTypes: true })
+      .filter((d) => d.isFile() && /\.ts$/.test(d.name))
+      .map((d) => join(d.parentPath, d.name))
+      .filter((p) => !p.endsWith("_shared/telefone.ts"))
+      .filter((p) => /phone_country\s*\|\|\s*["']55["']|`\+\$\{[^}]*phone_country/.test(readFileSync(p, "utf8")))
+      .map((p) => p.slice(RAIZ.length + 1));
+    expect(copias, "use telefoneGuardado de _shared/telefone.ts").toEqual([]);
   });
 
   test("link do WhatsApp: os dígitos sempre com o código do país", () => {

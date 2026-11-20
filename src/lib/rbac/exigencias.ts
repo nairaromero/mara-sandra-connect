@@ -110,6 +110,7 @@ export const RPC: Record<string, Exigencia> = {
   reativar_parceiro: { permissao: "parceiros:gerenciar" },
   escritorio_definir_marca: { permissao: "escritorio:configurar" },
   gmail_inss_status: { permissao: "integracoes:gerenciar" },
+  gmail_inss_desconectar: { permissao: "integracoes:gerenciar" },
   // funções privilegiadas que passaram a conferir permissão (migration_rbac_17)
   // a trilha do escritório (migration_rbac_24): a permissão, não o papel admin
   auditoria_plataforma: { permissao: "auditoria:ler" },

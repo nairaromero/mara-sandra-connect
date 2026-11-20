@@ -7,13 +7,19 @@
 //     escritório ativo; desconectar idem (advogado e outro escritório não apagam);
 //   · o processador lê TODAS as caixas; caixa com acesso quebrado não impede a
 //     leitura das outras;
-//   · o mesmo e-mail em duas caixas não é processado duas vezes (Message-ID).
+//   · o mesmo e-mail em duas caixas não é processado duas vezes (Message-ID);
+//   · desconectar é pela RPC `gmail_inss_desconectar` (o DELETE direto não
+//     apaga nada): quem gerencia integrações desconecta inclusive a caixa que
+//     OUTRA pessoa conectou, e conectar e desconectar deixam trilha;
+//   · a caixa que a rotina não conseguiu ler aparece com o aviso no card.
 //
 // Só no banco local, com o mock dos provedores (:8787). Devolve tudo no fim.
 import { test, expect, type Page } from "@playwright/test";
 import { ENV } from "../env";
 import { adminClient } from "../supabase-admin";
-import { chamadorComo, contaDoCanario, contaPadrao, escritorioCanario, escritorioPadrao, limpezaLocal, segredoDeSistemaLocal, sessaoComo } from "../rbac";
+import {
+  chamadorComo, contaDoCanario, contaPadrao, escritorioCanario, escritorioPadrao, idDoCanario, limpezaLocal, segredoDeSistemaLocal, sessaoComo, ultimaLinhaDaTrilha,
+} from "../rbac";
 
 const admin = adminClient();
 const MOCK = "http://localhost:8787";
@@ -82,6 +88,9 @@ test.describe.serial("várias caixas do INSS por escritório", () => {
       await configurarMock({ gmail_email: CAIXA_A.toUpperCase() });
       await conectar(page, /Conectar outra caixa/, 2);
       expect((await caixasNoBanco()).map((c) => c.email_conectado).sort()).toEqual([CAIXA_A, CAIXA_B].sort());
+      // quem ligou a leitura de qual caixa fica na trilha do escritório
+      const conectou = await ultimaLinhaDaTrilha(ESC2, "integracao.caixa_conectada");
+      expect(conectou?.detalhes?.caixa, "a última conexão foi a renovação da caixa A").toBe(CAIXA_A);
 
       await page.goto("/configuracoes?tab=integracoes&abrir=gmail");
       await expect(page.locator("[data-caixa-gmail]")).toHaveCount(2);
@@ -101,17 +110,22 @@ test.describe.serial("várias caixas do INSS por escritório", () => {
     expect((st.data as Array<{ id: string; email_conectado: string }>).map((c) => c.email_conectado).sort()).toEqual([CAIXA_A, CAIXA_B].sort());
     expect((st.data as Array<{ id: string }>).every((c) => /^[0-9a-f-]{36}$/.test(c.id))).toBe(true);
 
-    // advogado não vê nem apaga
+    // advogado não vê nem apaga — nem pela RPC, nem direto na tabela
     const adv = await sessaoComo(contaDoCanario("advogado"), ESC2);
     expect((await adv.sb.rpc("gmail_inss_status")).error?.code).toBe("42501");
+    expect((await adv.sb.rpc("gmail_inss_desconectar", { p_id: duas[0].id })).error?.code).toBe("42501");
     await adv.sb.from("usuario_gmail_oauth").delete().eq("id", duas[0].id);
     // o admin do OUTRO escritório não vê as caixas daqui nem apaga pelo id
     const fora = await sessaoComo(contaPadrao("admin"), ESC1);
     const stFora = await fora.sb.rpc("gmail_inss_status");
     expect(stFora.error).toBeNull();
     expect((stFora.data as Array<{ email_conectado: string }>).some((c) => [CAIXA_A, CAIXA_B].includes(c.email_conectado))).toBe(false);
+    // "não encontrado" (P0002): o PostgREST devolve sem o código — vale a recusa e, logo abaixo, o estado
+    expect((await fora.sb.rpc("gmail_inss_desconectar", { p_id: duas[0].id })).error, "caixa de outro escritório não se desconecta").toBeTruthy();
     await fora.sb.from("usuario_gmail_oauth").delete().eq("id", duas[0].id);
-    expect(await caixasNoBanco(), "ninguém de fora apagou").toHaveLength(2);
+    // a porta é a RPC: o DELETE direto não apaga nem para o admin do próprio escritório
+    await adm.sb.from("usuario_gmail_oauth").delete().eq("id", duas[0].id);
+    expect(await caixasNoBanco(), "ninguém apagou por fora da RPC").toHaveLength(2);
   });
 
   test("o processador lê todas as caixas; o mesmo e-mail em duas caixas não é processado duas vezes; caixa quebrada não derruba as outras", async () => {
@@ -148,8 +162,18 @@ test.describe.serial("várias caixas do INSS por escritório", () => {
     expect(porCaixa[CAIXA_B].error, "a caixa quebrada aparece com o erro").toBeTruthy();
   });
 
-  test("o admin desconecta uma caixa pela tela; a outra fica", async ({ browser }) => {
-    test.skip((await caixasNoBanco()).length !== 2, "depende das duas caixas conectadas");
+  test("o admin desconecta pela tela a caixa que OUTRA pessoa conectou; a outra fica, com o aviso da leitura que falhou", async ({ browser }) => {
+    const duas = await caixasNoBanco();
+    test.skip(duas.length !== 2, "depende das duas caixas conectadas");
+    // A caixa B passa a ser "de outra pessoa" (era o caso que apagava zero linhas e dizia "desconectada"),
+    // e a caixa A fica com a marca que a rotina grava quando o Google recusa o acesso.
+    const outraPessoa = await idDoCanario("advogado");
+    const troca = await admin.from("usuario_gmail_oauth").update({ usuario_id: outraPessoa }).eq("id", duas.find((c) => c.email_conectado === CAIXA_B)!.id);
+    expect(troca.error, troca.error?.message).toBeNull();
+    const marca = await admin.from("usuario_gmail_oauth")
+      .update({ ultimo_erro: "O Google recusou o acesso desta caixa (revogado ou expirado). Conecte a caixa de novo.", ultimo_erro_em: new Date().toISOString() })
+      .eq("id", duas.find((c) => c.email_conectado === CAIXA_A)!.id);
+    expect(marca.error, marca.error?.message).toBeNull();
     const ctx = await browser.newContext({ storageState: { cookies: [], origins: [] } });
     const page = await ctx.newPage();
     try {
@@ -160,10 +184,15 @@ test.describe.serial("várias caixas do INSS por escritório", () => {
       await page.locator('button[type="submit"]').first().click();
       await page.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: 30_000 });
       await page.goto("/configuracoes?tab=integracoes&abrir=gmail");
+      await expect(page.locator(`[data-caixa-gmail="${CAIXA_B}"]`)).not.toContainText("por você");
+      await expect(page.locator(`[data-caixa-gmail="${CAIXA_A}"] [data-caixa-gmail-erro]`)).toContainText("Conecte a caixa de novo");
+      await expect(page.locator(`[data-caixa-gmail="${CAIXA_B}"] [data-caixa-gmail-erro]`)).toHaveCount(0);
       page.once("dialog", (d) => void d.accept());
       await page.locator(`[data-caixa-gmail="${CAIXA_B}"]`).getByRole("button", { name: "Desconectar" }).click();
       await expect(page.locator("[data-caixa-gmail]")).toHaveCount(1);
       expect((await caixasNoBanco()).map((c) => c.email_conectado)).toEqual([CAIXA_A]);
+      const desconectou = await ultimaLinhaDaTrilha(ESC2, "integracao.caixa_desconectada");
+      expect([desconectou?.detalhes?.caixa, desconectou?.detalhes?.conectada_por]).toEqual([CAIXA_B, outraPessoa]);
     } finally {
       await ctx.close();
     }

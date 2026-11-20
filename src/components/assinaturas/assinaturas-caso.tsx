@@ -35,13 +35,32 @@ const ROTULO_SIGNATARIO: Record<Signatario["status"], string> = {
   assinou: "assinou",
 };
 
+/** O que o envio custa no ZapSign — o mesmo aviso nos dois diálogos (arquivo e modelo). */
+export function AvisoDoEnvio() {
+  return (
+    <p className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground" data-aviso-envio>
+      Cada envio conta um documento no plano do ZapSign, mesmo que depois seja cancelado. Com WhatsApp, o ZapSign manda
+      o link também por lá, e esse envio é cobrado conforme o plano da conta.
+    </p>
+  );
+}
+
+/** Quem abriu e quem assinou: o documento segue "aberto" até o último assinar, mas isto muda antes. */
+const situacaoDosSignatarios = (a: Assinatura): string => a.signatarios.map((s) => `${s.token}:${s.status}`).join("|");
+
 export function PainelAssinaturas(props: {
   lista: Array<Assinatura> | null;
   erro: string | null;
   /** Chamado quando um envio mudou (status novo, PDF assinado gravado). */
   onMudou: (assinatura: Assinatura) => void;
+  /**
+   * "Atualizar" consulta o ZapSign pela function `zapsign-enviar`, que exige
+   * `documentos:enviar` e a integração ligada. O painel é LIDO por todo
+   * interno; o botão só aparece para quem a function atende.
+   */
+  podeAtualizar: boolean;
 }) {
-  const { lista, erro, onMudou } = props;
+  const { lista, erro, onMudou, podeAtualizar } = props;
   // um conjunto, não um id só: "Atualizar" em dois envios seguidos não reabilita o botão do que ainda está consultando
   const [atualizando, setAtualizando] = useState<ReadonlySet<string>>(new Set());
 
@@ -50,7 +69,7 @@ export function PainelAssinaturas(props: {
     try {
       const { assinatura } = await chamarZapsign({ action: "sincronizar", assinatura_id: a.id });
       if (assinatura.status === "assinado" && a.status !== "assinado") toast.success("Assinado: o PDF já está nos documentos do caso.");
-      else if (assinatura.status === a.status) toast.info("Nada mudou no ZapSign desde a última consulta.");
+      else if (assinatura.status === a.status && situacaoDosSignatarios(assinatura) === situacaoDosSignatarios(a)) toast.info("Nada mudou no ZapSign desde a última consulta.");
       onMudou(assinatura);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
@@ -95,7 +114,7 @@ export function PainelAssinaturas(props: {
                   {a.status === "assinado" && <CheckCircle2 className="mr-1 h-3 w-3" />}
                   {ROTULO_STATUS[a.status]}
                 </Badge>
-                {EM_CURSO.includes(a.status) && (
+                {podeAtualizar && EM_CURSO.includes(a.status) && (
                   <Button size="sm" variant="outline" onClick={() => atualizar(a)} disabled={atualizando.has(a.id)}>
                     {atualizando.has(a.id) ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                     Atualizar
@@ -164,13 +183,14 @@ export function EnviarAssinaturaDialog(props: {
       const cliente: Record<string, string> = {};
       if (email.trim()) cliente.email = email.trim();
       if (telefone.trim()) cliente.telefone = telefone.trim();
-      await chamarZapsign({
+      const { aviso } = await chamarZapsign({
         action: "enviar",
         documento_id: documento.id,
         ...(Object.keys(cliente).length ? { cliente } : {}),
         ...(comEscritorio ? { segundo: { nome: nomeEsc.trim(), email: emailEsc.trim() } } : {}),
       });
       toast.success("Enviado para assinatura. O cliente recebe o link pelo ZapSign.");
+      if (aviso) toast.warning(aviso);
       onEnviado();
       onFechar();
     } catch (e) {
@@ -226,9 +246,7 @@ export function EnviarAssinaturaDialog(props: {
               </div>
             )}
           </div>
-          <p className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
-            Cada envio conta um documento no plano do ZapSign, mesmo que depois seja cancelado.
-          </p>
+          <AvisoDoEnvio />
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onFechar} disabled={enviando}>

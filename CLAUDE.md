@@ -146,7 +146,12 @@ o sistema em produção. Quando chegar, vale o seguinte:
 - **Caixas de e-mail do INSS** (desde 2026-11-17, `migration_gmail_inss_varias_caixas`): o escritório pode
   conectar VÁRIAS. Em `usuario_gmail_oauth` a linha é a caixa (pk `id`, única por escritório + e-mail;
   `usuario_id` = quem conectou); `gmail_inss_status` lista todas; quem tem `integracoes:gerenciar`
-  desconecta qualquer caixa do escritório. O `inss-email-processor` lê TODAS (`caixasDoEscritorio`), caixa
+  desconecta qualquer caixa do escritório — SÓ pela RPC `gmail_inss_desconectar` (confere escritório e
+  permissão e audita; `migration_gmail_inss_desconectar`). Não voltar ao DELETE direto: a única policy de
+  SELECT é "a caixa que eu conectei", e o Postgres apaga zero linhas, sem erro, da caixa de outra pessoa.
+  Conectar audita no `gmail-oauth-callback` (`auditarVerificado`: pessoa e escritório vêm do `state` assinado).
+  Caixa que a rotina não consegue ler fica com `ultimo_erro`/`ultimo_erro_em` na linha (o card pede a
+  reconexão; some quando volta a ler) e sai no log e em `caixas_com_falha`. O `inss-email-processor` lê TODAS (`caixasDoEscritorio`), caixa
   quebrada não derruba as outras, e o mesmo e-mail em duas caixas não dobra andamento nem tarefa: além do
   id do Gmail (que muda por caixa), o dedup olha o `Message-ID` do e-mail (`inss_email_log.rfc_message_id`).
   Prova: `e2e/tests/inss-varias-caixas.spec.ts`.
@@ -175,15 +180,20 @@ o sistema em produção. Quando chegar, vale o seguinte:
   que já existem: `private.tem_permissao` → `private.permissoes_efetivas`
   (decisão de permissão), `private.auditar` (trilha no SQL),
   `supabase/functions/_shared/auditoria.ts` (trilha nas edge: escritório, ator e
-  `tipo_ator` vêm do `quem`, e `acao` é tipo fechado), `src/lib/rbac/exigencias.ts`
+  `tipo_ator` vêm do `quem`, e `acao` é tipo fechado; function sem sessão que conferiu uma
+  assinatura nossa usa `auditarVerificado`), `src/lib/rbac/exigencias.ts`
   + `podeEscrever`/`podeChamar` (o que a tela oferece), `e2e/rbac.ts` (sessão,
   header, conta por papel e leitura da trilha nas specs), `src/lib/fuso.ts` (o
   fuso do escritório — o eslint barra `America/Sao_Paulo` fora dele),
   `src/lib/leitura.ts` (`lerLista`/`lerUm`/`lerContagem`: erro estoura, vazio é
-  vazio), `src/lib/telefone.ts` (`mascararTelefoneBR` é a única máscara de digitação
-  de telefone; `<TelefoneComPais>` é O campo de telefone do sistema — país com o Brasil
-  por padrão, número com DDD; fora do Brasil guarda "+34 613761609" — e só produz o
-  que `telefoneDe`, de `_shared/telefone.ts`, aceita. Telefone de PARCEIRO usa
+  vazio), `_shared/telefone.ts` (`@shared/telefone`: a ÚNICA leitura de telefone, da
+  tela e das functions — `lerTelefone` entende o que existe no banco e o que se cola, `telefoneDe`
+  diz o que dá para mandar ao ZapSign, `telefoneGuardado` volta do par país/número do ZapSign para o
+  texto guardado; a lista de países mora lá) e `src/lib/telefone.ts`, que só põe a máscara por cima
+  (`mascararTelefoneBR` é a única máscara de digitação; `telefoneCompleto` É `telefoneDe`, então a
+  tela não aceita o que o servidor recusa; `<TelefoneComPais>` é O campo de telefone do sistema — país
+  com o Brasil por padrão, número com DDD; fora do Brasil guarda "+34 613761609"; número colado com o
+  código do país troca a caixa do país em vez de virar DDD). Telefone de PARCEIRO usa
   `somenteBrasil`: o WhatsApp do sistema reconhece o parceiro por `whatsapp_canon_br`.
   Link `wa.me` sai de `digitosInternacionais`. A régua `e2e/unit/telefone.test.ts`
   acusa `<Input>` de telefone solto e máscara escrita à mão), `buscarPaginado` e `private.funcoes_fechadas_no_caminho()` (o que
@@ -223,7 +233,8 @@ o sistema em produção. Quando chegar, vale o seguinte:
   repetido. A tela só LÊ `assinaturas`; credencial por escritório em
   `escritorio_integracoes` tipo `zapsign` (`config.ambiente` = produção ou sandbox,
   `config.inbound_token` = segredo do webhook, gerado pela function, único no banco e
-  trocável pelo botão "Gerar endereço novo"). UMA conta do ZapSign por escritório: o
+  trocável pelo botão "Gerar segredo novo"; o ZapSign manda no cabeçalho `x-inbound-token`,
+  que é o que o card ensina a cadastrar — `?token=` na URL segue aceito). UMA conta do ZapSign por escritório: o
   mesmo token da API em dois escritórios é recusado (o aviso de lá vale para a conta
   inteira). O que a tela, as functions e o banco dizem igual — status, "em curso",
   signatário, PDF/DOCX — mora no módulo puro `_shared/assinatura.ts` (`@shared/assinatura`).
@@ -234,7 +245,15 @@ o sistema em produção. Quando chegar, vale o seguinte:
   cliente pelo CPF do signatário ou de uma variável do modelo que fale em CPF (o já
   cadastrado é reaproveitado, no caso mais recente), caso "a_definir" e a tarefa de
   acompanhar; sem CPF nasce só a tarefa pedindo o cadastro (`sem_cpf:<documento>`).
-  Envio cuja resposta se perde NÃO é apagado: o aviso de criação religa a linha.
+  Envio cuja resposta se perde NÃO é apagado: o aviso de criação religa a linha; o `enviando` que
+  sobra depois de 2 minutos sai pela `haEnvioEmCurso` (`zapsign-enviar`), a mesma pergunta para arquivo e
+  para modelo. O que a documentação do ZapSign fixa e o código segue (docs.zapsign.com.br; `.md` no fim
+  da URL devolve o texto): excluir é só marca (`deleted: true`), então 404 NÃO é cancelamento — é
+  documento de outra conta ou ambiente (`DocumentoForaDaConta`: a linha fica como está; `assinaturas.sandbox`
+  é conferido antes de perguntar); os status vêm escritos de dois jeitos ("refused"/"recusado",
+  "link-opened"/"abriu-link") e os dois valem; o webhook só para de reenviar com 200; erro do ZapSign
+  vira frase em `fraseDoErroZapsign` (401 token, 403 ambiente, 402 plano, 429 limite). O simulador
+  local repete as NOSSAS suposições: o que a doc não diz só o sandbox do ZapSign responde.
   Contrato a partir de MODELO da conta do ZapSign (#522): "Gerar contrato" na aba
   Documentos do caso lista todos os modelos (`listarModelos`, todas as páginas, só DOCX
   ativo), com busca, sugeridos pelo tipo de benefício e pastas (funções puras em

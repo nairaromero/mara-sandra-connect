@@ -78,6 +78,15 @@ export function CatalogoIntegracoes(props: {
         </Button>
       </CardHeader>
       <CardContent className="space-y-3">
+        {integracoes.erro && (
+          <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" data-integracoes-erro>
+            Não consegui ler o estado das integrações agora
+            {integracoes.lista ? ": o que aparece abaixo é da última leitura que deu certo." : ", então as linhas abaixo estão sem o selo de estado. Isso não quer dizer que estão desligadas."}{" "}
+            <button type="button" className="underline" onClick={integracoes.recarregar}>
+              Tentar de novo
+            </button>
+          </p>
+        )}
         {grupos.map((g) => {
           // o grupo da integração aberta nunca fica recolhido por cima dela
           const aberto = todas || g.itens.some((i) => i.id === aberta) || !recolhidos.has(g.id);

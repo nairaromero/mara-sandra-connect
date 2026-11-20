@@ -279,6 +279,8 @@ button{background:#1a73e8;color:#fff;border:0;border-radius:6px;padding:10px 26p
     // Utilidades sem Bearer (as specs fazem o papel do signatário):
     //   POST /zapsign/_assinar/<token>?quem=<i|todos>   POST /zapsign/_recusar/<token>
     //   POST /zapsign/_excluir/<token>                  GET  /zapsign/_docs
+    //   POST /zapsign/_recusar/<token>?forma=pt  (status em português, como nos exemplos de aviso da doc)
+    //   POST /zapsign/_sumir/<token>             (o documento deixa de existir NESTA conta: detalhar → 404)
     //   GET  /zapsign/_arquivo/<token>.pdf  (o "PDF assinado")
     if (p.startsWith("/zapsign/")) {
       const docs = estado.zapsign;
@@ -289,12 +291,18 @@ button{background:#1a73e8;color:#fff;border:0;border-radius:6px;padding:10px 26p
         res.writeHead(200, { "content-type": "application/pdf", "content-length": pdf.length });
         return res.end(pdf);
       }
+      if ((m = p.match(/^\/zapsign\/_sumir\/([^/]+)$/)) && req.method === "POST") return json(res, { ok: docs.delete(m[1]) });
       if ((m = p.match(/^\/zapsign\/_(assinar|recusar|excluir)\/([^/]+)$/)) && req.method === "POST") {
         const d = docs.get(m[2]);
         if (!d) return json(res, { detail: "Not found." }, 404);
         const agora = new Date().toISOString();
         if (m[1] === "excluir") d.deleted = true;
-        if (m[1] === "recusar") d.status = "refused";
+        if (m[1] === "recusar") {
+          // a doc do ZapSign escreve "refused" nas tabelas e "recusado"/"abriu-link" nos exemplos de aviso
+          const pt = url.searchParams.get("forma") === "pt";
+          d.status = pt ? "recusado" : "refused";
+          if (pt && d.signers[0]) d.signers[0].status = "abriu-link";
+        }
         if (m[1] === "assinar") {
           const quem = url.searchParams.get("quem") ?? "todos";
           d.signers.forEach((sg, i) => { if (quem === "todos" || Number(quem) === i) { sg.status = "signed"; sg.signed_at = agora; } });
@@ -329,6 +337,8 @@ button{background:#1a73e8;color:#fff;border:0;border-radius:6px;padding:10px 26p
         const c = JSON.parse(await lerCorpo(req) || "{}");
         const modelo = modelos.find((x) => x.token === c.template_id);
         if (!modelo || !c.signer_name) return json(res, { detail: "template_id e signer_name são obrigatórios" }, 400);
+        // "[fora do ar]" numa resposta: o ZapSign falha SEM criar o documento (a spec prova que o modelo não fica travado)
+        if ((Array.isArray(c.data) ? c.data : []).some((x) => String(x.para).includes("[fora do ar]"))) return json(res, { detail: "erro interno (simulado)" }, 500);
         const token = require("crypto").randomUUID();
         const agora = new Date().toISOString();
         const t = require("crypto").randomUUID();

@@ -239,7 +239,7 @@ export function LeadForm({ origem, dark, tab: tabProp, onTabChange }: LeadFormPr
         WhatsApp
       </label>
       <div className="mb-4">
-        <TelefoneComPais id={`${origem}-whatsapp`} value={whatsapp} onChange={setWhatsapp} placeholder="(17) 99999-0000" className={`${input} h-auto`} />
+        <TelefoneComPais id={`${origem}-whatsapp`} value={whatsapp} onChange={setWhatsapp} placeholder="(17) 99999-0000" autoComplete="tel" className={`${input} h-auto`} />
       </div>
 
       {tab === "cliente" ? (

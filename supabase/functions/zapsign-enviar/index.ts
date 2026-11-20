@@ -27,8 +27,8 @@ import { EM_CURSO, formatoAssinavel } from "../_shared/assinatura.ts";
 import { telefoneDe } from "../_shared/telefone.ts";
 import { TIPOS_DOCUMENTO } from "../_shared/tipos-documento.ts";
 import {
-  abrirTarefaAcompanhar, COLUNAS_ASSINATURA, criarDocumento, criarDocumentoDeModelo, detalharModelo, ehSandbox, ehUuid, envioAceito,
-  ErroZapsign, type LinhaAssinatura, listarModelos, type NovoSignatario, sincronizarAssinatura, ZAPSIGN_MAX_BYTES,
+  abrirTarefaAcompanhar, COLUNAS_ASSINATURA, criarDocumento, criarDocumentoDeModelo, detalharModelo, DocumentoForaDaConta, ehSandbox, ehUuid, envioAceito,
+  ErroZapsign, fraseDoErroZapsign, type LinhaAssinatura, listarModelos, type NovoSignatario, sincronizarAssinatura, ZAPSIGN_MAX_BYTES,
 } from "../_shared/zapsign.ts";
 
 /** A chamada ao ZapSign tem teto de 45s; `enviando` além disto não tem dono. */
@@ -39,6 +39,17 @@ function emailValido(bruto: unknown): string {
   const e = String(bruto ?? "").trim().toLowerCase();
   return EMAIL_RE.test(e) ? e : "";
 }
+
+/**
+ * Falha NOSSA (banco, armazenamento): o texto cru fica no log e a tela recebe
+ * uma frase que não culpa o ZapSign nem mostra mensagem do Postgres.
+ */
+function falhaInterna(onde: string, detalhe: unknown): Response {
+  console.error(`[zapsign-enviar] ${onde}: ${String((detalhe as Error)?.message ?? detalhe ?? "sem retorno")}`);
+  return jsonResponse({ error: "Não consegui concluir agora por uma falha do sistema. Tente de novo em instantes.", code: "falha_interna" }, 500);
+}
+/** Erro de leitura do nosso banco dentro de um bloco que também fala com o ZapSign. */
+class ErroInterno extends Error {}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -72,14 +83,21 @@ serve(async (req) => {
     const integ = await integracaoDoEscritorio(quem.admin, escritorioId, "zapsign");
     if (!integ) return semIntegracao("zapsign", corsHeaders);
     const { data: linha, error } = await sb.from("assinaturas").select(COLUNAS_ASSINATURA).eq("id", id).maybeSingle();
-    if (error) return jsonResponse({ error: `lendo assinatura: ${error.message}` }, 500);
+    if (error) return falhaInterna("lendo assinatura", error);
     if (!linha) return jsonResponse({ error: "assinatura não encontrada" }, 404);
     try {
       const atual = await sincronizarAssinatura(sb, integ, linha as unknown as LinhaAssinatura);
       return jsonResponse({ ok: true, assinatura: atual });
     } catch (e) {
       console.error("[zapsign-enviar] sincronizar:", String((e as Error)?.message ?? e));
-      return jsonResponse({ error: "Não consegui consultar o ZapSign agora. Tente de novo em instantes." }, 502);
+      if (e instanceof DocumentoForaDaConta) {
+        return jsonResponse({
+          error: "Este documento não está na conta do ZapSign ligada agora: a integração mudou de ambiente (produção ou teste) ou de conta depois do envio. O envio fica como está.",
+          code: "documento_fora_da_conta",
+        }, 409);
+      }
+      const http = e instanceof ErroZapsign ? e.http : 0;
+      return jsonResponse({ error: fraseDoErroZapsign(http, "Não consegui consultar o ZapSign agora. Tente de novo em instantes.") }, 502);
     }
   }
 
@@ -89,9 +107,9 @@ serve(async (req) => {
   /** O cliente do caso, lido no escopo do escritório. */
   const clienteDoCaso = async (casoId: string) => {
     const { data: caso, error: eCaso } = await sb.from("casos").select("id, cliente_id").eq("id", casoId).maybeSingle();
-    if (eCaso || !caso) throw new Error(`lendo o caso: ${eCaso?.message ?? "não encontrado"}`);
+    if (eCaso || !caso) throw new ErroInterno(`lendo o caso: ${eCaso?.message ?? "não encontrado"}`);
     const { data: cliente, error: eCli } = await sb.from("clientes").select("nome, cpf, email, telefone, endereco, data_nascimento").eq("id", caso.cliente_id).maybeSingle();
-    if (eCli || !cliente) throw new Error(`lendo o cliente: ${eCli?.message ?? "não encontrado"}`);
+    if (eCli || !cliente) throw new ErroInterno(`lendo o cliente: ${eCli?.message ?? "não encontrado"}`);
     return cliente;
   };
   /** Contato do cliente: o que a tela mandou (corrigido na hora) ou o cadastro. Devolve a recusa quando não serve. */
@@ -104,6 +122,16 @@ serve(async (req) => {
     return { nome: cliente.nome, papel: "cliente", email, telefone: tel?.numero ?? "", ddi: tel?.ddi ?? "55" };
   };
   /**
+   * O envio vai sair SEM WhatsApp porque o telefone do cadastro não serve (e a
+   * tela não mandou outro)? Não barra — o e-mail basta para assinar —, mas a
+   * resposta leva o aviso: mandar só por e-mail em silêncio deixa a pessoa
+   * esperando o cliente abrir um WhatsApp que nunca foi.
+   */
+  const avisoSemWhatsapp = (cliente: { telefone: string | null }): string | undefined =>
+    body.cliente?.telefone === undefined && String(cliente.telefone ?? "").trim() && !telefoneDe(cliente.telefone)
+      ? `O link foi só por e-mail: o telefone do cadastro (${String(cliente.telefone).trim().slice(0, 40)}) não serve para WhatsApp. Corrija o cadastro do cliente.`
+      : undefined;
+  /**
    * Do `enviando` até a resposta à tela — igual para arquivo e para modelo.
    * `criar` é a única coisa que muda: a chamada que cria o documento no ZapSign.
    */
@@ -111,6 +139,7 @@ serve(async (req) => {
     novaId: string,
     criar: () => Promise<{ token?: string; signers?: unknown }>,
     detalhes: Record<string, unknown>,
+    aviso?: string,
   ): Promise<Response> => {
     let aceito: ReturnType<typeof envioAceito>;
     try {
@@ -123,10 +152,7 @@ serve(async (req) => {
         // recusa clara: nada foi criado lá, a linha sai para não travar o próximo envio
         const { error: eDel } = await sb.from("assinaturas").delete().eq("id", novaId).eq("status", "enviando");
         if (eDel) console.error(`[zapsign-enviar] não removi a assinatura ${novaId}: ${eDel.message}`);
-        const frase = http === 401 || http === 403
-          ? "O ZapSign recusou o token. Confira a integração em Configurações → Integrações."
-          : "O ZapSign não aceitou o documento. Confira o arquivo, os campos e os contatos e tente de novo.";
-        return jsonResponse({ error: frase }, 502);
+        return jsonResponse({ error: fraseDoErroZapsign(http, "O ZapSign não aceitou o documento. Confira o arquivo, os campos e os contatos e tente de novo.") }, 502);
       }
       // Sem resposta (ou erro do lado deles): o documento PODE ter sido criado. A
       // linha fica; se foi criado, o aviso de criação a religa. Reenviar agora
@@ -152,9 +178,31 @@ serve(async (req) => {
     } catch (e) {
       console.error(`[zapsign-enviar] envio ${novaId} feito; falhou o registro de tarefa/trilha:`, String((e as Error)?.message ?? e));
     }
-    return jsonResponse({ ok: true, assinatura: linha });
+    return jsonResponse({ ok: true, assinatura: linha, ...(aviso ? { aviso } : {}) });
   };
-  const JA_EM_CURSO = () => jsonResponse({ error: "Este documento já está em assinatura. Acompanhe o envio que está em curso.", code: "ja_em_assinatura" }, 409);
+  const JA_EM_CURSO = (oQue = "Este documento já está") =>
+    jsonResponse({ error: `${oQue} em assinatura. Acompanhe o envio que está em curso.`, code: "ja_em_assinatura" }, 409);
+  const MODELO_EM_CURSO = () => JA_EM_CURSO("Este modelo já foi enviado neste caso e ainda está");
+  /**
+   * Há envio em curso para este alvo (um documento, ou um modelo num caso)?
+   * A única porta dessa pergunta, para arquivo e para modelo. No caminho,
+   * remove o `enviando` velho: é envio que morreu antes de chegar ao ZapSign
+   * (function derrubada, timeout sem documento criado) — se o documento
+   * existisse lá, o aviso de criação já teria religado a linha
+   * (`adotarDocumento`) e ela não estaria mais `enviando`. O que sobrou depois
+   * de 2 minutos não pode travar o próximo envio para sempre.
+   */
+  const haEnvioEmCurso = async (alvo: { documento_id: string } | { caso_id: string; modelo_token: string }): Promise<boolean | Response> => {
+    const { data: emCurso, error: eCurso } = await sb.from("assinaturas").select("id, status, created_at").match(alvo).in("status", [...EM_CURSO]);
+    if (eCurso) return falhaInterna("conferindo envios", eCurso);
+    const vivos = (emCurso ?? []).filter((a) => a.status !== "enviando" || Date.now() - new Date(a.created_at).getTime() < ENVIANDO_VELHO_MS);
+    const mortos = (emCurso ?? []).filter((a) => !vivos.includes(a)).map((a) => a.id);
+    if (mortos.length) {
+      const { error: eMortos } = await sb.from("assinaturas").delete().in("id", mortos).eq("status", "enviando");
+      if (eMortos) console.error(`[zapsign-enviar] não removi envios mortos: ${eMortos.message}`);
+    }
+    return vivos.length > 0;
+  };
 
   // -------------------------------------------------------------------------
   // modelos de contrato da conta do escritório (#522)
@@ -191,28 +239,29 @@ serve(async (req) => {
       if (signatario instanceof Response) return signatario;
 
       // um envio em curso por modelo e caso (índice `assinaturas_um_em_curso_por_modelo`)
+      const emCurso = await haEnvioEmCurso({ caso_id: body.caso_id!, modelo_token: modelo.token });
+      if (emCurso instanceof Response) return emCurso;
+      if (emCurso) return MODELO_EM_CURSO();
       const { data: nova, error: eNova } = await sb
         .from("assinaturas")
         .insert({ caso_id: body.caso_id, nome: modelo.nome.slice(0, 255), status: "enviando", sandbox: ehSandbox(integ), enviado_por: quem.uid, modelo_token: modelo.token, tipo_documento: tipoDocumento })
         .select("id")
         .single();
-      if (eNova?.code === "23505") {
-        return jsonResponse({ error: "Este modelo já foi enviado neste caso e ainda está em assinatura. Acompanhe o envio que está em curso.", code: "ja_em_assinatura" }, 409);
-      }
-      if (eNova || !nova) return jsonResponse({ error: `registrando o envio: ${eNova?.message ?? "sem retorno"}` }, 500);
+      if (eNova?.code === "23505") return MODELO_EM_CURSO();
+      if (eNova || !nova) return falhaInterna("registrando o envio", eNova);
       return await concluirEnvio(
         nova.id,
         () => criarDocumentoDeModelo(integ!, { modeloToken: modelo.token, externalId: nova.id, respostas: respostas.filter((r) => r.valor), signatario }),
         { caso_id: body.caso_id, modelo: modelo.nome, signatarios: ["cliente"] },
+        avisoSemWhatsapp(cliente),
       );
     } catch (e) {
+      // falha de leitura do NOSSO banco não é culpa do ZapSign
+      if (e instanceof ErroInterno) return falhaInterna(String(body.action), e);
       console.error(`[zapsign-enviar] ${body.action}:`, String((e as Error)?.message ?? e));
       const http = e instanceof ErroZapsign ? e.http : 0;
       if (http === 404) return jsonResponse({ error: "Este modelo não existe mais na conta do ZapSign." }, 404);
-      const frase = http === 401 || http === 403
-        ? "O ZapSign recusou o token. Confira a integração em Configurações → Integrações."
-        : "Não consegui consultar os modelos no ZapSign agora. Tente de novo em instantes.";
-      return jsonResponse({ error: frase }, 502);
+      return jsonResponse({ error: fraseDoErroZapsign(http, "Não consegui consultar os modelos no ZapSign agora. Tente de novo em instantes.") }, 502);
     }
   }
 
@@ -229,7 +278,7 @@ serve(async (req) => {
 
   const { data: doc, error: eDoc } = await sb
     .from("documentos").select("id, caso_id, nome_arquivo, storage_path, tamanho_bytes").eq("id", documentoId).maybeSingle();
-  if (eDoc) return jsonResponse({ error: `lendo documento: ${eDoc.message}` }, 500);
+  if (eDoc) return falhaInterna("lendo documento", eDoc);
   if (!doc) return jsonResponse({ error: "documento não encontrado" }, 404);
 
   const formato = formatoAssinavel(doc.nome_arquivo);
@@ -246,31 +295,20 @@ serve(async (req) => {
   // Um envio em curso por documento: clique repetido não gasta a cota duas vezes.
   // O PDF que voltou assinado não se envia de novo: gastaria a cota à toa.
   const { data: jaAssinado, error: eJa } = await sb.from("assinaturas").select("id").eq("documento_assinado_id", documentoId).limit(1);
-  if (eJa) return jsonResponse({ error: `conferindo envios: ${eJa.message}` }, 500);
+  if (eJa) return falhaInterna("conferindo envios", eJa);
   if (jaAssinado?.length) {
     return jsonResponse({ error: "Este arquivo já é a versão assinada de um documento. Envie o documento original.", code: "ja_assinado" }, 409);
   }
 
-  const { data: emCurso, error: eCurso } = await sb
-    .from("assinaturas").select("id, status, created_at").eq("documento_id", documentoId).in("status", [...EM_CURSO]);
-  if (eCurso) return jsonResponse({ error: `conferindo envios: ${eCurso.message}` }, 500);
-  // `enviando` velho é envio que morreu antes de chegar ao ZapSign (function
-  // derrubada no meio) ou cuja resposta se perdeu: se o documento existe lá, o
-  // aviso de criação já religou a linha (`adotarDocumento`) e ela não está mais
-  // `enviando`. O que sobrou depois de 2 minutos não pode travar o próximo.
-  const vivos = (emCurso ?? []).filter((a) => a.status !== "enviando" || Date.now() - new Date(a.created_at).getTime() < ENVIANDO_VELHO_MS);
-  const mortos = (emCurso ?? []).filter((a) => !vivos.includes(a)).map((a) => a.id);
-  if (mortos.length) {
-    const { error: eMortos } = await sb.from("assinaturas").delete().in("id", mortos).eq("status", "enviando");
-    if (eMortos) console.error(`[zapsign-enviar] não removi envios mortos: ${eMortos.message}`);
-  }
-  if (vivos.length) return JA_EM_CURSO();
+  const emCurso = await haEnvioEmCurso({ documento_id: documentoId });
+  if (emCurso instanceof Response) return emCurso;
+  if (emCurso) return JA_EM_CURSO();
 
   let cliente: Awaited<ReturnType<typeof clienteDoCaso>>;
   try {
     cliente = await clienteDoCaso(doc.caso_id);
   } catch (e) {
-    return jsonResponse({ error: String((e as Error)?.message ?? e) }, 500);
+    return falhaInterna("lendo o cliente do caso", e);
   }
   const doCliente = contatoDoCliente(cliente);
   if (doCliente instanceof Response) return doCliente;
@@ -285,7 +323,7 @@ serve(async (req) => {
 
   const baixado = await quem.admin.storage.from("documentos").download(doc.storage_path);
   if (baixado.error || !baixado.data) {
-    return jsonResponse({ error: `não consegui abrir o arquivo: ${baixado.error?.message ?? "vazio"}` }, 500);
+    return falhaInterna("abrindo o arquivo", baixado.error ?? "vazio");
   }
   const bytes = new Uint8Array(await baixado.data.arrayBuffer());
   if (bytes.length > ZAPSIGN_MAX_BYTES) return grandeDemais();
@@ -299,11 +337,12 @@ serve(async (req) => {
     .select("id")
     .single();
   if (eNova?.code === "23505") return JA_EM_CURSO();
-  if (eNova || !nova) return jsonResponse({ error: `registrando o envio: ${eNova?.message ?? "sem retorno"}` }, 500);
+  if (eNova || !nova) return falhaInterna("registrando o envio", eNova);
 
   return await concluirEnvio(
     nova.id,
     () => criarDocumento(integ!, { nome: doc.nome_arquivo, base64: encodeBase64(bytes), formato, externalId: nova.id, signatarios }),
     { caso_id: doc.caso_id, documento_id: doc.id, signatarios: signatarios.map((x) => x.papel) },
+    avisoSemWhatsapp(cliente),
   );
 });
