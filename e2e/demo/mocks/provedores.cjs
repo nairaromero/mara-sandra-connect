@@ -43,6 +43,33 @@ const json = (res, corpo, status = 200) => { res.writeHead(status, { "content-ty
 const html = (res, corpo, status = 200) => { res.writeHead(status, { "content-type": "text/html; charset=utf-8" }); res.end(corpo); };
 const lerCorpo = (req) => new Promise((ok) => { let t = ""; req.on("data", (c) => (t += c)); req.on("end", () => ok(t)); });
 
+// Modelos de contrato da conta do ZapSign simulada (#522): mais de 20 (o ZapSign
+// pagina de 20 em 20), em pastas, com um de PDF e um inativo que NÃO devem
+// aparecer no sistema.
+function modelosZapsign() {
+  const campos = [
+    { variable: "{{NOME COMPLETO}}", input_type: "signer_fullname", label: "NOME COMPLETO", help_text: "", options: "", required: true, order: 1 },
+    { variable: "{{CPF}}", input_type: "input", label: "CPF", help_text: "", options: "", required: true, order: 2 },
+    { variable: "{{ENDEREÇO}}", input_type: "input", label: "ENDEREÇO", help_text: "", options: "", required: false, order: 3 },
+    { variable: "{{NOME DA MÃE}}", input_type: "input", label: "NOME DA MÃE", help_text: "Como está no documento", options: "", required: false, order: 4 },
+    { variable: "{{VALOR DOS HONORÁRIOS}}", input_type: "input", label: "VALOR DOS HONORÁRIOS", help_text: "", options: "", required: true, order: 5 },
+  ];
+  const um = (i, name, folder_path, extra = {}) => ({
+    token: `modelo-${String(i).padStart(2, "0")}`, template_type: "docx", name, active: true, template_file: "", created_at: "2026-10-01T12:00:00Z",
+    last_update_at: "2026-10-01T12:00:00Z", redirect_link: "", folder_path, lang: "pt-br", inputs: campos, ...extra,
+  });
+  const previ = ["Aposentadoria por idade", "Aposentadoria por tempo de contribuição", "Aposentadoria por incapacidade permanente", "Auxílio-acidente", "Auxílio por incapacidade temporária", "BPC/LOAS", "Pensão por morte", "Revisão de aposentadoria", "Salário-maternidade"];
+  const lista = [
+    um(1, "Procuração ad judicia", "/"),
+    um(2, "Declaração de hipossuficiência", "/"),
+    ...previ.map((b, i) => um(3 + i, `Contrato de honorários - ${b}`, "/Previdenciário/")),
+    ...Array.from({ length: 11 }, (_, i) => um(12 + i, `Contrato cível ${String(i + 1).padStart(2, "0")}`, "/Cível/")),
+    um(23, "Formulário em PDF (não gera documento por aqui)", "/", { template_type: "pdf" }),
+    um(24, "Contrato antigo (desativado)", "/Previdenciário/", { active: false }),
+  ];
+  return lista;
+}
+
 function emailInss() {
   const c = estado.config;
   const corpo = [
@@ -286,6 +313,35 @@ button{background:#1a73e8;color:#fff;border:0;border-radius:6px;padding:10px 26p
         // documento "criado no painel": respostas do modelo e quem criou (a spec manda no corpo)
         answers: d.answers, created_by: { email: d.created_by_email },
       });
+      // ---- modelos de contrato (#522): lista paginada de 20, detalhe com os campos e criação por modelo
+      const modelos = modelosZapsign();
+      if (p === "/zapsign/api/v1/templates/" && req.method === "GET") {
+        const pagina = Math.max(1, Number(url.searchParams.get("page") || 1));
+        const fatia = modelos.slice((pagina - 1) * 20, pagina * 20);
+        const resumo = ({ inputs: _i, ...m }) => m;
+        return json(res, { count: modelos.length, next: pagina * 20 < modelos.length ? `http://${req.headers.host}/zapsign/api/v1/templates/?page=${pagina + 1}` : null, previous: null, results: fatia.map(resumo) });
+      }
+      if ((m = p.match(/^\/zapsign\/api\/v1\/templates\/([^/]+)\/$/)) && req.method === "GET") {
+        const modelo = modelos.find((x) => x.token === decodeURIComponent(m[1]));
+        return modelo ? json(res, modelo) : json(res, { detail: "Not found." }, 404);
+      }
+      if (p === "/zapsign/api/v1/models/create-doc/" && req.method === "POST") {
+        const c = JSON.parse(await lerCorpo(req) || "{}");
+        const modelo = modelos.find((x) => x.token === c.template_id);
+        if (!modelo || !c.signer_name) return json(res, { detail: "template_id e signer_name são obrigatórios" }, 400);
+        const token = require("crypto").randomUUID();
+        const agora = new Date().toISOString();
+        const t = require("crypto").randomUUID();
+        const d = {
+          token, open_id: docs.size + 1, name: modelo.name, external_id: c.external_id ?? "", status: "pending", created_at: agora, last_update_at: agora,
+          template_id: modelo.token,
+          answers: (Array.isArray(c.data) ? c.data : []).map((x) => ({ variable: String(x.de).replace(/[{}]/g, ""), value: x.para })),
+          created_by_email: c.created_by ?? "painel@exemplo.com.br",
+          signers: [{ token: t, sign_url: `https://app.zapsign.co/verificar/${t}`, status: "new", name: c.signer_name, email: c.signer_email ?? "", phone_country: c.signer_phone_country ?? "", phone_number: c.signer_phone_number ?? "", external_id: "", cpf: "", times_viewed: 0, last_view_at: null, signed_at: null, send_automatic_email: !!c.send_automatic_email, send_automatic_whatsapp: !!c.send_automatic_whatsapp }],
+        };
+        docs.set(token, d);
+        return json(res, visivel(d));
+      }
       if (p === "/zapsign/api/v1/docs/" && req.method === "GET") return json(res, { count: docs.size, next: null, previous: null, results: [...docs.values()].map(visivel) });
       if (p === "/zapsign/api/v1/docs/" && req.method === "POST") {
         const c = JSON.parse(await lerCorpo(req) || "{}");

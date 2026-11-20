@@ -1,7 +1,8 @@
 // ZapSign (#517) — o único lugar que fala com a API do ZapSign e o único que
 // decide o status de um envio A PARTIR do que o ZapSign diz. Quem usa:
-//   zapsign-enviar         cria o documento lá (só abre e fecha o `enviando`) e,
-//                          a pedido da tela, chama `sincronizarAssinatura`
+//   zapsign-enviar         cria o documento lá — de um arquivo do caso ou de um
+//                          MODELO da conta (só abre e fecha o `enviando`) — e, a
+//                          pedido da tela, chama `sincronizarAssinatura`
 //   zapsign-webhook        recebe o aviso: `sincronizarAssinatura` ou `adotarDocumento`
 //   integracoes-escritorio "Testar conexão" (`testarToken`)
 //
@@ -10,7 +11,7 @@
 // ZapSign não assina o webhook; o corpo só serve para saber QUAL documento
 // olhar.
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { formatoAssinavel, type Signatario, type StatusAssinatura, type StatusSignatario } from "./assinatura.ts";
+import { type CampoDoModelo, formatoAssinavel, type ModeloZapsign, type Signatario, type StatusAssinatura, type StatusSignatario } from "./assinatura.ts";
 import { fetchT } from "./auth.ts";
 import { cpfValido } from "./documento-campos.ts";
 import { equipeInterna } from "./equipe.ts";
@@ -35,12 +36,16 @@ export interface LinhaAssinatura {
   status: StatusAssinatura;
   signatarios: Signatario[];
   enviado_por: string | null;
+  /** modelo do ZapSign de onde o documento nasceu (envio sem arquivo do caso) */
+  modelo_token: string | null;
+  /** tipo do PDF assinado quando não há arquivo original de quem herdar */
+  tipo_documento: string | null;
   created_at: string;
   updated_at: string;
   assinado_em: string | null;
 }
 export const COLUNAS_ASSINATURA =
-  "id, caso_id, documento_id, documento_assinado_id, nome, zapsign_doc_token, sandbox, status, signatarios, enviado_por, created_at, updated_at, assinado_em";
+  "id, caso_id, documento_id, documento_assinado_id, nome, zapsign_doc_token, sandbox, status, signatarios, enviado_por, modelo_token, tipo_documento, created_at, updated_at, assinado_em";
 
 /** O escritório está no sandbox do ZapSign (sem validade jurídica, sem cota)? */
 export const ehSandbox = (integ: Integracao): boolean => integ.config.ambiente === "sandbox";
@@ -149,6 +154,99 @@ export async function testarToken(integ: Integracao): Promise<{ ok: boolean; htt
     if (e instanceof ErroZapsign) return { ok: false, http: e.http };
     throw e; // não alcançou o ZapSign: quem chama diz isso à tela
   }
+}
+
+// ---------------------------------------------------------------------------
+// Modelos de contrato da conta do escritório (#522)
+// ---------------------------------------------------------------------------
+/** Teto de páginas da lista (20 modelos por página no ZapSign): 400 modelos. */
+const MODELOS_MAX_PAGINAS = 20;
+
+/** TODOS os modelos ativos de DOCX da conta, em ordem de pasta e nome. */
+export async function listarModelos(integ: Integracao): Promise<ModeloZapsign[]> {
+  const modelos: ModeloZapsign[] = [];
+  for (let pagina = 1; pagina <= MODELOS_MAX_PAGINAS; pagina++) {
+    const r = (await chamar(integ, `/api/v1/templates/?page=${pagina}`)) as {
+      next?: string | null;
+      results?: Array<{ token?: string; name?: string; active?: boolean; template_type?: string; folder_path?: string }>;
+    };
+    for (const m of r.results ?? []) {
+      // só DOCX gera documento por `models/create-doc` (o de PDF é preenchido na tela do ZapSign)
+      if (!m.token || m.active === false || (m.template_type && m.template_type !== "docx")) continue;
+      modelos.push({ token: m.token, nome: String(m.name ?? "Modelo sem nome"), pasta: String(m.folder_path || "/") });
+    }
+    if (!r.next) break;
+  }
+  return modelos.sort((a, b) => a.pasta.localeCompare(b.pasta, "pt-BR") || a.nome.localeCompare(b.nome, "pt-BR"));
+}
+
+/** O que o cadastro do cliente sabe responder num modelo. */
+export interface DadosDoCliente {
+  nome?: string | null;
+  cpf?: string | null;
+  email?: string | null;
+  telefone?: string | null;
+  endereco?: string | null;
+  data_nascimento?: string | null;
+}
+const cpfFormatado = (cpf: string) => (/^\d{11}$/.test(cpf) ? `${cpf.slice(0, 3)}.${cpf.slice(3, 6)}.${cpf.slice(6, 9)}-${cpf.slice(9)}` : cpf);
+
+/** Valor do cadastro para um campo do modelo, pelo nome que o campo tem lá. "" = não sabemos. */
+function sugestaoPara(rotulo: string, c: DadosDoCliente): string {
+  const r = rotulo.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  if (/\bcpf\b/.test(r)) return cpfFormatado(String(c.cpf ?? "").replace(/\D/g, ""));
+  if (/e-?mail/.test(r)) return String(c.email ?? "");
+  if (/telefone|celular|whats/.test(r)) return String(c.telefone ?? "");
+  if (/endereco/.test(r)) return String(c.endereco ?? "");
+  if (/nascimento/.test(r)) {
+    const m = String(c.data_nascimento ?? "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? `${m[3]}/${m[2]}/${m[1]}` : "";
+  }
+  // "nome", "nome completo", "nome do contratante" — mas não "nome da mãe" nem "nome do advogado"
+  if (/\bnome\b/.test(r) && !/\b(mae|pai|advogad|escritorio|testemunha|conjuge|representante)/.test(r)) return String(c.nome ?? "");
+  return "";
+}
+
+/** Nome e campos de UM modelo, já com o que o cadastro do cliente responde. */
+export async function detalharModelo(integ: Integracao, modeloToken: string, cliente: DadosDoCliente): Promise<{ modelo: ModeloZapsign; campos: CampoDoModelo[] }> {
+  const m = (await chamar(integ, `/api/v1/templates/${encodeURIComponent(modeloToken)}/`)) as {
+    token?: string; name?: string; folder_path?: string;
+    inputs?: Array<{ variable?: string; label?: string; help_text?: string; required?: boolean; order?: number }>;
+  };
+  const campos = [...(m.inputs ?? [])]
+    .filter((i) => typeof i.variable === "string" && i.variable)
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    .map((i) => {
+      const rotulo = String(i.label || i.variable).replace(/[{}]/g, "").trim();
+      return { variavel: i.variable as string, rotulo, ajuda: String(i.help_text ?? ""), obrigatorio: i.required === true, sugestao: sugestaoPara(rotulo, cliente) };
+    });
+  return { modelo: { token: m.token ?? modeloToken, nome: String(m.name ?? "Modelo sem nome"), pasta: String(m.folder_path || "/") }, campos };
+}
+
+/** Cria o documento a partir do modelo, com os campos preenchidos e o cliente como signatário. */
+export async function criarDocumentoDeModelo(
+  integ: Integracao,
+  entrada: { modeloToken: string; externalId: string; respostas: Array<{ variavel: string; valor: string }>; signatario: NovoSignatario },
+): Promise<DocumentoZapsign> {
+  const s = entrada.signatario;
+  const corpo = {
+    template_id: entrada.modeloToken,
+    signer_name: s.nome,
+    signer_email: s.email,
+    signer_phone_country: s.telefone ? s.ddi : "",
+    signer_phone_number: s.telefone,
+    external_id: entrada.externalId,
+    lang: "pt-br",
+    send_automatic_email: !!s.email,
+    send_automatic_whatsapp: !!s.telefone,
+    data: entrada.respostas.map((r) => ({ de: r.variavel, para: r.valor })),
+  };
+  return (await chamar(integ, "/api/v1/models/create-doc/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(corpo),
+    timeoutMs: 45_000,
+  })) as DocumentoZapsign;
 }
 
 // ---------------------------------------------------------------------------
@@ -523,7 +621,7 @@ export async function sincronizarAssinatura(sb: SupabaseClient, integ: Integraca
     const bytes = await baixarAssinado(doc.signed_file);
 
     // o assinado herda tipo e visibilidade do arquivo que foi enviado
-    let tipo = "outro";
+    let tipo = linha.tipo_documento ?? "outro";
     let tipoPersonalizado: string | null = null;
     let visivelParceiro = false;
     if (linha.documento_id) {
