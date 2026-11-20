@@ -684,7 +684,7 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
   test("honorários do modelo: padrão vem do texto de ajuda, o extenso é do sistema, a faixa é cobrada e a prévia não cria documento", async () => {
     test.skip(!mockVivo || !segredoWebhook, "depende da integração");
     const adv = await sessaoComo(contaDoCanario("advogado"), ESC2);
-    type Campo = { variavel: string; rotulo: string; sugestao: string; padrao: string; tipo: string; maximo: number | null; extensoDe: string | null; ajuda: string };
+    type Campo = { variavel: string; rotulo: string; sugestao: string; padrao: string; tipo: string; maximo: number | null; extensoDe: string | null; copiaDe: string | null; ajuda: string; especie: string | null; opcoes: Array<string> };
     const det = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "modelo", caso_id: casoId, modelo_token: "modelo-kit" });
     expect(det.status, det.texto.slice(0, 200)).toBe(200);
     const campos = Object.fromEntries((det.json?.campos as Array<Campo>).map((c) => [c.variavel, c]));
@@ -692,12 +692,29 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
     expect([perc.tipo, perc.padrao, perc.sugestao, perc.maximo, perc.ajuda]).toEqual(["percentual", "35%", "35%", 50, ""]);
     expect([campos["{{QTD_PRESTACOES}}"].tipo, campos["{{QTD_PRESTACOES}}"].sugestao]).toEqual(["inteiro", "5"]);
     expect(campos["{{PERCENTUAL_ATRASADOS_EXTENSO}}"].extensoDe).toBe("{{PERCENTUAL_ATRASADOS}}");
-    expect(campos["{{QUALIFICACAO_CONTRATANTE}}"].ajuda, "ajuda que não é regra continua na tela").toContain("Nacionalidade");
+    expect(campos["{{TEXTO_PARCEIRO}}"].ajuda, "ajuda que não é regra continua na tela").toContain("Nome do parceiro");
+    // o que o sistema monta sem ninguém digitar: qualificação (cadastro), benefício (caso + catálogo) e a data de hoje
+    const { data: doCaso } = await admin.from("casos").select("tipo_beneficio, clientes(nome, cpf)").eq("id", casoId).single();
+    const cc = doCaso as unknown as { tipo_beneficio: string; clientes: { nome: string; cpf: string } };
+    const quali = campos["{{QUALIFICACAO_CONTRATANTE}}"];
+    expect(quali.especie).toBe("qualificacao");
+    expect(quali.sugestao.startsWith(`${cc.clientes.nome}, brasileiro(a), CPF n.º ${cc.clientes.cpf.slice(0, 3)}.`), quali.sugestao).toBe(true);
+    const obj = campos["{{OBJETO_SERVICO}}"];
+    expect(obj.especie).toBe("beneficio");
+    expect(obj.opcoes).toContain("pensão por morte");
+    expect(obj.opcoes, "'Outro' não é benefício: quem não achar escreve").not.toContain("outro");
+    if (!/^outro$/i.test(cc.tipo_beneficio)) expect(obj.sugestao.toLowerCase()).toBe(cc.tipo_beneficio.toLowerCase());
+    // o segundo campo de benefício do modelo repete o primeiro; o parceiro vem do caso
+    expect(campos["{{BENEFICIO_OBJETO}}"].copiaDe).toBe("{{OBJETO_SERVICO}}");
+    const { data: comParceiro } = await admin.from("casos").select("parceiro_id").eq("id", casoId).single();
+    const nomeParceiro = comParceiro?.parceiro_id ? (await admin.from("usuarios").select("nome").eq("id", comParceiro.parceiro_id).single()).data?.nome : null;
+    expect(campos["{{TEXTO_PARCEIRO}}"].sugestao).toBe(nomeParceiro || "não há");
+    expect(campos["{{DATA}}"].sugestao).toMatch(/^\d{1,2} de [a-zç]+ de \d{4}$/);
 
     const antes = ((await (await fetch(`${MOCK}/zapsign/_docs`)).json()) as Array<unknown>).length;
     const respostas = {
       "{{NOME_ASSINANTE}}": "Helena Bastos Ferraz", "{{CPF_ASSINANTE}}": "770.000.001-80", "{{QUALIFICACAO_CONTRATANTE}}": "brasileira, aposentada",
-      "{{OBJETO_SERVICO}}": "revisão de aposentadoria", "{{BENEFICIO_OBJETO}}": "a revisão do benefício",
+      "{{OBJETO_SERVICO}}": "revisão de aposentadoria", "{{BENEFICIO_OBJETO}}": "o que a tela mandar aqui não vale",
       "{{PERCENTUAL_ATRASADOS}}": "30", "{{QTD_PRESTACOES}}": "4", "{{CIDADE}}": "São Paulo", "{{DATA}}": "20 de novembro de 2026", "{{FORO}}": "São Paulo",
       // o que a tela mandar no extenso não vale: quem escreve é o servidor
       "{{PERCENTUAL_ATRASADOS_EXTENSO}}": "noventa por cento",
@@ -766,7 +783,23 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
       await perc.locator("input").fill("30");
       await expect(perc.locator("[data-extenso]")).toHaveText("No contrato: 30% (trinta por cento)");
       await expect(perc.locator("[data-origem-do-valor]")).toHaveText("padrão do modelo: 35%");
-      for (const [campo, valor] of [["QUALIFICACAO_CONTRATANTE", "brasileira, aposentada"], ["OBJETO_SERVICO", "revisão de aposentadoria"], ["BENEFICIO_OBJETO", "a revisão do benefício"], ["CIDADE", "São Paulo"], ["DATA", "20 de novembro de 2026"], ["FORO", "São Paulo"]]) {
+      // qualificação: nome, CPF e endereço do cadastro; o resto se escolhe em lista e o sistema escreve a frase
+      const quali = dlg.locator("[data-qualificacao]");
+      await expect(quali.locator("[data-qualificacao-texto]")).toContainText("brasileiro(a), CPF n.º");
+      await quali.locator('[data-parte="estado-civil"] button').click();
+      await page.getByRole("option", { name: "casado(a)" }).click();
+      await quali.locator('[data-parte="profissao"] button').click();
+      await page.getByRole("option", { name: /Outro/ }).click();
+      await quali.locator('[data-parte="profissao"] input').fill("costureira");
+      await expect(quali.locator("[data-qualificacao-texto]")).toContainText("brasileiro(a), casado(a), costureira, CPF n.º");
+      // benefício: lista do escritório (já vem o do caso, quando o caso tem um)
+      // o benefício é perguntado UMA vez, mesmo com dois campos no modelo; o parceiro vem do caso
+      await expect(dlg.locator('[data-campo="{{BENEFICIO_OBJETO}}"]')).toHaveCount(0);
+      await dlg.locator('[data-campo="{{OBJETO_SERVICO}}"] button').first().click();
+      await page.getByRole("option", { name: "auxílio-acidente" }).click();
+      await expect(dlg.locator('[data-campo="{{TEXTO_PARCEIRO}}"] textarea')).not.toHaveValue("");
+      await expect(dlg.locator('[data-campo="{{DATA}}"] textarea'), "a data de hoje vem escrita").toHaveValue(/ de \d{4}$/);
+      for (const [campo, valor] of [["CIDADE", "São Paulo"], ["FORO", "São Paulo"]]) {
         await dlg.locator(`[data-campo="{{${campo}}}"] textarea`).fill(valor);
       }
       const enviar = dlg.locator("[data-enviar-modelo]");
@@ -779,7 +812,8 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
       const previa = dlg.locator("[data-previa-contrato]");
       await expect(previa).toContainText("30% (trinta por cento) sobre");
       await expect(previa.locator('[data-trecho="preenchido"]', { hasText: "trinta por cento" })).toBeVisible();
-      await expect(previa.locator("[data-previa-vazios]")).toContainText("1 campo vai em branco");
+      await expect(previa.locator("[data-previa-vazios]"), "nada vai em branco").toHaveCount(0);
+      await expect(previa).toContainText("para obter auxílio-acidente");
       await expect(enviar).toBeEnabled();
       // voltar para corrigir mantém o que foi digitado
       await dlg.locator("[data-voltar-aos-campos]").click();

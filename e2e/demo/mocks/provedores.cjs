@@ -100,9 +100,10 @@ function docxDoKit() {
 const CAMPOS_DO_KIT = [
   ["NOME_ASSINANTE", "Nome de quem assina", "", true],
   ["CPF_ASSINANTE", "CPF de quem assina", "", true],
-  ["QUALIFICACAO_CONTRATANTE", "Qualificação do contratante", "Nacionalidade, estado civil, profissão, RG e endereço.", true],
-  ["OBJETO_SERVICO", "Objeto do serviço", "O que será feito, em uma frase.", true],
-  ["BENEFICIO_OBJETO", "Benefício ou serviço", "Como deve aparecer nas procurações.", true],
+  ["QUALIFICACAO_CONTRATANTE", "Qualificação do contratante", "", true],
+  // "Sistema: benefício": o sistema oferece o benefício do caso e a lista de tipos do escritório
+  ["OBJETO_SERVICO", "Objeto do serviço", "Sistema: benefício", true],
+  ["BENEFICIO_OBJETO", "Benefício ou serviço", "", true],
   ["PERCENTUAL_ATRASADOS", "Honorários sobre os atrasados (%)", "Padrão: 35% · Máximo: 50%", true],
   ["PERCENTUAL_ATRASADOS_EXTENSO", "Honorários sobre os atrasados por extenso", "O sistema escreve a partir do percentual.", true],
   ["QTD_PRESTACOES", "Quantidade de prestações do benefício", "Padrão: 5", true],

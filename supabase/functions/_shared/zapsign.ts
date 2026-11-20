@@ -16,7 +16,7 @@ import { fetchT } from "./auth.ts";
 import { cpfValido } from "./documento-campos.ts";
 import { equipeInterna } from "./equipe.ts";
 import { baseZapsign, type Integracao } from "./integracoes.ts";
-import { type CampoDoModelo, camposDoModelo, type EntradaDoModelo, type ParagrafoDoContrato, paragrafosDoDocx, previaDoContrato } from "./modelo-contrato.ts";
+import { type CampoDoModelo, camposDoModelo, type ContextoDoModelo, type EntradaDoModelo, type ParagrafoDoContrato, paragrafosDoDocx, previaDoContrato } from "./modelo-contrato.ts";
 import { telefoneGuardado } from "./telefone.ts";
 
 /** Teto do arquivo enviado (o ZapSign documenta 10 MB para PDF por URL). */
@@ -234,6 +234,10 @@ function sugestaoPara(rotulo: string, c: DadosDoCliente): string {
     const m = String(c.data_nascimento ?? "").match(/^(\d{4})-(\d{2})-(\d{2})/);
     return m ? `${m[3]}/${m[2]}/${m[1]}` : "";
   }
+  // a data em que o contrato é assinado é hoje, por extenso, no calendário de Brasília
+  if (/^data$|data d[ao] (assinatura|contrato)|data de hoje/.test(r)) {
+    return new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", day: "numeric", month: "long", year: "numeric" }).format(new Date());
+  }
   // "nome", "nome completo", "nome do contratante" — mas não "nome da mãe" nem "nome do advogado"
   if (/\bnome\b/.test(r) && !DE_OUTRA_PESSOA.test(r)) return String(c.nome ?? "");
   return "";
@@ -244,13 +248,13 @@ function sugestaoPara(rotulo: string, c: DadosDoCliente): string {
  * com as regras do texto de ajuda (`camposDoModelo`). `arquivo` é o endereço
  * do DOCX do modelo — de vida curta, só para a prévia ler agora.
  */
-export async function detalharModelo(integ: Integracao, modeloToken: string, cliente: DadosDoCliente): Promise<{ modelo: ModeloZapsign; campos: CampoDoModelo[]; arquivo: string }> {
+export async function detalharModelo(integ: Integracao, modeloToken: string, cliente: DadosDoCliente, caso: Pick<ContextoDoModelo, "beneficios" | "beneficioDoCaso" | "parceiro"> = {}): Promise<{ modelo: ModeloZapsign; campos: CampoDoModelo[]; arquivo: string }> {
   const m = (await chamar(integ, `/api/v1/templates/${encodeURIComponent(modeloToken)}/`)) as {
     token?: string; name?: string; folder_path?: string; template_file?: string; inputs?: EntradaDoModelo[];
   };
   return {
     modelo: { token: m.token ?? modeloToken, nome: String(m.name ?? "Modelo sem nome"), pasta: String(m.folder_path || "/") },
-    campos: camposDoModelo(m.inputs ?? [], (rotulo) => sugestaoPara(rotulo, cliente)),
+    campos: camposDoModelo(m.inputs ?? [], (rotulo) => sugestaoPara(rotulo, cliente), { ...caso, cliente }),
     arquivo: String(m.template_file ?? ""),
   };
 }

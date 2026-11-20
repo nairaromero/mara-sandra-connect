@@ -20,6 +20,27 @@ export interface EntradaDoModelo {
   help_text?: string;
   required?: boolean;
   order?: number;
+  /** lista de escolhas do campo no ZapSign: "Opção A; Opção B" */
+  options?: string;
+}
+
+/**
+ * Campo que o sistema sabe montar sem a pessoa digitar:
+ * "qualificacao" = nome, nacionalidade, estado civil, profissão, RG, CPF e endereço numa frase;
+ * "beneficio"    = o benefício do caso, escolhido na lista de tipos do escritório;
+ * "parceiro"     = o parceiro que indicou o caso (ou "não há").
+ */
+export type EspecieDoCampo = "qualificacao" | "beneficio" | "parceiro";
+
+/** O que o sistema sabe do caso e do cliente na hora de abrir o modelo. */
+export interface ContextoDoModelo {
+  /** tipos de benefício do escritório, na ordem do catálogo */
+  beneficios?: ReadonlyArray<string>;
+  /** tipo de benefício do caso */
+  beneficioDoCaso?: string | null;
+  cliente?: { nome?: string | null; cpf?: string | null; endereco?: string | null };
+  /** nome do parceiro que indicou o caso (vazio = o caso não tem parceiro) */
+  parceiro?: string | null;
 }
 
 export type TipoDoCampo = "texto" | "percentual" | "inteiro";
@@ -41,6 +62,60 @@ export interface CampoDoModelo {
   maximo: number | null;
   /** variável de que este campo é o extenso: o sistema escreve, a pessoa não digita */
   extensoDe: string | null;
+  /** escolhas prontas (a pessoa ainda pode escrever outra); [] = campo livre */
+  opcoes: string[];
+  especie: EspecieDoCampo | null;
+  /**
+   * variável que este campo repete: o modelo pede o benefício em mais de um
+   * campo ("objeto do serviço", "benefício ou serviço") e ele é um só — a
+   * pessoa escolhe no primeiro e o sistema escreve nos outros.
+   */
+  copiaDe: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Qualificação do contratante: escolhida em listas, escrita pelo sistema
+// ---------------------------------------------------------------------------
+export const NACIONALIDADES = ["brasileiro(a)", "brasileiro(a) naturalizado(a)", "estrangeiro(a)"] as const;
+export const ESTADOS_CIVIS = ["solteiro(a)", "casado(a)", "em união estável", "divorciado(a)", "separado(a) judicialmente", "viúvo(a)"] as const;
+export const PROFISSOES = [
+  "aposentado(a)", "pensionista", "do lar", "trabalhador(a) rural", "autônomo(a)", "desempregado(a)", "empregado(a) doméstico(a)",
+  "servidor(a) público(a)", "comerciante", "motorista", "pedreiro", "professor(a)", "vendedor(a)", "auxiliar de serviços gerais",
+] as const;
+
+export interface PartesDaQualificacao {
+  nome: string;
+  nacionalidade: string;
+  estadoCivil: string;
+  profissao: string;
+  rg: string;
+  cpf: string;
+  endereco: string;
+}
+
+const cpfComPontos = (cpf: string): string => {
+  const d = cpf.replace(/\D/g, "");
+  return d.length === 11 ? `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}` : cpf.trim();
+};
+
+/** A frase da qualificação. Parte em branco simplesmente não entra. */
+export function qualificacaoDe(p: Partial<PartesDaQualificacao>): string {
+  const t = (v: string | undefined) => (v ?? "").trim();
+  return [
+    t(p.nome),
+    t(p.nacionalidade),
+    t(p.estadoCivil),
+    t(p.profissao),
+    t(p.rg) && `RG n.º ${t(p.rg)}`,
+    t(p.cpf) && `CPF n.º ${cpfComPontos(t(p.cpf))}`,
+    t(p.endereco) && `residente e domiciliado(a) em ${t(p.endereco).replace(/[.\s]+$/, "")}`,
+  ].filter(Boolean).join(", ");
+}
+
+/** O nome do benefício como entra no meio de uma frase: "Aposentadoria por idade" → "aposentadoria por idade"; "BPC/LOAS" fica. */
+export function beneficioNaFrase(nome: string): string {
+  const v = nome.trim();
+  return /^[A-ZÀ-Ý][a-zà-ÿ]/.test(v) ? v[0].toLowerCase() + v.slice(1) : v;
 }
 
 const semAcento = (v: string): string => v.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -106,13 +181,14 @@ const numeroDe = (texto: string): number | null => {
 };
 
 /** "Padrão: 35% · Máximo: 50%" → as regras; o que sobra é a ajuda que a pessoa lê. */
-export function regrasDaAjuda(ajuda: string): { padrao: string; minimo: number | null; maximo: number | null; texto: string } {
+export function regrasDaAjuda(ajuda: string): { padrao: string; minimo: number | null; maximo: number | null; sistema: string; texto: string } {
   let padrao = "";
+  let sistema = "";
   let minimo: number | null = null;
   let maximo: number | null = null;
   const resto: string[] = [];
   for (const parte of ajuda.split(/[·;|\n]/)) {
-    const m = /^\s*(padrao|minimo|maximo)\s*:\s*(.+?)\s*$/.exec(semAcento(parte));
+    const m = /^\s*(padrao|minimo|maximo|sistema)\s*:\s*(.+?)\s*$/.exec(semAcento(parte));
     if (!m) {
       if (parte.trim()) resto.push(parte.trim());
       continue;
@@ -120,10 +196,11 @@ export function regrasDaAjuda(ajuda: string): { padrao: string; minimo: number |
     // o valor sai do texto original (com acento e maiúscula), não do comparado
     const valor = parte.slice(parte.indexOf(":") + 1).trim();
     if (m[1] === "padrao") padrao = valor;
+    else if (m[1] === "sistema") sistema = m[2];
     else if (m[1] === "minimo") minimo = numeroDe(valor);
     else maximo = numeroDe(valor);
   }
-  return { padrao, minimo, maximo, texto: resto.join(" · ") };
+  return { padrao, minimo, maximo, sistema, texto: resto.join(" · ") };
 }
 
 /** Deixa o valor digitado como o contrato escreve: "30" ou "30,5 %" → "30%" / "30,5%". */
@@ -138,12 +215,30 @@ export function normalizarValor(tipo: TipoDoCampo, bruto: string): string {
 }
 
 /**
- * Os campos do modelo, na ordem do ZapSign, com as regras lidas do texto de
- * ajuda. `sugerir` responde o que o cadastro do cliente sabe sobre o campo.
+ * Que campo o sistema monta sozinho. O modelo manda ("Sistema: benefício" no
+ * texto de ajuda); sem isso, vale o nome do campo. "Sistema: nenhum" desliga.
  */
-export function camposDoModelo(inputs: ReadonlyArray<EntradaDoModelo>, sugerir: (rotulo: string) => string): CampoDoModelo[] {
+function especieDe(sistema: string, nome: string, rotulo: string): EspecieDoCampo | null {
+  if (/^qualifica/.test(sistema)) return "qualificacao";
+  if (/^benefici/.test(sistema)) return "beneficio";
+  if (/^parceiro/.test(sistema)) return "parceiro";
+  if (sistema) return null;
+  // só quando o campo COMEÇA falando disso: "Quantidade de prestações do benefício" é um número, não o benefício
+  const comeca = (re: RegExp) => re.test(semAcento(nome)) || re.test(semAcento(rotulo));
+  if (comeca(/^qualificac/)) return "qualificacao";
+  if (comeca(/^benefici/)) return "beneficio";
+  return comeca(/^(texto[ _])?parceiro/) ? "parceiro" : null;
+}
+
+/**
+ * Os campos do modelo, na ordem do ZapSign, com as regras lidas do texto de
+ * ajuda. `sugerir` responde o que o cadastro do cliente sabe sobre o campo;
+ * `contexto` traz o que o caso sabe (benefício, dados para a qualificação).
+ */
+export function camposDoModelo(inputs: ReadonlyArray<EntradaDoModelo>, sugerir: (rotulo: string) => string, contexto: ContextoDoModelo = {}): CampoDoModelo[] {
   const validos = [...inputs].filter((i) => typeof i.variable === "string" && i.variable).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   const porNome = new Map(validos.map((i) => [nomeDaVariavel(i.variable as string).toUpperCase(), i.variable as string]));
+  let primeiroBeneficio: string | null = null;
   return validos.map((i) => {
     const variavel = i.variable as string;
     const nome = nomeDaVariavel(variavel);
@@ -159,12 +254,30 @@ export function camposDoModelo(inputs: ReadonlyArray<EntradaDoModelo>, sugerir: 
         : /^\d+$/.test(regras.padrao)
           ? "inteiro"
           : "texto";
+    const especie = extensoDe ? null : especieDe(regras.sistema, nome, rotulo);
+    const doModelo = String(i.options ?? "").split(";").map((o) => o.trim()).filter(Boolean);
+    // benefício: a lista do escritório, já do jeito que entra na frase; "Outro" não é um benefício
+    const beneficios = (contexto.beneficios ?? []).filter((b) => semAcento(b) !== "outro").map(beneficioNaFrase);
+    const doCaso = contexto.beneficioDoCaso && semAcento(contexto.beneficioDoCaso) !== "outro" ? beneficioNaFrase(contexto.beneficioDoCaso) : "";
+    const daEspecie =
+      especie === "beneficio"
+        ? doCaso
+        : especie === "qualificacao"
+          ? qualificacaoDe({ nome: contexto.cliente?.nome ?? "", nacionalidade: NACIONALIDADES[0], cpf: contexto.cliente?.cpf ?? "", endereco: contexto.cliente?.endereco ?? "" })
+          : especie === "parceiro"
+            ? (contexto.parceiro ?? "").trim() || "não há"
+            : "";
+    const copiaDe = especie === "beneficio" ? primeiroBeneficio : null;
+    if (especie === "beneficio" && !primeiroBeneficio) primeiroBeneficio = variavel;
     return {
       variavel,
       rotulo,
       ajuda: extensoDe ? "" : regras.texto,
       obrigatorio: i.required === true,
-      sugestao: extensoDe ? "" : sugerir(rotulo) || normalizarValor(tipo, regras.padrao),
+      copiaDe,
+      opcoes: extensoDe || copiaDe ? [] : doModelo.length ? doModelo : especie === "beneficio" ? [...new Set([doCaso, ...beneficios].filter(Boolean))] : [],
+      especie,
+      sugestao: extensoDe ? "" : daEspecie || (especie ? "" : sugerir(rotulo)) || normalizarValor(tipo, regras.padrao),
       tipo,
       padrao: extensoDe ? "" : normalizarValor(tipo, regras.padrao),
       minimo: regras.minimo,
@@ -189,7 +302,7 @@ export function respostasDoModelo(
   const comErro = new Set<string>();
   const faltando: string[] = [];
   for (const c of campos) {
-    if (c.extensoDe) continue;
+    if (c.extensoDe || c.copiaDe) continue;
     const valor = normalizarValor(c.tipo, String(dadas[c.variavel] ?? "")).slice(0, TETO_DO_VALOR);
     valores.set(c.variavel, valor);
     const acusar = (frase: string) => {
@@ -213,6 +326,8 @@ export function respostasDoModelo(
     if (c.minimo !== null && n < c.minimo) acusar(`${c.rotulo}: o mínimo deste modelo é ${String(c.minimo).replace(".", ",")}${sufixo}.`);
     if (c.maximo !== null && n > c.maximo) acusar(`${c.rotulo}: o máximo deste modelo é ${String(c.maximo).replace(".", ",")}${sufixo}.`);
   }
+  // o campo que repete outro leva o valor dele (a falta já foi cobrada no primeiro)
+  for (const c of campos) if (c.copiaDe) valores.set(c.variavel, valores.get(c.copiaDe) ?? "");
   for (const c of campos) {
     if (!c.extensoDe) continue;
     const base = valores.get(c.extensoDe) ?? "";

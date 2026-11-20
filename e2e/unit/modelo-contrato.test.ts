@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { deflateRawSync, inflateRawSync } from "node:zlib";
 import {
-  camposDoModelo, extensoDoValor, normalizarValor, numeroPorExtenso, paragrafosDoDocx, previaDoContrato, regrasDaAjuda, respostasDoModelo,
+  beneficioNaFrase, camposDoModelo, extensoDoValor, normalizarValor, numeroPorExtenso, paragrafosDoDocx, previaDoContrato, qualificacaoDe, regrasDaAjuda, respostasDoModelo,
 } from "../../supabase/functions/_shared/modelo-contrato";
 
 const RAIZ = join(import.meta.dir, "../..");
@@ -45,9 +45,10 @@ describe("número por extenso", () => {
 
 describe("o que o texto de ajuda do campo diz ao sistema", () => {
   test("padrão, mínimo e máximo saem da ajuda; o resto continua sendo ajuda", () => {
-    expect(regrasDaAjuda("Padrão: 35% · Máximo: 50%")).toEqual({ padrao: "35%", minimo: null, maximo: 50, texto: "" });
-    expect(regrasDaAjuda("Combine com o cliente; PADRAO: 5; mínimo: 1")).toEqual({ padrao: "5", minimo: 1, maximo: null, texto: "Combine com o cliente" });
-    expect(regrasDaAjuda("Como está no documento")).toEqual({ padrao: "", minimo: null, maximo: null, texto: "Como está no documento" });
+    expect(regrasDaAjuda("Padrão: 35% · Máximo: 50%")).toEqual({ padrao: "35%", minimo: null, maximo: 50, sistema: "", texto: "" });
+    expect(regrasDaAjuda("Combine com o cliente; PADRAO: 5; mínimo: 1")).toEqual({ padrao: "5", minimo: 1, maximo: null, sistema: "", texto: "Combine com o cliente" });
+    expect(regrasDaAjuda("Como está no documento")).toEqual({ padrao: "", minimo: null, maximo: null, sistema: "", texto: "Como está no documento" });
+    expect(regrasDaAjuda("Sistema: Benefício")).toEqual({ padrao: "", minimo: null, maximo: null, sistema: "beneficio", texto: "" });
   });
   test("o padrão já vem preenchido, o cadastro tem prioridade e o extenso é do sistema", () => {
     expect([campo("PERCENTUAL_ATRASADOS").tipo, campo("PERCENTUAL_ATRASADOS").sugestao, campo("PERCENTUAL_ATRASADOS").maximo]).toEqual(["percentual", "35%", 50]);
@@ -62,6 +63,47 @@ describe("o que o texto de ajuda do campo diz ao sistema", () => {
     expect(["30", "30%", " 30 % ", "30,50", "30.5"].map((v) => normalizarValor("percentual", v))).toEqual(["30%", "30%", "30%", "30,5%", "30,5%"]);
     expect(["04", "4"].map((v) => normalizarValor("inteiro", v))).toEqual(["4", "4"]);
     expect(normalizarValor("texto", "  30  ")).toBe("30");
+  });
+});
+
+describe("o que o sistema monta sem ninguém digitar", () => {
+  const ctx = { beneficios: ["Aposentadoria por idade", "BPC/LOAS", "Pensão por morte", "Outro"], beneficioDoCaso: "Pensão por morte", cliente: { nome: "Helena Bastos", cpf: "52998224725", endereco: "Rua das Flores, 10, Centro, São Paulo/SP." } };
+  const campos = (extra: Partial<typeof ctx> = {}) =>
+    Object.fromEntries(
+      camposDoModelo(
+        [i("QUALIFICACAO_CONTRATANTE", "Qualificação do contratante"), i("OBJETO_SERVICO", "Objeto do serviço", "Sistema: benefício"), i("BENEFICIO_OBJETO", "Benefício ou serviço"), i("OBJETO_CIVEL", "Objeto do serviço"), i("BENEFICIO_LIVRE", "Benefício", "Sistema: nenhum"), i("QTD_PRESTACOES", "Quantidade de prestações do benefício", "Padrão: 5"), i("TEXTO_PARCEIRO", "Parceiro indicador", "", false), { ...i("FORMA", "Forma de pagamento"), options: "à vista; em 3 parcelas ;" }],
+        () => "",
+        { ...ctx, ...extra },
+      ).map((c) => [c.variavel.replace(/[{}]/g, ""), c]),
+    );
+  test("qualificação: frase com o que o cadastro tem; parte em branco não entra", () => {
+    expect(campos().QUALIFICACAO_CONTRATANTE.sugestao).toBe("Helena Bastos, brasileiro(a), CPF n.º 529.982.247-25, residente e domiciliado(a) em Rua das Flores, 10, Centro, São Paulo/SP");
+    expect(qualificacaoDe({ nome: "Helena", nacionalidade: "brasileiro(a)", estadoCivil: "viúvo(a)", profissao: "aposentado(a)", rg: "12.345.678-9", cpf: "529.982.247-25" })).toBe("Helena, brasileiro(a), viúvo(a), aposentado(a), RG n.º 12.345.678-9, CPF n.º 529.982.247-25");
+    expect(qualificacaoDe({})).toBe("");
+  });
+  test("benefício: o do caso já escolhido, a lista do escritório como entra na frase, sem 'Outro'", () => {
+    const c = campos();
+    expect([c.OBJETO_SERVICO.especie, c.OBJETO_SERVICO.sugestao, c.OBJETO_SERVICO.copiaDe]).toEqual(["beneficio", "pensão por morte", null]);
+    expect(c.OBJETO_SERVICO.opcoes).toEqual(["pensão por morte", "aposentadoria por idade", "BPC/LOAS"]);
+    // o segundo campo de benefício do modelo não é perguntado: repete o primeiro
+    expect([c.BENEFICIO_OBJETO.especie, c.BENEFICIO_OBJETO.copiaDe, c.BENEFICIO_OBJETO.opcoes]).toEqual(["beneficio", "{{OBJETO_SERVICO}}", []]);
+    const lista = Object.values(c);
+    const r = respostasDoModelo(lista, { "{{OBJETO_SERVICO}}": "auxílio-acidente", "{{BENEFICIO_OBJETO}}": "outra coisa" });
+    expect(r.respostas.filter((x) => /OBJETO/.test(x.variavel) && !/CIVEL/.test(x.variavel)).map((x) => x.valor)).toEqual(["auxílio-acidente", "auxílio-acidente"]);
+    expect(respostasDoModelo(lista, {}).erros[0], "o campo repetido não é cobrado duas vezes").not.toContain("Benefício ou serviço");
+    expect([beneficioNaFrase("Aposentadoria da PCD (LC 142/2013)"), beneficioNaFrase("BPC/LOAS")]).toEqual(["aposentadoria da PCD (LC 142/2013)", "BPC/LOAS"]);
+    // parceiro: o do caso; caso sem parceiro diz "não há"
+    expect([campos({ parceiro: "Isabella Prado" } as never).TEXTO_PARCEIRO.sugestao, c.TEXTO_PARCEIRO.sugestao, c.TEXTO_PARCEIRO.especie]).toEqual(["Isabella Prado", "não há", "parceiro"]);
+    // caso com tipo "Outro" (ou sem tipo): nada escolhido, a pessoa decide
+    expect(campos({ beneficioDoCaso: "Outro" }).OBJETO_SERVICO.sugestao).toBe("");
+  });
+  test("o nome do campo sozinho não basta quando não fala de benefício; o modelo pode desligar; a lista do modelo vale", () => {
+    const c = campos();
+    expect([c.OBJETO_CIVEL.especie, c.OBJETO_CIVEL.opcoes]).toEqual([null, []]);
+    expect([c.BENEFICIO_LIVRE.especie, c.BENEFICIO_LIVRE.opcoes]).toEqual([null, []]);
+    expect(c.FORMA.opcoes).toEqual(["à vista", "em 3 parcelas"]);
+    // "benefício" no meio do nome não transforma um número em lista de benefícios
+    expect([c.QTD_PRESTACOES.especie, c.QTD_PRESTACOES.sugestao, c.QTD_PRESTACOES.tipo]).toEqual([null, "5", "inteiro"]);
   });
 });
 

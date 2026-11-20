@@ -51,7 +51,7 @@ export async function listarModelosZapsign(): Promise<Array<ModeloZapsign>> {
 
 /** Os campos de um modelo, já com o que o cadastro do cliente do caso responde. */
 export function detalharModeloZapsign(casoId: string, modeloToken: string) {
-  return invocar<{ modelo: ModeloZapsign; campos: Array<CampoDoModelo>; cliente: { nome: string; email: string; telefone: string } }>({
+  return invocar<{ modelo: ModeloZapsign; campos: Array<CampoDoModelo>; cliente: { nome: string; email: string; telefone: string; cpf: string; endereco: string } }>({
     action: "modelo", caso_id: casoId, modelo_token: modeloToken,
   });
 }
