@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
+import { copiarTexto } from "@/lib/copiar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -327,13 +328,9 @@ export function WebhooksCard() {
   }
 
   async function copiar(texto: string, marcar: (v: boolean) => void) {
-    try {
-      await navigator.clipboard.writeText(texto);
-      marcar(true);
-      setTimeout(() => marcar(false), 2000);
-    } catch {
-      toast.error("Não foi possível copiar. Selecione e copie manualmente.");
-    }
+    if (!(await copiarTexto(texto))) return;
+    marcar(true);
+    setTimeout(() => marcar(false), 2000);
   }
 
   function limparNovo() {

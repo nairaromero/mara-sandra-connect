@@ -92,6 +92,14 @@ import {
   type DrivePickedFile,
 } from "@/lib/google-drive";
 import { BlocoPericiaCaso } from "@/components/bloco-pericia-caso";
+import {
+  CpfCliente,
+  SenhaMeuInss,
+  SenhaMeuInssProvider,
+  useSenhaMeuInss,
+} from "@/components/casos/identidade-cliente";
+import { maskCPF, maskCPFParceiro } from "@/lib/cpf";
+import { copiarTexto } from "@/lib/copiar";
 import { ClientOnly } from "@/components/client-only";
 import { Selecao } from "@/components/ui/selecao";
 import { DrivePickerDialog, type DriveImportedFile } from "@/components/drive-picker-dialog";
@@ -575,18 +583,6 @@ const ORIGEM_SOLICITACAO_LABEL: Record<string, string> = {
 // Helpers
 // ===========================================================================
 
-function maskCPF(cpf: string): string {
-  const c = cpf.replace(/\D/g, "");
-  if (c.length !== 11) return cpf;
-  return c.slice(0, 3) + "." + c.slice(3, 6) + "." + c.slice(6, 9) + "-" + c.slice(9);
-}
-
-function maskCPFParceiro(cpf: string): string {
-  const c = cpf.replace(/\D/g, "");
-  if (c.length !== 11) return cpf;
-  return "***." + c.slice(3, 6) + "." + c.slice(6, 9) + "-**";
-}
-
 // Colunas `date` chegam como "YYYY-MM-DD". new Date() leria isso como meia-noite
 // UTC e, no fuso do Brasil (-3), a data exibida cairia um dia pra trás. Por isso
 // o caso date-only é formatado na mão, sem passar por Date.
@@ -934,6 +930,7 @@ function CasoDetalhePage() {
         </div>
       }
     >
+      <SenhaMeuInssProvider clienteId={cliente.id}>
       <div className="mx-auto max-w-6xl space-y-6">
         <div className="flex items-center justify-between">
           <Button variant="ghost" size="sm" asChild>
@@ -1164,6 +1161,7 @@ function CasoDetalhePage() {
           </TabsContent>
         </Tabs>
       </div>
+      </SenhaMeuInssProvider>
     </ClientOnly>
   );
 }
@@ -1178,91 +1176,20 @@ function CasoDetalhePage() {
 //
 // Regras de acesso são as MESMAS da Visão geral:
 //   interno  → CPF formatado + copiar; senha revelada pelo olhinho + copiar.
-//   parceiro → CPF mascarado até o olhinho revelar; senha revelada pelo olhinho.
-//              Seleciona e copia como a equipe (o que a pessoa vê na tela, ela
-//              já consegue digitar: travar a cópia só atrapalhava o trabalho).
-// A senha vem por RPC (get_senha_meu_inss) que decripta e registra auditoria;
-// o valor fica em cache na visita pra não gerar um log a cada toggle.
+//   parceiro → igual, com o CPF mascarado até o olhinho revelar.
+// CPF e senha são as mesmas peças da Visão geral (identidade-cliente.tsx): a
+// senha é lida uma vez por visita e as duas telas mostram a mesma.
 function IdentidadeClienteLinha(props: { cliente: Cliente; isInterno: boolean }) {
   // acoes de escrita dependem da permissao do vinculo (RBAC), nao do modo interno
   const { pode } = useAuth();
   const { cliente, isInterno } = props;
-  const [carregandoSenha, setCarregandoSenha] = useState(false);
-  const [senhaValor, setSenhaValor] = useState<string | null>(null);
-  const [senhaCarregada, setSenhaCarregada] = useState(false);
-  const [senhaVisivel, setSenhaVisivel] = useState(false);
-  const [cpfVisivelParc, setCpfVisivelParc] = useState(false);
-
   const idade = calcularIdade(cliente.data_nascimento);
-
-  async function carregarSenha(): Promise<{ ok: boolean; valor: string | null }> {
-    if (senhaCarregada) return { ok: true, valor: senhaValor };
-    setCarregandoSenha(true);
-    try {
-      const resp = await supabase.rpc("get_senha_meu_inss", {
-        p_cliente_id: cliente.id,
-      });
-      if (resp.error) throw resp.error;
-      const data = (resp.data as string | null) ?? null;
-      setSenhaValor(data);
-      setSenhaCarregada(true);
-      return { ok: true, valor: data };
-    } catch (err) {
-      console.error(err);
-      const errObj = err as { message?: string };
-      toast.error(errObj.message || "Erro ao decifrar senha");
-      return { ok: false, valor: null };
-    } finally {
-      setCarregandoSenha(false);
-    }
-  }
-
-  async function toggleVerSenha() {
-    if (senhaVisivel) {
-      setSenhaVisivel(false);
-      return;
-    }
-    const r = await carregarSenha();
-    if (r.ok) setSenhaVisivel(true);
-  }
-
-  async function copiarSenha() {
-    const r = await carregarSenha();
-    if (!r.ok) return;
-    if (r.valor === null) {
-      toast.error("Este cliente não tem senha do MEU INSS cadastrada");
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(r.valor);
-      toast.success("Senha copiada");
-    } catch (err) {
-      console.error(err);
-      toast.error("Não foi possível copiar (clipboard bloqueado)");
-    }
-  }
-
-  async function copiarCpf() {
-    try {
-      await navigator.clipboard.writeText(cliente.cpf.replace(/\D/g, ""));
-      toast.success("CPF copiado");
-    } catch (err) {
-      console.error(err);
-      toast.error("Não foi possível copiar (clipboard bloqueado)");
-    }
-  }
 
   // Copia só os dígitos: é o formato que WhatsApp e discador aceitam colado.
   async function copiarTelefone() {
     const tel = (cliente.telefone ?? "").replace(/\D/g, "");
     if (!tel) return;
-    try {
-      await navigator.clipboard.writeText(tel);
-      toast.success("Telefone copiado");
-    } catch (err) {
-      console.error(err);
-      toast.error("Não foi possível copiar (clipboard bloqueado)");
-    }
+    await copiarTexto(tel, "Telefone copiado");
   }
 
   return (
@@ -1279,48 +1206,7 @@ function IdentidadeClienteLinha(props: { cliente: Cliente; isInterno: boolean })
       {/* CPF */}
       <span className="flex items-center gap-1">
         <span className="text-xs text-muted-foreground">CPF:</span>
-        {isInterno ? (
-          <>
-            <span>{maskCPF(cliente.cpf)}</span>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-6 w-6 p-0"
-              onClick={copiarCpf}
-              title="Copiar CPF"
-            >
-              <Copy className="h-3.5 w-3.5" />
-            </Button>
-          </>
-        ) : (
-          <>
-            <span>
-              {cpfVisivelParc ? maskCPF(cliente.cpf) : maskCPFParceiro(cliente.cpf)}
-            </span>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-6 w-6 p-0"
-              onClick={() => setCpfVisivelParc((v) => !v)}
-              title={cpfVisivelParc ? "Ocultar CPF" : "Ver CPF completo"}
-            >
-              {cpfVisivelParc ? (
-                <EyeOff className="h-3.5 w-3.5" />
-              ) : (
-                <Eye className="h-3.5 w-3.5" />
-              )}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-6 w-6 p-0"
-              onClick={copiarCpf}
-              title="Copiar CPF"
-            >
-              <Copy className="h-3.5 w-3.5" />
-            </Button>
-          </>
-        )}
+        <CpfCliente cpf={cliente.cpf} isInterno={isInterno} />
       </span>
 
       {/* Senha MEU INSS — escondida por padrão; só para quem tem senha_inss:ler
@@ -1331,41 +1217,7 @@ function IdentidadeClienteLinha(props: { cliente: Cliente; isInterno: boolean })
             <KeyRound className="h-3.5 w-3.5" />
             Senha MEU INSS:
           </span>
-          {senhaVisivel ? (
-            senhaValor !== null ? (
-              <span className="font-mono">{senhaValor}</span>
-            ) : (
-              <span className="text-xs text-muted-foreground italic">não cadastrada</span>
-            )
-          ) : (
-            <span className="font-mono tracking-widest text-muted-foreground">••••••</span>
-          )}
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-6 w-6 p-0"
-            onClick={toggleVerSenha}
-            disabled={carregandoSenha}
-            title={senhaVisivel ? "Ocultar senha" : "Ver senha"}
-          >
-            {carregandoSenha ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : senhaVisivel ? (
-              <EyeOff className="h-3.5 w-3.5" />
-            ) : (
-              <Eye className="h-3.5 w-3.5" />
-            )}
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-6 w-6 p-0"
-            onClick={copiarSenha}
-            disabled={carregandoSenha}
-            title="Copiar senha"
-          >
-            <Copy className="h-3.5 w-3.5" />
-          </Button>
+          <SenhaMeuInss variante="linha" />
         </span>
       )}
 
@@ -1694,10 +1546,8 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
             );
           } else {
             toast.success(clTemSenha ? "Senha MEU INSS substituída" : "Senha MEU INSS cadastrada");
-            // Invalida o cache do olhinho: proxima leitura busca a nova.
-            setSenhaCarregada(false);
-            setSenhaValor(null);
-            setSenhaVisivel(false);
+            // A senha mudou: cabeçalho e card esquecem a antiga.
+            senha.invalidar();
           }
         }
       }
@@ -1752,16 +1602,9 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
     }
   }
 
-  // ---- Senha MEU INSS inline (olhinho) ----
-  // Interno e parceiro vinculado leem via RPC get_senha_meu_inss (decripta
-  // + registra audit). Cache em memoria pra nao re-logar audit a cada toggle
-  // do olhinho na mesma visita.
-  const [carregandoSenha, setCarregandoSenha] = useState(false);
-  const [senhaValor, setSenhaValor] = useState<string | null>(null);
-  const [senhaCarregada, setSenhaCarregada] = useState(false);
-  const [senhaVisivel, setSenhaVisivel] = useState(false);
-  // Parceiro: CPF mascarado por padrao, olhinho revela (sem copiar).
-  const [cpfVisivelParc, setCpfVisivelParc] = useState(false);
+  // Senha MEU INSS: lida uma vez por visita e dividida com o cabeçalho
+  // (identidade-cliente.tsx). Quem troca a senha aqui chama senha.invalidar().
+  const senha = useSenhaMeuInss();
 
   // ---- Dialog: Alterar senha MEU INSS (parceiro, write-only) ----
   // Parceiro escreve mas nao le. Mesmo fluxo do interno usaria, mas
@@ -1857,10 +1700,8 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
       toast.success(senhaParcTemSenha ? "Senha MEU INSS substituída" : "Senha MEU INSS cadastrada");
       setAbrirSenhaParc(false);
       setSenhaParcValor("");
-      // Invalida o cache do olhinho: proxima leitura busca a nova.
-      setSenhaCarregada(false);
-      setSenhaValor(null);
-      setSenhaVisivel(false);
+      // A senha mudou: cabeçalho e card esquecem a antiga.
+      senha.invalidar();
       // Havia pedido da equipe? O banco já o cumpriu com esta troca.
       if (pedidoSenha) {
         toast.success("Pedido de troca da equipe concluído.");
@@ -1872,65 +1713,6 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
       toast.error(errObj.message || "Erro ao salvar senha");
     } finally {
       setSenhaParcSalvando(false);
-    }
-  }
-
-  // Busca a senha via RPC (com audit) e guarda em cache. Retorna ok=false
-  // em erro (ja mostra toast); valor=null quando nao ha senha cadastrada.
-  async function carregarSenha(): Promise<{ ok: boolean; valor: string | null }> {
-    if (senhaCarregada) return { ok: true, valor: senhaValor };
-    setCarregandoSenha(true);
-    try {
-      const resp = await supabase.rpc("get_senha_meu_inss", {
-        p_cliente_id: cliente.id,
-      });
-      if (resp.error) throw resp.error;
-      const data = (resp.data as string | null) ?? null;
-      setSenhaValor(data);
-      setSenhaCarregada(true);
-      return { ok: true, valor: data };
-    } catch (err) {
-      console.error(err);
-      const errObj = err as { message?: string };
-      toast.error(errObj.message || "Erro ao decifrar senha");
-      return { ok: false, valor: null };
-    } finally {
-      setCarregandoSenha(false);
-    }
-  }
-
-  async function toggleVerSenha() {
-    if (senhaVisivel) {
-      setSenhaVisivel(false);
-      return;
-    }
-    const r = await carregarSenha();
-    if (r.ok) setSenhaVisivel(true);
-  }
-
-  async function copiarSenha() {
-    const r = await carregarSenha();
-    if (!r.ok) return;
-    if (r.valor === null) {
-      toast.error("Este cliente não tem senha do MEU INSS cadastrada");
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(r.valor);
-      toast.success("Senha copiada");
-    } catch (err) {
-      console.error(err);
-      toast.error("Não foi possível copiar (clipboard bloqueado)");
-    }
-  }
-
-  async function copiarCpf() {
-    try {
-      await navigator.clipboard.writeText(cliente.cpf.replace(/\D/g, ""));
-      toast.success("CPF copiado");
-    } catch (err) {
-      console.error(err);
-      toast.error("Não foi possível copiar (clipboard bloqueado)");
     }
   }
 
@@ -1973,95 +1755,20 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
             <Linha label="Nome" valor={cliente.nome} />
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground min-w-[7rem]">CPF:</span>
-              {isInterno ? (
-                <>
-                  <span className="text-sm">{maskCPF(cliente.cpf)}</span>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 w-6 p-0"
-                    onClick={copiarCpf}
-                    title="Copiar CPF"
-                  >
-                    <Copy className="h-3.5 w-3.5" />
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <span className="text-sm">
-                    {cpfVisivelParc ? maskCPF(cliente.cpf) : maskCPFParceiro(cliente.cpf)}
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 w-6 p-0"
-                    onClick={() => setCpfVisivelParc((v) => !v)}
-                    title={cpfVisivelParc ? "Ocultar CPF" : "Ver CPF completo"}
-                  >
-                    {cpfVisivelParc ? (
-                      <EyeOff className="h-3.5 w-3.5" />
-                    ) : (
-                      <Eye className="h-3.5 w-3.5" />
-                    )}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 w-6 p-0"
-                    onClick={copiarCpf}
-                    title="Copiar CPF"
-                  >
-                    <Copy className="h-3.5 w-3.5" />
-                  </Button>
-                </>
-              )}
+              <CpfCliente cpf={cliente.cpf} isInterno={isInterno} className="text-sm" />
             </div>
             <Linha label="Nascimento" valor={formatDate(cliente.data_nascimento)} />
             {isInterno && pode("clientes:ler_contato") && <Linha label="Telefone" valor={formatarTelefone(cliente.telefone) || "-"} />}
             {isInterno && pode("clientes:ler_contato") && <Linha label="E-mail" valor={cliente.email || "-"} />}
             {isInterno && pode("clientes:ler_contato") && (
-              // Senha MEU INSS inline: olhinho revela (RPC com audit) e o
-              // copiar fica ao lado pra praticidade.
+              // Senha MEU INSS inline: olhinho revela (RPC com audit) e o copiar ao lado.
               <div className="pt-2 border-t flex items-center justify-between gap-2">
                 <span className="text-xs text-muted-foreground flex items-center gap-1 shrink-0">
                   <KeyRound className="h-3.5 w-3.5" />
                   Senha MEU INSS
                 </span>
                 <div className="flex items-center gap-1 min-w-0">
-                  {senhaVisivel &&
-                    (senhaValor !== null ? (
-                      <span className="text-sm font-mono truncate">{senhaValor}</span>
-                    ) : (
-                      <span className="text-xs text-muted-foreground italic">
-                        não cadastrada
-                      </span>
-                    ))}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 w-7 p-0"
-                    onClick={toggleVerSenha}
-                    disabled={carregandoSenha}
-                    title={senhaVisivel ? "Ocultar senha" : "Ver senha"}
-                  >
-                    {carregandoSenha ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : senhaVisivel ? (
-                      <EyeOff className="h-3.5 w-3.5" />
-                    ) : (
-                      <Eye className="h-3.5 w-3.5" />
-                    )}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 w-7 p-0"
-                    onClick={copiarSenha}
-                    disabled={carregandoSenha}
-                    title="Copiar senha"
-                  >
-                    <Copy className="h-3.5 w-3.5" />
-                  </Button>
+                  <SenhaMeuInss variante="card" />
                 </div>
               </div>
             )}
@@ -2101,48 +1808,14 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
               </div>
             )}
             {!isInterno && (
-              // Parceiro: olhinho revela a senha e o copiar fica ao lado (os dois
-              // pela RPC com audit). Alterar continua write-only via dialog.
+              // Parceiro: a mesma peça da equipe; Alterar continua write-only via dialog.
               <div className="pt-2 border-t flex items-center justify-between gap-2">
                 <span className="text-xs text-muted-foreground flex items-center gap-1 shrink-0">
                   <KeyRound className="h-3.5 w-3.5" />
                   Senha MEU INSS
                 </span>
                 <div className="flex items-center gap-1 min-w-0">
-                  {senhaVisivel &&
-                    (senhaValor !== null ? (
-                      <span className="text-sm font-mono truncate">{senhaValor}</span>
-                    ) : (
-                      <span className="text-xs text-muted-foreground italic">
-                        não cadastrada
-                      </span>
-                    ))}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 w-7 p-0"
-                    onClick={toggleVerSenha}
-                    disabled={carregandoSenha}
-                    title={senhaVisivel ? "Ocultar senha" : "Ver senha"}
-                  >
-                    {carregandoSenha ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : senhaVisivel ? (
-                      <EyeOff className="h-3.5 w-3.5" />
-                    ) : (
-                      <Eye className="h-3.5 w-3.5" />
-                    )}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 w-7 p-0"
-                    onClick={copiarSenha}
-                    disabled={carregandoSenha}
-                    title="Copiar senha"
-                  >
-                    <Copy className="h-3.5 w-3.5" />
-                  </Button>
+                  <SenhaMeuInss variante="card" />
                   <Button size="sm" variant="outline" onClick={abrirAlterarSenhaParceiro}>
                     <Pencil className="h-3.5 w-3.5 mr-1" />
                     Alterar
@@ -2511,9 +2184,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
               onClose={() => setInformandoSenhaPedido(false)}
               onCumprido={() => {
                 setInformandoSenhaPedido(false);
-                setSenhaCarregada(false);
-                setSenhaValor(null);
-                setSenhaVisivel(false);
+                senha.invalidar();
                 void recarregarPedidoSenha();
                 onChange();
               }}

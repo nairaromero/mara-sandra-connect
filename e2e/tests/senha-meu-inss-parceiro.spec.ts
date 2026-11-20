@@ -33,6 +33,7 @@ let caso2: { casoId: string; clienteId: string; nome: string };
 
 const SENHA_KANBAN = `E2e!Kanban${Date.now().toString().slice(-6)}`;
 const SENHA_ALTERAR = `E2e!Alterar${Date.now().toString().slice(-6)}`;
+const SENHA_TROCADA = `E2e!Trocada${Date.now().toString().slice(-6)}`;
 
 async function logado(email: string, senha: string): Promise<SupabaseClient> {
   const c = createClient(ENV.supabaseUrl, ENV.anonKey, {
@@ -309,5 +310,40 @@ test.describe("parceiro", () => {
       .eq("usuario_id", parceiroId);
     expect(errAu).toBeNull();
     expect(audit!.some((x) => x.acao === "leitura")).toBe(true);
+  });
+
+  test("cabeçalho e Visão geral leem a senha de um lugar só: uma leitura na trilha, e a troca vale nos dois", async ({ page, context }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    const leituras = async () => {
+      const { count, error } = await admin
+        .from("acessos_senha_inss")
+        .select("id", { count: "exact", head: true })
+        .eq("cliente_id", caso2.clienteId)
+        .eq("usuario_id", parceiroId)
+        .eq("acao", "leitura");
+      if (error) throw new Error(`trilha: ${error.message}`);
+      return count ?? 0;
+    };
+    const antes = await leituras();
+
+    await page.goto(`/casos/${caso2.casoId}`);
+    // Revela no cabeçalho e depois no card: a segunda não busca de novo.
+    await page.getByRole("button", { name: "Ver senha" }).first().click({ timeout: 20_000 });
+    await expect(page.getByText(SENHA_ALTERAR, { exact: true })).toHaveCount(1, { timeout: 15_000 });
+    await page.getByRole("button", { name: "Ver senha" }).first().click();
+    await expect(page.getByText(SENHA_ALTERAR, { exact: true })).toHaveCount(2);
+    expect(await leituras(), "uma leitura só na trilha").toBe(antes + 1);
+
+    // Troca pelo "Alterar": a senha antiga some dos dois lugares...
+    await page.getByRole("button", { name: "Alterar", exact: true }).click();
+    await page.getByPlaceholder("Senha do MEU INSS do cliente").fill(SENHA_TROCADA);
+    await page.getByRole("button", { name: "Salvar", exact: true }).click();
+    await expect(page.getByText(/Senha MEU INSS substituída/)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(SENHA_ALTERAR, { exact: true })).toHaveCount(0);
+
+    // ...e o copiar do cabeçalho entrega a NOVA, não a que estava guardada.
+    await page.getByRole("button", { name: "Copiar senha" }).first().click();
+    await expect(page.getByText("Senha copiada")).toBeVisible();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(SENHA_TROCADA);
   });
 });
