@@ -115,14 +115,14 @@ serve(async (req) => {
     if (eCaso || !caso) throw new ErroInterno(`lendo o caso: ${eCaso?.message ?? "não encontrado"}`);
     const { data: cliente, error: eCli } = await sb.from("clientes").select("nome, cpf, email, telefone, endereco, data_nascimento").eq("id", caso.cliente_id).maybeSingle();
     if (eCli || !cliente) throw new ErroInterno(`lendo o cliente: ${eCli?.message ?? "não encontrado"}`);
-    // o parceiro que indicou o caso: o contrato o nomeia na cláusula de compartilhamento de dados
-    let parceiro = "";
-    if (caso.parceiro_id) {
-      const { data: p, error: eP } = await quem.admin.from("usuarios").select("nome").eq("id", caso.parceiro_id).maybeSingle();
-      if (eP) throw new ErroInterno(`lendo o parceiro do caso: ${eP.message}`);
-      parceiro = String(p?.nome ?? "");
-    }
-    return { ...cliente, tipoBeneficio: (caso.tipo_beneficio as string | null) ?? null, parceiro };
+    return { ...cliente, tipoBeneficio: (caso.tipo_beneficio as string | null) ?? null, parceiroId: (caso.parceiro_id as string | null) ?? null };
+  };
+  /** O parceiro que indicou o caso: o contrato o nomeia na cláusula de compartilhamento de dados. */
+  const nomeDoParceiro = async (parceiroId: string | null): Promise<string> => {
+    if (!parceiroId) return "";
+    const { data, error } = await sb.from("usuarios").select("nome").eq("id", parceiroId).maybeSingle();
+    if (error) throw new ErroInterno(`lendo o parceiro do caso: ${error.message}`);
+    return String(data?.nome ?? "");
   };
   /** Os tipos de benefício do escritório, na ordem do catálogo: a lista de onde o contrato escolhe o benefício. */
   const beneficiosDoEscritorio = async (): Promise<string[]> => {
@@ -241,8 +241,14 @@ serve(async (req) => {
       const modeloToken = String(body.modelo_token ?? "").trim();
       if (!modeloToken) return jsonResponse({ error: "modelo_token obrigatório" }, 400);
       const cliente = await clienteDoCaso(body.caso_id!);
-      const { modelo, campos, arquivo } = await detalharModelo(integ, modeloToken, cliente, { beneficios: await beneficiosDoEscritorio(), beneficioDoCaso: cliente.tipoBeneficio, parceiro: cliente.parceiro });
-      if (body.action === "modelo") {
+      // O que o caso sabe (lista de benefícios, parceiro) só serve para ABRIR os campos:
+      // a prévia e o envio usam o que a tela devolveu e não pagam essas duas leituras.
+      const abrindo = body.action === "modelo";
+      const { modelo, campos, arquivo } = await detalharModelo(integ, modeloToken, {
+        cliente,
+        ...(abrindo ? { beneficios: await beneficiosDoEscritorio(), beneficioDoCaso: cliente.tipoBeneficio, parceiro: await nomeDoParceiro(cliente.parceiroId) } : {}),
+      });
+      if (abrindo) {
         // nome, CPF e endereço vão à tela para ela montar a qualificação com as listas
         return jsonResponse({ ok: true, modelo, campos, cliente: { nome: cliente.nome, email: cliente.email ?? "", telefone: cliente.telefone ?? "", cpf: cliente.cpf ?? "", endereco: cliente.endereco ?? "" } });
       }
@@ -257,7 +263,7 @@ serve(async (req) => {
       // não impede a prévia: ele aparece marcado em branco.
       if (body.action === "previa_modelo") {
         try {
-          return jsonResponse({ ok: true, paragrafos: await previaDoModelo(arquivo, respostas), pendencias: erros });
+          return jsonResponse({ ok: true, paragrafos: await previaDoModelo(arquivo, respostas) });
         } catch (e) {
           console.warn(`[zapsign-enviar] prévia do modelo ${modelo.token}:`, String((e as Error)?.message ?? e));
           return jsonResponse({ error: "Não consegui montar a prévia deste modelo. O envio continua disponível.", code: "previa_indisponivel" }, 422);

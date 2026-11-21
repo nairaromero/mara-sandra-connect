@@ -1,22 +1,20 @@
 // Achar o modelo de contrato do ZapSign sem procurar: busca pelo nome, modelos
 // sugeridos para o tipo de benefício do caso e agrupamento pela pasta do
-// ZapSign (#522). Funções PURAS (sem import de runtime): a régua
+// ZapSign (#522). Funções PURAS (só importam módulo puro de `_shared`): a régua
 // e2e/unit/zapsign-modelos.test.ts roda sem banco nem tela.
 import type { ModeloZapsign } from "@shared/assinatura";
-
-/** minúsculas, sem acento: "Aposentadoria por Idade" → "aposentadoria por idade" */
-const normal = (texto: string) => texto.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+import { semAcento } from "@shared/modelo-contrato";
 
 /** Palavras que não dizem de que serviço é o contrato. */
 const SEM_SIGNIFICADO = new Set(["para", "pelo", "pela", "com", "sem", "por", "dos", "das", "contrato", "modelo", "honorarios", "definir"]);
-const palavras = (texto: string) => normal(texto).split(/[^a-z0-9]+/).filter((p) => p.length >= 3 && !SEM_SIGNIFICADO.has(p));
+const palavras = (texto: string) => semAcento(texto).split(/[^a-z0-9]+/).filter((p) => p.length >= 3 && !SEM_SIGNIFICADO.has(p));
 
 /** Os modelos cujo nome ou pasta contém TODAS as palavras digitadas (em qualquer ordem). */
 export function filtrarModelos(modelos: ReadonlyArray<ModeloZapsign>, busca: string): Array<ModeloZapsign> {
-  const termos = normal(busca).split(/\s+/).filter(Boolean);
+  const termos = semAcento(busca).split(/\s+/).filter(Boolean);
   if (!termos.length) return [...modelos];
   return modelos.filter((m) => {
-    const alvo = normal(`${m.nome} ${m.pasta}`);
+    const alvo = semAcento(`${m.nome} ${m.pasta}`);
     return termos.every((t) => alvo.includes(t));
   });
 }

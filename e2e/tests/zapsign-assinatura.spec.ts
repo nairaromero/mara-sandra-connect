@@ -731,11 +731,11 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
     expect(texto).toContain("Sigilo & dados. Parceiro indicador: (em branco)");
     expect(pars.flatMap((p) => p.trechos).filter((t) => t.marca === "vazio")).toHaveLength(1);
     expect(pars.flatMap((p) => p.trechos).some((t) => t.marca === "preenchido" && t.t === "trinta por cento")).toBe(true);
-    expect(previa.json?.pendencias).toEqual([]);
     expect(((await (await fetch(`${MOCK}/zapsign/_docs`)).json()) as Array<unknown>).length, "a prévia NÃO cria documento no ZapSign").toBe(antes);
-    // prévia com campo faltando sai mesmo assim, dizendo o que falta; modelo sem arquivo avisa e não derruba
+    // prévia com campo faltando sai mesmo assim; modelo sem arquivo avisa e não derruba
     const parcial = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "previa_modelo", caso_id: casoId, modelo_token: "modelo-kit", respostas: {} });
-    expect([parcial.status, String((parcial.json?.pendencias as Array<string>)[0])]).toEqual([200, expect.stringContaining("Preencha: Nome de quem assina")]);
+    expect(parcial.status).toBe(200);
+    expect((parcial.json?.paragrafos as Array<Par>).flatMap((p) => p.trechos).filter((t) => t.marca === "vazio").length, "tudo em branco aparece em branco").toBeGreaterThan(5);
     const semArquivo = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "previa_modelo", caso_id: casoId, modelo_token: "modelo-03", respostas: {} });
     expect([semArquivo.status, semArquivo.json?.code]).toEqual([422, "previa_indisponivel"]);
 
@@ -818,6 +818,9 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
       // voltar para corrigir mantém o que foi digitado
       await dlg.locator("[data-voltar-aos-campos]").click();
       await expect(perc.locator("input")).toHaveValue("30");
+      // o que foi escolhido nas listas continua lá: mexer num campo não apaga estado civil e profissão
+      await quali.locator('input[id$="-rg"]').fill("12.345.678-9");
+      await expect(quali.locator("[data-qualificacao-texto]")).toContainText("casado(a), costureira, RG n.º 12.345.678-9, CPF n.º");
       await dlg.getByRole("button", { name: "Cancelar" }).click();
       await expect(dlg).toHaveCount(0);
     } finally {
