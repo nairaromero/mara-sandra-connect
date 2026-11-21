@@ -16,7 +16,7 @@ import { fetchT } from "./auth.ts";
 import { cpfValido } from "./documento-campos.ts";
 import { equipeInterna } from "./equipe.ts";
 import { baseZapsign, type Integracao } from "./integracoes.ts";
-import { type CampoDoModelo, camposDoModelo, type ContextoDoModelo, DE_OUTRA_PESSOA, type EntradaDoModelo, type ParagrafoDoContrato, paragrafosDoDocx, previaDoContrato, semAcento } from "./modelo-contrato.ts";
+import { type CampoDoModelo, camposDoModelo, type ContextoDoModelo, DE_OUTRA_PESSOA, type EntradaDoModelo, type ParagrafoDoContrato, paragrafosDoDocx, semAcento } from "./modelo-contrato.ts";
 import { telefoneGuardado } from "./telefone.ts";
 
 /** Teto do arquivo enviado (o ZapSign documenta 10 MB para PDF por URL). */
@@ -228,11 +228,13 @@ export async function detalharModelo(integ: Integracao, modeloToken: string, con
 /** Teto do DOCX de um modelo (o ZapSign aceita até 10 MB). */
 const MODELO_MAX_BYTES = 10 * 1024 * 1024;
 
-/** O contrato do modelo com os campos preenchidos, para a pessoa conferir ANTES de enviar. Não cria nada no ZapSign. */
-export async function previaDoModelo(arquivo: string, respostas: ReadonlyArray<{ variavel: string; valor: string }>): Promise<ParagrafoDoContrato[]> {
+/**
+ * O texto do modelo, parágrafo a parágrafo, com os campos ainda por preencher —
+ * é dele que a tela monta a prévia do contrato. Não cria nada no ZapSign.
+ */
+export async function textoDoModelo(arquivo: string): Promise<ParagrafoDoContrato[]> {
   if (!arquivo) throw new Error("o ZapSign não informou o arquivo deste modelo");
-  const docx = await baixarDoZapsign(arquivo, MODELO_MAX_BYTES, "o arquivo do modelo");
-  return previaDoContrato(await paragrafosDoDocx(docx), respostas);
+  return paragrafosDoDocx(await baixarDoZapsign(arquivo, MODELO_MAX_BYTES, "o arquivo do modelo"));
 }
 
 /** Cria o documento a partir do modelo, com os campos preenchidos e o cliente como signatário. */

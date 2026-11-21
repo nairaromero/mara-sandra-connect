@@ -17,8 +17,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Eye, FileSignature, Folder, Loader2, Search, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { chamarZapsign, detalharModeloZapsign, listarModelosZapsign, previaDoModeloZapsign, type CampoDoModelo, type ModeloZapsign } from "@/lib/assinaturas";
-import { ESTADOS_CIVIS, NACIONALIDADES, type OrigemDoValor, type ParagrafoDoContrato, type PartesDaQualificacao, partesDoCadastro, PROFISSOES, qualificacaoDe, respostasDoModelo } from "@shared/modelo-contrato";
+import { chamarZapsign, detalharModeloZapsign, listarModelosZapsign, textoDoModeloZapsign, type CampoDoModelo, type ModeloZapsign } from "@/lib/assinaturas";
+import { ESTADOS_CIVIS, faixaDoCampo, NACIONALIDADES, type OrigemDoValor, type ParagrafoDoContrato, type PartesDaQualificacao, partesDoCadastro, previaDoContrato, PROFISSOES, qualificacaoDe, respostasDoModelo } from "@shared/modelo-contrato";
 import { filtrarModelos, modelosSugeridos, porPasta } from "@/lib/assinaturas-modelos";
 import { TIPOS_DOCUMENTO_OPTIONS } from "@/lib/documentos/tipos";
 import { Badge } from "@/components/ui/badge";
@@ -57,8 +57,10 @@ export function GerarContratoDialog(props: {
   const [telefone, setTelefone] = useState("");
   const [tipoDocumento, setTipoDocumento] = useState("contrato_honorarios");
   const [enviando, setEnviando] = useState(false);
-  // null = preenchendo; com valor = conferindo o contrato montado
-  const [previa, setPrevia] = useState<Array<ParagrafoDoContrato> | null>(null);
+  // O texto do modelo aberto (campos por preencher), lido UMA vez: conferir de novo não volta ao ZapSign.
+  const [texto, setTexto] = useState<Array<ParagrafoDoContrato> | null>(null);
+  // false = preenchendo; true = conferindo o contrato montado
+  const [conferindo, setConferindo] = useState(false);
   const [montando, setMontando] = useState(false);
   // Qual pedido de "abrir modelo" ainda vale. A leitura vai ao ZapSign e demora:
   // sem isto, a resposta atrasada do modelo A trocava o modelo B que a pessoa
@@ -74,7 +76,8 @@ export function GerarContratoDialog(props: {
     setErro(null);
     setBusca("");
     setDetalhe(null);
-    setPrevia(null);
+    setTexto(null);
+    setConferindo(false);
     setAbrindo(null);
     listarModelosZapsign().then(
       (lista) => vivo && setModelos(lista),
@@ -100,7 +103,8 @@ export function GerarContratoDialog(props: {
       setEmail("");
       setTelefone("");
       setTipoDocumento("contrato_honorarios");
-      setPrevia(null);
+      setTexto(null);
+      setConferindo(false);
       setDetalhe(d);
     } catch (e) {
       if (pedido === pedidoDeModelo.current) toast.error(e instanceof Error ? e.message : String(e));
@@ -137,11 +141,14 @@ export function GerarContratoDialog(props: {
 
   async function conferir() {
     if (!detalhe) return;
+    if (texto) return setConferindo(true);
     const pedido = pedidoDeModelo.current;
     setMontando(true);
     try {
-      const r = await previaDoModeloZapsign(casoId, detalhe.modelo.token, respostas);
-      if (pedido === pedidoDeModelo.current) setPrevia(r.paragrafos);
+      const lido = await textoDoModeloZapsign(casoId, detalhe.modelo.token);
+      if (pedido !== pedidoDeModelo.current) return;
+      setTexto(lido);
+      setConferindo(true);
     } catch (e) {
       if (pedido === pedidoDeModelo.current) toast.error(e instanceof Error ? e.message : String(e));
     } finally {
@@ -152,7 +159,10 @@ export function GerarContratoDialog(props: {
   // A MESMA conta que o servidor refaz no envio: o valor de cada campo (com o
   // extenso escrito pelo sistema) e o que impede o envio.
   const conta = useMemo(() => respostasDoModelo(detalhe?.campos ?? [], respostas), [detalhe, respostas]);
-  const valorDe = (variavel: string) => conta.respostas.find((r) => r.variavel === variavel)?.valor ?? "";
+  const valores = useMemo(() => new Map(conta.respostas.map((r) => [r.variavel, r.valor])), [conta]);
+  const valorDe = (variavel: string) => valores.get(variavel) ?? "";
+  // o contrato montado com os MESMOS valores que vão ao ZapSign (null = preenchendo)
+  const previa = useMemo(() => (conferindo && texto ? previaDoContrato(texto, conta.respostas) : null), [conferindo, texto, conta]);
   // o que o sistema escreve sozinho (o extenso, o benefício repetido) não vira campo
   const visiveis = detalhe ? detalhe.campos.filter((c) => !c.extensoDe && !c.copiaDe) : [];
   // campo → o campo que o sistema escreve a partir dele (ex.: o percentual por extenso)
@@ -288,7 +298,7 @@ export function GerarContratoDialog(props: {
 
         <DialogFooter className="gap-2 sm:justify-between">
           {previa ? (
-            <Button variant="ghost" onClick={() => setPrevia(null)} disabled={enviando} data-voltar-aos-campos>
+            <Button variant="ghost" onClick={() => setConferindo(false)} disabled={enviando} data-voltar-aos-campos>
               <ArrowLeft className="mr-2 h-4 w-4" /> Corrigir os campos
             </Button>
           ) : detalhe ? (
@@ -372,23 +382,23 @@ function CampoDoContrato(props: {
   const { campo: c, valor, onChange, extenso, valorFinal } = props;
   if (c.especie === "qualificacao") return <CampoQualificacao campo={c} cliente={props.cliente} valor={valor} onChange={onChange} />;
   const numero = c.tipo !== "texto";
-  // de onde veio o valor que já está no campo: do cadastro do cliente ou do padrão do modelo
   // de onde veio o valor que já está no campo — quem diz é o servidor (`origem`), não o nome do campo
   const origem = valor && valor === c.sugestao ? ROTULO_DA_ORIGEM[c.origem] : "";
   const padrao = !c.padrao ? "" : valorFinal === c.padrao ? "padrão do modelo" : `padrão do modelo: ${c.padrao}`;
-  const faixa = [c.minimo !== null ? `mínimo ${c.minimo}` : "", c.maximo !== null ? `máximo ${c.maximo}` : ""].filter(Boolean).join(", ");
+  const faixa = faixaDoCampo(c);
+  // o modelo chama de "objeto do serviço" ou "benefício ou serviço"; para quem preenche é o benefício
+  const rotulo = c.especie === "beneficio" ? "Benefício" : c.rotulo;
   return (
     <div className={numero ? "space-y-1" : "space-y-1 sm:col-span-2"} data-campo={c.variavel}>
       <Label htmlFor={`campo-${c.variavel}`}>
-        {/* o modelo chama de "objeto do serviço" ou "benefício ou serviço"; para quem preenche é o benefício */}
-        {c.especie === "beneficio" ? "Benefício" : c.rotulo}
+        {rotulo}
         {c.obrigatorio && <span className="text-red-600"> *</span>}
         {origem && <span className="ml-2 text-xs font-normal text-muted-foreground">{origem}</span>}
       </Label>
       {numero ? (
         <Input id={`campo-${c.variavel}`} inputMode="decimal" value={valor} onChange={(e) => onChange(e.target.value)} />
       ) : c.opcoes.length > 0 ? (
-        <EscolhaOuTexto id={`campo-${c.variavel}`} opcoes={c.opcoes} value={valor} onChange={onChange} rotulo={c.rotulo} />
+        <EscolhaOuTexto id={`campo-${c.variavel}`} opcoes={c.opcoes} value={valor} onChange={onChange} rotulo={rotulo} />
       ) : (
         <Textarea
           id={`campo-${c.variavel}`}
@@ -408,7 +418,7 @@ function CampoDoContrato(props: {
         <p className="text-xs text-muted-foreground">
           {padrao && <span data-origem-do-valor>{padrao}</span>}
           {padrao && (c.ajuda || faixa) ? " · " : ""}
-          {[c.ajuda, faixa && `aceita ${faixa}${c.tipo === "percentual" ? "%" : ""}`].filter(Boolean).join(" · ")}
+          {[c.ajuda, faixa && `aceita ${faixa}`].filter(Boolean).join(" · ")}
         </p>
       )}
     </div>
