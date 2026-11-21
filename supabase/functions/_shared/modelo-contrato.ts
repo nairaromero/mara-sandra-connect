@@ -12,8 +12,9 @@
 //     caso, data de hoje ou padrão do modelo — a tela só mostra;
 //   - o valor que vai ao ZapSign em cada campo (`respostasDoModelo`) — a tela
 //     mostra e o servidor envia o MESMO resultado;
-//   - o texto do contrato já preenchido (`paragrafosDoDocx` + `previaDoContrato`),
-//     lido do DOCX do modelo, sem criar documento no ZapSign.
+//   - o texto do contrato já preenchido: o servidor lê o DOCX do modelo UMA vez
+//     (`paragrafosDoDocx`) e a tela preenche (`previaDoContrato`) com os mesmos
+//     valores de `respostasDoModelo` — conferir de novo não vai mais ao ZapSign.
 
 /** Como o ZapSign descreve um campo do modelo (`inputs` de GET /templates/{token}/). */
 export interface EntradaDoModelo {
@@ -230,7 +231,9 @@ export function regrasDaAjuda(ajuda: string): { padrao: string; minimo: number |
     else if (m[1] === "minimo") minimo = numeroDe(valor);
     else maximo = numeroDe(valor);
   }
-  return { padrao, minimo, maximo, sistema, texto: resto.join(" · ") };
+  // sem regra nenhuma, a ajuda é a do modelo, como foi escrita (com o ";" que tiver)
+  const achou = padrao || sistema || minimo !== null || maximo !== null;
+  return { padrao, minimo, maximo, sistema, texto: achou ? resto.join(" · ") : ajuda.trim() };
 }
 
 /** Deixa o valor digitado como o contrato escreve: "30" ou "30,5 %" → "30%" / "30,5%". */
@@ -344,6 +347,15 @@ export function camposDoModelo(inputs: ReadonlyArray<EntradaDoModelo>, contexto:
 
 const TETO_DO_VALOR = 2000;
 
+/** Número como se escreve aqui: 2.5 → "2,5". */
+const numeroBr = (n: number): string => String(n).replace(".", ",");
+
+/** A faixa que o modelo aceita num campo de número, para a tela dizer antes de a pessoa errar ("" = sem faixa). */
+export function faixaDoCampo(c: Pick<CampoDoModelo, "tipo" | "minimo" | "maximo">): string {
+  const sufixo = c.tipo === "percentual" ? "%" : "";
+  return [c.minimo !== null ? `mínimo ${numeroBr(c.minimo)}${sufixo}` : "", c.maximo !== null ? `máximo ${numeroBr(c.maximo)}${sufixo}` : ""].filter(Boolean).join(", ");
+}
+
 /**
  * O valor de CADA campo que vai ao ZapSign, e o que impede o envio. A tela
  * chama para mostrar; o servidor chama de novo e é o resultado dele que vale.
@@ -358,7 +370,9 @@ export function respostasDoModelo(
   const faltando: string[] = [];
   for (const c of campos) {
     if (c.extensoDe || c.copiaDe) continue;
-    const valor = normalizarValor(c.tipo, String(dadas[c.variavel] ?? "")).slice(0, TETO_DO_VALOR);
+    // só texto ou número: um objeto no lugar do valor não vira "[object Object]" no contrato
+    const dada = dadas[c.variavel];
+    const valor = normalizarValor(c.tipo, typeof dada === "string" || typeof dada === "number" ? String(dada) : "").slice(0, TETO_DO_VALOR);
     valores.set(c.variavel, valor);
     const acusar = (frase: string) => {
       erros.push(frase);
@@ -378,8 +392,8 @@ export function respostasDoModelo(
       continue;
     }
     const sufixo = c.tipo === "percentual" ? "%" : "";
-    if (c.minimo !== null && n < c.minimo) acusar(`${c.rotulo}: o mínimo deste modelo é ${String(c.minimo).replace(".", ",")}${sufixo}.`);
-    if (c.maximo !== null && n > c.maximo) acusar(`${c.rotulo}: o máximo deste modelo é ${String(c.maximo).replace(".", ",")}${sufixo}.`);
+    if (c.minimo !== null && n < c.minimo) acusar(`${c.rotulo}: o mínimo deste modelo é ${numeroBr(c.minimo)}${sufixo}.`);
+    if (c.maximo !== null && n > c.maximo) acusar(`${c.rotulo}: o máximo deste modelo é ${numeroBr(c.maximo)}${sufixo}.`);
   }
   // o campo que repete outro leva o valor dele (a falta já foi cobrada no primeiro)
   for (const c of campos) if (c.copiaDe) valores.set(c.variavel, valores.get(c.copiaDe) ?? "");

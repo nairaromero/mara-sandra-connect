@@ -57,11 +57,9 @@ export function detalharModeloZapsign(casoId: string, modeloToken: string) {
 }
 
 /**
- * O contrato do modelo com os campos preenchidos, para conferir antes de
- * enviar. Não cria documento no ZapSign.
+ * O texto do modelo (campos por preencher), para a tela montar a prévia do
+ * contrato. Não cria documento no ZapSign.
  */
-export function previaDoModeloZapsign(casoId: string, modeloToken: string, respostas: Record<string, string>) {
-  return invocar<{ paragrafos: Array<ParagrafoDoContrato> }>({
-    action: "previa_modelo", caso_id: casoId, modelo_token: modeloToken, respostas,
-  });
+export async function textoDoModeloZapsign(casoId: string, modeloToken: string): Promise<Array<ParagrafoDoContrato>> {
+  return (await invocar<{ paragrafos: Array<ParagrafoDoContrato> }>({ action: "texto_modelo", caso_id: casoId, modelo_token: modeloToken })).paragrafos;
 }

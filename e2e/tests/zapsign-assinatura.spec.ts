@@ -351,6 +351,7 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
     const envio = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, corpo);
     expect(envio.status, envio.texto.slice(0, 160)).toBe(200);
     const linha = envio.json?.assinatura as { id: string; zapsign_doc_token: string };
+    let limpeza: string | null = null;
     const statusNoBanco = async () => (await admin.from("assinaturas").select("status").eq("id", linha.id).single()).data?.status;
     const sinc = () => chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "sincronizar", assinatura_id: linha.id });
     try {
@@ -368,9 +369,9 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
       expect(await statusNoBanco()).toBe("enviado");
     } finally {
       // sai de cena: os testes de tela querem o botão do original ligado
-      const { error } = await admin.from("assinaturas").delete().eq("id", linha.id);
-      if (error) throw new Error(error.message);
+      limpeza = (await admin.from("assinaturas").delete().eq("id", linha.id)).error?.message ?? null;
     }
+    expect(limpeza, "a linha do teste foi removida").toBeNull();
   });
 
   test("resposta do ZapSign que se perde não é dada como 'não enviou': a linha fica e o aviso de criação religa", async () => {
@@ -719,24 +720,19 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
       // o que a tela mandar no extenso não vale: quem escreve é o servidor
       "{{PERCENTUAL_ATRASADOS_EXTENSO}}": "noventa por cento",
     };
-    type Par = { centro: boolean; trechos: Array<{ t: string; n: boolean; marca?: string }> };
-    const previa = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "previa_modelo", caso_id: casoId, modelo_token: "modelo-kit", respostas });
-    expect(previa.status, previa.texto.slice(0, 200)).toBe(200);
-    const pars = previa.json?.paragrafos as Array<Par>;
+    // o texto do modelo vem em parágrafos, com os campos por preencher; ler NÃO cria documento no ZapSign
+    type Par = { centro: boolean; trechos: Array<{ t: string; n: boolean }> };
+    const lido = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "texto_modelo", caso_id: casoId, modelo_token: "modelo-kit" });
+    expect(lido.status, lido.texto.slice(0, 200)).toBe(200);
+    const pars = lido.json?.paragrafos as Array<Par>;
     const texto = pars.map((p) => p.trechos.map((t) => t.t).join(""));
     expect(pars[0].centro).toBe(true);
-    // o campo partido em dois pedaços no Word também é trocado; o 35% fixo da parcela não muda
-    expect(texto).toContain("a) 30% (trinta por cento) sobre os valores retroativos;");
-    expect(texto).toContain("b) um valor equivalente a 4 (quatro) vezes a renda mensal, em prestações não superiores a 35% (trinta e cinco por cento) da renda.");
-    expect(texto).toContain("Sigilo & dados. Parceiro indicador: (em branco)");
-    expect(pars.flatMap((p) => p.trechos).filter((t) => t.marca === "vazio")).toHaveLength(1);
-    expect(pars.flatMap((p) => p.trechos).some((t) => t.marca === "preenchido" && t.t === "trinta por cento")).toBe(true);
-    expect(((await (await fetch(`${MOCK}/zapsign/_docs`)).json()) as Array<unknown>).length, "a prévia NÃO cria documento no ZapSign").toBe(antes);
-    // prévia com campo faltando sai mesmo assim; modelo sem arquivo avisa e não derruba
-    const parcial = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "previa_modelo", caso_id: casoId, modelo_token: "modelo-kit", respostas: {} });
-    expect(parcial.status).toBe(200);
-    expect((parcial.json?.paragrafos as Array<Par>).flatMap((p) => p.trechos).filter((t) => t.marca === "vazio").length, "tudo em branco aparece em branco").toBeGreaterThan(5);
-    const semArquivo = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "previa_modelo", caso_id: casoId, modelo_token: "modelo-03", respostas: {} });
+    // o campo que o Word partiu em dois pedaços chega inteiro no texto do parágrafo
+    expect(texto).toContain("a) {{PERCENTUAL_ATRASADOS}} ({{PERCENTUAL_ATRASADOS_EXTENSO}}) sobre os valores retroativos;");
+    expect(texto).toContain("Sigilo & dados. Parceiro indicador: {{TEXTO_PARCEIRO}}");
+    expect(((await (await fetch(`${MOCK}/zapsign/_docs`)).json()) as Array<unknown>).length, "ler o modelo NÃO cria documento no ZapSign").toBe(antes);
+    // modelo sem arquivo avisa e não derruba
+    const semArquivo = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "texto_modelo", caso_id: casoId, modelo_token: "modelo-03" });
     expect([semArquivo.status, semArquivo.json?.code]).toEqual([422, "previa_indisponivel"]);
 
     // envio: acima do máximo do modelo é recusado ANTES de ir ao ZapSign
@@ -820,6 +816,16 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
       await expect(perc.locator("input")).toHaveValue("30");
       // o que foi escolhido nas listas continua lá: mexer num campo não apaga estado civil e profissão
       await quali.locator('input[id$="-rg"]').fill("12.345.678-9");
+      // conferir de novo mostra o que mudou SEM ler o modelo outra vez
+      let leituras = 0;
+      page.on("request", (r) => {
+        if (r.url().includes("/functions/v1/zapsign-enviar") && (r.postData() ?? "").includes("texto_modelo")) leituras++;
+      });
+      await perc.locator("input").fill("25");
+      await dlg.locator("[data-conferir-contrato]").click();
+      await expect(previa).toContainText("25% (vinte e cinco por cento) sobre");
+      expect(leituras, "o texto do modelo já estava na tela").toBe(0);
+      await dlg.locator("[data-voltar-aos-campos]").click();
       await expect(quali.locator("[data-qualificacao-texto]")).toContainText("casado(a), costureira, RG n.º 12.345.678-9, CPF n.º");
       await dlg.getByRole("button", { name: "Cancelar" }).click();
       await expect(dlg).toHaveCount(0);

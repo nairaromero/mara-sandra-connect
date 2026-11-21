@@ -10,9 +10,9 @@
 //   modelo         { caso_id, modelo_token }
 //                  os campos do modelo, já com o que o cadastro do cliente responde
 //                  e com o padrão que o modelo define (texto de ajuda do campo).
-//   previa_modelo  { caso_id, modelo_token, respostas }
-//                  o contrato preenchido, para conferir antes de enviar. Não cria
-//                  documento no ZapSign.
+//   texto_modelo   { caso_id, modelo_token }
+//                  o texto do modelo (campos por preencher): a tela monta a prévia do
+//                  contrato com ele. Não cria documento no ZapSign.
 //   enviar_modelo  { caso_id, modelo_token, respostas: { "<variável>": "<valor>" },
 //                    cliente?: { email?, telefone? }, tipo_documento? }
 //                  cria o documento no ZapSign a partir do MODELO preenchido.
@@ -33,7 +33,7 @@ import { telefoneDe } from "../_shared/telefone.ts";
 import { TIPOS_DOCUMENTO } from "../_shared/tipos-documento.ts";
 import {
   abrirTarefaAcompanhar, COLUNAS_ASSINATURA, criarDocumento, criarDocumentoDeModelo, detalharModelo, DocumentoForaDaConta, ehSandbox, ehUuid, envioAceito,
-  ErroZapsign, fraseDoErroZapsign, type LinhaAssinatura, listarModelos, type NovoSignatario, previaDoModelo, sincronizarAssinatura, ZAPSIGN_MAX_BYTES,
+  ErroZapsign, fraseDoErroZapsign, type LinhaAssinatura, listarModelos, type NovoSignatario, sincronizarAssinatura, textoDoModelo, ZAPSIGN_MAX_BYTES,
 } from "../_shared/zapsign.ts";
 
 /** A chamada ao ZapSign tem teto de 45s; `enviando` além disto não tem dono. */
@@ -106,7 +106,7 @@ serve(async (req) => {
     }
   }
 
-  const ACOES = ["enviar", "modelos", "modelo", "previa_modelo", "enviar_modelo"];
+  const ACOES = ["enviar", "modelos", "modelo", "texto_modelo", "enviar_modelo"];
   if (!ACOES.includes(String(body.action))) return jsonResponse({ error: "ação desconhecida" }, 400);
 
   /** O cliente do caso, lido no escopo do escritório. */
@@ -253,23 +253,22 @@ serve(async (req) => {
         return jsonResponse({ ok: true, modelo, campos, cliente: { nome: cliente.nome, email: cliente.email ?? "", telefone: cliente.telefone ?? "", cpf: cliente.cpf ?? "", endereco: cliente.endereco ?? "" } });
       }
 
-      // O valor de cada campo sai de UMA conta (`respostasDoModelo`): só os campos que o
-      // modelo TEM, o extenso escrito pelo sistema e a faixa que o modelo aceita.
-      const dadas = body.respostas && typeof body.respostas === "object" ? body.respostas : {};
-      const { respostas, erros } = respostasDoModelo(campos, dadas);
-
-      // previa_modelo: o contrato já preenchido, lido do DOCX do modelo. Não cria documento
-      // no ZapSign (lá, documento criado conta no plano mesmo sem assinar). Campo que falta
-      // não impede a prévia: ele aparece marcado em branco.
-      if (body.action === "previa_modelo") {
+      // texto_modelo: o DOCX do modelo em parágrafos. A tela preenche com `previaDoContrato`
+      // e não volta aqui a cada conferência. Não cria documento no ZapSign (lá, documento
+      // criado conta no plano mesmo sem assinar).
+      if (body.action === "texto_modelo") {
         try {
-          return jsonResponse({ ok: true, paragrafos: await previaDoModelo(arquivo, respostas) });
+          return jsonResponse({ ok: true, paragrafos: await textoDoModelo(arquivo) });
         } catch (e) {
-          console.warn(`[zapsign-enviar] prévia do modelo ${modelo.token}:`, String((e as Error)?.message ?? e));
+          console.warn(`[zapsign-enviar] texto do modelo ${modelo.token}:`, String((e as Error)?.message ?? e));
           return jsonResponse({ error: "Não consegui montar a prévia deste modelo. O envio continua disponível.", code: "previa_indisponivel" }, 422);
         }
       }
 
+      // O valor de cada campo sai de UMA conta (`respostasDoModelo`): só os campos que o
+      // modelo TEM, o extenso escrito pelo sistema e a faixa que o modelo aceita.
+      const dadas = body.respostas && typeof body.respostas === "object" ? body.respostas : {};
+      const { respostas, erros } = respostasDoModelo(campos, dadas);
       if (erros.length) return jsonResponse({ error: erros.join(" "), code: "campos_faltando" }, 400);
       const tipoDocumento = body.tipo_documento ?? "contrato_honorarios";
       if (!TIPOS_DOCUMENTO.includes(tipoDocumento)) return jsonResponse({ error: "tipo de documento desconhecido" }, 400);

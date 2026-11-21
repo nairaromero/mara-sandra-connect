@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { deflateRawSync, inflateRawSync } from "node:zlib";
 import {
-  beneficioNaFrase, camposDoModelo, cpfComPontos, extensoDoValor, normalizarValor, numeroPorExtenso, paragrafosDoDocx, partesDoCadastro, previaDoContrato, qualificacaoDe, regrasDaAjuda, respostasDoModelo,
+  beneficioNaFrase, camposDoModelo, cpfComPontos, extensoDoValor, faixaDoCampo, normalizarValor, numeroPorExtenso, paragrafosDoDocx, partesDoCadastro, previaDoContrato, qualificacaoDe, regrasDaAjuda, respostasDoModelo,
 } from "../../supabase/functions/_shared/modelo-contrato";
 
 const RAIZ = join(import.meta.dir, "../..");
@@ -48,6 +48,9 @@ describe("o que o texto de ajuda do campo diz ao sistema", () => {
     expect(regrasDaAjuda("Padrão: 35% · Máximo: 50%")).toEqual({ padrao: "35%", minimo: null, maximo: 50, sistema: "", texto: "" });
     expect(regrasDaAjuda("Combine com o cliente; PADRAO: 5; mínimo: 1")).toEqual({ padrao: "5", minimo: 1, maximo: null, sistema: "", texto: "Combine com o cliente" });
     expect(regrasDaAjuda("Como está no documento")).toEqual({ padrao: "", minimo: null, maximo: null, sistema: "", texto: "Como está no documento" });
+    // ajuda sem regra nenhuma fica como o modelo escreveu, com o ";" que tiver
+    expect(regrasDaAjuda(" Ex.: à vista; em 3 parcelas ").texto).toBe("Ex.: à vista; em 3 parcelas");
+    expect([faixaDoCampo({ tipo: "percentual", minimo: 2.5, maximo: 50 }), faixaDoCampo({ tipo: "inteiro", minimo: 1, maximo: null }), faixaDoCampo({ tipo: "texto", minimo: null, maximo: null })]).toEqual(["mínimo 2,5%, máximo 50%", "mínimo 1", ""]);
     expect(regrasDaAjuda("Sistema: Benefício")).toEqual({ padrao: "", minimo: null, maximo: null, sistema: "beneficio", texto: "" });
   });
   test("o padrão já vem preenchido, o cadastro tem prioridade e o extenso é do sistema", () => {
@@ -131,6 +134,8 @@ describe("o valor de cada campo que vai ao ZapSign", () => {
     expect(r.erros).toEqual([]);
     expect([valor(r, "PERCENTUAL_ATRASADOS"), valor(r, "PERCENTUAL_ATRASADOS_EXTENSO"), valor(r, "QTD_PRESTACOES"), valor(r, "QTD_PRESTACOES_EXTENSO")]).toEqual(["30%", "trinta por cento", "4", "quatro"]);
     expect(r.respostas.map((x) => x.variavel)).toEqual(CAMPOS.map((c) => c.variavel));
+    // o que não é texto nem número não entra no contrato
+    expect(valor(respostasDoModelo(CAMPOS, { ...base, "{{TEXTO_PARCEIRO}}": { a: 1 } }), "TEXTO_PARCEIRO")).toBe("");
   });
   test("faixa do modelo, número inválido e obrigatório vazio impedem o envio — uma frase por problema", () => {
     expect(respostasDoModelo(CAMPOS, { ...base, "{{PERCENTUAL_ATRASADOS}}": "60" }).erros).toEqual(["Honorários sobre os atrasados (%): o máximo deste modelo é 50%."]);
@@ -209,7 +214,10 @@ describe("régua: uma conta só para os campos do modelo", () => {
   });
   test("a function e a tela decidem o valor dos campos por `respostasDoModelo`, e o ZapSign lê os campos por `camposDoModelo`", () => {
     expect(ler("supabase/functions/zapsign-enviar/index.ts")).toContain("respostasDoModelo(campos, dadas)");
-    expect(ler("src/components/assinaturas/gerar-contrato-dialog.tsx")).toContain("respostasDoModelo(");
+    const tela = ler("src/components/assinaturas/gerar-contrato-dialog.tsx");
+    expect(tela).toContain("respostasDoModelo(");
+    // a prévia é montada com os MESMOS valores que vão ao ZapSign
+    expect(tela).toContain("previaDoContrato(texto, conta.respostas)");
     expect(ler("supabase/functions/_shared/zapsign.ts")).toContain("camposDoModelo(m.inputs ?? []");
   });
   test("a function, o túnel do ZapSign e a tela não refazem o que o módulo decide", () => {
