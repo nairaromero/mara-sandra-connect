@@ -18,7 +18,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Eye, FileSignature, Folder, Loader2, Search, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { chamarZapsign, detalharModeloZapsign, listarModelosZapsign, previaDoModeloZapsign, type CampoDoModelo, type ModeloZapsign } from "@/lib/assinaturas";
-import { ESTADOS_CIVIS, NACIONALIDADES, type ParagrafoDoContrato, type PartesDaQualificacao, PROFISSOES, qualificacaoDe, respostasDoModelo } from "@shared/modelo-contrato";
+import { ESTADOS_CIVIS, NACIONALIDADES, type OrigemDoValor, type ParagrafoDoContrato, type PartesDaQualificacao, partesDoCadastro, PROFISSOES, qualificacaoDe, respostasDoModelo } from "@shared/modelo-contrato";
 import { filtrarModelos, modelosSugeridos, porPasta } from "@/lib/assinaturas-modelos";
 import { TIPOS_DOCUMENTO_OPTIONS } from "@/lib/documentos/tipos";
 import { Badge } from "@/components/ui/badge";
@@ -155,6 +155,8 @@ export function GerarContratoDialog(props: {
   const valorDe = (variavel: string) => conta.respostas.find((r) => r.variavel === variavel)?.valor ?? "";
   // o que o sistema escreve sozinho (o extenso, o benefício repetido) não vira campo
   const visiveis = detalhe ? detalhe.campos.filter((c) => !c.extensoDe && !c.copiaDe) : [];
+  // campo → o campo que o sistema escreve a partir dele (ex.: o percentual por extenso)
+  const extensoDe = useMemo(() => new Map((detalhe?.campos ?? []).filter((c) => c.extensoDe).map((c) => [c.extensoDe!, c.variavel])), [detalhe]);
 
   return (
     <Dialog open={aberto} onOpenChange={(a) => !a && !enviando && onFechar()}>
@@ -224,10 +226,11 @@ export function GerarContratoDialog(props: {
               </>
             )}
           </div>
-        ) : previa ? (
-          <PreviaDoContrato paragrafos={previa} />
         ) : (
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1" data-campos-modelo>
+          <>
+          {previa && <PreviaDoContrato paragrafos={previa} />}
+          {/* Na prévia os campos só somem da vista: desmontar apagaria o que foi escolhido nas listas (estado civil, profissão). */}
+          <div className={previa ? "hidden" : "min-h-0 flex-1 space-y-4 overflow-y-auto pr-1"} data-campos-modelo>
             {visiveis.length === 0 ? (
               <p className="text-sm text-muted-foreground">Este modelo não tem campo para preencher.</p>
             ) : (
@@ -239,8 +242,7 @@ export function GerarContratoDialog(props: {
                     cliente={detalhe.cliente}
                     valor={respostas[c.variavel] ?? ""}
                     onChange={(v) => setRespostas((r) => ({ ...r, [c.variavel]: v }))}
-                    // o campo que o sistema escreve a partir deste (ex.: o percentual por extenso)
-                    extenso={detalhe.campos.some((x) => x.extensoDe === c.variavel) ? valorDe(detalhe.campos.find((x) => x.extensoDe === c.variavel)!.variavel) : null}
+                    extenso={extensoDe.has(c.variavel) ? valorDe(extensoDe.get(c.variavel)!) : null}
                     valorFinal={valorDe(c.variavel)}
                   />
                 ))}
@@ -281,6 +283,7 @@ export function GerarContratoDialog(props: {
             </div>
             <AvisoDoEnvio />
           </div>
+          </>
         )}
 
         <DialogFooter className="gap-2 sm:justify-between">
@@ -370,10 +373,8 @@ function CampoDoContrato(props: {
   if (c.especie === "qualificacao") return <CampoQualificacao campo={c} cliente={props.cliente} valor={valor} onChange={onChange} />;
   const numero = c.tipo !== "texto";
   // de onde veio o valor que já está no campo: do cadastro do cliente ou do padrão do modelo
-  // a data que o sistema escreve é a de hoje, não um dado do cadastro
-  const hoje = !!valor && valor === c.sugestao && /^data\b/i.test(c.rotulo);
-  const doCadastro = !!valor && !c.padrao && valor === c.sugestao && !c.especie && !hoje;
-  const doCaso = !!valor && (c.especie === "beneficio" || c.especie === "parceiro") && valor === c.sugestao;
+  // de onde veio o valor que já está no campo — quem diz é o servidor (`origem`), não o nome do campo
+  const origem = valor && valor === c.sugestao ? ROTULO_DA_ORIGEM[c.origem] : "";
   const padrao = !c.padrao ? "" : valorFinal === c.padrao ? "padrão do modelo" : `padrão do modelo: ${c.padrao}`;
   const faixa = [c.minimo !== null ? `mínimo ${c.minimo}` : "", c.maximo !== null ? `máximo ${c.maximo}` : ""].filter(Boolean).join(", ");
   return (
@@ -382,9 +383,7 @@ function CampoDoContrato(props: {
         {/* o modelo chama de "objeto do serviço" ou "benefício ou serviço"; para quem preenche é o benefício */}
         {c.especie === "beneficio" ? "Benefício" : c.rotulo}
         {c.obrigatorio && <span className="text-red-600"> *</span>}
-        {doCadastro && <span className="ml-2 text-xs font-normal text-muted-foreground">do cadastro</span>}
-        {doCaso && <span className="ml-2 text-xs font-normal text-muted-foreground">do caso</span>}
-        {hoje && <span className="ml-2 text-xs font-normal text-muted-foreground">hoje</span>}
+        {origem && <span className="ml-2 text-xs font-normal text-muted-foreground">{origem}</span>}
       </Label>
       {numero ? (
         <Input id={`campo-${c.variavel}`} inputMode="decimal" value={valor} onChange={(e) => onChange(e.target.value)} />
@@ -416,13 +415,16 @@ function CampoDoContrato(props: {
   );
 }
 
+/** "modelo" não entra: o padrão do modelo já aparece embaixo do campo, com o valor. */
+const ROTULO_DA_ORIGEM: Record<OrigemDoValor, string> = { cadastro: "do cadastro", caso: "do caso", hoje: "hoje", modelo: "", "": "" };
+
 const OUTRO = "__outro__";
 
 /**
  * Escolher numa lista em vez de digitar. "Outro…" abre o campo de texto para o
  * que a lista não tem — e o valor que já veio fora da lista abre direto nele.
  */
-function EscolhaOuTexto(props: { id?: string; opcoes: ReadonlyArray<string>; value: string; onChange: (v: string) => void; rotulo: string; placeholder?: string }) {
+function EscolhaOuTexto(props: { id?: string; opcoes: ReadonlyArray<string>; value: string; onChange: (v: string) => void; rotulo: string }) {
   const { opcoes, value, onChange } = props;
   const [escrevendo, setEscrevendo] = useState(() => !!value && !opcoes.includes(value));
   if (escrevendo) {
@@ -447,7 +449,7 @@ function EscolhaOuTexto(props: { id?: string; opcoes: ReadonlyArray<string>; val
     <Selecao
       id={props.id}
       aria-label={props.rotulo}
-      placeholder={props.placeholder ?? "Escolher"}
+      placeholder="Escolher"
       opcoes={[...opcoes.map((o) => ({ value: o, label: o })), { value: OUTRO, label: "Outro… (escrever)" }]}
       value={value || undefined}
       onChange={(v) => {
@@ -466,7 +468,8 @@ function EscolhaOuTexto(props: { id?: string; opcoes: ReadonlyArray<string>; val
  */
 function CampoQualificacao(props: { campo: CampoDoModelo; cliente: { nome: string; cpf: string; endereco: string }; valor: string; onChange: (v: string) => void }) {
   const { campo: c, cliente, valor, onChange } = props;
-  const [p, setP] = useState<PartesDaQualificacao>({ nome: cliente.nome, nacionalidade: NACIONALIDADES[0], estadoCivil: "", profissao: "", rg: "", cpf: cliente.cpf, endereco: cliente.endereco });
+  // as MESMAS partes de que o servidor montou a frase que já está em `valor`
+  const [p, setP] = useState<PartesDaQualificacao>(() => partesDoCadastro(cliente));
   const mudar = (parte: Partial<PartesDaQualificacao>) => {
     const novo = { ...p, ...parte };
     setP(novo);

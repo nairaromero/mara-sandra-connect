@@ -8,6 +8,8 @@
 //   - que campo o sistema escreve sozinho: `{{X_EXTENSO}}` é o `{{X}}` por
 //     extenso ("30%" → "trinta por cento"), para o número e o extenso do
 //     contrato nunca divergirem;
+//   - o que a pessoa NÃO digita, e de onde veio (`origem`): cadastro do cliente,
+//     caso, data de hoje ou padrão do modelo — a tela só mostra;
 //   - o valor que vai ao ZapSign em cada campo (`respostasDoModelo`) — a tela
 //     mostra e o servidor envia o MESMO resultado;
 //   - o texto do contrato já preenchido (`paragrafosDoDocx` + `previaDoContrato`),
@@ -38,10 +40,25 @@ export interface ContextoDoModelo {
   beneficios?: ReadonlyArray<string>;
   /** tipo de benefício do caso */
   beneficioDoCaso?: string | null;
-  cliente?: { nome?: string | null; cpf?: string | null; endereco?: string | null };
+  cliente?: DadosDoCliente;
   /** nome do parceiro que indicou o caso (vazio = o caso não tem parceiro) */
   parceiro?: string | null;
+  /** a data de hoje como o contrato escreve ("20 de novembro de 2026"), no calendário do escritório */
+  hoje?: string;
 }
+
+/** O que o cadastro do cliente sabe responder num modelo. */
+export interface DadosDoCliente {
+  nome?: string | null;
+  cpf?: string | null;
+  email?: string | null;
+  telefone?: string | null;
+  endereco?: string | null;
+  data_nascimento?: string | null;
+}
+
+/** De onde veio o valor que já está no campo ("" = ninguém preencheu). */
+export type OrigemDoValor = "cadastro" | "caso" | "hoje" | "modelo" | "";
 
 export type TipoDoCampo = "texto" | "percentual" | "inteiro";
 
@@ -55,6 +72,8 @@ export interface CampoDoModelo {
   obrigatorio: boolean;
   /** valor que já vem preenchido: o do cadastro do cliente ou, sem ele, o padrão do modelo */
   sugestao: string;
+  /** de onde a `sugestao` veio — a tela mostra, não adivinha pelo nome do campo */
+  origem: OrigemDoValor;
   tipo: TipoDoCampo;
   /** "Padrão: …" do texto de ajuda ("" = o modelo não define) */
   padrao: string;
@@ -93,10 +112,16 @@ export interface PartesDaQualificacao {
   endereco: string;
 }
 
-const cpfComPontos = (cpf: string): string => {
+/** CPF como o contrato escreve: 529.982.247-25. O que não tem 11 dígitos volta como veio. */
+export function cpfComPontos(cpf: string): string {
   const d = cpf.replace(/\D/g, "");
   return d.length === 11 ? `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}` : cpf.trim();
-};
+}
+
+/** As partes da qualificação que o cadastro já responde; o resto a pessoa escolhe nas listas. */
+export function partesDoCadastro(cliente: DadosDoCliente = {}): PartesDaQualificacao {
+  return { nome: cliente.nome ?? "", nacionalidade: NACIONALIDADES[0], estadoCivil: "", profissao: "", rg: "", cpf: cliente.cpf ?? "", endereco: cliente.endereco ?? "" };
+}
 
 /** A frase da qualificação. Parte em branco simplesmente não entra. */
 export function qualificacaoDe(p: Partial<PartesDaQualificacao>): string {
@@ -118,7 +143,10 @@ export function beneficioNaFrase(nome: string): string {
   return /^[A-ZÀ-Ý][a-zà-ÿ]/.test(v) ? v[0].toLowerCase() + v.slice(1) : v;
 }
 
-const semAcento = (v: string): string => v.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+/** Minúsculas e sem acento: é assim que nome de campo e busca são comparados. */
+export const semAcento = (v: string): string => v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+/** O campo fala de OUTRA pessoa que não o cliente ("nome da mãe", "CPF do representante legal"). */
+export const DE_OUTRA_PESSOA = /\b(mae|pai|advogad|escritorio|testemunha|conjuge|representante|procurador|contratad)/;
 const nomeDaVariavel = (variavel: string): string => variavel.replace(/[{}]/g, "").trim();
 
 // ---------------------------------------------------------------------------
@@ -175,8 +203,10 @@ export function extensoDoValor(valor: string): string {
 // ---------------------------------------------------------------------------
 // O que o texto de ajuda do campo diz ao sistema
 // ---------------------------------------------------------------------------
+/** Um número como a pessoa digita: "30", "30%", "30,5 %". */
+const NUMERO = /^(\d{1,6})(?:[.,](\d{1,2}))?\s*%?$/;
 const numeroDe = (texto: string): number | null => {
-  const m = /^(\d{1,6})(?:[.,](\d{1,2}))?\s*%?$/.exec(texto.trim());
+  const m = NUMERO.exec(texto.trim());
   return m ? Number(`${m[1]}.${m[2] ?? "0"}`) : null;
 };
 
@@ -207,7 +237,7 @@ export function regrasDaAjuda(ajuda: string): { padrao: string; minimo: number |
 export function normalizarValor(tipo: TipoDoCampo, bruto: string): string {
   const v = bruto.trim();
   if (tipo === "texto" || !v) return v;
-  const m = /^(\d{1,6})(?:[.,](\d{1,2}))?\s*%?$/.exec(v);
+  const m = NUMERO.exec(v);
   if (!m) return v; // não é número: `respostasDoModelo` acusa
   if (tipo === "inteiro") return m[2] ? v : String(Number(m[1]));
   const decimal = m[2] && Number(m[2]) ? `,${m[2].replace(/0+$/, "")}` : "";
@@ -230,14 +260,37 @@ function especieDe(sistema: string, nome: string, rotulo: string): EspecieDoCamp
   return comeca(/^(texto[ _])?parceiro/) ? "parceiro" : null;
 }
 
+/** O que o cadastro (ou o calendário) responde num campo, pelo nome que o campo tem no modelo. */
+function doCadastro(rotulo: string, contexto: ContextoDoModelo): { valor: string; origem: OrigemDoValor } {
+  const r = semAcento(rotulo);
+  const c = contexto.cliente ?? {};
+  const cadastro = (valor: string | null | undefined): { valor: string; origem: OrigemDoValor } => ({ valor: String(valor ?? ""), origem: valor ? "cadastro" : "" });
+  if (/\bcpf\b/.test(r)) return DE_OUTRA_PESSOA.test(r) ? cadastro("") : cadastro(c.cpf ? cpfComPontos(c.cpf) : "");
+  if (/e-?mail/.test(r)) return cadastro(c.email);
+  if (/telefone|celular|whats/.test(r)) return cadastro(c.telefone);
+  if (/endereco/.test(r)) return cadastro(c.endereco);
+  if (/nascimento/.test(r)) {
+    const m = String(c.data_nascimento ?? "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return cadastro(m ? `${m[3]}/${m[2]}/${m[1]}` : "");
+  }
+  // a data em que o contrato é assinado é hoje
+  if (/^data$|data d[ao] (assinatura|contrato)|data de hoje/.test(r)) return { valor: contexto.hoje ?? "", origem: contexto.hoje ? "hoje" : "" };
+  // "nome", "nome completo", "nome do contratante" — mas não "nome da mãe" nem "nome do advogado"
+  if (/\bnome\b/.test(r) && !DE_OUTRA_PESSOA.test(r)) return cadastro(c.nome);
+  return cadastro("");
+}
+
 /**
  * Os campos do modelo, na ordem do ZapSign, com as regras lidas do texto de
- * ajuda. `sugerir` responde o que o cadastro do cliente sabe sobre o campo;
- * `contexto` traz o que o caso sabe (benefício, dados para a qualificação).
+ * ajuda e com o que o sistema já sabe responder (`contexto`: cadastro do
+ * cliente, benefício e parceiro do caso, data de hoje).
  */
-export function camposDoModelo(inputs: ReadonlyArray<EntradaDoModelo>, sugerir: (rotulo: string) => string, contexto: ContextoDoModelo = {}): CampoDoModelo[] {
+export function camposDoModelo(inputs: ReadonlyArray<EntradaDoModelo>, contexto: ContextoDoModelo = {}): CampoDoModelo[] {
   const validos = [...inputs].filter((i) => typeof i.variable === "string" && i.variable).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   const porNome = new Map(validos.map((i) => [nomeDaVariavel(i.variable as string).toUpperCase(), i.variable as string]));
+  // benefício: a lista do escritório, já do jeito que entra na frase; "Outro" não é um benefício
+  const beneficios = (contexto.beneficios ?? []).filter((b) => semAcento(b) !== "outro").map(beneficioNaFrase);
+  const doCaso = contexto.beneficioDoCaso && semAcento(contexto.beneficioDoCaso) !== "outro" ? beneficioNaFrase(contexto.beneficioDoCaso) : "";
   let primeiroBeneficio: string | null = null;
   return validos.map((i) => {
     const variavel = i.variable as string;
@@ -256,19 +309,20 @@ export function camposDoModelo(inputs: ReadonlyArray<EntradaDoModelo>, sugerir: 
           : "texto";
     const especie = extensoDe ? null : especieDe(regras.sistema, nome, rotulo);
     const doModelo = String(i.options ?? "").split(";").map((o) => o.trim()).filter(Boolean);
-    // benefício: a lista do escritório, já do jeito que entra na frase; "Outro" não é um benefício
-    const beneficios = (contexto.beneficios ?? []).filter((b) => semAcento(b) !== "outro").map(beneficioNaFrase);
-    const doCaso = contexto.beneficioDoCaso && semAcento(contexto.beneficioDoCaso) !== "outro" ? beneficioNaFrase(contexto.beneficioDoCaso) : "";
-    const daEspecie =
-      especie === "beneficio"
-        ? doCaso
-        : especie === "qualificacao"
-          ? qualificacaoDe({ nome: contexto.cliente?.nome ?? "", nacionalidade: NACIONALIDADES[0], cpf: contexto.cliente?.cpf ?? "", endereco: contexto.cliente?.endereco ?? "" })
-          : especie === "parceiro"
-            ? (contexto.parceiro ?? "").trim() || "não há"
-            : "";
     const copiaDe = especie === "beneficio" ? primeiroBeneficio : null;
     if (especie === "beneficio" && !primeiroBeneficio) primeiroBeneficio = variavel;
+    const padrao = extensoDe ? "" : normalizarValor(tipo, regras.padrao);
+    // quem responde o campo, em ordem: o que o caso sabe, o cadastro, o padrão do modelo
+    const pronto: { valor: string; origem: OrigemDoValor } = extensoDe
+      ? { valor: "", origem: "" }
+      : especie === "beneficio"
+        ? { valor: doCaso, origem: doCaso ? "caso" : "" }
+        : especie === "qualificacao"
+          ? { valor: qualificacaoDe(partesDoCadastro(contexto.cliente)), origem: "cadastro" }
+          : especie === "parceiro"
+            ? { valor: (contexto.parceiro ?? "").trim() || "não há", origem: "caso" }
+            : doCadastro(rotulo, contexto);
+    const sugestao = pronto.valor || padrao;
     return {
       variavel,
       rotulo,
@@ -277,9 +331,10 @@ export function camposDoModelo(inputs: ReadonlyArray<EntradaDoModelo>, sugerir: 
       copiaDe,
       opcoes: extensoDe || copiaDe ? [] : doModelo.length ? doModelo : especie === "beneficio" ? [...new Set([doCaso, ...beneficios].filter(Boolean))] : [],
       especie,
-      sugestao: extensoDe ? "" : daEspecie || (especie ? "" : sugerir(rotulo)) || normalizarValor(tipo, regras.padrao),
+      sugestao,
+      origem: pronto.valor ? pronto.origem : sugestao ? "modelo" : "",
       tipo,
-      padrao: extensoDe ? "" : normalizarValor(tipo, regras.padrao),
+      padrao,
       minimo: regras.minimo,
       maximo: regras.maximo,
       extensoDe,
@@ -418,7 +473,10 @@ async function arquivoDoZip(zip: Uint8Array, nome: string, inflar: Inflar): Prom
     if (u32(zip, local) !== 0x04034b50) throw new Error("o arquivo do modelo não é um DOCX válido");
     const inicio = local + 30 + u16(zip, local + 26) + u16(zip, local + 28);
     const dados = zip.subarray(inicio, inicio + comprimido);
-    if (metodo === 0) return dados;
+    if (metodo === 0) {
+      if (dados.length > XML_MAX_BYTES) throw new Error("o texto do modelo é grande demais para a prévia");
+      return dados;
+    }
     if (metodo !== 8) throw new Error("o arquivo do modelo usa uma compactação que a prévia não lê");
     const saida = await inflar(dados);
     if (saida.length > XML_MAX_BYTES) throw new Error("o texto do modelo é grande demais para a prévia");
@@ -472,15 +530,6 @@ export function previaDoContrato(
   const valores = new Map(respostas.map((r) => [nomeDaVariavel(r.variavel).toUpperCase(), r.valor]));
   return paragrafos.map((p) => {
     const texto = p.trechos.map((x) => x.t).join("");
-    // negrito de cada posição do texto, para devolver a formatação depois da troca
-    const negritoEm = (pos: number): boolean => {
-      let fim = 0;
-      for (const x of p.trechos) {
-        fim += x.t.length;
-        if (pos < fim) return x.n;
-      }
-      return false;
-    };
     const saida: TrechoDoContrato[] = [];
     const por = (t: string, n: boolean, marca?: "preenchido" | "vazio") => {
       if (!t) return;
@@ -488,16 +537,31 @@ export function previaDoContrato(
       if (anterior && anterior.n === n && anterior.marca === marca) anterior.t += t;
       else saida.push(marca ? { t, n, marca } : { t, n });
     };
+    // Anda pelos pedaços do parágrafo UMA vez, junto com o texto: `pedaco` é o
+    // pedaço (com seu negrito) onde a posição `fimDoPedaco` ainda não chegou.
+    let pedaco = 0;
+    let fimDoPedaco = p.trechos[0]?.t.length ?? 0;
+    const irAte = (pos: number) => {
+      while (pedaco < p.trechos.length - 1 && pos >= fimDoPedaco) fimDoPedaco += p.trechos[++pedaco].t.length;
+    };
+    /** O texto fixo de `de` até `ate`, cada parte com o negrito do pedaço de onde veio. */
     const porFixo = (de: number, ate: number) => {
-      for (let i = de; i < ate; i++) por(texto[i], negritoEm(i));
+      let pos = de;
+      while (pos < ate) {
+        irAte(pos);
+        const fim = Math.min(ate, fimDoPedaco);
+        por(texto.slice(pos, fim), p.trechos[pedaco].n);
+        pos = fim;
+      }
     };
     let cursor = 0;
     for (const m of texto.matchAll(/\{\{([^{}]{1,120})\}\}/g)) {
       const inicio = m.index ?? 0;
       porFixo(cursor, inicio);
+      irAte(inicio);
       const valor = valores.get(m[1].trim().toUpperCase()) ?? "";
-      if (valor) por(valor, negritoEm(inicio), "preenchido");
-      else por("(em branco)", negritoEm(inicio), "vazio");
+      // o campo leva o negrito de onde ele COMEÇA no modelo
+      por(valor || "(em branco)", p.trechos[pedaco].n, valor ? "preenchido" : "vazio");
       cursor = inicio + m[0].length;
     }
     porFixo(cursor, texto.length);

@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { deflateRawSync, inflateRawSync } from "node:zlib";
 import {
-  beneficioNaFrase, camposDoModelo, extensoDoValor, normalizarValor, numeroPorExtenso, paragrafosDoDocx, previaDoContrato, qualificacaoDe, regrasDaAjuda, respostasDoModelo,
+  beneficioNaFrase, camposDoModelo, cpfComPontos, extensoDoValor, normalizarValor, numeroPorExtenso, paragrafosDoDocx, partesDoCadastro, previaDoContrato, qualificacaoDe, regrasDaAjuda, respostasDoModelo,
 } from "../../supabase/functions/_shared/modelo-contrato";
 
 const RAIZ = join(import.meta.dir, "../..");
@@ -22,7 +22,7 @@ const CAMPOS = camposDoModelo(
     i("TEXTO_PARCEIRO", "Parceiro indicador", "Nome do parceiro, ou \"não há\".", false),
     i("VALOR_EXTENSO", "Valor por extenso (sem campo base)"),
   ].map((x, n) => ({ ...x, order: n })),
-  (rotulo) => (/nome/i.test(rotulo) ? "Helena Bastos" : ""),
+  { cliente: { nome: "Helena Bastos" } },
 );
 const campo = (v: string) => CAMPOS.find((c) => c.variavel === `{{${v}}}`)!;
 
@@ -53,7 +53,9 @@ describe("o que o texto de ajuda do campo diz ao sistema", () => {
   test("o padrão já vem preenchido, o cadastro tem prioridade e o extenso é do sistema", () => {
     expect([campo("PERCENTUAL_ATRASADOS").tipo, campo("PERCENTUAL_ATRASADOS").sugestao, campo("PERCENTUAL_ATRASADOS").maximo]).toEqual(["percentual", "35%", 50]);
     expect([campo("QTD_PRESTACOES").tipo, campo("QTD_PRESTACOES").sugestao, campo("QTD_PRESTACOES").minimo]).toEqual(["inteiro", "5", 1]);
-    expect(campo("NOME_ASSINANTE").sugestao).toBe("Helena Bastos");
+    expect([campo("NOME_ASSINANTE").sugestao, campo("NOME_ASSINANTE").origem]).toEqual(["Helena Bastos", "cadastro"]);
+    // de onde veio o valor é dito aqui, uma vez: a tela só mostra
+    expect([campo("PERCENTUAL_ATRASADOS").origem, campo("TEXTO_PARCEIRO").origem, campo("PERCENTUAL_ATRASADOS_EXTENSO").origem]).toEqual(["modelo", "caso", ""]);
     expect(campo("PERCENTUAL_ATRASADOS_EXTENSO").extensoDe).toBe("{{PERCENTUAL_ATRASADOS}}");
     expect(campo("TEXTO_PARCEIRO").ajuda).toBe('Nome do parceiro, ou "não há".');
     // "_EXTENSO" sem o campo base no modelo é um campo comum: a pessoa preenche
@@ -72,11 +74,25 @@ describe("o que o sistema monta sem ninguém digitar", () => {
     Object.fromEntries(
       camposDoModelo(
         [i("QUALIFICACAO_CONTRATANTE", "Qualificação do contratante"), i("OBJETO_SERVICO", "Objeto do serviço", "Sistema: benefício"), i("BENEFICIO_OBJETO", "Benefício ou serviço"), i("OBJETO_CIVEL", "Objeto do serviço"), i("BENEFICIO_LIVRE", "Benefício", "Sistema: nenhum"), i("QTD_PRESTACOES", "Quantidade de prestações do benefício", "Padrão: 5"), i("TEXTO_PARCEIRO", "Parceiro indicador", "", false), { ...i("FORMA", "Forma de pagamento"), options: "à vista; em 3 parcelas ;" }],
-        () => "",
         { ...ctx, ...extra },
       ).map((c) => [c.variavel.replace(/[{}]/g, ""), c]),
     );
+  test("o cadastro responde pelo nome do campo, sem confundir com outra pessoa; a data é a de hoje", () => {
+    const c = Object.fromEntries(
+      camposDoModelo(
+        [i("CPF", "CPF"), i("CPF_MAE", "CPF da mãe"), i("NOME", "Nome completo"), i("NOME_ADV", "Nome do advogado"), i("NASC", "Data de nascimento"), i("DATA", "Data da assinatura"), i("FONE", "Celular"), i("FORO", "Foro")],
+        { cliente: { nome: "Helena Bastos", cpf: "52998224725", telefone: "(17) 99999-0000", data_nascimento: "1960-03-07" }, hoje: "20 de novembro de 2026" },
+      ).map((x) => [x.variavel.replace(/[{}]/g, ""), [x.sugestao, x.origem]]),
+    );
+    expect(c).toEqual({
+      CPF: ["529.982.247-25", "cadastro"], CPF_MAE: ["", ""], NOME: ["Helena Bastos", "cadastro"], NOME_ADV: ["", ""],
+      NASC: ["07/03/1960", "cadastro"], DATA: ["20 de novembro de 2026", "hoje"], FONE: ["(17) 99999-0000", "cadastro"], FORO: ["", ""],
+    });
+    expect([cpfComPontos("52998224725"), cpfComPontos("123")]).toEqual(["529.982.247-25", "123"]);
+  });
   test("qualificação: frase com o que o cadastro tem; parte em branco não entra", () => {
+    // a tela parte das MESMAS partes de que o servidor montou a frase
+    expect(qualificacaoDe(partesDoCadastro(ctx.cliente))).toBe(campos().QUALIFICACAO_CONTRATANTE.sugestao);
     expect(campos().QUALIFICACAO_CONTRATANTE.sugestao).toBe("Helena Bastos, brasileiro(a), CPF n.º 529.982.247-25, residente e domiciliado(a) em Rua das Flores, 10, Centro, São Paulo/SP");
     expect(qualificacaoDe({ nome: "Helena", nacionalidade: "brasileiro(a)", estadoCivil: "viúvo(a)", profissao: "aposentado(a)", rg: "12.345.678-9", cpf: "529.982.247-25" })).toBe("Helena, brasileiro(a), viúvo(a), aposentado(a), RG n.º 12.345.678-9, CPF n.º 529.982.247-25");
     expect(qualificacaoDe({})).toBe("");
@@ -196,9 +212,17 @@ describe("régua: uma conta só para os campos do modelo", () => {
     expect(ler("src/components/assinaturas/gerar-contrato-dialog.tsx")).toContain("respostasDoModelo(");
     expect(ler("supabase/functions/_shared/zapsign.ts")).toContain("camposDoModelo(m.inputs ?? []");
   });
-  test("ninguém escreve extenso nem lê 'Padrão:' fora do módulo", () => {
+  test("a function, o túnel do ZapSign e a tela não refazem o que o módulo decide", () => {
     const fora = ["supabase/functions/zapsign-enviar/index.ts", "supabase/functions/_shared/zapsign.ts", "src/components/assinaturas/gerar-contrato-dialog.tsx", "src/lib/assinaturas.ts", "src/lib/assinaturas-modelos.ts"];
-    const copias = fora.filter((f) => /por cento|padr[aã]o\s*:\s*\(|_EXTENSO/.test(ler(f)));
-    expect(copias, "extenso e regras do campo só em _shared/modelo-contrato.ts").toEqual([]);
+    const proibido: Array<[RegExp, string]> = [
+      [/por cento|_EXTENSO|\bEXTENSO\b/, "extenso é `extensoDoValor`"],
+      [/normalize\("NFD"\)[^\n]*toLowerCase/, "tirar acento é `semAcento`"],
+      [/slice\(0, 3\)[^\n]*slice\(3, 6\)/, "formatar CPF é `cpfComPontos`"],
+      [/\.test\(c\.rotulo\)|\.test\(campo\.rotulo\)|\.test\(c\.variavel\)/, "a tela não adivinha pelo nome do campo: `especie` e `origem` vêm do módulo"],
+      [/residente e domiciliad|RG n\.º|CPF n\.º/, "a frase da qualificação é `qualificacaoDe`"],
+      [/\b(mae|pai)\|/, "'campo de outra pessoa' é `DE_OUTRA_PESSOA`"],
+    ];
+    const copias = fora.flatMap((f) => proibido.filter(([re]) => re.test(ler(f))).map(([, porque]) => `${f}: ${porque}`));
+    expect(copias).toEqual([]);
   });
 });
