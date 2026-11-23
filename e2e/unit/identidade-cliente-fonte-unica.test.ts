@@ -32,16 +32,8 @@ describe("identidade do cliente: um lugar só", () => {
     ]);
   });
 
-  // As duas telas do ZapSign ainda copiam por conta própria: estão sendo
-  // mexidas em outro trabalho e ficam de fora até ele terminar. Quando passarem
-  // a usar copiarTexto, saem desta lista — não entra arquivo novo aqui.
-  const AINDA_POR_FORA = [
-    "src/components/assinaturas/assinaturas-caso.tsx",
-    "src/components/integracoes/integracao-zapsign-card.tsx",
-  ];
-
   test("só src/lib/copiar.ts escreve na área de transferência", () => {
-    const quem = quemUsa(/clipboard\s*\.\s*write(Text)?\s*\(/).filter((f) => !AINDA_POR_FORA.includes(f));
+    const quem = quemUsa(/clipboard\s*\.\s*write(Text)?\s*\(/);
     expect(quem).toEqual(["src/lib/copiar.ts"]);
   });
 });
