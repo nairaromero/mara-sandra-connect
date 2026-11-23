@@ -5140,6 +5140,15 @@ function TabDocumentos(props: TabDocumentosProps) {
                   Importar arquivos
                 </Button>
               )}
+              {/* a leitura das integrações falhou (já depois das novas tentativas): diz, em vez de sumir com os botões (#544) */}
+              {isInterno && podeChamar("zapsign-enviar") && integracoesDoc.lista === null && integracoesDoc.erro && (
+                <span className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs text-amber-900" data-integracoes-erro>
+                  Não consegui verificar as integrações do escritório.
+                  <button type="button" className="font-medium underline" onClick={integracoesDoc.recarregar} data-integracoes-tentar>
+                    Tentar de novo
+                  </button>
+                </span>
+              )}
               {/* contrato a partir de um modelo da conta do ZapSign do escritório (#522) */}
               {podeAssinar && (
                 <Button variant="outline" size="sm" onClick={() => setGerandoContrato(true)} data-gerar-contrato>
