@@ -293,6 +293,16 @@ o sistema em produção. Quando chegar, vale o seguinte:
   Quem é da equipe interna de um escritório (ZapSign e e-mails do INSS) é
   `equipeInterna` de `_shared/equipe.ts` — pelo vínculo, nunca por `usuarios.tipo`.
   Provas: `e2e/tests/zapsign-assinatura.spec.ts` e a régua `e2e/unit/zapsign-fonte-unica.test.ts`.
+  Resumo periódico para parceiros (23/11, pedido da Naira e da Mara): `/parceiros?tab=resumo`.
+  Por ESCRITÓRIO (`resumo_parceiros_config`: ligado, dia, hora de Brasília, blocos, se parceiro
+  sem escolha recebe) e por PARCEIRO (`resumo_parceiros_preferencia`: `sempre`/`nunca`; sem linha =
+  segue o padrão). Regras e e-mail num módulo puro, `_shared/resumo-parceiros.ts`
+  (`@shared/resumo-parceiros`: `SECOES_RESUMO`, `recebeResumo`, `estaNaHora`, `montarEmailResumo`);
+  bloco novo = uma entrada lá + a consulta em `CONSULTAS` da function + o check do SQL. A tela e o
+  cron (`msc-resumo-parceiros`, de hora em hora; manda só o escritório cujo dia/hora chegou) passam
+  pela function `resumo-parceiros` (`parceiros:gerenciar` ou assinatura de sistema). Um envio por
+  parceiro e dia (`resumo_parceiros_envios`, unique); parceiro sem aceite ou com vínculo inativo é
+  pulado. Régua `e2e/unit/resumo-parceiros.test.ts`; prova `e2e/tests/resumo-parceiros.spec.ts`.
   Etiquetas (#514): a fonte é uma só — `etiquetas` + `clientes_etiquetas`. O JSON
   legado `clientes.tags` não tem escritor (não voltar a gravá-lo: o espelhador que
   o sincronizava apagou etiquetas da tela em 09/11) e rotina de sistema aplica

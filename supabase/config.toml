@@ -107,6 +107,10 @@ enabled = false
 # `--no-verify-jwt` — a flag sobrepõe o que está aqui.
 # ---------------------------------------------------------------------------
 
+# cron (pg_net não manda JWT) e a tela (parceiros:gerenciar); a checagem é dentro da função
+[functions.resumo-parceiros]
+verify_jwt = false
+
 # cron (pg_net não manda JWT); a checagem é a assinatura de sistema
 [functions.digest-diario]
 verify_jwt = false

@@ -69,7 +69,10 @@ EXCLUIR=(escritorio_integracoes acessos_suporte ia_integracoes ia_tokens ia_acoe
   avisos_aceite_pendente
   # #517 — envios ao ZapSign: a linha guarda o link de assinatura REAL do
   # cliente; não sai de produção.
-  assinaturas)
+  assinaturas
+  # resumo para parceiros: a escolha por parceiro e os envios apontam para
+  # usuários (o truncate de usuarios as levaria); no staging começam vazias.
+  resumo_parceiros_preferencia resumo_parceiros_envios)
 # Tabela NOVA com RLS precisa de uma decisão aqui (EXCLUIR/PRESERVAR) ou da
 # policy espelho_leitura_select em produção (aí ela é copiada). Sem isso o
 # espelho aborta — e o `rbac-conferir-exigencias` (produção) acusa antes.
@@ -86,7 +89,9 @@ EXCLUIR=(escritorio_integracoes acessos_suporte ia_integracoes ia_tokens ia_acoe
 # preservar (o truncate de usuarios cascateia neles): ficam em EXCLUIR e o
 # passo 6/6 reaplica as migrations (backfill de membros do escritório padrão)
 # e o seed do Canário/QG.
-PRESERVAR=(app_config escritorios papeis permissoes papel_permissoes escritorio_config)
+# resumo_parceiros_config: ligar/desligar o resumo é do ambiente (o staging
+# testa sem herdar a escolha de produção). Só tem FK para escritorios (PRESERVAR).
+PRESERVAR=(app_config escritorios papeis permissoes papel_permissoes escritorio_config resumo_parceiros_config)
 
 # Array SQL a partir dos nomes acima (fixos neste script, sem entrada externa).
 sql_array() { local s="" t; for t in "$@"; do s+="${s:+, }'$t'"; done; echo "array[$s]::text[]"; }
