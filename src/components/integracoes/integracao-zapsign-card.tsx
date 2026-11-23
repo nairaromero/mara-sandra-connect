@@ -1,6 +1,6 @@
 import { Copy, FileSignature, RefreshCw } from "lucide-react";
-import { toast } from "sonner";
 import { SUPABASE_URL } from "@/lib/supabase";
+import { copiarTexto } from "@/lib/copiar";
 import { Button } from "@/components/ui/button";
 import { IntegracaoCredencialCard, type CampoCredencial } from "@/components/integracoes/integracao-credencial-card";
 
@@ -18,12 +18,7 @@ function LinhaCopiavel({ rotulo, valor, marca }: { rotulo: string; valor: string
         type="button"
         variant="outline"
         size="sm"
-        onClick={() => {
-          void navigator.clipboard.writeText(valor).then(
-            () => toast.success(`${rotulo} copiado.`),
-            () => toast.error("Não consegui copiar. Selecione o texto e copie à mão."),
-          );
-        }}
+        onClick={() => void copiarTexto(valor, `${rotulo} copiado.`)}
       >
         <Copy className="mr-2 h-3.5 w-3.5" /> Copiar
       </Button>
