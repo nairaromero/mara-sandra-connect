@@ -15,12 +15,10 @@ import { Badge } from "@/components/ui/badge";
 import { iaTokens, IA_MCP_URL, type IaToken, type IaTokenPessoa } from "@/lib/ia/client";
 import { dataBR } from "@/lib/fuso";
 import { useAuth } from "@/hooks/use-auth";
+import { copiarTexto } from "@/lib/copiar";
 
 function copiar(texto: string, msg = "Copiado") {
-  navigator.clipboard.writeText(texto).then(
-    () => toast.success(msg),
-    () => toast.error("Não foi possível copiar"),
-  );
+  void copiarTexto(texto, msg);
 }
 
 export function ConexaoClaudeCard() {

@@ -9,6 +9,8 @@
 //     A senha não aparece em tarefa, andamento nem solicitação.
 //  3. Trocar pelo botão "Alterar" (que o parceiro já tinha) também cumpre o
 //     pedido aberto.
+//  3b. Parceiro copia o CPF e a senha (botão de copiar e seleção com o mouse):
+//     a trava de cópia que existia só na tela saiu em 20/11.
 //  4. Guardas no banco: pedido de novo devolve o aberto; parceiro não pede;
 //     interno não cumpre no lugar do parceiro.
 
@@ -31,6 +33,7 @@ let caso2: { casoId: string; clienteId: string; nome: string };
 
 const SENHA_KANBAN = `E2e!Kanban${Date.now().toString().slice(-6)}`;
 const SENHA_ALTERAR = `E2e!Alterar${Date.now().toString().slice(-6)}`;
+const SENHA_TROCADA = `E2e!Trocada${Date.now().toString().slice(-6)}`;
 
 async function logado(email: string, senha: string): Promise<SupabaseClient> {
   const c = createClient(ENV.supabaseUrl, ENV.anonKey, {
@@ -264,5 +267,83 @@ test.describe("parceiro", () => {
       .eq("caso_id", caso2.casoId);
     expect(error).toBeNull();
     expect(tarefas!.filter((t) => t.titulo.startsWith("Senha do Meu INSS alterada"))).toHaveLength(1);
+  });
+
+  test("copia o CPF e a senha do cliente, pelo botão e selecionando", async ({ page, context }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    const { data: cli, error } = await admin
+      .from("clientes")
+      .select("cpf")
+      .eq("id", caso2.clienteId)
+      .single();
+    expect(error).toBeNull();
+    const cpfDigitos = (cli!.cpf as string).replace(/\D/g, "");
+
+    await page.goto(`/casos/${caso2.casoId}`);
+    const copiado = () => page.evaluate(() => navigator.clipboard.readText());
+
+    // CPF: o botão copia os dígitos mesmo com o número ainda mascarado na tela.
+    await page.getByRole("button", { name: "Copiar CPF" }).first().click({ timeout: 20_000 });
+    await expect(page.getByText("CPF copiado")).toBeVisible();
+    expect(await copiado()).toBe(cpfDigitos);
+
+    // Senha: revelada, pode ser selecionada com o mouse (sem user-select: none)...
+    await page.getByRole("button", { name: "Ver senha" }).first().click();
+    const senha = page.getByText(SENHA_ALTERAR, { exact: true }).first();
+    await expect(senha).toBeVisible({ timeout: 15_000 });
+    expect(await senha.evaluate((el) => getComputedStyle(el).userSelect)).not.toBe("none");
+    await page.evaluate(() => navigator.clipboard.writeText(""));
+    await senha.click({ clickCount: 3 });
+    await page.keyboard.press("ControlOrMeta+c");
+    expect(await copiado()).toContain(SENHA_ALTERAR);
+
+    // ...e copiada pelo botão.
+    await page.getByRole("button", { name: "Copiar senha" }).first().click();
+    await expect(page.getByText("Senha copiada")).toBeVisible();
+    expect(await copiado()).toBe(SENHA_ALTERAR);
+
+    // A leitura continua na trilha.
+    const { data: audit, error: errAu } = await admin
+      .from("acessos_senha_inss")
+      .select("usuario_id, acao")
+      .eq("cliente_id", caso2.clienteId)
+      .eq("usuario_id", parceiroId);
+    expect(errAu).toBeNull();
+    expect(audit!.some((x) => x.acao === "leitura")).toBe(true);
+  });
+
+  test("cabeçalho e Visão geral leem a senha de um lugar só: uma leitura na trilha, e a troca vale nos dois", async ({ page, context }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    const leituras = async () => {
+      const { count, error } = await admin
+        .from("acessos_senha_inss")
+        .select("id", { count: "exact", head: true })
+        .eq("cliente_id", caso2.clienteId)
+        .eq("usuario_id", parceiroId)
+        .eq("acao", "leitura");
+      if (error) throw new Error(`trilha: ${error.message}`);
+      return count ?? 0;
+    };
+    const antes = await leituras();
+
+    await page.goto(`/casos/${caso2.casoId}`);
+    // Revela no cabeçalho e depois no card: a segunda não busca de novo.
+    await page.getByRole("button", { name: "Ver senha" }).first().click({ timeout: 20_000 });
+    await expect(page.getByText(SENHA_ALTERAR, { exact: true })).toHaveCount(1, { timeout: 15_000 });
+    await page.getByRole("button", { name: "Ver senha" }).first().click();
+    await expect(page.getByText(SENHA_ALTERAR, { exact: true })).toHaveCount(2);
+    expect(await leituras(), "uma leitura só na trilha").toBe(antes + 1);
+
+    // Troca pelo "Alterar": a senha antiga some dos dois lugares...
+    await page.getByRole("button", { name: "Alterar", exact: true }).click();
+    await page.getByPlaceholder("Senha do MEU INSS do cliente").fill(SENHA_TROCADA);
+    await page.getByRole("button", { name: "Salvar", exact: true }).click();
+    await expect(page.getByText(/Senha MEU INSS substituída/)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(SENHA_ALTERAR, { exact: true })).toHaveCount(0);
+
+    // ...e o copiar do cabeçalho entrega a NOVA, não a que estava guardada.
+    await page.getByRole("button", { name: "Copiar senha" }).first().click();
+    await expect(page.getByText("Senha copiada")).toBeVisible();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(SENHA_TROCADA);
   });
 });
