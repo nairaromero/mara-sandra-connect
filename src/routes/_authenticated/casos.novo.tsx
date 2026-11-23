@@ -878,8 +878,9 @@ function NovoCasoPage() {
                   render={({ field }) => (
                     <FormItem className="sm:col-span-2">
                       <FormLabel>Nome completo *</FormLabel>
+                      {/* caixa alta: quem grava é o banco (trg_clientes_nome_caixa_alta); aqui só mostra igual */}
                       <FormControl>
-                        <Input placeholder="Nome do cliente" {...field} />
+                        <Input placeholder="NOME DO CLIENTE" className="uppercase" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

@@ -103,7 +103,7 @@ function proximaSexta(): {
 
 test.beforeAll(async () => {
   const sufixo = `Exig Judicial ${Date.now()}`;
-  nomeCliente = `[E2E] ${sufixo}`;
+  nomeCliente = `[E2E] ${sufixo}`.toUpperCase(); // caixa alta: é como o banco grava
   ({ casoId } = await seedClienteCaso(admin, { sufixo }));
 });
 

@@ -54,8 +54,9 @@ async function ultimoClienteDaLista(): Promise<string> {
 test.beforeAll(async () => {
   escritorio = await escritorioE2E(admin);
   sufixoBusca = `Rolagem ${Date.now()}`;
-  nomeCliente = `[E2E] ${sufixoBusca} A`;
-  nomeOutroCliente = `[E2E] ${sufixoBusca} B`;
+  // caixa alta: é como o banco grava o nome do cliente
+  nomeCliente = `[E2E] ${sufixoBusca} A`.toUpperCase();
+  nomeOutroCliente = `[E2E] ${sufixoBusca} B`.toUpperCase();
   ({ casoId } = await seedClienteCaso(admin, { sufixo: `${sufixoBusca} A` }));
   await seedClienteCaso(admin, { sufixo: `${sufixoBusca} B` });
   await seedSolicitacao(admin, casoId, "comprovante_residencia");

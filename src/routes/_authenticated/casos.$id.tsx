@@ -1874,7 +1874,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
               <div className="space-y-3">
                 <div>
                   <Label className="text-xs">Nome</Label>
-                  <Input value={clNome} onChange={(e) => setClNome(e.target.value)} />
+                  <Input className="uppercase" value={clNome} onChange={(e) => setClNome(e.target.value)} />
                 </div>
                 <div>
                   <Label className="text-xs">CPF</Label>

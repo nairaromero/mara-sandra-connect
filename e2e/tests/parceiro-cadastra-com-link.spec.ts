@@ -11,7 +11,8 @@ import { adminClient, cleanupE2E, cpfValido, MARCADOR } from "../supabase-admin"
 test.use({ storageState: STORAGE_PARCEIRO });
 
 const admin = adminClient();
-const nomeCliente = `${MARCADOR} Indicacao com link ${Date.now()}`;
+// caixa alta: é como o banco grava o nome do cliente
+const nomeCliente = `${MARCADOR} Indicacao com link ${Date.now()}`.toUpperCase();
 const LINK = "https://1drv.ms/f/s!e2e-parceiro-cadastro";
 
 test.afterAll(async () => {

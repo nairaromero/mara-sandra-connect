@@ -97,6 +97,7 @@ node scripts/msc-sql.mjs --local --file planning/sql-migrations/migration_x.sql
 - Toda alteração via migration em `planning/sql-migrations/migration_*.sql`.
 - Apply: `node scripts/msc-sql.mjs --local --file <arq>` (cópia local primeiro), depois `--staging`, depois sem a flag (produção).
 - Migrations devem ser idempotentes quando possível.
+- **Nome do cliente é sempre CAIXA ALTA** (desde 23/11, `migration_clientes_nome_caixa_alta`): quem grava é o gatilho `trg_clientes_nome_caixa_alta` em `clientes` (vale para todo caminho — tela, parceiro, importação, ZapSign, functions); a tela só mostra o campo com `uppercase`. Spec que cria cliente e depois procura pelo nome compara com o nome em caixa alta. Prova: `e2e/tests/clientes-nome-caixa-alta.spec.ts`.
 - **Registro de migrations (desde 2026-09-11):** o `--file` grava toda `migration_*.sql` que roda sem erro em `ops.migrations_aplicadas` do banco-alvo. É esse registro — não inferência pelo `pg_proc` — que responde "já rodou em produção?", e o workflow do board depende dele. O que foi aplicado antes de 2026-09-11 não está lá.
   - Aplicou por outro caminho (SQL editor, antes do registro)? `node scripts/msc-sql.mjs [--staging] --registrar <arq>` — grava sem executar.
   - Saída **3** = a migration rodou mas não registrou; a mensagem traz o comando exato pra consertar.
