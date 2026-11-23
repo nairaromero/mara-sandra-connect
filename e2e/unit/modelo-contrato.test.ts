@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { deflateRawSync, inflateRawSync } from "node:zlib";
 import {
-  beneficioNaFrase, camposDoModelo, cpfComPontos, extensoDoValor, faixaDoCampo, normalizarValor, numeroPorExtenso, paragrafosDoDocx, partesDoCadastro, previaDoContrato, qualificacaoDe, regrasDaAjuda, respostasDoModelo,
+  beneficioNaFrase, camposDoModelo, cpfComPontos, enderecoDe, extensoDoValor, faixaDoCampo, partesDoEndereco, normalizarValor, numeroPorExtenso, paragrafosDoDocx, partesDoCadastro, previaDoContrato, qualificacaoDe, regrasDaAjuda, respostasDoModelo,
 } from "../../supabase/functions/_shared/modelo-contrato";
 
 const RAIZ = join(import.meta.dir, "../..");
@@ -101,7 +101,7 @@ describe("o que o sistema monta sem ninguém digitar", () => {
   test("qualificação: frase com o que o cadastro tem; parte em branco não entra", () => {
     // a tela parte das MESMAS partes de que o servidor montou a frase
     expect(qualificacaoDe(partesDoCadastro(ctx.cliente))).toBe(campos().QUALIFICACAO_CONTRATANTE.sugestao);
-    expect(campos().QUALIFICACAO_CONTRATANTE.sugestao).toBe("Helena Bastos, brasileiro(a), CPF n.º 529.982.247-25, residente e domiciliado(a) em Rua das Flores, 10, Centro, São Paulo/SP");
+    expect(campos().QUALIFICACAO_CONTRATANTE.sugestao).toBe("Helena Bastos, brasileiro(a), CPF n.º 529.982.247-25, residente e domiciliado(a) em Rua das Flores, nº 10, Centro, São Paulo/SP");
     expect(qualificacaoDe({ nome: "Helena", nacionalidade: "brasileiro(a)", estadoCivil: "viúvo(a)", profissao: "aposentado(a)", rg: "12.345.678-9", cpf: "529.982.247-25" })).toBe("Helena, brasileiro(a), viúvo(a), aposentado(a), RG n.º 12.345.678-9, CPF n.º 529.982.247-25");
     expect(qualificacaoDe({})).toBe("");
   });
@@ -143,6 +143,89 @@ describe("o que o sistema monta sem ninguém digitar", () => {
   });
 });
 
+describe("nome e CPF de quem assina: o cadastro manda (#540)", () => {
+  // como os modelos de produção chegam: sem rótulo, o nome da variável faz as vezes dele
+  const cru = (v: string, required = true) => ({ variable: `{{${v}}}`, label: "", help_text: "", required });
+  const doModelo = (cliente: Record<string, string | null>) =>
+    Object.fromEntries(
+      camposDoModelo([cru("NOME_ASSINANTE"), cru("CPF_ASSINANTE"), cru("NOME_DA_MAE", false), cru("CPF_REPRESENTANTE", false), cru("E_MAIL", false), cru("DATA_ASSINATURA")], { cliente, hoje: "23 de novembro de 2026" })
+        .map((c) => [c.variavel.replace(/[{}]/g, ""), c]),
+    );
+  test("campo sem rótulo ('NOME_ASSINANTE', 'CPF_ASSINANTE') é reconhecido e fica fixo no cadastro", () => {
+    const c = doModelo({ nome: "Adauto Floripes", cpf: "16967646885", email: "a@b.com" });
+    expect([c.NOME_ASSINANTE.sugestao, c.NOME_ASSINANTE.fixo, c.NOME_ASSINANTE.origem]).toEqual(["Adauto Floripes", true, "cadastro"]);
+    expect([c.CPF_ASSINANTE.sugestao, c.CPF_ASSINANTE.fixo]).toEqual(["169.676.468-85", true]);
+    // os outros campos do cadastro seguem preenchidos e editáveis; o de outra pessoa fica em branco
+    expect([c.E_MAIL.sugestao, c.E_MAIL.fixo]).toEqual(["a@b.com", false]);
+    expect([c.NOME_DA_MAE.sugestao, c.NOME_DA_MAE.fixo, c.CPF_REPRESENTANTE.sugestao]).toEqual(["", false, ""]);
+    expect([c.DATA_ASSINATURA.sugestao, c.DATA_ASSINATURA.origem]).toEqual(["23 de novembro de 2026", "hoje"]);
+  });
+  test("sem CPF no cadastro o campo aparece para preencher — e só nesse caso", () => {
+    const c = doModelo({ nome: "Adauto Floripes", cpf: null });
+    expect([c.CPF_ASSINANTE.sugestao, c.CPF_ASSINANTE.fixo]).toEqual(["", false]);
+    expect(c.NOME_ASSINANTE.fixo).toBe(true);
+    expect(respostasDoModelo(Object.values(c), {}).erros[0]).toContain("CPF_ASSINANTE");
+    expect(respostasDoModelo(Object.values(c), { "{{CPF_ASSINANTE}}": "169.676.468-85", "{{DATA_ASSINATURA}}": "x" }).erros).toEqual([]);
+  });
+  test("o servidor envia o cadastro no campo fixo, seja o que for que a tela mande", () => {
+    const c = Object.values(doModelo({ nome: "Adauto Floripes", cpf: "16967646885" }));
+    const r = respostasDoModelo(c, { "{{NOME_ASSINANTE}}": "Outra Pessoa", "{{CPF_ASSINANTE}}": "000.000.000-00" });
+    const v = Object.fromEntries(r.respostas.map((x) => [x.variavel, x.valor]));
+    expect([v["{{NOME_ASSINANTE}}"], v["{{CPF_ASSINANTE}}"]]).toEqual(["Adauto Floripes", "169.676.468-85"]);
+  });
+  test("o '_' do nome do campo também vale para a espécie: 'TEXTO_PARCEIRO' e 'QUALIFICACAO_CONTRATANTE'", () => {
+    const c = Object.fromEntries(camposDoModelo([cru("TEXTO_PARCEIRO"), cru("QUALIFICACAO_CONTRATANTE"), cru("QUALIFICACAO_REPRESENTANTE", false)], { parceiro: "Andre" }).map((x) => [x.variavel.replace(/[{}]/g, ""), x.especie]));
+    expect(c).toEqual({ TEXTO_PARCEIRO: "parceiro", QUALIFICACAO_CONTRATANTE: "qualificacao", QUALIFICACAO_REPRESENTANTE: null });
+  });
+});
+
+describe("endereço do contratante: do cadastro em partes, e de volta numa linha", () => {
+  const casos: Array<[string, Partial<ReturnType<typeof partesDoEndereco>>, string]> = [
+    ["Florindo Beline, Nº 00216, Alto da Vila Patti, Novo Horizonte/SP, CEP: 14960-054",
+      { rua: "Florindo Beline", numero: "00216", bairro: "Alto da Vila Patti", cidade: "Novo Horizonte", uf: "SP", cep: "14960-054" },
+      "Florindo Beline, nº 00216, Alto da Vila Patti, Novo Horizonte/SP, CEP 14960-054"],
+    ["Rua das Flores, 10, Centro, São Paulo/SP.", { rua: "Rua das Flores", numero: "10", bairro: "Centro", cidade: "São Paulo", uf: "SP" }, "Rua das Flores, nº 10, Centro, São Paulo/SP"],
+    ["Av. Brasil 500 - Centro - Curitiba - PR 80000-000", { rua: "Av. Brasil", numero: "500", bairro: "Centro", cidade: "Curitiba", uf: "PR", cep: "80000-000" }, "Av. Brasil, nº 500, Centro, Curitiba/PR, CEP 80000-000"],
+    ["Rua A, 12B, apto 3, Jardim X, Campinas/SP, 13000-000", { rua: "Rua A", numero: "12B", bairro: "apto 3, Jardim X", cidade: "Campinas", uf: "SP", cep: "13000-000" }, "Rua A, nº 12B, apto 3, Jardim X, Campinas/SP, CEP 13000-000"],
+  ];
+  test("separa rua, número, bairro, cidade, UF e CEP nos formatos do cadastro", () => {
+    for (const [linha, partes, contrato] of casos) {
+      expect(partesDoEndereco(linha)).toMatchObject({ ...partes, pais: "Brasil" });
+      expect(enderecoDe(partesDoEndereco(linha))).toBe(contrato);
+    }
+  });
+  test("o que não se reconhece fica na rua: nada do cadastro se perde", () => {
+    expect(enderecoDe(partesDoEndereco("Sítio Boa Vista"))).toBe("Sítio Boa Vista");
+    expect(partesDoEndereco("")).toMatchObject({ rua: "", numero: "", cidade: "" });
+  });
+  test("o país só vai para o contrato quando não é o Brasil", () => {
+    expect(enderecoDe({ rua: "Calle Mayor", numero: "1", cidade: "Madrid", pais: "Espanha" })).toBe("Calle Mayor, nº 1, Madrid, Espanha");
+    expect(enderecoDe({ rua: "Rua X", numero: "1", cidade: "Campinas", uf: "sp", pais: "brasil" })).toBe("Rua X, nº 1, Campinas/SP");
+  });
+  test("nome, CPF e endereço de quem assina são marcados como dado do contratante; o de outra pessoa, não", () => {
+    const cru = (v: string) => ({ variable: `{{${v}}}`, label: "", help_text: "", required: false });
+    const c = Object.fromEntries(
+      camposDoModelo([cru("NOME_ASSINANTE"), cru("CPF_ASSINANTE"), cru("ENDERECO_CONTRATANTE"), cru("ENDERECO_DO_REPRESENTANTE"), cru("NOME_DA_MAE")], {
+        cliente: { nome: "Adauto", cpf: "", endereco: "Florindo Beline, Nº 216, Alto da Vila Patti, Novo Horizonte/SP" },
+      }).map((x) => [x.variavel.replace(/[{}]/g, ""), [x.dado, x.fixo, x.sugestao]]),
+    );
+    expect(c).toEqual({
+      NOME_ASSINANTE: ["nome", true, "Adauto"],
+      // sem CPF no cadastro: continua sendo o CPF do contratante, mas aberto para digitar
+      CPF_ASSINANTE: ["cpf", false, ""],
+      ENDERECO_CONTRATANTE: ["endereco", false, "Florindo Beline, nº 216, Alto da Vila Patti, Novo Horizonte/SP"],
+      ENDERECO_DO_REPRESENTANTE: [null, false, ""],
+      NOME_DA_MAE: [null, false, ""],
+    });
+  });
+  test("a qualificação inicial usa o endereço já arrumado — a mesma frase que a tela monta", () => {
+    const [q] = camposDoModelo([{ variable: "{{QUALIFICACAO_CONTRATANTE}}", label: "", required: true }], {
+      cliente: { nome: "Adauto", cpf: "16967646885", endereco: "Florindo Beline, Nº 00216, Alto da Vila Patti, Novo Horizonte/SP, CEP: 14960-054" },
+    });
+    expect(q.sugestao).toBe("Adauto, brasileiro(a), CPF n.º 169.676.468-85, residente e domiciliado(a) em Florindo Beline, nº 00216, Alto da Vila Patti, Novo Horizonte/SP, CEP 14960-054");
+  });
+});
+
 describe("o valor de cada campo que vai ao ZapSign", () => {
   const base = { "{{NOME_ASSINANTE}}": "Helena Bastos", "{{PERCENTUAL_ATRASADOS}}": "30", "{{QTD_PRESTACOES}}": "4", "{{VALOR_EXTENSO}}": "x" };
   const valor = (r: ReturnType<typeof respostasDoModelo>, v: string) => r.respostas.find((x) => x.variavel === `{{${v}}}`)?.valor;
@@ -159,7 +242,8 @@ describe("o valor de cada campo que vai ao ZapSign", () => {
     expect(respostasDoModelo(CAMPOS, { ...base, "{{QTD_PRESTACOES}}": "0" }).erros).toEqual(["Quantidade de prestações: o mínimo deste modelo é 1."]);
     expect(respostasDoModelo(CAMPOS, { ...base, "{{QTD_PRESTACOES}}": "cinco" }).erros).toEqual(["Quantidade de prestações: use só o número (ex.: 5)."]);
     expect(respostasDoModelo(CAMPOS, { ...base, "{{QTD_PRESTACOES}}": "4,5" }).erros).toEqual(["Quantidade de prestações: use só o número (ex.: 5)."]);
-    expect(respostasDoModelo(CAMPOS, {}).erros).toEqual(["Preencha: Nome de quem assina, Honorários sobre os atrasados (%), Quantidade de prestações, Valor por extenso (sem campo base)."]);
+    // o nome de quem assina vem do cadastro (fixo): não é cobrado da pessoa
+    expect(respostasDoModelo(CAMPOS, {}).erros).toEqual(["Preencha: Honorários sobre os atrasados (%), Quantidade de prestações, Valor por extenso (sem campo base)."]);
   });
 });
 
@@ -243,7 +327,7 @@ describe("régua: uma conta só para os campos do modelo", () => {
       [/por cento|_EXTENSO|\bEXTENSO\b/, "extenso é `extensoDoValor`"],
       [/normalize\("NFD"\)[^\n]*toLowerCase/, "tirar acento é `semAcento`"],
       [/slice\(0, 3\)[^\n]*slice\(3, 6\)/, "formatar CPF é `cpfComPontos`"],
-      [/\.test\(c\.rotulo\)|\.test\(campo\.rotulo\)|\.test\(c\.variavel\)/, "a tela não adivinha pelo nome do campo: `especie` e `origem` vêm do módulo"],
+      [/\.test\(c\.rotulo\)|\.test\(campo\.rotulo\)|\.test\(c\.variavel\)|ASSINANTE/, "a tela não adivinha pelo nome do campo: `especie`, `origem` e `fixo` vêm do módulo"],
       [/residente e domiciliad|RG n\.º|CPF n\.º/, "a frase da qualificação é `qualificacaoDe`"],
       [/\b(mae|pai)\|/, "'campo de outra pessoa' é `DE_OUTRA_PESSOA`"],
     ];

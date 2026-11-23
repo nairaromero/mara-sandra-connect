@@ -553,6 +553,9 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
     expect(campos["NOME DA MÃE"].sugestao, "nome da mãe NÃO é o nome do cliente").toBe("");
     expect([campos["VALOR DOS HONORÁRIOS"].sugestao, campos["VALOR DOS HONORÁRIOS"].obrigatorio]).toEqual(["", true]);
     expect(campos["CPF"].variavel).toBe("{{CPF}}");
+    // nome e CPF de quem assina são do cadastro: fixos (a tela não mostra, o servidor envia o cadastro)
+    const fixos = campos as unknown as Record<string, { fixo: boolean }>;
+    expect([fixos["NOME COMPLETO"].fixo, fixos["CPF"].fixo, fixos["NOME DA MÃE"].fixo]).toEqual([true, true, false]);
     expect((await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "modelo", caso_id: casoId, modelo_token: "nao-existe" })).status).toBe(404);
   });
 
@@ -581,6 +584,11 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
     const la = lado.find((d) => d.token === ass.zapsign_doc_token)!;
     expect([la.external_id, la.template_id, la.signers[0].send_automatic_email]).toEqual([ass.id, "modelo-03", true]);
     expect(la.answers.map((x) => x.variable).sort()).toEqual(["CPF", "NOME COMPLETO", "VALOR DOS HONORÁRIOS"]);
+    // o que a tela mandou no nome e no CPF não vale: foi o cadastro do cliente
+    const { data: doCad } = await admin.from("casos").select("clientes(nome, cpf)").eq("id", casoId).single();
+    const cad = (doCad as unknown as { clientes: { nome: string; cpf: string } }).clientes;
+    const foiAo = Object.fromEntries(la.answers.map((x) => [x.variable, x.value]));
+    expect([foiAo["NOME COMPLETO"], foiAo["CPF"].replace(/\D/g, "")]).toEqual([cad.nome, cad.cpf]);
     expect((await tarefasDaAssinatura(ass.id)).map((t) => `${t.status} ${t.titulo}`)).toEqual([`a_fazer Acompanhar assinatura: ${MODELO}`]);
     // o aviso de criação do próprio envio não vira "documento criado direto no ZapSign"
     expect((await avisar(segredoWebhook, { event_type: "doc_created", token: ass.zapsign_doc_token })).json.status).toBe("enviado");
@@ -656,8 +664,16 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
       // passo 2: campos do modelo já com o cadastro; obrigatório vazio segura o envio
       await expect(dlg.locator("[data-campos-modelo]")).toBeVisible();
       await expect(dlg.getByRole("heading", { name: "Contrato de honorários - Pensão por morte" })).toBeVisible();
-      await expect(dlg.getByLabel(/NOME COMPLETO/)).toHaveValue(doCaso.clientes.nome);
-      await expect(dlg.getByLabel(/^CPF/)).toHaveValue(/^\d{3}\.\d{3}\.\d{3}-\d{2}$/);
+      // nome e CPF de quem assina não são perguntados: aparecem só no "Quem assina", vindos do cadastro
+      await expect(dlg.locator('[data-campo="{{NOME COMPLETO}}"]')).toHaveCount(0);
+      await expect(dlg.locator('[data-campo="{{CPF}}"]')).toHaveCount(0);
+      // no bloco do contratante: nome e CPF do cadastro, travados; o endereço do modelo também mora lá
+      await expect(dlg.locator("#contratante-nome")).toHaveValue(doCaso.clientes.nome);
+      await expect(dlg.locator("#contratante-nome")).toHaveAttribute("readonly", "");
+      await expect(dlg.locator("#contratante-cpf")).toHaveValue(/^\d{3}\.\d{3}\.\d{3}-\d{2}$/);
+      await expect(dlg.locator("#contratante-cpf")).toHaveAttribute("readonly", "");
+      await expect(dlg.locator('[data-campo="{{ENDEREÇO}}"]')).toHaveCount(0);
+      await expect(dlg.locator("[data-endereco] #end-rua")).toBeVisible();
       await expect(dlg.getByLabel(/NOME DA MÃE/)).toHaveValue("");
       await expect(dlg.getByRole("button", { name: "Enviar para assinatura" })).toBeDisabled();
       // WhatsApp: país com o Brasil por padrão e máscara de DDD; fora do Brasil, só os dígitos

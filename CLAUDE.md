@@ -284,6 +284,12 @@ o sistema em produção. Quando chegar, vale o seguinte:
   De onde veio cada valor (`origem`: cadastro, caso, hoje,
   modelo) também sai do módulo — a tela não lê nome de campo para decidir nada (a régua acusa). O servidor
   só busca benefícios e parceiro para ABRIR os campos (`modelo`); o envio usa o que a tela devolveu.
+  Quem assina (#540): nome, CPF e endereço do cliente são `dado` do campo (decidido no módulo, nunca
+  pelo nome na tela) e moram num bloco só, "Contratante". Nome e CPF são `fixo` quando o cadastro tem:
+  travados na tela e o SERVIDOR envia o do cadastro, seja o que for que a tela mande; sem CPF no cadastro,
+  só ele abre para digitar. O endereço vem do cadastro separado (`partesDoEndereco`), é corrigível só
+  para aquele contrato e volta numa linha por `enderecoDe` (país só quando não é o Brasil). Nome de campo
+  sem rótulo ("NOME_ASSINANTE") é lido com o "_" como espaço (`palavrasDe`) — os modelos de produção vêm assim.
   Quem é da equipe interna de um escritório (ZapSign e e-mails do INSS) é
   `equipeInterna` de `_shared/equipe.ts` — pelo vínculo, nunca por `usuarios.tipo`.
   Provas: `e2e/tests/zapsign-assinatura.spec.ts` e a régua `e2e/unit/zapsign-fonte-unica.test.ts`.

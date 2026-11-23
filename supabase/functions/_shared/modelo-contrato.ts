@@ -58,6 +58,9 @@ export interface DadosDoCliente {
   data_nascimento?: string | null;
 }
 
+/** Que dado de quem assina um campo do modelo é. */
+export type DadoDoAssinante = "nome" | "cpf" | "endereco";
+
 /** De onde veio o valor que já está no campo ("" = ninguém preencheu). */
 export type OrigemDoValor = "cadastro" | "caso" | "hoje" | "modelo" | "";
 
@@ -73,6 +76,19 @@ export interface CampoDoModelo {
   obrigatorio: boolean;
   /** valor que já vem preenchido: o do cadastro do cliente ou, sem ele, o padrão do modelo */
   sugestao: string;
+  /**
+   * O cadastro do cliente responde e a pessoa não mexe: o nome e o CPF de quem
+   * assina. Não aparece na tela (o "Quem assina" já mostra) e o servidor envia o
+   * valor do cadastro, seja o que for que a tela mande. Sem o dado no cadastro,
+   * fica `false` e o campo aparece para preencher — só nesse caso.
+   */
+  fixo: boolean;
+  /**
+   * O campo é um dado de QUEM ASSINA (nome, CPF ou endereço do cliente). A tela não
+   * o pergunta solto: mostra no bloco do contratante — nome e CPF travados quando o
+   * cadastro tem, endereço editável — e escreve o valor nele.
+   */
+  dado: DadoDoAssinante | null;
   /** de onde a `sugestao` veio — a tela mostra, não adivinha pelo nome do campo */
   origem: OrigemDoValor;
   tipo: TipoDoCampo;
@@ -121,7 +137,10 @@ export function cpfComPontos(cpf: string): string {
 
 /** As partes da qualificação que o cadastro já responde; o resto a pessoa escolhe nas listas. */
 export function partesDoCadastro(cliente: DadosDoCliente = {}): PartesDaQualificacao {
-  return { nome: cliente.nome ?? "", nacionalidade: NACIONALIDADES[0], estadoCivil: "", profissao: "", rg: "", cpf: cliente.cpf ?? "", endereco: cliente.endereco ?? "" };
+  return {
+    nome: cliente.nome ?? "", nacionalidade: NACIONALIDADES[0], estadoCivil: "", profissao: "", rg: "", cpf: cliente.cpf ?? "",
+    endereco: cliente.endereco ? enderecoDe(partesDoEndereco(cliente.endereco)) : "",
+  };
 }
 
 /** A frase da qualificação. Parte em branco simplesmente não entra. */
@@ -138,6 +157,79 @@ export function qualificacaoDe(p: Partial<PartesDaQualificacao>): string {
   ].filter(Boolean).join(", ");
 }
 
+// ---------------------------------------------------------------------------
+// Endereço do contratante: o cadastro guarda uma linha só; o contrato precisa dele
+// arrumado e a tela o mostra em partes pequenas, para corrigir o que faltar.
+// ---------------------------------------------------------------------------
+export interface PartesDoEndereco {
+  rua: string;
+  numero: string;
+  bairro: string;
+  cidade: string;
+  uf: string;
+  cep: string;
+  pais: string;
+}
+
+export const PAIS_PADRAO = "Brasil";
+
+/**
+ * Separa a linha do cadastro ("Rua X, Nº 216, Bairro, Cidade/UF, CEP: 14960-054").
+ * O que não se reconhece fica na rua: nada do cadastro se perde.
+ */
+export function partesDoEndereco(linha: string): PartesDoEndereco {
+  const p: PartesDoEndereco = { rua: "", numero: "", bairro: "", cidade: "", uf: "", cep: "", pais: PAIS_PADRAO };
+  let resto = linha.replace(/\s+/g, " ").trim();
+  const cep = /\bCEP:?\s*(\d{5})-?(\d{3})\b|\b(\d{5})-(\d{3})\b/i.exec(resto);
+  if (cep) {
+    p.cep = `${cep[1] ?? cep[3]}-${cep[2] ?? cep[4]}`;
+    resto = resto.replace(cep[0], "");
+  }
+  const partes = resto.split(/\s*[,;]\s*|\s+-\s+/).map((x) => x.replace(/[.\s]+$/, "").trim()).filter(Boolean);
+  // cidade: "Cidade/UF" numa parte só, ou "Cidade" seguida de uma parte que é só a UF
+  let iCidade = partes.findIndex((x) => { const m = /^(.+?)\s*\/\s*([A-Za-z]{2})$/.exec(x); return !!m && UFS.has(m[2].toUpperCase()); });
+  if (iCidade >= 0) {
+    const m = /^(.+?)\s*\/\s*([A-Za-z]{2})$/.exec(partes[iCidade])!;
+    [p.cidade, p.uf] = [m[1].trim(), m[2].toUpperCase()];
+  } else {
+    const iUf = partes.findIndex((x, i) => i > 0 && UFS.has(x.toUpperCase()));
+    if (iUf > 0) [iCidade, p.cidade, p.uf] = [iUf - 1, partes[iUf - 1], partes[iUf].toUpperCase()];
+  }
+  const antes = iCidade >= 0 ? partes.slice(0, iCidade) : partes;
+  if (!antes.length) return p;
+  // número: a parte que é só ele ("Nº 216", "216", "12B"), ou o fim da primeira ("Av. Brasil 500")
+  const NUMERO = /^(?:n[º°o.]*|numero|número)?\s*:?\s*(\d+\s*[A-Za-z]?)$/i;
+  const iNumero = antes.findIndex((x, i) => i > 0 && NUMERO.test(x));
+  if (iNumero > 0) {
+    p.numero = NUMERO.exec(antes[iNumero])![1].replace(/\s+/g, "");
+    p.rua = antes.slice(0, iNumero).join(", ");
+    p.bairro = antes.slice(iNumero + 1).join(", ");
+  } else {
+    const fim = /^(.*\D)\s+(\d+[A-Za-z]?)$/.exec(antes[0]);
+    if (fim) [p.rua, p.numero] = [fim[1].trim(), fim[2]];
+    else p.rua = antes[0];
+    p.bairro = antes.slice(1).join(", ");
+  }
+  return p;
+}
+
+const UFS = new Set("AC AL AP AM BA CE DF ES GO MA MT MS MG PA PB PR PE PI RJ RN RS RO RR SC SP SE TO".split(" "));
+
+/** O endereço como o contrato escreve. País só aparece quando não é o Brasil. */
+export function enderecoDe(p: Partial<PartesDoEndereco>): string {
+  const t = (v: string | undefined) => (v ?? "").trim();
+  const cidade = [t(p.cidade), t(p.uf).toUpperCase()].filter(Boolean).join("/");
+  const pais = t(p.pais);
+  return [
+    t(p.rua),
+    t(p.numero) && `nº ${t(p.numero)}`,
+    t(p.bairro),
+    cidade,
+    t(p.cep) && `CEP ${t(p.cep)}`,
+    pais && semAcento(pais) !== semAcento(PAIS_PADRAO) ? pais : "",
+  ].filter(Boolean).join(", ");
+}
+
 /** O nome do benefício como entra no meio de uma frase: "Aposentadoria por idade" → "aposentadoria por idade"; "BPC/LOAS" fica. */
 export function beneficioNaFrase(nome: string): string {
   const v = nome.trim();
@@ -149,6 +241,12 @@ export const semAcento = (v: string): string => v.normalize("NFD").replace(/[\u0
 /** O campo fala de OUTRA pessoa que não o cliente ("nome da mãe", "CPF do representante legal"). */
 export const DE_OUTRA_PESSOA = /\b(mae|pai|advogad|escritorio|testemunha|conjuge|representante|procurador|contratad)/;
 const nomeDaVariavel = (variavel: string): string => variavel.replace(/[{}]/g, "").trim();
+/**
+ * Nome de campo pronto para as regras: sem acento, minúsculo e com "_"/"-" virando
+ * espaço. O modelo sem rótulo chega como "NOME_ASSINANTE"; sem trocar o "_", o
+ * `\bnome\b` não casa (o "_" é letra para o \b) e o campo ficava em branco.
+ */
+const palavrasDe = (t: string): string => semAcento(t).replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
 
 // ---------------------------------------------------------------------------
 // Número por extenso
@@ -262,35 +360,49 @@ function especieDe(sistema: string, nome: string, rotulo: string): EspecieDoCamp
   if (sistema) return null;
   // o campo fala de OUTRA pessoa ("Qualificação do representante", "Benefício do
   // cônjuge")? então o sistema não o preenche com o cliente/caso — mesma guarda
-  // que `doCadastro` já aplica aos campos genéricos. O "_" do nome da variável
-  // vira espaço, senão o \b de DE_OUTRA_PESSOA não casa "..._representante".
-  const outraPessoa = (t: string) => DE_OUTRA_PESSOA.test(semAcento(t).replace(/_/g, " "));
-  if (outraPessoa(nome) || outraPessoa(rotulo)) return null;
+  // que `doCadastro` aplica aos campos genéricos.
+  if (DE_OUTRA_PESSOA.test(palavrasDe(nome)) || DE_OUTRA_PESSOA.test(palavrasDe(rotulo))) return null;
   // só quando o campo COMEÇA falando disso: "Quantidade de prestações do benefício" é um número, não o benefício
-  const comeca = (re: RegExp) => re.test(semAcento(nome)) || re.test(semAcento(rotulo));
+  const comeca = (re: RegExp) => re.test(palavrasDe(nome)) || re.test(palavrasDe(rotulo));
   if (comeca(/^qualificac/)) return "qualificacao";
   if (comeca(/^benefici/)) return "beneficio";
-  return comeca(/^(texto[ _])?parceiro/) ? "parceiro" : null;
+  return comeca(/^(texto )?parceiro/) ? "parceiro" : null;
 }
 
-/** O que o cadastro (ou o calendário) responde num campo, pelo nome que o campo tem no modelo. */
-function doCadastro(rotulo: string, contexto: ContextoDoModelo): { valor: string; origem: OrigemDoValor } {
-  const r = semAcento(rotulo);
+type Resposta = { valor: string; origem: OrigemDoValor; fixo?: boolean; dado?: DadoDoAssinante };
+
+/**
+ * O que o cadastro (ou o calendário) responde num campo, pelo nome que o campo
+ * tem no modelo — o rótulo e, se ele não disser nada, o nome da variável.
+ */
+function doCadastro(nomes: ReadonlyArray<string>, contexto: ContextoDoModelo): Resposta {
+  for (const t of nomes) {
+    const r = doCadastroPor(palavrasDe(t), contexto);
+    if (r) return r;
+  }
+  return { valor: "", origem: "" };
+}
+
+/** `null` = este nome não fala de nada que o cadastro responda. */
+function doCadastroPor(r: string, contexto: ContextoDoModelo): Resposta | null {
   const c = contexto.cliente ?? {};
-  const cadastro = (valor: string | null | undefined): { valor: string; origem: OrigemDoValor } => ({ valor: String(valor ?? ""), origem: valor ? "cadastro" : "" });
-  if (/\bcpf\b/.test(r)) return DE_OUTRA_PESSOA.test(r) ? cadastro("") : cadastro(c.cpf ? cpfComPontos(c.cpf) : "");
-  if (/e-?mail/.test(r)) return cadastro(c.email);
+  const cadastro = (valor: string | null | undefined, fixo = false, dado?: DadoDoAssinante): Resposta =>
+    valor ? { valor: String(valor), origem: "cadastro", fixo, dado } : { valor: "", origem: "", dado };
+  const deOutraPessoa = DE_OUTRA_PESSOA.test(r);
+  // nome e CPF de QUEM ASSINA: o cadastro manda, a pessoa não digita
+  if (/\bcpf\b/.test(r)) return deOutraPessoa ? cadastro("") : cadastro(c.cpf ? cpfComPontos(c.cpf) : "", true, "cpf");
+  if (/\be ?mail\b/.test(r)) return cadastro(c.email);
   if (/telefone|celular|whats/.test(r)) return cadastro(c.telefone);
-  if (/endereco/.test(r)) return cadastro(c.endereco);
+  if (/endereco/.test(r)) return deOutraPessoa ? cadastro("") : cadastro(c.endereco ? enderecoDe(partesDoEndereco(c.endereco)) : "", false, "endereco");
   if (/nascimento/.test(r)) {
     const m = String(c.data_nascimento ?? "").match(/^(\d{4})-(\d{2})-(\d{2})/);
     return cadastro(m ? `${m[3]}/${m[2]}/${m[1]}` : "");
   }
   // a data em que o contrato é assinado é hoje
-  if (/^data$|data d[ao] (assinatura|contrato)|data de hoje/.test(r)) return { valor: contexto.hoje ?? "", origem: contexto.hoje ? "hoje" : "" };
-  // "nome", "nome completo", "nome do contratante" — mas não "nome da mãe" nem "nome do advogado"
-  if (/\bnome\b/.test(r) && !DE_OUTRA_PESSOA.test(r)) return cadastro(c.nome);
-  return cadastro("");
+  if (/^data$|^data (d[ao] )?(assinatura|contrato)$|data de hoje/.test(r)) return { valor: contexto.hoje ?? "", origem: contexto.hoje ? "hoje" : "" };
+  // "nome", "nome completo", "nome do contratante", "nome assinante" — mas não "nome da mãe" nem "nome do advogado"
+  if (/\bnome\b/.test(r)) return deOutraPessoa ? cadastro("") : cadastro(c.nome, true, "nome");
+  return null;
 }
 
 /**
@@ -326,7 +438,7 @@ export function camposDoModelo(inputs: ReadonlyArray<EntradaDoModelo>, contexto:
     if (especie === "beneficio" && !primeiroBeneficio) primeiroBeneficio = variavel;
     const padrao = extensoDe ? "" : normalizarValor(tipo, regras.padrao);
     // quem responde o campo, em ordem: o que o caso sabe, o cadastro, o padrão do modelo
-    const pronto: { valor: string; origem: OrigemDoValor } = extensoDe
+    const pronto: Resposta = extensoDe
       ? { valor: "", origem: "" }
       : especie === "beneficio"
         ? { valor: doCaso, origem: doCaso ? "caso" : "" }
@@ -334,7 +446,7 @@ export function camposDoModelo(inputs: ReadonlyArray<EntradaDoModelo>, contexto:
           ? { valor: qualificacaoDe(partesDoCadastro(contexto.cliente)), origem: "cadastro" }
           : especie === "parceiro"
             ? { valor: (contexto.parceiro ?? "").trim() || "não há", origem: "caso" }
-            : doCadastro(rotulo, contexto);
+            : doCadastro([rotulo, nome], contexto);
     const sugestao = pronto.valor || padrao;
     return {
       variavel,
@@ -342,6 +454,8 @@ export function camposDoModelo(inputs: ReadonlyArray<EntradaDoModelo>, contexto:
       ajuda: extensoDe ? "" : regras.texto,
       obrigatorio: i.required === true,
       copiaDe,
+      fixo: pronto.fixo === true,
+      dado: pronto.dado ?? null,
       opcoes: extensoDe || copiaDe ? [] : doModelo.length ? doModelo : especie === "beneficio" ? [...new Set([doCaso, ...beneficios].filter(Boolean))] : [],
       especie,
       sugestao,
@@ -380,6 +494,10 @@ export function respostasDoModelo(
   const faltando: string[] = [];
   for (const c of campos) {
     if (c.extensoDe || c.copiaDe) continue;
+    if (c.fixo) {
+      valores.set(c.variavel, c.sugestao); // o cadastro manda, seja o que for que a tela mande
+      continue;
+    }
     // só texto ou número: um objeto no lugar do valor não vira "[object Object]" no contrato
     const dada = dadas[c.variavel];
     const valor = normalizarValor(c.tipo, typeof dada === "string" || typeof dada === "number" ? String(dada) : "").slice(0, TETO_DO_VALOR);
