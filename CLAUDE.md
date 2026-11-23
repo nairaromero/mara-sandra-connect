@@ -290,6 +290,12 @@ o sistema em produção. Quando chegar, vale o seguinte:
   só ele abre para digitar. O endereço vem do cadastro separado (`partesDoEndereco`), é corrigível só
   para aquele contrato e volta numa linha por `enderecoDe` (país só quando não é o Brasil). Nome de campo
   sem rótulo ("NOME_ASSINANTE") é lido com o "_" como espaço (`palavrasDe`) — os modelos de produção vêm assim.
+  Cache dos modelos na TELA (#542, `src/lib/assinaturas-cache.ts`, instância `cacheModelos`): lista aparece
+  na hora e, com mais de 1 min, é conferida com o ZapSign em segundo plano (botão "Atualizar" força); o texto
+  de cada modelo vale 30 min, no máximo 10, e sai antes se a lista mostra o modelo alterado lá (`atualizado`
+  = `last_update_at`). Ao escolher o modelo o texto já é buscado em segundo plano: "Conferir" não espera.
+  Chave = pessoa + escritório; só memória da aba; pedido em andamento é reaproveitado. Os CAMPOS preenchidos
+  com o cliente não entram no cache (dependem do caso). Régua: `e2e/unit/assinaturas-cache.test.ts`.
   Quem é da equipe interna de um escritório (ZapSign e e-mails do INSS) é
   `equipeInterna` de `_shared/equipe.ts` — pelo vínculo, nunca por `usuarios.tipo`.
   Provas: `e2e/tests/zapsign-assinatura.spec.ts` e a régua `e2e/unit/zapsign-fonte-unica.test.ts`.

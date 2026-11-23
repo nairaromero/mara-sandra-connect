@@ -693,6 +693,18 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
       await expect(dlg.locator("[data-contagem-modelos]")).toHaveText("1 de 23 modelos");
       await dlg.getByRole("button", { name: "Cancelar" }).click();
       await expect(dlg).toHaveCount(0);
+      // reabrir: a lista guardada aparece na hora, sem ir ao ZapSign (menos de 1 minuto)
+      const listas: string[] = [];
+      page.on("request", (r) => {
+        if (r.url().includes("/functions/v1/zapsign-enviar") && (r.postData() ?? "").includes('"modelos"')) listas.push(r.url());
+      });
+      await page.locator("[data-gerar-contrato]").click();
+      await expect(dlg.locator("[data-contagem-modelos]")).toHaveText("23 modelos");
+      expect(listas, "a lista veio do cache").toHaveLength(0);
+      // "Atualizar" vai ao ZapSign na hora
+      await dlg.locator("[data-atualizar-modelos]").click();
+      await expect.poll(() => listas.length).toBe(1);
+      await dlg.getByRole("button", { name: "Cancelar" }).click();
     } finally {
       await ctx.close();
     }
