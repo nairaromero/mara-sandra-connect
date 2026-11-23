@@ -15,9 +15,10 @@
 // Quem escreve é a function `zapsign-enviar`; daqui em diante o fluxo é o mesmo
 // do envio de um arquivo (tarefas, painel de assinaturas, PDF assinado).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Eye, FileSignature, Folder, Loader2, Lock, Search, Sparkles } from "lucide-react";
+import { ArrowLeft, Eye, FileSignature, Folder, Loader2, Lock, RefreshCw, Search, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { chamarZapsign, detalharModeloZapsign, listarModelosZapsign, textoDoModeloZapsign, type CampoDoModelo, type ModeloZapsign } from "@/lib/assinaturas";
+import { cacheModelos, chamarZapsign, detalharModeloZapsign, type CampoDoModelo, type ModeloZapsign } from "@/lib/assinaturas";
+import { useAuth } from "@/hooks/use-auth";
 import { cpfComPontos, enderecoDe, ESTADOS_CIVIS, faixaDoCampo, NACIONALIDADES, type OrigemDoValor, type ParagrafoDoContrato, type PartesDaQualificacao, type PartesDoEndereco, partesDoEndereco, previaDoContrato, PROFISSOES, qualificacaoDe, respostasDoModelo } from "@shared/modelo-contrato";
 import { filtrarModelos, modelosSugeridos, porPasta } from "@/lib/assinaturas-modelos";
 import { TIPOS_DOCUMENTO_OPTIONS } from "@/lib/documentos/tipos";
@@ -67,26 +68,47 @@ export function GerarContratoDialog(props: {
   // já estava preenchendo (ou abria sozinha um diálogo fechado e reaberto).
   const pedidoDeModelo = useRef(0);
 
-  // Cada abertura começa na lista, lida de novo (o modelo criado agora no ZapSign já aparece).
+  // O cache é da pessoa no escritório ativo: trocar de conta ou de escritório começa vazio.
+  const { usuario, escritorio } = useAuth();
+  const chaveCache = `${usuario?.id ?? ""}:${escritorio?.escritorio_id ?? ""}`;
+  const [atualizandoLista, setAtualizandoLista] = useState(false);
+
+  /** Confere a lista com o ZapSign. Com lista na tela, é em segundo plano: erro não apaga o que já se vê. */
+  const atualizarLista = useCallback(
+    (mostrandoGuardada: boolean, vivo: () => boolean = () => true) => {
+      setAtualizandoLista(true);
+      cacheModelos.atualizarLista(chaveCache).then(
+        (lista) => vivo() && setModelos(lista),
+        (e: unknown) => {
+          if (!vivo()) return;
+          const frase = e instanceof Error ? e.message : String(e);
+          if (mostrandoGuardada) toast.error(`Não consegui atualizar a lista de modelos: ${frase}`);
+          else setErro(frase);
+        },
+      ).finally(() => vivo() && setAtualizandoLista(false));
+    },
+    [chaveCache],
+  );
+
+  // Cada abertura começa na lista. A guardada aparece na hora; com mais de um minuto,
+  // é conferida com o ZapSign em segundo plano (o modelo criado agora lá aparece).
   useEffect(() => {
     pedidoDeModelo.current++; // abrir ou fechar descarta o modelo que ainda estava chegando
     if (!aberto) return;
     let vivo = true;
-    setModelos(null);
     setErro(null);
     setBusca("");
     setDetalhe(null);
     setTexto(null);
     setConferindo(false);
     setAbrindo(null);
-    listarModelosZapsign().then(
-      (lista) => vivo && setModelos(lista),
-      (e: unknown) => vivo && setErro(e instanceof Error ? e.message : String(e)),
-    );
+    const guardada = cacheModelos.listaGuardada(chaveCache);
+    setModelos(guardada?.modelos ?? null);
+    if (!guardada || guardada.velha) atualizarLista(!!guardada, () => vivo);
     return () => {
       vivo = false;
     };
-  }, [aberto]);
+  }, [aberto, chaveCache, atualizarLista]);
 
   const achados = useMemo(() => filtrarModelos(modelos ?? [], busca), [modelos, busca]);
   // com busca digitada a lista já é curta: a sugestão só aparece na lista inteira
@@ -106,6 +128,8 @@ export function GerarContratoDialog(props: {
       setTexto(null);
       setConferindo(false);
       setDetalhe(d);
+      // o texto do contrato já vem vindo enquanto a pessoa preenche: "Conferir" não espera
+      cacheModelos.texto(chaveCache, m.token, casoId).catch(() => undefined);
     } catch (e) {
       if (pedido === pedidoDeModelo.current) toast.error(e instanceof Error ? e.message : String(e));
     } finally {
@@ -145,7 +169,7 @@ export function GerarContratoDialog(props: {
     const pedido = pedidoDeModelo.current;
     setMontando(true);
     try {
-      const lido = await textoDoModeloZapsign(casoId, detalhe.modelo.token);
+      const lido = await cacheModelos.texto(chaveCache, detalhe.modelo.token, casoId);
       if (pedido !== pedidoDeModelo.current) return;
       setTexto(lido);
       setConferindo(true);
@@ -209,9 +233,23 @@ export function GerarContratoDialog(props: {
             )}
             {modelos !== null && (
               <>
-                <p className="text-xs text-muted-foreground" data-contagem-modelos>
-                  {busca.trim() ? `${achados.length} de ${modelos.length} modelos` : `${modelos.length} ${modelos.length === 1 ? "modelo" : "modelos"}`}
-                </p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs text-muted-foreground" data-contagem-modelos>
+                    {busca.trim() ? `${achados.length} de ${modelos.length} modelos` : `${modelos.length} ${modelos.length === 1 ? "modelo" : "modelos"}`}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs text-muted-foreground"
+                    onClick={() => atualizarLista(true)}
+                    disabled={atualizandoLista}
+                    data-atualizar-modelos
+                  >
+                    <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${atualizandoLista ? "animate-spin" : ""}`} />
+                    {atualizandoLista ? "Conferindo no ZapSign…" : "Atualizar"}
+                  </Button>
+                </div>
                 <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
                   {modelos.length === 0 && (
                     <p className="py-6 text-center text-sm text-muted-foreground">

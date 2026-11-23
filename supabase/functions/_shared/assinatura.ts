@@ -40,6 +40,8 @@ export interface ModeloZapsign {
   nome: string;
   /** pasta do modelo no ZapSign ("/" = raiz): a tela agrupa por ela */
   pasta: string;
+  /** quando o modelo foi alterado no ZapSign (`last_update_at`): a tela descarta o texto guardado quando muda */
+  atualizado?: string;
 }
 /** Um campo do modelo: as regras moram em `modelo-contrato.ts`. */
 export type { CampoDoModelo } from "./modelo-contrato.ts";

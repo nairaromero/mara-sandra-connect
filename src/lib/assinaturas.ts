@@ -4,6 +4,7 @@
 // vêm de `@shared/assinatura` (supabase/functions/_shared/assinatura.ts).
 import { supabase } from "@/lib/supabase";
 import { mensagemDeErroEdge } from "@/lib/edge-function-error";
+import { criarCacheModelos } from "@/lib/assinaturas-cache";
 import type { CampoDoModelo, ModeloZapsign, Signatario, StatusAssinatura } from "@shared/assinatura";
 import type { ParagrafoDoContrato } from "@shared/modelo-contrato";
 
@@ -63,3 +64,12 @@ export function detalharModeloZapsign(casoId: string, modeloToken: string) {
 export async function textoDoModeloZapsign(casoId: string, modeloToken: string): Promise<Array<ParagrafoDoContrato>> {
   return (await invocar<{ paragrafos: Array<ParagrafoDoContrato> }>({ action: "texto_modelo", caso_id: casoId, modelo_token: modeloToken })).paragrafos;
 }
+
+/**
+ * O cache da aba para os modelos do ZapSign: lista (aparece na hora e se confere
+ * em segundo plano) e texto de cada modelo. Regras em `assinaturas-cache.ts`.
+ */
+export const cacheModelos = criarCacheModelos({
+  buscarLista: listarModelosZapsign,
+  buscarTexto: (modeloToken, casoId) => textoDoModeloZapsign(casoId, modeloToken),
+});
