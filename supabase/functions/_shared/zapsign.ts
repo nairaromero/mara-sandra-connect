@@ -577,7 +577,14 @@ async function baixarDoZapsign(url: string, teto: number, oQue: string): Promise
   if (destino.protocol !== "https:" && !(destino.protocol === "http:" && Deno.env.get("ZAPSIGN_BASE_URL"))) {
     throw new Error(`endereço de ${oQue} não é https`);
   }
-  const r = await fetchT(url, { timeoutMs: 60_000 });
+  // redirect "manual": a URL vem assinada do S3 do ZapSign e responde 200 direto.
+  // Um redirecionamento (para 169.254.169.254, p.ex.) NÃO é seguido — fecha a
+  // porta de SSRF por redirect aberto que o download já tinha.
+  const r = await fetchT(url, { timeoutMs: 60_000, redirect: "manual" });
+  if (r.type === "opaqueredirect" || (r.status >= 300 && r.status < 400)) {
+    await r.body?.cancel();
+    throw new Error(`baixando ${oQue}: redirecionamento recusado`);
+  }
   const declarado = Number(r.headers.get("content-length") ?? 0);
   if (!r.ok || declarado > teto) {
     await r.body?.cancel();
