@@ -191,6 +191,8 @@ const DEVEM_AUDITAR = [
   "qg_pedir_eliminacao", "qg_aprovar_eliminacao", "qg_trocar_titular",
   "qg_definir_staff", "qg_desativar_membro", "qg_vincular_primeiro_admin",
   "qg_suporte_solicitar", "qg_suporte_encerrar", "suporte_responder", "suporte_encerrar",
+  // credencial do escritório: quem desliga a leitura de uma caixa do INSS
+  "gmail_inss_desconectar",
 ];
 const auditam = sql(`
   select p.proname as nome,
@@ -270,6 +272,7 @@ const FN_DEVEM_AUDITAR = {
   "update-parceiro": "parceiro.email_alterado",
   "excluir-parceiro": "parceiro.excluido",
   "convidar-usuario": "equipe.convidado / parceiro.convidado",
+  "gmail-oauth-callback": "integracao.caixa_conectada",
 };
 let conferidasFnAudita = 0;
 for (const [fn, acoes] of Object.entries(FN_DEVEM_AUDITAR)) {
@@ -278,7 +281,7 @@ for (const [fn, acoes] of Object.entries(FN_DEVEM_AUDITAR)) {
   conferidasFnAudita++;
   const src = fs.readFileSync(idx, "utf8");
   // Pelo TÚNEL: `_shared/auditoria.ts`. Insert à mão não conta (regra abaixo).
-  if (!/from ["']\.\.\/_shared\/auditoria\.ts["']/.test(src) || !/\bauditar\(/.test(src)) {
+  if (!/from ["']\.\.\/_shared\/auditoria\.ts["']/.test(src) || !/\bauditar(Verificado)?\(/.test(src)) {
     problemas.push(`NÃO AUDITA: function ${fn} devia registrar ${acoes} pelo túnel _shared/auditoria.ts`);
   }
 }
@@ -310,6 +313,7 @@ const FN_DEVEM_ESCOPAR = {
   "listar-clientes-ti": "lista clientes (vazou em 24/09 antes do escopo)",
   "listar-processos-legalmail": "lista processos (idem)",
   "whatsapp-inbound": "casa a mensagem com caso e documento pelo telefone",
+  "zapsign-webhook": "acha a assinatura pelo token do documento e grava o PDF assinado no caso",
   "excluir-parceiro": "cascata de desvínculo em casos, documentos e andamentos",
 };
 let conferidasEscopo = 0;

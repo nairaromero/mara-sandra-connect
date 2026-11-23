@@ -289,10 +289,10 @@ function registrar(tela, ok, detalhe) {
       const { page } = await parte(`e2e+admin@${DOM}`);
       await cartao(page, "Configurações", "Integração de IA, Conectar Claude e Webhooks.");
       await tentar("as Configurações", async () => {
-        await page.goto(`${BASE}/configuracoes?tab=integracoes`);
+        await page.goto(`${BASE}/configuracoes?tab=integracoes&abrir=todas`);
         await page.waitForTimeout(3000);
         await narrar(page, "As integrações do escritório.", 2600);
-        await exercitarTudo(page, "/configuracoes?tab=integracoes");
+        await exercitarTudo(page, "/configuracoes?tab=integracoes&abrir=todas");
         await still(page, "ato6-01-integracoes");
       });
       await fechar(page);

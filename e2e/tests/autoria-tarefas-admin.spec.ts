@@ -167,7 +167,7 @@ test("interno comum não vê Equipe/Webhooks/Auditoria e é redirecionado", asyn
   // com a tela ainda no spinner. E o texto é o título real do card: até
   // 2026-09-14 este teste procurava /Integração Gmail/, que já não existia, e
   // a contagem 0 passava pra qualquer usuário, admin incluso.
-  await page.goto("/configuracoes?tab=integracoes");
+  await page.goto("/configuracoes?tab=integracoes&abrir=todas");
   await expect(page.getByRole("tab", { name: "Perfil" })).toHaveAttribute("data-state", "active");
   await expect(page.getByText(/Integração Google/)).toHaveCount(0);
 

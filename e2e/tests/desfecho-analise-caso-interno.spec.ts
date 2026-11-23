@@ -80,7 +80,10 @@ test("caso sem parceiro mostra os desfechos e a corrente continua", async ({ pag
 
   // 3) O desfecho fecha a análise e abre a próxima tarefa.
   await btnAguardar.click();
-  await expect(page.getByText("Análise concluída")).toBeVisible({ timeout: 20000 });
+  // O aviso (toast) do desfecho. Só "Análise concluída" casa também com o andamento
+  // que nasce na mesma hora ("Análise concluída — aguardando documentação…"): quando
+  // os dois estão na tela juntos, o Playwright recusa por ambiguidade.
+  await expect(page.getByText(/Análise concluída — tarefa de aguardo criada/)).toBeVisible({ timeout: 20000 });
 
   const { data: analise } = await admin
     .from("tarefas")

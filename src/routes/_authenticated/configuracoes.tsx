@@ -22,14 +22,9 @@ import { AbaSuporte } from "@/components/suporte/aba-suporte";
 import { EscritorioMarcaCard } from "@/components/configuracoes/escritorio-marca-card";
 import { DuasEtapasCard } from "@/components/configuracoes/duas-etapas-card";
 import { formatarTelefone } from "@/lib/telefone";
+import { TelefoneComPais } from "@/components/telefone-com-pais";
 import { ClientOnly } from "@/components/client-only";
-import { IntegracaoIaCard } from "@/components/ia/integracao-ia-card";
-import { ConexaoClaudeCard } from "@/components/ia/conexao-claude-card";
-import { IntegracaoGmailCard } from "@/components/integracoes/integracao-gmail-card";
-import { ProcuradoresInssCard } from "@/components/integracoes/procuradores-inss-card";
-import { IntegracaoWhatsappCard } from "@/components/integracoes/integracao-whatsapp-card";
-import { IntegracaoLegalmailCard } from "@/components/integracoes/integracao-legalmail-card";
-import { IntegracaoTiCard } from "@/components/integracoes/integracao-ti-card";
+import { AbaIntegracoes } from "@/components/integracoes/aba-integracoes";
 import { EmBreveCard } from "@/components/integracoes/em-breve-card";
 import { TiposBeneficioCard } from "@/components/tipos-beneficio-card";
 import { ChecklistBaseCard } from "@/components/configuracoes/checklist-documentos";
@@ -61,8 +56,10 @@ export const Route = createFileRoute("/_authenticated/configuracoes")({
   // Aba ativa na URL (?tab=seguranca|beneficios|integracoes|webhooks) pra
   // deep-link e voltar/avançar — mesmo padrão de /parceiros. O /webhooks
   // antigo redireciona pra ?tab=webhooks.
-  validateSearch: (s: Record<string, unknown>): { tab?: string } => ({
+  // `abrir` = a integração aberta no catálogo da aba Integrações (ou "todas").
+  validateSearch: (s: Record<string, unknown>): { tab?: string; abrir?: string } => ({
     tab: typeof s.tab === "string" ? s.tab : undefined,
+    ...(typeof s.abrir === "string" && s.abrir ? { abrir: s.abrir } : {}),
   }),
   component: ConfiguracoesPage,
 });
@@ -83,15 +80,6 @@ interface UsuarioCompleto {
 // ===========================================================================
 // Helpers
 // ===========================================================================
-
-function maskTelefone(v: string): string {
-  const d = v.replace(/\D/g, "").slice(0, 11);
-  if (d.length === 0) return "";
-  if (d.length <= 10) {
-    return d.replace(/(\d{2})(\d)/, "($1) $2").replace(/(\d{4})(\d)/, "$1-$2");
-  }
-  return d.replace(/(\d{2})(\d)/, "($1) $2").replace(/(\d{5})(\d)/, "$1-$2");
-}
 
 // Aba da barra de Configurações. No celular a barra rola na horizontal (cinco
 // abas não cabem em 375px) e começa na ponta esquerda: quem chegava por
@@ -148,7 +136,7 @@ function AbaConfig({
 // ===========================================================================
 
 function ConfiguracoesPage() {
-  const { usuario, isAdmin, pode, podeEscrever } = useAuth();
+  const { usuario, isAdmin, pode, podeEscrever, escritorio } = useAuth();
   const navigate = useNavigate();
   const search = Route.useSearch();
   const usuarioId = usuario ? usuario.id : null;
@@ -518,14 +506,7 @@ function ConfiguracoesPage() {
                   <div className="sm:col-span-2">
                     <Label className="text-xs">Telefone</Label>
                     {editando ? (
-                      <Input
-                        value={telefone}
-                        onChange={(e) =>
-                          setTelefone(maskTelefone(e.target.value))
-                        }
-                        placeholder="(00) 00000-0000"
-                        inputMode="tel"
-                      />
+                      <TelefoneComPais value={telefone} onChange={setTelefone} somenteBrasil={usuario?.tipo === "parceiro"} />
                     ) : (
                       <p className="text-sm py-2">{formatarTelefone(dados.telefone) || "-"}</p>
                     )}
@@ -693,22 +674,14 @@ function ConfiguracoesPage() {
                 <ResponsaveisEtapasCard />
               </TabsContent>
 
-              <TabsContent value="integracoes" className="space-y-6">
-                {/* Card: Integracao de IA */}
-                <IntegracaoIaCard />
-
-                {/* Card: Conectar Claude/ChatGPT (Superficie B) */}
-                <ConexaoClaudeCard />
-
-                {/* Card: Integração Gmail (INSS) — a caixa deste escritório */}
-                <IntegracaoGmailCard />
-                <ProcuradoresInssCard />
-
-                {/* Card: WhatsApp (Evolution) — a instância deste escritório */}
-                <IntegracaoWhatsappCard />
-                {/* Legalmail e TI por escritório (RBAC 13): credencial própria; sem ela a tela não oferece os botões */}
-                <IntegracaoLegalmailCard />
-                <IntegracaoTiCard />
+              {/* Integrações: catálogo em grupos; a configuração de cada uma abre na
+                  própria linha e fica na URL (?abrir=zapsign). */}
+              <TabsContent value="integracoes">
+                <AbaIntegracoes
+                  escritorioNome={escritorio?.marca?.nome_exibicao ?? escritorio?.escritorio_nome ?? "este escritório"}
+                  aberta={search.abrir}
+                  onAbrir={(id) => navigate({ to: "/configuracoes", search: id ? { tab: "integracoes", abrir: id } : { tab: "integracoes" }, replace: true })}
+                />
               </TabsContent>
 
               {/* Webhooks: era a página /webhooks com item na sidebar (até

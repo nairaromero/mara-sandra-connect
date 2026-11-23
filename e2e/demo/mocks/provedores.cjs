@@ -27,12 +27,14 @@ const estado = {
     msg_id: "mock-msg-1",
     legalmail_key: "chave-legalmail-canario",
     ti_token: "token-ti-canario",
+    zapsign_token: "token-zapsign-canario",
   },
   emails: [],          // Resend: o que as functions mandaram
   claude: [],          // "conversa" do Claude simulado
   painel: [],          // blocos {titulo, html} do painel
   evolution: [],       // mensagens que o Evolution simulado 'enviou' ({instance, number, text})
   chamadas: [],        // log curto pra depurar
+  zapsign: new Map(),  // documentos do ZapSign simulado, por token
 };
 
 const b64url = (s) => Buffer.from(s, "utf8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -40,6 +42,106 @@ const esc = (t) => String(t ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<
 const json = (res, corpo, status = 200) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(corpo)); };
 const html = (res, corpo, status = 200) => { res.writeHead(status, { "content-type": "text/html; charset=utf-8" }); res.end(corpo); };
 const lerCorpo = (req) => new Promise((ok) => { let t = ""; req.on("data", (c) => (t += c)); req.on("end", () => ok(t)); });
+
+// ---- DOCX do modelo "KIT" simulado: é dele que o sistema monta a prévia do contrato.
+// Um ZIP de verdade (compactado), com um campo que o Word partiu em dois pedaços,
+// negrito, título ao centro e um "&" — o que o leitor da prévia precisa aguentar.
+// ZAPSIGN_MOCK_KIT_DOCX=<arquivo.docx> troca pelo Word de um kit real (teste na mão).
+function crc32(buf) {
+  let c, crc = 0xffffffff;
+  for (let n = 0; n < buf.length; n++) {
+    c = (crc ^ buf[n]) & 0xff;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    crc = (crc >>> 8) ^ c;
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+function zipDe(arquivos) {
+  const locais = [], centrais = [];
+  let offset = 0;
+  for (const [nome, texto] of arquivos) {
+    const bruto = Buffer.from(texto, "utf8"), dados = require("zlib").deflateRawSync(bruto), n = Buffer.from(nome, "utf8");
+    const cab = Buffer.alloc(30);
+    cab.writeUInt32LE(0x04034b50, 0); cab.writeUInt16LE(20, 4); cab.writeUInt16LE(8, 8); cab.writeUInt32LE(crc32(bruto), 14);
+    cab.writeUInt32LE(dados.length, 18); cab.writeUInt32LE(bruto.length, 22); cab.writeUInt16LE(n.length, 26);
+    const cen = Buffer.alloc(46);
+    cen.writeUInt32LE(0x02014b50, 0); cen.writeUInt16LE(20, 4); cen.writeUInt16LE(20, 6); cen.writeUInt16LE(8, 10); cen.writeUInt32LE(crc32(bruto), 16);
+    cen.writeUInt32LE(dados.length, 20); cen.writeUInt32LE(bruto.length, 24); cen.writeUInt16LE(n.length, 28); cen.writeUInt32LE(offset, 42);
+    locais.push(cab, n, dados); centrais.push(cen, n);
+    offset += 30 + n.length + dados.length;
+  }
+  const dir = Buffer.concat(centrais), fim = Buffer.alloc(22);
+  fim.writeUInt32LE(0x06054b50, 0); fim.writeUInt16LE(arquivos.length, 8); fim.writeUInt16LE(arquivos.length, 10); fim.writeUInt32LE(dir.length, 12); fim.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locais, dir, fim]);
+}
+function docxDoKit() {
+  const real = process.env.ZAPSIGN_MOCK_KIT_DOCX;
+  if (real) return require("fs").readFileSync(real);
+  const r = (t, negrito) => `<w:r><w:rPr><w:b${negrito ? "" : ' w:val="0"'}/></w:rPr><w:t xml:space="preserve">${t}</w:t></w:r>`;
+  const par = (runs, centro) => `<w:p><w:pPr>${centro ? '<w:jc w:val="center"/>' : '<w:jc w:val="both"/>'}</w:pPr>${runs}</w:p>`;
+  const corpo = [
+    par(r("CONTRATO DE HONORÁRIOS (modelo simulado)", true), true),
+    par(r("CONTRATANTE: ", true) + r("{{NOME_ASSINANTE}}, CPF {{CPF_ASSINANTE}}, {{QUALIFICACAO_CONTRATANTE}}.")),
+    par(r("• ") + r("O que será feito:", true) + r(" {{OBJETO_SERVICO}}, para obter {{BENEFICIO_OBJETO}}.")),
+    par(r("• ") + r("Quanto:", true) + r(" {{PERCENTUAL_ATRASADOS}} dos valores atrasados recebidos e mais valor equivalente a {{QTD_PRESTACOES}} prestações do benefício.")),
+    // o campo partido em dois pedaços pela formatação
+    par(r("a) ", true) + r("{{PERCENTUAL_") + r("ATRASADOS}} ({{PERCENTUAL_ATRASADOS_EXTENSO}})", true) + r(" sobre os valores retroativos;")),
+    par(r("b) ", true) + r("um valor equivalente a ") + r("{{QTD_PRESTACOES}} ({{QTD_PRESTACOES_EXTENSO}}) vezes a renda mensal", true) + r(", em prestações não superiores a 35% (trinta e cinco por cento) da renda.")),
+    par(r("Sigilo &amp; dados. Parceiro indicador: {{TEXTO_PARCEIRO}}")),
+    par(r("{{CIDADE}}, {{DATA}}. Foro: {{FORO}}.")),
+  ].join("");
+  return zipDe([
+    ["[Content_Types].xml", '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>'],
+    ["word/document.xml", `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${corpo}</w:body></w:document>`],
+  ]);
+}
+// Os campos do KIT, como estão no modelo de verdade: o padrão dos honorários mora no
+// texto de ajuda e os "_EXTENSO" são escritos pelo sistema.
+const CAMPOS_DO_KIT = [
+  ["NOME_ASSINANTE", "Nome de quem assina", "", true],
+  ["CPF_ASSINANTE", "CPF de quem assina", "", true],
+  ["QUALIFICACAO_CONTRATANTE", "Qualificação do contratante", "", true],
+  // "Sistema: benefício": o sistema oferece o benefício do caso e a lista de tipos do escritório
+  ["OBJETO_SERVICO", "Objeto do serviço", "Sistema: benefício", true],
+  ["BENEFICIO_OBJETO", "Benefício ou serviço", "", true],
+  ["PERCENTUAL_ATRASADOS", "Honorários sobre os atrasados (%)", "Padrão: 35% · Máximo: 50%", true],
+  ["PERCENTUAL_ATRASADOS_EXTENSO", "Honorários sobre os atrasados por extenso", "O sistema escreve a partir do percentual.", true],
+  ["QTD_PRESTACOES", "Quantidade de prestações do benefício", "Padrão: 5", true],
+  ["QTD_PRESTACOES_EXTENSO", "Quantidade de prestações por extenso", "O sistema escreve a partir da quantidade.", true],
+  ["TEXTO_PARCEIRO", "Parceiro indicador", "Nome do parceiro que indicou o caso, ou \"não há\".", false],
+  ["CIDADE", "Cidade da assinatura", "", true],
+  ["DATA", "Data da assinatura", "", true],
+  ["FORO", "Foro (comarca)", "", true],
+].map(([v, label, help_text, required], i) => ({ variable: `{{${v}}}`, input_type: "input", label, help_text, options: "", required, order: i + 1 }));
+
+// Modelos de contrato da conta do ZapSign simulada (#522): mais de 20 (o ZapSign
+// pagina de 20 em 20), em pastas, com um de PDF e um inativo que NÃO devem
+// aparecer no sistema.
+function modelosZapsign() {
+  const campos = [
+    { variable: "{{NOME COMPLETO}}", input_type: "signer_fullname", label: "NOME COMPLETO", help_text: "", options: "", required: true, order: 1 },
+    { variable: "{{CPF}}", input_type: "input", label: "CPF", help_text: "", options: "", required: true, order: 2 },
+    { variable: "{{ENDEREÇO}}", input_type: "input", label: "ENDEREÇO", help_text: "", options: "", required: false, order: 3 },
+    { variable: "{{NOME DA MÃE}}", input_type: "input", label: "NOME DA MÃE", help_text: "Como está no documento", options: "", required: false, order: 4 },
+    { variable: "{{VALOR DOS HONORÁRIOS}}", input_type: "input", label: "VALOR DOS HONORÁRIOS", help_text: "", options: "", required: true, order: 5 },
+  ];
+  const um = (i, name, folder_path, extra = {}) => ({
+    token: `modelo-${String(i).padStart(2, "0")}`, template_type: "docx", name, active: true, template_file: "", created_at: "2026-10-01T12:00:00Z",
+    last_update_at: "2026-10-01T12:00:00Z", redirect_link: "", folder_path, lang: "pt-br", inputs: campos, ...extra,
+  });
+  const previ = ["Aposentadoria por idade", "Aposentadoria por tempo de contribuição", "Aposentadoria por incapacidade permanente", "Auxílio-acidente", "Auxílio por incapacidade temporária", "BPC/LOAS", "Pensão por morte", "Revisão de aposentadoria", "Salário-maternidade"];
+  const lista = [
+    um(1, "Procuração ad judicia", "/"),
+    um(2, "Declaração de hipossuficiência", "/"),
+    ...previ.map((b, i) => um(3 + i, `Contrato de honorários - ${b}`, "/Previdenciário/")),
+    ...Array.from({ length: 11 }, (_, i) => um(12 + i, `Contrato cível ${String(i + 1).padStart(2, "0")}`, "/Cível/")),
+    um(23, "Formulário em PDF (não gera documento por aqui)", "/", { template_type: "pdf" }),
+    um(24, "Contrato antigo (desativado)", "/Previdenciário/", { active: false }),
+    // o kit com honorários variáveis: campos com padrão, extenso e DOCX para a prévia
+    { ...um(25, "KIT Previdenciário - Aposentadoria e Revisão", "/Kits"), token: "modelo-kit", inputs: CAMPOS_DO_KIT, docx: true },
+  ];
+  return lista;
+}
 
 function emailInss() {
   const c = estado.config;
@@ -64,6 +166,8 @@ function emailInss() {
       mimeType: "multipart/alternative",
       headers: [
         { name: "Subject", value: "Status do requerimento 1234567890 alterado para EXIGÊNCIA" },
+        // o mesmo e-mail em duas caixas tem ids de Gmail diferentes e ESTE cabeçalho igual
+        { name: "Message-ID", value: `<inss-${c.msg_id}@mock.inss.gov.br>` },
         { name: "From", value: "INSS <naoresponda@inss.gov.br>" },
         { name: "Date", value: new Date().toUTCString() },
       ],
@@ -167,7 +271,7 @@ const server = http.createServer(async (req, res) => {
     if (p === "/_config" && req.method === "POST") { Object.assign(estado.config, JSON.parse(await lerCorpo(req) || "{}")); return json(res, { ok: true, config: estado.config }); }
     // O que as functions mandaram pelo Resend (as specs conferem o conteúdo).
     if (p === "/_emails") return json(res, { emails: estado.emails });
-    if (p === "/_reset" && req.method === "POST") { estado.emails = []; estado.claude = []; estado.painel = []; estado.evolution = []; return json(res, { ok: true }); }
+    if (p === "/_reset" && req.method === "POST") { estado.emails = []; estado.claude = []; estado.painel = []; estado.evolution = []; estado.zapsign.clear(); return json(res, { ok: true }); }
 
     // ---- Evolution API (WhatsApp)
     if (p.startsWith("/evolution/")) {
@@ -242,6 +346,119 @@ button{background:#1a73e8;color:#fff;border:0;border-radius:6px;padding:10px 26p
         ] });
       }
       return json(res, { message: "rota não simulada", p }, 404);
+    }
+
+    // ---- ZapSign (Bearer) — criar / detalhar / listar documento
+    // Utilidades sem Bearer (as specs fazem o papel do signatário):
+    //   POST /zapsign/_assinar/<token>?quem=<i|todos>   POST /zapsign/_recusar/<token>
+    //   POST /zapsign/_excluir/<token>                  GET  /zapsign/_docs
+    //   POST /zapsign/_recusar/<token>?forma=pt  (status em português, como nos exemplos de aviso da doc)
+    //   POST /zapsign/_sumir/<token>             (o documento deixa de existir NESTA conta: detalhar → 404)
+    //   GET  /zapsign/_arquivo/<token>.pdf  (o "PDF assinado")
+    if (p.startsWith("/zapsign/")) {
+      const docs = estado.zapsign;
+      let m;
+      if (p === "/zapsign/_docs") return json(res, [...docs.values()]);
+      if ((m = p.match(/^\/zapsign\/_arquivo\/([^/.]+)\.pdf$/))) {
+        const pdf = Buffer.from("%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Count 0/Kids[]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n% assinado (simulação) " + m[1] + "\n");
+        res.writeHead(200, { "content-type": "application/pdf", "content-length": pdf.length });
+        return res.end(pdf);
+      }
+      // o DOCX do modelo: como no ZapSign, o endereço abre sem credencial
+      if ((m = p.match(/^\/zapsign\/_modelo\/([^/]+)\.docx$/)) && req.method === "GET") {
+        if (!modelosZapsign().some((x) => x.token === m[1] && x.docx)) return json(res, { detail: "Not found." }, 404);
+        const arquivo = docxDoKit();
+        res.writeHead(200, { "content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "content-length": arquivo.length });
+        return res.end(arquivo);
+      }
+      if ((m = p.match(/^\/zapsign\/_sumir\/([^/]+)$/)) && req.method === "POST") return json(res, { ok: docs.delete(m[1]) });
+      if ((m = p.match(/^\/zapsign\/_(assinar|recusar|excluir)\/([^/]+)$/)) && req.method === "POST") {
+        const d = docs.get(m[2]);
+        if (!d) return json(res, { detail: "Not found." }, 404);
+        const agora = new Date().toISOString();
+        if (m[1] === "excluir") d.deleted = true;
+        if (m[1] === "recusar") {
+          // a doc do ZapSign escreve "refused" nas tabelas e "recusado"/"abriu-link" nos exemplos de aviso
+          const pt = url.searchParams.get("forma") === "pt";
+          d.status = pt ? "recusado" : "refused";
+          if (pt && d.signers[0]) d.signers[0].status = "abriu-link";
+        }
+        if (m[1] === "assinar") {
+          const quem = url.searchParams.get("quem") ?? "todos";
+          d.signers.forEach((sg, i) => { if (quem === "todos" || Number(quem) === i) { sg.status = "signed"; sg.signed_at = agora; } });
+          if (d.signers.every((sg) => sg.status === "signed")) d.status = "signed";
+        }
+        d.last_update_at = agora;
+        return json(res, { ok: true, status: d.status });
+      }
+      if (req.headers.authorization !== `Bearer ${estado.config.zapsign_token}`) return json(res, { detail: "Token inválido." }, 401);
+      const visivel = (d) => ({
+        sandbox: true, external_id: d.external_id, open_id: d.open_id, token: d.token, name: d.name, status: d.status,
+        deleted: !!d.deleted, original_file: null,
+        // o link do assinado aponta para este mesmo servidor, no endereço por onde a function chegou
+        signed_file: d.status === "signed" ? `http://${req.headers.host}/zapsign/_arquivo/${d.token}.pdf` : null,
+        created_at: d.created_at, last_update_at: d.last_update_at, signers: d.signers,
+        // documento "criado no painel": respostas do modelo e quem criou (a spec manda no corpo)
+        answers: d.answers, created_by: { email: d.created_by_email },
+      });
+      // ---- modelos de contrato (#522): lista paginada de 20, detalhe com os campos e criação por modelo
+      const modelos = modelosZapsign();
+      if (p === "/zapsign/api/v1/templates/" && req.method === "GET") {
+        const pagina = Math.max(1, Number(url.searchParams.get("page") || 1));
+        const fatia = modelos.slice((pagina - 1) * 20, pagina * 20);
+        const resumo = ({ inputs: _i, docx: _d, ...m }) => m;
+        return json(res, { count: modelos.length, next: pagina * 20 < modelos.length ? `http://${req.headers.host}/zapsign/api/v1/templates/?page=${pagina + 1}` : null, previous: null, results: fatia.map(resumo) });
+      }
+      if ((m = p.match(/^\/zapsign\/api\/v1\/templates\/([^/]+)\/$/)) && req.method === "GET") {
+        const modelo = modelos.find((x) => x.token === decodeURIComponent(m[1]));
+        if (!modelo) return json(res, { detail: "Not found." }, 404);
+        const { docx, ...visivelDoModelo } = modelo;
+        // como no ZapSign: o endereço do DOCX do modelo (aqui, neste mesmo servidor)
+        return json(res, { ...visivelDoModelo, template_file: docx ? `http://${req.headers.host}/zapsign/_modelo/${modelo.token}.docx` : "" });
+      }
+      if (p === "/zapsign/api/v1/models/create-doc/" && req.method === "POST") {
+        const c = JSON.parse(await lerCorpo(req) || "{}");
+        const modelo = modelos.find((x) => x.token === c.template_id);
+        if (!modelo || !c.signer_name) return json(res, { detail: "template_id e signer_name são obrigatórios" }, 400);
+        // "[fora do ar]" numa resposta: o ZapSign falha SEM criar o documento (a spec prova que o modelo não fica travado)
+        if ((Array.isArray(c.data) ? c.data : []).some((x) => String(x.para).includes("[fora do ar]"))) return json(res, { detail: "erro interno (simulado)" }, 500);
+        const token = require("crypto").randomUUID();
+        const agora = new Date().toISOString();
+        const t = require("crypto").randomUUID();
+        const d = {
+          token, open_id: docs.size + 1, name: modelo.name, external_id: c.external_id ?? "", status: "pending", created_at: agora, last_update_at: agora,
+          template_id: modelo.token,
+          answers: (Array.isArray(c.data) ? c.data : []).map((x) => ({ variable: String(x.de).replace(/[{}]/g, ""), value: x.para })),
+          created_by_email: c.created_by ?? "painel@exemplo.com.br",
+          signers: [{ token: t, sign_url: `https://app.zapsign.co/verificar/${t}`, status: "new", name: c.signer_name, email: c.signer_email ?? "", phone_country: c.signer_phone_country ?? "", phone_number: c.signer_phone_number ?? "", external_id: "", cpf: "", times_viewed: 0, last_view_at: null, signed_at: null, send_automatic_email: !!c.send_automatic_email, send_automatic_whatsapp: !!c.send_automatic_whatsapp }],
+        };
+        docs.set(token, d);
+        return json(res, visivel(d));
+      }
+      if (p === "/zapsign/api/v1/docs/" && req.method === "GET") return json(res, { count: docs.size, next: null, previous: null, results: [...docs.values()].map(visivel) });
+      if (p === "/zapsign/api/v1/docs/" && req.method === "POST") {
+        const c = JSON.parse(await lerCorpo(req) || "{}");
+        if (!c.name || !(c.base64_pdf || c.base64_docx) || !Array.isArray(c.signers) || !c.signers.length) return json(res, { detail: "name, arquivo e signers são obrigatórios" }, 400);
+        const token = require("crypto").randomUUID();
+        const agora = new Date().toISOString();
+        const d = {
+          token, open_id: docs.size + 1, name: c.name, external_id: c.external_id ?? "", status: "pending", created_at: agora, last_update_at: agora,
+          answers: Array.isArray(c.answers) ? c.answers : [], created_by_email: c.created_by_email ?? "painel@exemplo.com.br",
+          signers: c.signers.map((sg) => {
+            const t = require("crypto").randomUUID();
+            return { token: t, sign_url: `https://app.zapsign.co/verificar/${t}`, status: "new", name: sg.name, email: sg.email ?? "", phone_country: sg.phone_country ?? "", phone_number: sg.phone_number ?? "", external_id: sg.external_id ?? "", cpf: sg.cpf ?? "", times_viewed: 0, last_view_at: null, signed_at: null, send_automatic_email: !!sg.send_automatic_email, send_automatic_whatsapp: !!sg.send_automatic_whatsapp };
+          }),
+        };
+        docs.set(token, d);
+        // "[sem resposta]" no nome: o documento É criado, mas a resposta se perde (a spec prova que o envio não é dado por perdido)
+        if (String(c.name).includes("[sem resposta]")) return json(res, { detail: "erro interno (simulado)" }, 500);
+        return json(res, visivel(d));
+      }
+      if ((m = p.match(/^\/zapsign\/api\/v1\/docs\/([^/]+)\/$/)) && req.method === "GET") {
+        const d = docs.get(decodeURIComponent(m[1]));
+        return d ? json(res, visivel(d)) : json(res, { detail: "Not found." }, 404);
+      }
+      return json(res, { detail: "rota não simulada", p }, 404);
     }
 
     // ---- Tramitação Inteligente (Bearer) — clientes / notas

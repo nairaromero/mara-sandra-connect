@@ -43,6 +43,9 @@ export const ROTULO_ACAO: Record<string, string> = {
   "integracao.salvar": "Salvou uma credencial de integração",
   "integracao.testar": "Testou uma integração",
   "integracao.token": "Gerou um token de integração",
+  "integracao.caixa_conectada": "Conectou uma caixa de e-mail do INSS",
+  "integracao.caixa_desconectada": "Desconectou uma caixa de e-mail do INSS",
+  "assinatura.enviada": "Enviou um documento para assinatura",
 };
 
 export const ROTULO_TIPO_ATOR: Record<string, string> = {

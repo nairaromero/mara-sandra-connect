@@ -25,6 +25,7 @@
 // Irmão no banco: `private.auditar` (migration_rbac_07/25), que é o túnel das
 // RPCs. Os dois escrevem na mesma tabela com as mesmas regras; o que muda é o
 // runtime de quem chama.
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import type { ChamadorPessoa } from "./auth.ts";
 
 /**
@@ -40,7 +41,9 @@ export type AcaoAuditada =
   | "parceiro.excluido"
   | "integracao.salvar"
   | "integracao.testar"
-  | "integracao.token";
+  | "integracao.token"
+  | "integracao.caixa_conectada"
+  | "assinatura.enviada";
 
 export interface EntradaAuditoria {
   acao: AcaoAuditada;
@@ -58,8 +61,27 @@ export interface EntradaAuditoria {
  * Não lança: devolve `true` se gravou, `false` se não deu — o chamador pode
  * ignorar sem risco, e o motivo fica no log.
  */
-export async function auditar(quem: ChamadorPessoa, entrada: EntradaAuditoria): Promise<boolean> {
-  const escritorioId = quem.perfil.escritorio_id;
+export function auditar(quem: ChamadorPessoa, entrada: EntradaAuditoria): Promise<boolean> {
+  return gravar(quem.admin, quem.perfil.escritorio_id, quem.uid, entrada);
+}
+
+/**
+ * A mesma trilha para a function que NÃO tem sessão de pessoa, mas sabe quem
+ * agiu porque conferiu uma ASSINATURA NOSSA: o retorno do Google
+ * (`gmail-oauth-callback`) chega sem login, e a pessoa e o escritório vêm do
+ * `state` assinado por HMAC no `gmail-oauth-start`. Só use com identidade
+ * conferida assim — nunca com id lido do corpo ou da URL sem assinatura.
+ */
+export function auditarVerificado(
+  admin: SupabaseClient,
+  conferido: { usuarioId: string; escritorioId: string },
+  entrada: EntradaAuditoria,
+): Promise<boolean> {
+  return gravar(admin, conferido.escritorioId, conferido.usuarioId, entrada);
+}
+
+/** O único insert na trilha a partir das edge functions. */
+async function gravar(admin: SupabaseClient, escritorioId: string | null | undefined, atorId: string, entrada: EntradaAuditoria): Promise<boolean> {
   if (!escritorioId) {
     // Banco sem as migrations do RBAC: não há escritório a que pendurar a
     // linha. Não é erro do chamador, e o lado SQL também não audita sem isso.
@@ -71,9 +93,9 @@ export async function auditar(quem: ChamadorPessoa, entrada: EntradaAuditoria): 
     return false;
   }
 
-  const { error } = await quem.admin.from("auditoria").insert({
+  const { error } = await admin.from("auditoria").insert({
     escritorio_id: escritorioId,
-    ator_id: quem.uid,
+    ator_id: atorId,
     tipo_ator: "membro",
     acao: entrada.acao,
     recurso: entrada.recurso,

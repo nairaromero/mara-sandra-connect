@@ -110,6 +110,7 @@ export const RPC: Record<string, Exigencia> = {
   reativar_parceiro: { permissao: "parceiros:gerenciar" },
   escritorio_definir_marca: { permissao: "escritorio:configurar" },
   gmail_inss_status: { permissao: "integracoes:gerenciar" },
+  gmail_inss_desconectar: { permissao: "integracoes:gerenciar" },
   // funções privilegiadas que passaram a conferir permissão (migration_rbac_17)
   // a trilha do escritório (migration_rbac_24): a permissão, não o papel admin
   auditoria_plataforma: { permissao: "auditoria:ler" },
@@ -155,6 +156,7 @@ export const FUNCTION: Record<string, Exigencia> = {
   "sync-datajud-movimentacoes": { permissao: "casos:editar" },
   "sync-djen-caso": { permissao: "casos:editar" },
   "sync-legalmail-caso": { permissao: "casos:editar" },
+  "zapsign-enviar": { permissao: "documentos:enviar" },
   "sync-ti-cliente": { permissao: "casos:editar" },
   "listar-processos-legalmail": { permissao: "processos:ler" },
   "listar-clientes-ti": { permissao: "casos:ler" },

@@ -48,6 +48,8 @@ import {
   isGoogleDriveConfigured,
   type DrivePickedFile,
 } from "@/lib/google-drive";
+import { separarTelefone, telefoneCompleto, telefoneParaEnvio } from "@/lib/telefone";
+import { TelefoneComPais } from "@/components/telefone-com-pais";
 
 export const Route = createFileRoute("/_authenticated/casos/novo")({
   component: NovoCasoPage,
@@ -74,14 +76,6 @@ function maskCPF(v: string) {
     .replace(/(\d{3})(\d)/, "$1.$2")
     .replace(/(\d{3})(\d)/, "$1.$2")
     .replace(/(\d{3})(\d{1,2})$/, "$1-$2");
-}
-
-function maskTelefone(v: string) {
-  const d = v.replace(/\D/g, "").slice(0, 11);
-  if (d.length <= 10) {
-    return d.replace(/(\d{2})(\d)/, "($1) $2").replace(/(\d{4})(\d)/, "$1-$2");
-  }
-  return d.replace(/(\d{2})(\d)/, "($1) $2").replace(/(\d{5})(\d)/, "$1-$2");
 }
 
 function isValidCPF(cpf: string): boolean {
@@ -113,7 +107,7 @@ const schema = z.object({
     .min(14, "CPF incompleto")
     .refine((v) => isValidCPF(v), "CPF inválido"),
   data_nascimento: z.string().min(1, "Informe a data de nascimento"),
-  telefone: z.string().trim().min(14, "Telefone incompleto").max(16),
+  telefone: z.string().trim().refine(telefoneCompleto, "Telefone incompleto"),
   email: z.string().trim().email("E-mail inválido").max(150).optional().or(z.literal("")),
   senha_meu_inss: z.string().max(100).optional().or(z.literal("")),
   endereco: z.string().max(200).optional().or(z.literal("")),
@@ -280,7 +274,7 @@ function NovoCasoPage() {
       campos++;
     }
     if (c.telefone) {
-      form.setValue("telefone", maskTelefone(c.telefone), {
+      form.setValue("telefone", telefoneParaEnvio(separarTelefone(c.telefone).ddi, separarTelefone(c.telefone).numero), {
         shouldValidate: true,
         shouldDirty: true,
       });
@@ -929,12 +923,7 @@ function NovoCasoPage() {
                     <FormItem>
                       <FormLabel>Telefone *</FormLabel>
                       <FormControl>
-                        <Input
-                          placeholder="(00) 00000-0000"
-                          inputMode="tel"
-                          value={field.value}
-                          onChange={(e) => field.onChange(maskTelefone(e.target.value))}
-                        />
+                        <TelefoneComPais value={field.value} onChange={field.onChange} onBlur={field.onBlur} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

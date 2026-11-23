@@ -242,3 +242,11 @@ verify_jwt = false
 # exigirUsuario/exigirSistema dentro da função — o verify_jwt sozinho não
 # fecha nada, porque a chave publicável do site é um JWT válido.
 verify_jwt = false
+
+[functions.zapsign-enviar]
+# #517 — envia documento do caso ao ZapSign; exigirUsuario + documentos:enviar
+verify_jwt = true
+
+[functions.zapsign-webhook]
+# #517 — webhook do ZapSign; segredo de entrada por escritório + leitura na API
+verify_jwt = false

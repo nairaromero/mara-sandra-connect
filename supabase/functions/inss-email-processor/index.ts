@@ -33,7 +33,6 @@
 //     IA_MASTER_KEY                          (já existe; decifra refresh_token)
 //
 //   E configurações:
-//     INSS_INBOX_EMAIL   (default 'nairaromerovian@gmail.com')
 //     GMAIL_LABEL        (default 'inss-agent')
 //
 // Body do POST (todos opcionais):
@@ -48,6 +47,7 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { escopado, escritorioDoSistema, exigirUsuarioOuSistema, fetchT } from "../_shared/auth.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { decryptSecret } from "../_shared/crypto.ts";
+import { equipeInterna } from "../_shared/equipe.ts";
 import { chatWith, type Credencial } from "../_shared/ia-providers.ts";
 import { abrirCredencial, carregarIntegracao, type IntegracaoIA, registroDeUso } from "../_shared/ia-integracao.ts";
 import { ehProcurador, lerProcuradorEscolhido, lerProcuradoresCadastrados, nomesDeProcurador } from "../_shared/inss-procurador.ts";
@@ -60,7 +60,6 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const GMAIL_CLIENT_ID = Deno.env.get("GMAIL_CLIENT_ID") ?? "";
 const GMAIL_CLIENT_SECRET = Deno.env.get("GMAIL_CLIENT_SECRET") ?? "";
-const INSS_INBOX_EMAIL = Deno.env.get("INSS_INBOX_EMAIL") ?? "nairaromerovian@gmail.com";
 const DEFAULT_LABEL = Deno.env.get("GMAIL_LABEL") ?? "inss-agent";
 const NAIRA_EMAIL_DEFAULT = "nairaromerovian@gmail.com";
 
@@ -109,37 +108,60 @@ function jsonResponse(body: unknown, status = 200) {
 // Gmail OAuth + API
 // ============================================================================
 
-async function obterAccessToken(sb: SupabaseClient, escritorioId: string): Promise<{ token: string; gmailAddress: string }> {
+/** Uma caixa de e-mail do INSS conectada no escritório. */
+interface CaixaInss {
+  id: string;
+  email_conectado: string;
+  refresh_cipher: string;
+  refresh_iv: string;
+  /** a falha da última rodada, se houve (o card mostra; some quando a caixa volta a ser lida) */
+  ultimo_erro: string | null;
+}
+
+/**
+ * As caixas do INSS DESTE escritório, da mais antiga para a mais nova. Um
+ * escritório pode ter várias (migration_gmail_inss_varias_caixas): TODAS são
+ * lidas. `usuario_gmail_oauth` é global: o filtro por escritório é aqui.
+ */
+async function caixasDoEscritorio(sb: SupabaseClient, escritorioId: string): Promise<CaixaInss[]> {
+  const { data, error } = await sb
+    .from("usuario_gmail_oauth")
+    .select("id, email_conectado, refresh_cipher, refresh_iv, ultimo_erro")
+    .eq("escritorio_id", escritorioId)
+    .order("connected_at")
+    .order("id");
+  if (error) throw new Error(`Falha lendo usuario_gmail_oauth: ${error.message}`);
+  return (data ?? []) as CaixaInss[];
+}
+
+/**
+ * A caixa não pôde ser lida nesta rodada: fica escrito NA LINHA dela, e é o
+ * que `gmail_inss_status` devolve para o card pedir a reconexão. Sem isto a
+ * falha só existia no corpo da resposta ao cron, que ninguém lê — o Google
+ * revogava o acesso e a tela seguia mostrando "conectado". A frase é nossa; o
+ * texto cru do Google vai para o log.
+ */
+async function marcarFalhaDaCaixa(sb: SupabaseClient, caixa: CaixaInss, erro: unknown): Promise<void> {
+  const cru = String(erro);
+  const frase = /invalid_grant|unauthorized_client|invalid_client/i.test(cru)
+    ? "O Google recusou o acesso desta caixa (revogado ou expirado). Conecte a caixa de novo."
+    : "Não consegui ler esta caixa na última rodada. Se continuar, conecte a caixa de novo.";
+  const { error } = await sb.from("usuario_gmail_oauth")
+    .update({ ultimo_erro: frase, ultimo_erro_em: new Date().toISOString() }).eq("id", caixa.id);
+  if (error) console.error(`[inss-email-processor] não marquei a falha da caixa ${caixa.email_conectado}: ${error.message}`);
+}
+/** A caixa voltou a ser lida: some o aviso. */
+async function limparFalhaDaCaixa(sb: SupabaseClient, caixa: CaixaInss): Promise<void> {
+  if (!caixa.ultimo_erro) return;
+  const { error } = await sb.from("usuario_gmail_oauth").update({ ultimo_erro: null, ultimo_erro_em: null }).eq("id", caixa.id);
+  if (error) console.error(`[inss-email-processor] não limpei a falha da caixa ${caixa.email_conectado}: ${error.message}`);
+}
+
+async function obterAccessToken(sb: SupabaseClient, caixa: CaixaInss): Promise<{ token: string; gmailAddress: string }> {
   if (!GMAIL_CLIENT_ID || !GMAIL_CLIENT_SECRET) {
     throw new Error("GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET ausentes nos secrets");
   }
-
-  // A caixa do INSS DESTE escritório (usuario_gmail_oauth é global: filtra
-  // aqui). Preferência: a caixa configurada por env (escritório 1); senão, a
-  // conectada mais recentemente no escritório.
-  let { data: vinculo, error } = await sb
-    .from("usuario_gmail_oauth")
-    .select("usuario_id, refresh_cipher, refresh_iv, email_conectado, scope")
-    .eq("escritorio_id", escritorioId)
-    .eq("email_conectado", INSS_INBOX_EMAIL)
-    .maybeSingle();
-  if (error) throw new Error(`Falha lendo usuario_gmail_oauth: ${error.message}`);
-  if (!vinculo) {
-    const { data: qualquer } = await sb
-      .from("usuario_gmail_oauth")
-      .select("usuario_id, refresh_cipher, refresh_iv, email_conectado, scope")
-      .eq("escritorio_id", escritorioId)
-      .order("connected_at", { ascending: false })
-      .limit(1);
-    vinculo = qualquer?.[0] ?? null;
-  }
-  if (!vinculo) {
-    throw new Error(
-      `Gmail do INSS não conectado neste escritório. Vá em Configurações → Integrações → "Conectar Gmail".`
-    );
-  }
-
-  const refreshToken = await decryptSecret(vinculo.refresh_cipher, vinculo.refresh_iv);
+  const refreshToken = await decryptSecret(caixa.refresh_cipher, caixa.refresh_iv);
 
   const body = new URLSearchParams({
     client_id: GMAIL_CLIENT_ID,
@@ -160,13 +182,13 @@ async function obterAccessToken(sb: SupabaseClient, escritorioId: string): Promi
   // Atualiza last_used_at (não-bloqueante).
   sb.from("usuario_gmail_oauth")
     .update({ last_used_at: new Date().toISOString() })
-    .eq("usuario_id", vinculo.usuario_id)
+    .eq("id", caixa.id)
     .then(() => {}, () => {});
 
   // "me" quando o endereço não foi gravado: a API do Gmail aceita o alias e
   // resolve pela própria credencial, então o rótulo deixa de ser essencial.
-  const endereco = (vinculo.email_conectado ?? "").includes("@")
-    ? vinculo.email_conectado
+  const endereco = (caixa.email_conectado ?? "").includes("@")
+    ? caixa.email_conectado
     : "me";
   return { token: j.access_token, gmailAddress: endereco };
 }
@@ -192,11 +214,21 @@ async function gmailListMessages(
 
 interface GmailMessage {
   id: string;
+  /** Message-ID do próprio e-mail (cabeçalho): igual em todas as caixas que o receberam. */
+  rfcId: string;
+  /** De qual caixa do escritório esta mensagem foi lida. */
+  caixa: string;
   threadId: string;
   subject: string;
   from: string;
   date: string;
   body: string;
+}
+
+class ErroGmail extends Error {
+  constructor(public http: number, mensagem: string) {
+    super(mensagem);
+  }
 }
 
 async function gmailGetMessage(
@@ -208,11 +240,13 @@ async function gmailGetMessage(
     `${GMAIL_API_BASE}/users/${encodeURIComponent(userEmail)}/messages/${id}?format=full`;
   const r = await fetchT(url, { headers: { Authorization: `Bearer ${token}` } });
   if (!r.ok) {
-    throw new Error(`Gmail get(${id}) falhou: ${r.status} ${await r.text()}`);
+    throw new ErroGmail(r.status, `Gmail get(${id}) falhou: ${r.status} ${await r.text()}`);
   }
   const j = await r.json() as GmailMessageRaw;
   return {
     id: j.id,
+    rfcId: headerValue(j.payload.headers, "Message-ID").trim(),
+    caixa: userEmail,
     threadId: j.threadId,
     subject: headerValue(j.payload.headers, "Subject"),
     from: headerValue(j.payload.headers, "From"),
@@ -738,25 +772,16 @@ async function redigirMensagemParceiro(
 }
 
 async function carregarLookups(sb: SupabaseClient, escritorioId: string): Promise<Lookups> {
-  // Equipe DO ESCRITÓRIO (vínculo ativo, acesso interno), não `usuarios.tipo`:
-  // `usuarios` é global. `membros` tem escritorio_id, então o client escopado
-  // já filtra. O responsável padrão é a Naira quando ela é membro (escritório
-  // 1); nos outros, o primeiro administrador ativo.
-  const { data } = await sb
-    .from("membros")
-    .select("usuario_id, created_at, usuarios!membros_usuario_id_fkey(email, nome, ativo), papeis!membros_papel_id_fkey(chave, tipo_acesso)")
-    .eq("status", "ativo")
-    .order("created_at");
+  // Equipe DO ESCRITÓRIO (vínculo ativo, acesso interno) — `equipeInterna`, a
+  // mesma leitura que o ZapSign usa. O responsável padrão é a Naira quando ela
+  // é membro (escritório 1); nos outros, o primeiro administrador ativo.
   const map = new Map<string, string>();
   const nomePorUsuario = new Map<string, string>();
   let primeiroAdmin: string | null = null;
-  for (const m of (data ?? []) as Array<Record<string, unknown>>) {
-    const u = m.usuarios as { email?: string | null; nome?: string | null; ativo?: boolean | null } | null;
-    const p = m.papeis as { chave?: string; tipo_acesso?: string } | null;
-    if (!u || u.ativo === false || p?.tipo_acesso !== "interno") continue;
-    if (u.email) map.set(String(u.email).toLowerCase(), m.usuario_id as string);
-    if (u.nome) nomePorUsuario.set(m.usuario_id as string, String(u.nome));
-    if (!primeiroAdmin && p?.chave === "admin") primeiroAdmin = m.usuario_id as string;
+  for (const pessoa of await equipeInterna(sb)) {
+    if (pessoa.email) map.set(pessoa.email, pessoa.usuario_id);
+    if (pessoa.nome) nomePorUsuario.set(pessoa.usuario_id, pessoa.nome);
+    if (!primeiroAdmin && pessoa.papel === "admin") primeiroAdmin = pessoa.usuario_id;
   }
   // O procurador escolhido na equipe e os nomes "como o INSS escreve" que o
   // escritório cadastrou (#503). Procurador que saiu da equipe ativa deixa de
@@ -850,6 +875,23 @@ async function processarMensagem(
   if (jaLido && jaLido.length > 0) {
     res.pulado_por_dedup = true;
     return res;
+  }
+  // O MESMO e-mail em outra caixa do escritório (o INSS mandou para dois
+  // endereços): o id do Gmail muda de caixa para caixa, o Message-ID do e-mail
+  // não. Sem isto, duas caixas conectadas dobrariam andamento e tarefas.
+  if (msg.rfcId) {
+    const { data: emOutraCaixa, error: eOutra } = await sb
+      .from("inss_email_log")
+      .select("id")
+      .eq("rfc_message_id", msg.rfcId)
+      .eq("dry_run", false)
+      .eq("pulado_por_dedup", false)
+      .limit(1);
+    if (eOutra) throw new Error(`dedup por Message-ID: ${eOutra.message}`);
+    if (emOutraCaixa && emOutraCaixa.length > 0) {
+      res.pulado_por_dedup = true;
+      return res;
+    }
   }
   // Reserva histórica: e-mails processados antes da auditoria existir só
   // deixaram rastro nas tarefas.
@@ -1217,6 +1259,8 @@ async function registrarAuditoria(
       : null;
     const { error: errLog } = await sb.from("inss_email_log").insert({
       gmail_message_id: msg.id,
+      rfc_message_id: msg.rfcId || null,
+      caixa: msg.caixa || null,
       assunto: msg.subject,
       remetente: msg.from,
       recebido_em: msg.date,
@@ -1339,71 +1383,100 @@ serve(async (req) => {
     return jsonResponse({ mensagem: texto, ia_usada: texto !== null });
   }
 
-  // Um escritório: a caixa dele, a equipe dele, os clientes dele.
-  async function processarEscritorio(escritorioId: string) {
+  // Um escritório: as caixas dele, a equipe dele, os clientes dele.
+  async function prepararEscritorio(escritorioId: string) {
     const sbEsc = escopado(sbBruto, escritorioId);
-    const { token, gmailAddress } = await obterAccessToken(sbEsc, escritorioId);
-    // in:inbox de proposito: e-mail ja arquivado e passado, e reprocessar
-    // passado criaria tarefa em cima de caso que a equipe ja resolveu.
-    const query = `label:${label} in:inbox newer_than:${dias}d`;
-    // Se body.message_id(s) foi passado, processa só esses (sem precisar
-    // listar). Caso contrário, lista pela label/janela.
-    const ids = onlyIds ?? await gmailListMessages(token, gmailAddress, query, limite);
-
+    const caixas = await caixasDoEscritorio(sbEsc, escritorioId);
+    if (caixas.length === 0) {
+      throw new Error(`Gmail do INSS não conectado neste escritório. Vá em Configurações → Integrações → "Conectar Gmail".`);
+    }
     const lookups = await carregarLookups(sbEsc, escritorioId);
     if (!lookups.nairaUsuarioId) {
       throw new Error("nenhum administrador ativo no escritório — pré-condição falhou");
     }
-    return { sb: sbEsc, query, ids, lookups, token, gmailAddress };
+    return { sb: sbEsc, caixas, lookups };
   }
+  // in:inbox de proposito: e-mail ja arquivado e passado, e reprocessar
+  // passado criaria tarefa em cima de caso que a equipe ja resolveu.
+  const query = `label:${label} in:inbox newer_than:${dias}d`;
+  const resultadoDeErro = (id: string, erro: string): ProcessamentoResultado => ({
+    message_id: id, classificacao: "", match_via: "", cliente_id: null, caso_id: null, andamento_id: null,
+    tarefas_criadas: [], pulado_por_dedup: false, erros: [erro],
+  });
 
   try {
     const porEscritorio: Array<Record<string, unknown>> = [];
     for (const escritorioId of escritorios) {
-      let prep: Awaited<ReturnType<typeof processarEscritorio>>;
+      let prep: Awaited<ReturnType<typeof prepararEscritorio>>;
       try {
-        prep = await processarEscritorio(escritorioId);
+        prep = await prepararEscritorio(escritorioId);
       } catch (e) {
         porEscritorio.push({ escritorio_id: escritorioId, error: String(e) });
         continue;
       }
-      const { sb: sbEsc, query, ids, lookups, token, gmailAddress } = prep;
-      const sb = sbEsc;
+      const { sb, caixas, lookups } = prep;
 
-    const resultados: ProcessamentoResultado[] = [];
-    const auditoriaErros: string[] = [];
-    for (const id of ids) {
-      try {
-        const msg = await gmailGetMessage(token, gmailAddress, id);
-        const r = await processarMensagem(sb, msg, lookups, dryRun);
-        resultados.push(r);
-        const errAud = await registrarAuditoria(sb, msg, r, dryRun);
-        if (errAud) auditoriaErros.push(errAud);
-      } catch (e) {
-        resultados.push({
-          message_id: id,
-          classificacao: "",
-          match_via: "",
-          cliente_id: null,
-          caso_id: null,
-          andamento_id: null,
-          tarefas_criadas: [],
-          pulado_por_dedup: false,
-          erros: [String(e)],
-        });
+      // Cada caixa do escritório, uma por vez. Caixa que falha (acesso
+      // revogado no Google, por exemplo) não impede a leitura das outras.
+      const resultados: ProcessamentoResultado[] = [];
+      const auditoriaErros: string[] = [];
+      const porCaixa: Array<{ caixa: string; mensagens_listadas: number; error?: string }> = [];
+      // message_id(s) pedidos à mão: cada um está em UMA das caixas; nas outras o Gmail responde 404
+      const pedidosAchados = new Set<string>();
+      for (const caixa of caixas) {
+        let token: string, gmailAddress: string, ids: string[];
+        try {
+          ({ token, gmailAddress } = await obterAccessToken(sb, caixa));
+          // Se body.message_id(s) foi passado, processa só esses (sem precisar
+          // listar). Caso contrário, lista pela label/janela.
+          ids = onlyIds ?? await gmailListMessages(token, gmailAddress, query, limite);
+          if (!dryRun) await limparFalhaDaCaixa(sb, caixa);
+        } catch (e) {
+          // No log (o corpo da resposta ao cron ninguém lê) e na linha da caixa (o card mostra).
+          console.error(`[inss-email-processor] caixa ${caixa.email_conectado} do escritório ${escritorioId} não foi lida: ${String(e)}`);
+          if (!dryRun) await marcarFalhaDaCaixa(sb, caixa, e);
+          porCaixa.push({ caixa: caixa.email_conectado, mensagens_listadas: 0, error: String(e) });
+          continue;
+        }
+        let lidas = 0;
+        for (const id of ids) {
+          try {
+            const msg = await gmailGetMessage(token, gmailAddress, id);
+            lidas++;
+            pedidosAchados.add(id);
+            const r = await processarMensagem(sb, msg, lookups, dryRun);
+            resultados.push(r);
+            const errAud = await registrarAuditoria(sb, msg, r, dryRun);
+            if (errAud) auditoriaErros.push(errAud);
+          } catch (e) {
+            // pedido à mão que não é desta caixa: pode estar na próxima
+            if (onlyIds && e instanceof ErroGmail && e.http === 404) continue;
+            resultados.push(resultadoDeErro(id, String(e)));
+          }
+        }
+        porCaixa.push({ caixa: caixa.email_conectado, mensagens_listadas: onlyIds ? lidas : ids.length });
       }
-    }
+      for (const id of onlyIds ?? []) {
+        if (!pedidosAchados.has(id) && !resultados.some((r) => r.message_id === id)) {
+          resultados.push(resultadoDeErro(id, "mensagem não encontrada em nenhuma caixa do escritório"));
+        }
+      }
 
+      const caixasComFalha = porCaixa.filter((c) => c.error);
       porEscritorio.push({
         escritorio_id: escritorioId,
         dry_run: dryRun,
         auditoria_erros: auditoriaErros,
         query,
-        mensagens_listadas: ids.length,
+        caixas: porCaixa,
+        caixas_com_falha: caixasComFalha.length,
+        mensagens_listadas: porCaixa.reduce((n, c) => n + c.mensagens_listadas, 0),
         processadas: resultados.filter((r) => !r.pulado_por_dedup && r.erros.length === 0 && r.tarefas_criadas.length > 0).length,
         puladas_dedup: resultados.filter((r) => r.pulado_por_dedup).length,
         com_erro: resultados.filter((r) => r.erros.length > 0).length,
         resultados,
+        // nenhuma caixa pôde ser lida: o escritório falhou (como antes, com uma caixa só)
+        ...(caixasComFalha.length === porCaixa.length ? { error: caixasComFalha.map((c) => `${c.caixa}: ${c.error}`).join(" | ") } : {}),
       });
     }
     // Uma pessoa vê o resultado do escritório dela como sempre; o cron recebe
@@ -1415,6 +1488,8 @@ serve(async (req) => {
     return jsonResponse({
       escritorios: porEscritorio,
       com_falha: porEscritorio.filter((e) => e.error).length,
+      // falha PARCIAL também conta: com duas caixas e uma quebrada o escritório não entra em `com_falha`
+      caixas_com_falha: porEscritorio.reduce((n, e) => n + Number(e.caixas_com_falha ?? 0), 0),
     });
   } catch (e) {
     return jsonResponse({ error: String(e) }, 500);

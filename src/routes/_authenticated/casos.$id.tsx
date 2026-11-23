@@ -9,6 +9,7 @@ import {
   Loader2,
   FileText,
   FileDown,
+  FileSignature,
   Plus,
   Send,
   Download,
@@ -43,6 +44,10 @@ import {
 
 import { useAuth } from "@/hooks/use-auth";
 import { useIntegracoesEscritorio } from "@/hooks/use-integracoes";
+import { EnviarAssinaturaDialog, PainelAssinaturas } from "@/components/assinaturas/assinaturas-caso";
+import { GerarContratoDialog } from "@/components/assinaturas/gerar-contrato-dialog";
+import { useAssinaturasCaso } from "@/hooks/use-assinaturas";
+import { EM_CURSO, formatoAssinavel } from "@/lib/assinaturas";
 import { useTiposBeneficio } from "@/hooks/use-tipos-beneficio";
 import { DESTAQUE_CLASSE, useFocoItem } from "@/hooks/use-foco-item";
 import { notificarEquipe } from "@/lib/notificar";
@@ -64,6 +69,7 @@ import { descreverSolicitante } from "@/lib/documentos/solicitante";
 import { iaAnalise } from "@/lib/ia/client";
 import { supabase } from "@/lib/supabase";
 import { formatarTelefone } from "@/lib/telefone";
+import { TelefoneComPais } from "@/components/telefone-com-pais";
 import { SeletorDestinatario } from "@/components/seletor-destinatario";
 import {
   sugerirDestinatario,
@@ -1068,6 +1074,7 @@ function CasoDetalhePage() {
           <TabsContent value="documentos" className="mt-4">
             <TabDocumentos
               casoId={casoId}
+              tipoBeneficio={caso.tipo_beneficio ?? null}
               documentos={documentos}
               solicitacoes={solicitacoes}
               isInterno={isInterno}
@@ -1883,7 +1890,7 @@ function TabVisaoGeral(props: TabVisaoGeralProps) {
                 </div>
                 <div>
                   <Label className="text-xs">Telefone</Label>
-                  <Input value={clTelefone} onChange={(e) => setClTelefone(e.target.value)} />
+                  <TelefoneComPais value={clTelefone} onChange={setClTelefone} />
                 </div>
                 <div>
                   <Label className="text-xs">E-mail</Label>
@@ -3742,6 +3749,8 @@ function TabAndamentos(props: TabAndamentosProps) {
 
 interface TabDocumentosProps {
   casoId: string;
+  /** Tipo de benefício do caso: sugere o modelo de contrato do ZapSign (#522). */
+  tipoBeneficio: string | null;
   documentos: Array<Documento>;
   solicitacoes: Array<SolicitacaoDocumento>;
   // Processos do caso: o pedido ao parceiro precisa dizer de qual frente ele é
@@ -3761,6 +3770,7 @@ interface TabDocumentosProps {
 function TabDocumentos(props: TabDocumentosProps) {
   const {
     casoId,
+    tipoBeneficio,
     documentos,
     solicitacoes,
     isInterno,
@@ -3775,7 +3785,23 @@ function TabDocumentos(props: TabDocumentosProps) {
   } = props;
   const foco = useFocoItem(focoId);
   // Usuario logado (usado pelo preview do parceiro para watermark)
-  const { usuario, pode, podeEscrever } = useAuth();
+  const { usuario, pode, podeEscrever, podeChamar } = useAuth();
+  // Assinatura eletrônica (#517): só a equipe interna vê os envios; o botão de
+  // enviar aparece onde o escritório tem o ZapSign configurado.
+  const integracoesDoc = useIntegracoesEscritorio();
+  const assinaturas = useAssinaturasCaso(casoId, isInterno);
+  const podeAssinar = isInterno && podeChamar("zapsign-enviar") && integracoesDoc.tem("zapsign") === true;
+  const [docParaAssinar, setDocParaAssinar] = useState<Documento | null>(null);
+  const [gerandoContrato, setGerandoContrato] = useState(false);
+  const docsEmAssinatura = useMemo(
+    () => new Set((assinaturas.lista ?? []).filter((a) => EM_CURSO.includes(a.status) && a.documento_id).map((a) => a.documento_id as string)),
+    [assinaturas.lista],
+  );
+  // O PDF que voltou assinado não se envia de novo (gastaria a cota à toa).
+  const docsJaAssinados = useMemo(
+    () => new Set((assinaturas.lista ?? []).filter((a) => a.documento_assinado_id).map((a) => a.documento_assinado_id as string)),
+    [assinaturas.lista],
+  );
 
   // Modal para coletar motivo (dispensa ou atendimento)
   const [acaoAlvo, setAcaoAlvo] = useState<{
@@ -5114,6 +5140,13 @@ function TabDocumentos(props: TabDocumentosProps) {
                   Importar arquivos
                 </Button>
               )}
+              {/* contrato a partir de um modelo da conta do ZapSign do escritório (#522) */}
+              {podeAssinar && (
+                <Button variant="outline" size="sm" onClick={() => setGerandoContrato(true)} data-gerar-contrato>
+                  <FileSignature className="h-4 w-4 mr-2" />
+                  Gerar contrato
+                </Button>
+              )}
               {/* enviar documento escreve na tabela `documentos` (documentos:enviar) */}
               {podeEscrever("documentos") && (
                 <UploadDoc
@@ -5127,6 +5160,32 @@ function TabDocumentos(props: TabDocumentosProps) {
           </div>
         </CardHeader>
         <CardContent>
+          {isInterno && (
+            <div className="mb-3">
+              <PainelAssinaturas
+                lista={assinaturas.lista}
+                erro={assinaturas.erro}
+                podeAtualizar={podeAssinar}
+                onMudou={(a) => {
+                  assinaturas.recarregar();
+                  // o PDF assinado acabou de entrar nos documentos do caso
+                  if (a.status === "assinado") onChange();
+                }}
+              />
+            </div>
+          )}
+          <EnviarAssinaturaDialog
+            documento={docParaAssinar}
+            onFechar={() => setDocParaAssinar(null)}
+            onEnviado={() => assinaturas.recarregar()}
+          />
+          <GerarContratoDialog
+            aberto={gerandoContrato}
+            casoId={casoId}
+            tipoBeneficio={tipoBeneficio}
+            onFechar={() => setGerandoContrato(false)}
+            onEnviado={() => assinaturas.recarregar()}
+          />
           {lista.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-6">
               Nenhum documento anexado ainda.
@@ -5305,6 +5364,20 @@ function TabDocumentos(props: TabDocumentosProps) {
                           <Button size="sm" variant="outline" onClick={() => baixar(d)}>
                             <Download className="h-4 w-4 mr-2" />
                             Baixar
+                          </Button>
+                        )}
+                        {/* Assinatura (#517): PDF ou DOCX, onde há ZapSign; um envio em curso por documento */}
+                        {podeAssinar && formatoAssinavel(d.nome_arquivo) && !docsJaAssinados.has(d.id) && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setDocParaAssinar(d)}
+                            disabled={docsEmAssinatura.has(d.id)}
+                            title={docsEmAssinatura.has(d.id) ? "Já está em assinatura" : "Enviar para assinatura (ZapSign)"}
+                            aria-label="Enviar para assinatura"
+                            data-assinar-documento={d.id}
+                          >
+                            <FileSignature className="h-4 w-4" />
                           </Button>
                         )}
                         {isInterno && pode("documentos:enviar") && (

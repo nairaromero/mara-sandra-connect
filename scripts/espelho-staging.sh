@@ -66,7 +66,10 @@ EXCLUIR=(escritorio_integracoes acessos_suporte ia_integracoes ia_tokens ia_acoe
   auditoria caso_pastas_externas membros plataforma_staff membro_permissoes
   # #249 — controle do "um aviso por dia" ao parceiro sem aceite: estado de
   # envio de produção não vale no staging (vazio = o staging avisa do zero).
-  avisos_aceite_pendente)
+  avisos_aceite_pendente
+  # #517 — envios ao ZapSign: a linha guarda o link de assinatura REAL do
+  # cliente; não sai de produção.
+  assinaturas)
 # Tabela NOVA com RLS precisa de uma decisão aqui (EXCLUIR/PRESERVAR) ou da
 # policy espelho_leitura_select em produção (aí ela é copiada). Sem isso o
 # espelho aborta — e o `rbac-conferir-exigencias` (produção) acusa antes.

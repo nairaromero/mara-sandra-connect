@@ -107,7 +107,8 @@ node scripts/msc-sql.mjs --local --file planning/sql-migrations/migration_x.sql
 - `usuarios.tipo` = modo de acesso (`interno` x `parceiro`). `usuarios.eh_parceiro` = papel comercial.
 - `usuarios.eh_admin` (desde 2026-08-19) = admin do escritório. **Só Naira e Mara.** No front: `const { isAdmin } = useAuth()`. No SQL: `public.is_admin()`.
 - Só admin vê: Equipe interna (`/equipe`), Auditoria, e em Configurações as abas **Integrações** (Integração de IA / Conectar Claude / Integração Google) e **Webhooks**. Convidar interno (edge `convidar-usuario`) exige admin. RLS de webhooks usa `is_admin()`; a de **auditoria não** — desde a `migration_rbac_24` as duas leituras da tela (`auditoria_plataforma` e `acessos_senha_inss`) cobram `tem_permissao('auditoria:ler')`, que é do admin por padrão e pode ser concedida a uma pessoa.
-- Configurações (desde 2026-09-14) segue o layout de `/parceiros`: centralizada, abas com a ativa na URL (`?tab=seguranca|beneficios|integracoes|webhooks`; sem `tab` = Perfil). Aba fora do papel da pessoa cai em Perfil sem reescrever a URL. Webhooks saiu da sidebar; `/webhooks` só redireciona pra `?tab=webhooks`.
+- **Senha do Meu INSS / parceiro** (`migration_senha_inss_parceiro_aceite`, 23/11): as três RPCs (`get`/`tem`/`set_senha_meu_inss`) decidem o parceiro por `private.parceiro_pode_senha_meu_inss` — dono de um caso do cliente E `usuarios.ativo` E aceite (onboarded + `termos_versao`). Interno segue por `senha_inss:ler`. Antes era só "dono do caso": parceiro desligado (sessão viva) ou sem aceite lia a credencial do governo; a trava de aceite só valia no e-mail/WhatsApp e num redirect de tela. Limite: o SQL não fixa a VERSÃO exata dos termos (ela só vive na constante TS `_shared/termos.ts`) — parceiro uma versão atrás ainda passa; paridade exata pede uma fonte SQL da versão. Prova: `e2e/tests/senha-meu-inss-aceite.spec.ts` (local).
+- Configurações (desde 2026-09-14) segue o layout de `/parceiros`: centralizada, abas com a ativa na URL (`?tab=seguranca|beneficios|integracoes|webhooks`; sem `tab` = Perfil). A aba Integrações é um catálogo (`src/components/integracoes/aba-integracoes.tsx` + `catalogo-integracoes.tsx`): uma linha por integração, em grupos, com o estado do escritório ativo; a configuração abre na linha e fica na URL (`&abrir=zapsign`; `&abrir=todas` abre tudo — é o que as specs e os roteiros usam). Integração nova = uma linha em `GRUPOS`. O estado vem de `useIntegracoesEscritorio` (uma leitura por página, compartilhada). Aba fora do papel da pessoa cai em Perfil sem reescrever a URL. Webhooks saiu da sidebar; `/webhooks` só redireciona pra `?tab=webhooks`.
 - **Convite (desde 2026-09-18, #362):** quem é convidado cria senha antes de usar o sistema. Quem decide é `usuarios.senha_definida_em` (nulo = ainda não criou), marcado pelo gatilho `trg_senha_definida` em `auth.users` — nunca pelo front. Não voltar a inferir por `auth.users.encrypted_password`: o Supabase preenche esse campo sozinho quando a pessoa abre o link do convite.
 - Gestão da equipe pela UI (`/equipe`, RPCs em migration_equipe_admin_desligar): `definir_admin`, `desligar_interno` (não apaga: `ativo=false` + ban no auth + tarefas abertas/agenda futura migram pra outra pessoa; histórico fica no nome), `reativar_interno`.
 - Autoria em tarefas (migration_tarefas_autoria): `created_by`, `status_alterado_por/_em` via trigger; exclusões vão pra `tarefas_excluidas`.
@@ -143,9 +144,21 @@ o sistema em produção. Quando chegar, vale o seguinte:
   functions via `_shared/integracoes.ts` (`integracaoDoEscritorio`); sem ela → 412 `integracao_nao_configurada`.
   Na tela, `useIntegracoesEscritorio().tem("legalmail")` (RPC `minhas_integracoes`) decide se o botão aparece.
   Nunca voltar a ler `LEGALMAIL_TOKEN`/`TI_TOKEN` direto: só o escritório padrão cai nesse legado, via o helper.
+- **Caixas de e-mail do INSS** (desde 2026-11-17, `migration_gmail_inss_varias_caixas`): o escritório pode
+  conectar VÁRIAS. Em `usuario_gmail_oauth` a linha é a caixa (pk `id`, única por escritório + e-mail;
+  `usuario_id` = quem conectou); `gmail_inss_status` lista todas; quem tem `integracoes:gerenciar`
+  desconecta qualquer caixa do escritório — SÓ pela RPC `gmail_inss_desconectar` (confere escritório e
+  permissão e audita; `migration_gmail_inss_desconectar`). Não voltar ao DELETE direto: a única policy de
+  SELECT é "a caixa que eu conectei", e o Postgres apaga zero linhas, sem erro, da caixa de outra pessoa.
+  Conectar audita no `gmail-oauth-callback` (`auditarVerificado`: pessoa e escritório vêm do `state` assinado).
+  Caixa que a rotina não consegue ler fica com `ultimo_erro`/`ultimo_erro_em` na linha (o card pede a
+  reconexão; some quando volta a ler) e sai no log e em `caixas_com_falha`. O `inss-email-processor` lê TODAS (`caixasDoEscritorio`), caixa
+  quebrada não derruba as outras, e o mesmo e-mail em duas caixas não dobra andamento nem tarefa: além do
+  id do Gmail (que muda por caixa), o dedup olha o `Message-ID` do e-mail (`inss_email_log.rfc_message_id`).
+  Prova: `e2e/tests/inss-varias-caixas.spec.ts`.
 - **Provedores simulados no local** (`e2e/demo/mocks/provedores.cjs`, porta 8787): Evolution, Comunica/DJEN,
-  Google OAuth + Gmail, Legalmail, TI, Resend e "Claude simulado". As functions leem a base por env só quando definida
-  (`COMUNICA_BASE_URL`, `GOOGLE_OAUTH_AUTH_URL`, `GOOGLE_TOKEN_URL`, `GMAIL_API_BASE`, `LEGALMAIL_BASE_URL`, `TI_BASE_URL`, `RESEND_BASE_URL`);
+  Google OAuth + Gmail, Legalmail, TI, ZapSign, Resend e "Claude simulado". As functions leem a base por env só quando definida
+  (`COMUNICA_BASE_URL`, `GOOGLE_OAUTH_AUTH_URL`, `GOOGLE_TOKEN_URL`, `GMAIL_API_BASE`, `LEGALMAIL_BASE_URL`, `TI_BASE_URL`, `ZAPSIGN_BASE_URL`, `RESEND_BASE_URL`);
   sem a variável, endereço real. Essas variáveis ficam SÓ no `supabase/functions/.env` local — nunca em
   segredo de staging/produção. Filme do lote: `node e2e/demo/roteiros/lote-rbac-local.cjs` (seção R do guia).
 - **Tabela nova de domínio** precisa de `escritorio_id not null` + FK + policy restritiva
@@ -168,12 +181,23 @@ o sistema em produção. Quando chegar, vale o seguinte:
   que já existem: `private.tem_permissao` → `private.permissoes_efetivas`
   (decisão de permissão), `private.auditar` (trilha no SQL),
   `supabase/functions/_shared/auditoria.ts` (trilha nas edge: escritório, ator e
-  `tipo_ator` vêm do `quem`, e `acao` é tipo fechado), `src/lib/rbac/exigencias.ts`
+  `tipo_ator` vêm do `quem`, e `acao` é tipo fechado; function sem sessão que conferiu uma
+  assinatura nossa usa `auditarVerificado`), `src/lib/rbac/exigencias.ts`
   + `podeEscrever`/`podeChamar` (o que a tela oferece), `e2e/rbac.ts` (sessão,
   header, conta por papel e leitura da trilha nas specs), `src/lib/fuso.ts` (o
   fuso do escritório — o eslint barra `America/Sao_Paulo` fora dele),
   `src/lib/leitura.ts` (`lerLista`/`lerUm`/`lerContagem`: erro estoura, vazio é
-  vazio), `buscarPaginado` e `private.funcoes_fechadas_no_caminho()` (o que
+  vazio), `_shared/telefone.ts` (`@shared/telefone`: a ÚNICA leitura de telefone, da
+  tela e das functions — `lerTelefone` entende o que existe no banco e o que se cola, `telefoneDe`
+  diz o que dá para mandar ao ZapSign, `telefoneGuardado` volta do par país/número do ZapSign para o
+  texto guardado; a lista de países mora lá) e `src/lib/telefone.ts`, que só põe a máscara por cima
+  (`mascararTelefoneBR` é a única máscara de digitação; `telefoneCompleto` É `telefoneDe`, então a
+  tela não aceita o que o servidor recusa; `<TelefoneComPais>` é O campo de telefone do sistema — país
+  com o Brasil por padrão, número com DDD; fora do Brasil guarda "+34 613761609"; número colado com o
+  código do país troca a caixa do país em vez de virar DDD). Telefone de PARCEIRO usa
+  `somenteBrasil`: o WhatsApp do sistema reconhece o parceiro por `whatsapp_canon_br`.
+  Link `wa.me` sai de `digitosInternacionais`. A régua `e2e/unit/telefone.test.ts`
+  acusa `<Input>` de telefone solto e máscara escrita à mão), `buscarPaginado` e `private.funcoes_fechadas_no_caminho()` (o que
   gatilho INVOKER ou policy chama por dentro e está sem EXECUTE para
   `authenticated` — a tela estoura "permission denied for function" no meio da
   escrita; trava as migrations de EXECUTE e o conferidor acusa).
@@ -201,6 +225,68 @@ o sistema em produção. Quando chegar, vale o seguinte:
   do caso vira o aviso genérico de `_shared/aviso-sem-aceite.ts` (um por dia,
   `reservar_aviso_aceite`) e a linha dele no WhatsApp vira `cancelado`. Régua:
   `e2e/unit/aceite-antes-do-email.test.ts`.
+  Assinatura eletrônica (#517, ZapSign): `supabase/functions/_shared/zapsign.ts` é o
+  único lugar que fala com a API do ZapSign (envio, leitura e o "Testar conexão",
+  `testarToken`) e o único que decide o status de um envio a partir do que o ZapSign
+  diz (`sincronizarAssinatura`); `zapsign-enviar` só abre e fecha o `enviando`. O
+  webhook não é assinado pelo ZapSign: o corpo só diz QUAL documento olhar; status e
+  PDF vêm de uma leitura nossa na API, e o status `gravando` é a trava contra o aviso
+  repetido. A tela só LÊ `assinaturas`; credencial por escritório em
+  `escritorio_integracoes` tipo `zapsign` (`config.ambiente` = produção ou sandbox,
+  `config.inbound_token` = segredo do webhook, gerado pela function, único no banco e
+  trocável pelo botão "Gerar segredo novo"; o ZapSign manda no cabeçalho `x-inbound-token`,
+  que é o que o card ensina a cadastrar — `?token=` na URL segue aceito). UMA conta do ZapSign por escritório: o
+  mesmo token da API em dois escritórios é recusado (o aviso de lá vale para a conta
+  inteira). O que a tela, as functions e o banco dizem igual — status, "em curso",
+  signatário, PDF/DOCX — mora no módulo puro `_shared/assinatura.ts` (`@shared/assinatura`).
+  O mesmo `zapsign.ts` cria as tarefas do envio (`abrirTarefaAcompanhar` ao enviar; ao
+  assinar, conclui essa e abre "Contrato assinado — dar prosseguimento"; origem
+  `zapsign_assinatura`, `origem_ref` = `<etapa>:<assinatura>`) e traz para o sistema o
+  documento criado DIRETO no ZapSign (`adotarDocumento`, só no aviso `doc_created`):
+  cliente pelo CPF do signatário ou de uma variável do modelo que fale em CPF (o já
+  cadastrado é reaproveitado, no caso mais recente), caso "a_definir" e a tarefa de
+  acompanhar; sem CPF nasce só a tarefa pedindo o cadastro (`sem_cpf:<documento>`).
+  Envio cuja resposta se perde NÃO é apagado: o aviso de criação religa a linha; o `enviando` que
+  sobra depois de 2 minutos sai pela `haEnvioEmCurso` (`zapsign-enviar`), a mesma pergunta para arquivo e
+  para modelo. O que a documentação do ZapSign fixa e o código segue (docs.zapsign.com.br; `.md` no fim
+  da URL devolve o texto): excluir é só marca (`deleted: true`), então 404 NÃO é cancelamento — é
+  documento de outra conta ou ambiente (`DocumentoForaDaConta`: a linha fica como está; `assinaturas.sandbox`
+  é conferido antes de perguntar); os status vêm escritos de dois jeitos ("refused"/"recusado",
+  "link-opened"/"abriu-link") e os dois valem; o webhook só para de reenviar com 200; erro do ZapSign
+  vira frase em `fraseDoErroZapsign` (401 token, 403 ambiente, 402 plano, 429 limite). O simulador
+  local repete as NOSSAS suposições: o que a doc não diz só o sandbox do ZapSign responde.
+  Contrato a partir de MODELO da conta do ZapSign (#522): "Gerar contrato" na aba
+  Documentos do caso lista todos os modelos (`listarModelos`, todas as páginas, só DOCX
+  ativo), com busca, sugeridos pelo tipo de benefício e pastas (funções puras em
+  `src/lib/assinaturas-modelos.ts`); os campos vêm respondidos pelo cadastro
+  (`detalharModelo`) e o envio (`enviar_modelo` → `criarDocumentoDeModelo`) segue o
+  mesmo caminho do arquivo (`concluirEnvio` em `zapsign-enviar`). A linha guarda
+  `modelo_token` (um envio em curso por modelo e caso) e `tipo_documento` (com que tipo
+  o PDF assinado entra no caso).
+  Campos do modelo e prévia: `_shared/modelo-contrato.ts` (`@shared/modelo-contrato`, puro) é a ÚNICA conta
+  do valor de cada campo — a tela mostra e o servidor refaz (`respostasDoModelo`). O padrão e a faixa moram
+  no TEXTO DE AJUDA do campo no ZapSign ("Padrão: 35% · Máximo: 50%"; o ZapSign não tem valor padrão);
+  `{{X_EXTENSO}}` é escrito pelo sistema a partir de `{{X}}` ("30%" → "trinta por cento") e não é pedido na
+  tela. "Conferir o contrato": a function lê o DOCX do modelo UMA vez (`texto_modelo` → `textoDoModelo`,
+  de `template_file`) e a tela preenche com `previaDoContrato` e os mesmos valores de `respostasDoModelo` —
+  conferir de novo não volta ao ZapSign, e nada é criado lá (documento criado conta no plano e excluir
+  não devolve). Modelo novo
+  pela API: `POST /templates/create/` + `/templates/update-form/`. Régua: `e2e/unit/modelo-contrato.test.ts`.
+  O mesmo módulo decide o que a pessoa NÃO digita (`especie`): a qualificação do contratante (nome, CPF e
+  endereço do cadastro; nacionalidade, estado civil e profissão em lista; `qualificacaoDe` escreve a frase),
+  o benefício (o do caso, na lista de `tipos_beneficio`; o segundo campo de benefício do modelo é `copiaDe`
+  do primeiro e não aparece), o parceiro do caso (ou "não há") e a data de hoje. O reconhecimento é pelo
+  COMEÇO do nome do campo, ou por "Sistema: benefício|qualificação|parceiro|nenhum" no texto de ajuda; lista
+  própria do modelo vem de `options` do ZapSign. Campo que fala de OUTRA pessoa ("Qualificação do
+  representante", "Benefício do cônjuge") NÃO é preenchido com o cliente/caso — `DE_OUTRA_PESSOA` (com o "_"
+  do nome virando espaço, senão o `\b` não casa) vale tanto para o cadastro quanto para a `especie`. O
+  padrão/máximo saem do texto de ajuda mesmo sem o separador "·" (quebra também antes de "Padrão:"/"Máximo:").
+  De onde veio cada valor (`origem`: cadastro, caso, hoje,
+  modelo) também sai do módulo — a tela não lê nome de campo para decidir nada (a régua acusa). O servidor
+  só busca benefícios e parceiro para ABRIR os campos (`modelo`); o envio usa o que a tela devolveu.
+  Quem é da equipe interna de um escritório (ZapSign e e-mails do INSS) é
+  `equipeInterna` de `_shared/equipe.ts` — pelo vínculo, nunca por `usuarios.tipo`.
+  Provas: `e2e/tests/zapsign-assinatura.spec.ts` e a régua `e2e/unit/zapsign-fonte-unica.test.ts`.
   Etiquetas (#514): a fonte é uma só — `etiquetas` + `clientes_etiquetas`. O JSON
   legado `clientes.tags` não tem escritor (não voltar a gravá-lo: o espelhador que
   o sincronizava apagou etiquetas da tela em 09/11) e rotina de sistema aplica

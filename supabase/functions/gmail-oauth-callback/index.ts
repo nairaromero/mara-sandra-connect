@@ -2,7 +2,7 @@
 //
 // Recebe o redirect do Google após consent. Valida o `state` (HMAC + TTL),
 // troca `code` por tokens, cifra o refresh_token e faz upsert em
-// usuario_gmail_oauth. Por fim, redireciona o navegador de volta para
+// usuario_gmail_oauth (uma linha por caixa; o escritório pode ter várias). Por fim, redireciona o navegador de volta para
 // Configurações com `?gmail=ok` (ou `?gmail=error&motivo=...`).
 //
 // Tem que ser GET (Google faz redirect com query params, não POST).
@@ -14,6 +14,7 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { encryptSecret, verifyPayload } from "../_shared/crypto.ts";
 import { fetchT } from "../_shared/auth.ts";
+import { auditarVerificado } from "../_shared/auditoria.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -32,6 +33,10 @@ function redirectBack(motivo: "ok" | "error", detalhe?: string): Response {
   // Configuracoes tem abas desde 2026-09-14: sem `tab` a pessoa caia no Perfil,
   // longe do card do Gmail (e do toast de resultado).
   url.searchParams.set("tab", "integracoes");
+  // No catálogo de integrações a linha fechada não monta o card — e é o card
+  // que lê `gmail=` e diz se conectou ou por que falhou. Sem `abrir`, a pessoa
+  // voltava do Google para uma lista fechada, sem resposta nenhuma.
+  url.searchParams.set("abrir", "gmail");
   url.searchParams.set("gmail", motivo);
   if (detalhe) url.searchParams.set("motivo", detalhe);
   return new Response(null, {
@@ -133,6 +138,12 @@ serve(async (req) => {
     } catch (_) { /* sem email é OK; segue */ }
   }
 
+  // Sem saber QUAL caixa é, não grava: a linha é única por (escritório, e-mail),
+  // e duas caixas "(desconhecido)" no mesmo escritório trocariam a credencial
+  // uma da outra em silêncio.
+  emailConectado = emailConectado.trim().toLowerCase();
+  if (!emailConectado.includes("@")) return redirectBack("error", "email_nao_identificado");
+
   // Cifra o refresh_token com a master key.
   const { cipher, iv } = await encryptSecret(tok.refresh_token);
 
@@ -147,21 +158,33 @@ serve(async (req) => {
   }
   if (!escritorioId) return redirectBack("error", "sem_escritorio");
 
+  // A linha é a CAIXA: única por (escritório, e-mail). Conectar de novo a
+  // mesma caixa troca a credencial dela; outra caixa vira outra linha — o
+  // escritório pode ter várias (migration_gmail_inss_varias_caixas).
   const { error: upsertErr } = await sb
     .from("usuario_gmail_oauth")
     .upsert({
       usuario_id: usuarioId,
       escritorio_id: escritorioId,
-      email_conectado: emailConectado || "(desconhecido)",
+      email_conectado: emailConectado,
       refresh_cipher: cipher,
       refresh_iv: iv,
       scope: tok.scope ?? "https://www.googleapis.com/auth/gmail.readonly",
       connected_at: new Date().toISOString(),
-    });
+      // reconectar é o conserto da caixa que tinha parado de ser lida
+      ultimo_erro: null,
+      ultimo_erro_em: null,
+    }, { onConflict: "escritorio_id,email_conectado" });
   if (upsertErr) {
     console.error("Upsert gmail oauth falhou:", upsertErr);
     return redirectBack("error", "db_upsert_falhou");
   }
+
+  // Quem ligou a leitura de qual caixa: pessoa e escritório vêm do `state`
+  // assinado, conferido lá em cima.
+  await auditarVerificado(sb, { usuarioId, escritorioId }, {
+    acao: "integracao.caixa_conectada", recurso: "usuario_gmail_oauth", detalhes: { caixa: emailConectado },
+  });
 
   return redirectBack("ok");
 });
