@@ -5166,6 +5166,7 @@ function TabDocumentos(props: TabDocumentosProps) {
                 lista={assinaturas.lista}
                 erro={assinaturas.erro}
                 podeAtualizar={podeAssinar}
+                podeCopiarLink={isInterno && podeChamar("assinatura_sign_url")}
                 onMudou={(a) => {
                   assinaturas.recarregar();
                   // o PDF assinado acabou de entrar nos documentos do caso

@@ -19,7 +19,8 @@ export function useAssinaturasCaso(casoId: string, ligado: boolean) {
     if (!ligado) return;
     let vivo = true;
     lerLista<Assinatura>(
-      supabase.from("assinaturas").select(COLUNAS_ASSINATURA).eq("caso_id", casoId).order("created_at", { ascending: false }).order("id"),
+      // a view esconde o `sign_url` (#545); a tabela `assinaturas` não é mais lida pela tela
+      supabase.from("assinaturas_tela").select(COLUNAS_ASSINATURA).eq("caso_id", casoId).order("created_at", { ascending: false }).order("id"),
       "assinaturas do caso",
     ).then(
       (l) => {

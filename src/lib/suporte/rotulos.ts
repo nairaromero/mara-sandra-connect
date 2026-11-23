@@ -46,6 +46,7 @@ export const ROTULO_ACAO: Record<string, string> = {
   "integracao.caixa_conectada": "Conectou uma caixa de e-mail do INSS",
   "integracao.caixa_desconectada": "Desconectou uma caixa de e-mail do INSS",
   "assinatura.enviada": "Enviou um documento para assinatura",
+  "assinatura.link_copiado": "Copiou o link de assinatura de um signatário",
 };
 
 export const ROTULO_TIPO_ATOR: Record<string, string> = {
