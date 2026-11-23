@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { CheckCircle2, Copy, FileSignature, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { chamarZapsign, EM_CURSO, type Assinatura, type Signatario, type StatusAssinatura } from "@/lib/assinaturas";
+import { copiarTexto } from "@/lib/copiar";
 import { dataHoraBR } from "@/lib/fuso";
 import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";
@@ -83,10 +84,7 @@ export function PainelAssinaturas(props: {
   }
 
   function copiar(link: string) {
-    void navigator.clipboard.writeText(link).then(
-      () => toast.success("Link de assinatura copiado."),
-      () => toast.error("Não consegui copiar o link."),
-    );
+    void copiarTexto(link, "Link de assinatura copiado.");
   }
 
   if (erro) return <p className="text-sm text-red-700">Não consegui ler as assinaturas deste caso: {erro}</p>;
