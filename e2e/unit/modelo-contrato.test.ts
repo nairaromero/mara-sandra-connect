@@ -52,6 +52,11 @@ describe("o que o texto de ajuda do campo diz ao sistema", () => {
     expect(regrasDaAjuda(" Ex.: à vista; em 3 parcelas ").texto).toBe("Ex.: à vista; em 3 parcelas");
     expect([faixaDoCampo({ tipo: "percentual", minimo: 2.5, maximo: 50 }), faixaDoCampo({ tipo: "inteiro", minimo: 1, maximo: null }), faixaDoCampo({ tipo: "texto", minimo: null, maximo: null })]).toEqual(["mínimo 2,5%, máximo 50%", "mínimo 1", ""]);
     expect(regrasDaAjuda("Sistema: Benefício")).toEqual({ padrao: "", minimo: null, maximo: null, sistema: "beneficio", texto: "" });
+    // separador variado: "·" é difícil de digitar — o padrão e o máximo saem
+    // mesmo com espaço, sem acento ou com a ordem trocada (achado da revisão)
+    expect(regrasDaAjuda("Padrão: 35% Máximo: 50%")).toMatchObject({ padrao: "35%", maximo: 50 });
+    expect(regrasDaAjuda("padrao: 35% maximo: 50%")).toMatchObject({ padrao: "35%", maximo: 50 });
+    expect(regrasDaAjuda("Máximo: 50% · Padrão: 35%")).toMatchObject({ padrao: "35%", maximo: 50 });
   });
   test("o padrão já vem preenchido, o cadastro tem prioridade e o extenso é do sistema", () => {
     expect([campo("PERCENTUAL_ATRASADOS").tipo, campo("PERCENTUAL_ATRASADOS").sugestao, campo("PERCENTUAL_ATRASADOS").maximo]).toEqual(["percentual", "35%", 50]);
@@ -123,6 +128,18 @@ describe("o que o sistema monta sem ninguém digitar", () => {
     expect(c.FORMA.opcoes).toEqual(["à vista", "em 3 parcelas"]);
     // "benefício" no meio do nome não transforma um número em lista de benefícios
     expect([c.QTD_PRESTACOES.especie, c.QTD_PRESTACOES.sugestao, c.QTD_PRESTACOES.tipo]).toEqual([null, "5", "inteiro"]);
+  });
+
+  test("campo de OUTRA pessoa não é preenchido com o cliente/caso (achado da revisão)", () => {
+    const ctx = { cliente: { nome: "Helena Bastos", cpf: "52998224725", endereco: "Rua X, 1" }, beneficioDoCaso: "pensão por morte" };
+    const campo = (variable: string, label = "") => camposDoModelo([{ variable, label, help_text: "", required: false, order: 0 }], ctx)[0];
+    // pelo nome da variável (com "_") e pelo rótulo humano (com espaço)
+    for (const c of [campo("{{QUALIFICACAO_DO_REPRESENTANTE}}"), campo("{{Q}}", "Qualificação do representante legal"), campo("{{BENEFICIO_DO_CONJUGE}}")]) {
+      expect([c.especie, c.sugestao]).toEqual([null, ""]);
+    }
+    // mas o contratante e o benefício do próprio caso continuam sendo preenchidos
+    expect(campo("{{QUALIFICACAO_CONTRATANTE}}").especie).toBe("qualificacao");
+    expect(campo("{{BENEFICIO}}").sugestao).toBe("pensão por morte");
   });
 });
 

@@ -218,7 +218,11 @@ export function regrasDaAjuda(ajuda: string): { padrao: string; minimo: number |
   let minimo: number | null = null;
   let maximo: number | null = null;
   const resto: string[] = [];
-  for (const parte of ajuda.split(/[·;|\n]/)) {
+  // Quebra no separador "·"/";"/"|"/linha E também logo ANTES de cada palavra-regra
+  // ("Padrão:", "Máximo:"…): assim "Padrão: 35% Máximo: 50%" (espaço, porque "·" é
+  // difícil de digitar) ainda separa as duas regras — antes o "35%" engolia o
+  // "Máximo: 50%" e o teto se perdia.
+  for (const parte of ajuda.split(/[·;|\n]|(?=(?:padr[aã]o|m[ií]nimo|m[aá]ximo|sistema)\s*:)/i)) {
     const m = /^\s*(padrao|minimo|maximo|sistema)\s*:\s*(.+?)\s*$/.exec(semAcento(parte));
     if (!m) {
       if (parte.trim()) resto.push(parte.trim());
@@ -256,6 +260,12 @@ function especieDe(sistema: string, nome: string, rotulo: string): EspecieDoCamp
   if (/^benefici/.test(sistema)) return "beneficio";
   if (/^parceiro/.test(sistema)) return "parceiro";
   if (sistema) return null;
+  // o campo fala de OUTRA pessoa ("Qualificação do representante", "Benefício do
+  // cônjuge")? então o sistema não o preenche com o cliente/caso — mesma guarda
+  // que `doCadastro` já aplica aos campos genéricos. O "_" do nome da variável
+  // vira espaço, senão o \b de DE_OUTRA_PESSOA não casa "..._representante".
+  const outraPessoa = (t: string) => DE_OUTRA_PESSOA.test(semAcento(t).replace(/_/g, " "));
+  if (outraPessoa(nome) || outraPessoa(rotulo)) return null;
   // só quando o campo COMEÇA falando disso: "Quantidade de prestações do benefício" é um número, não o benefício
   const comeca = (re: RegExp) => re.test(semAcento(nome)) || re.test(semAcento(rotulo));
   if (comeca(/^qualificac/)) return "qualificacao";
