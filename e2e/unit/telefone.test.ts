@@ -26,15 +26,15 @@ describe("telefone", () => {
   test("exibição: máscara do Brasil só para número do Brasil; número de fora aparece com o código do país", () => {
     expect(["17999990000", "(17) 99999-0000", "5517999990000", "+55 17 99999-0000", "1733334444"].map(formatarTelefone))
       .toEqual(["(17) 99999-0000", "(17) 99999-0000", "(17) 99999-0000", "(17) 99999-0000", "(17) 3333-4444"]);
-    // o caso que abriu a correção: cliente dos Estados Unidos aparecia "(14) 07684-4713"
-    expect(formatarTelefone("+1 4076844713")).toBe("+1 (407) 684-4713");
-    expect(formatarTelefone("+14076844713")).toBe("+1 (407) 684-4713");
+    // o caso que abriu a correção: cliente dos Estados Unidos aparecia "(12) 12555-0100"
+    expect(formatarTelefone("+1 2125550100")).toBe("+1 (212) 555-0100");
+    expect(formatarTelefone("+12125550100")).toBe("+1 (212) 555-0100");
     expect(formatarTelefone("+34 613761609")).toBe("+34 613761609");
     expect(formatarTelefone("351912345678"), "sem o +, mas longo demais para o Brasil").toBe("+351 912345678");
     for (const pais of PAISES_TELEFONE.filter((p) => p.ddi !== DDI_BRASIL)) {
-      const visto = formatarTelefone(telefoneParaEnvio(pais.ddi, "4076844713"));
+      const visto = formatarTelefone(telefoneParaEnvio(pais.ddi, "2125550100"));
       expect(visto.startsWith(`+${pais.ddi} `), `${pais.nome}: ${visto}`).toBe(true);
-      expect(digitosInternacionais(visto), `${pais.nome}: o que se vê é o número guardado`).toBe(`${pais.ddi}4076844713`);
+      expect(digitosInternacionais(visto), `${pais.nome}: o que se vê é o número guardado`).toBe(`${pais.ddi}2125550100`);
     }
     // sem leitura ou incompleto: aparece como está guardado
     expect(["+999613761609", "(17) 9999", "ramal 204", "+34"].map(formatarTelefone)).toEqual(["+999613761609", "(17) 9999", "ramal 204", "+34"]);

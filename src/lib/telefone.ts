@@ -1,5 +1,5 @@
 // Exibição de telefone: no Brasil (DD) 9XXXX-XXXX / (DD) XXXX-XXXX; fora, o
-// código do país na frente ("+1 (407) 684-4713", "+34 613761609").
+// código do país na frente ("+1 (212) 555-0100", "+34 613761609").
 //
 // O banco guarda o número como veio (em geral só dígitos, ex.: "17997227424");
 // nas telas isso aparecia cru. `formatarTelefone` é só de EXIBIÇÃO — não altera
@@ -12,7 +12,7 @@ import { DDI_BRASIL, lerTelefone, PAISES_TELEFONE, telefoneDe } from "@shared/te
 /**
  * O telefone como a pessoa lê. O país vem de `lerTelefone`, a mesma leitura do
  * campo, do link do WhatsApp e do ZapSign — até 24/11/2026 esta função jogava
- * o "+" fora e "+1 4076844713" (Estados Unidos) aparecia "(14) 07684-4713".
+ * o "+" fora e "+1 2125550100" (Estados Unidos) aparecia "(12) 12555-0100".
  * O que não tem leitura ou não fecha a conta (código de país desconhecido,
  * ramal, número brasileiro incompleto) volta como está guardado.
  */
