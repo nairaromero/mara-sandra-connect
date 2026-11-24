@@ -356,8 +356,8 @@ export const TERMOS: Array<Termo> = [
     sinonimos: ["arquivo", "CNIS", "PPP", "CTPS", "laudo", "procuração"],
     categoria: "casos",
     definicao:
-      "Um arquivo do caso, com tipo (CNIS, PPP, CTPS, laudo, procuração, contrato de honorários…) e a indicação de quem juntou (parceiro ou equipe). Chega pelo sistema, pela pasta do Google Drive vinculada ao caso ou como pasta por link. Classificar ao subir é opcional: com a IA ligada, o sistema lê e diz o que cada arquivo é, e a equipe confere. Pode ser marcado como visível ao parceiro. Só a equipe e o parceiro do caso alcançam o arquivo, e só dentro do escritório.",
-    veja: ["solicitacao-documento", "google-drive", "visivel-parceiro", "pasta-por-link", "leitura-automatica", "organizar-documentos"],
+      "Um arquivo do caso, com tipo (CNIS, PPP, CTPS, laudo, procuração, contrato de honorários…) e a indicação de quem juntou (parceiro ou equipe). Chega pelo sistema, pela pasta do Google Drive vinculada ao caso, como pasta por link, ou gerado por modelo e enviado para assinatura. Classificar ao subir é opcional: com a IA ligada, o sistema lê e diz o que cada arquivo é, e a equipe confere. Pode ser marcado como visível ao parceiro. Só a equipe e o parceiro do caso alcançam o arquivo, e só dentro do escritório.",
+    veja: ["solicitacao-documento", "google-drive", "visivel-parceiro", "pasta-por-link", "leitura-automatica", "organizar-documentos", "gerar-contrato", "assinatura-eletronica"],
   },
   {
     id: "documento-apagado",
@@ -514,8 +514,8 @@ export const TERMOS: Array<Termo> = [
     sinonimos: ["senha gov.br", "senha do INSS"],
     categoria: "casos",
     definicao:
-      "A senha do cliente no portal do INSS, guardada cifrada por caso. Quem lê fica na auditoria. Administrador e advogado leem todas; o assistente, só dos casos em que tem tarefa; o parceiro, só dos casos que indicou; o financeiro não lê.",
-    veja: ["auditoria", "escopo"],
+      "A senha do cliente no portal do INSS, guardada cifrada por caso. Quem lê — ou copia, agora num clique — fica na auditoria. Ler cobra a permissão de ler a senha: administrador e advogado têm, o assistente também (nos casos em que atua), e o financeiro não. O parceiro só alcança a senha dos casos que indicou, e apenas com vínculo ativo e aceite dos termos em dia — parceiro desligado ou sem aceite não lê, nem pela tela nem pela chamada direta.",
+    veja: ["auditoria", "escopo", "aceite-termos", "troca-senha-meu-inss"],
   },
 
   {
@@ -658,8 +658,8 @@ export const TERMOS: Array<Termo> = [
     termo: "Contrato de honorários",
     categoria: "parceria",
     definicao:
-      "O contrato de honorários do caso com o cliente. No sistema, é um documento do caso, do tipo “Contrato de honorários”. Fica com o escritório, nunca com o parceiro.",
-    veja: ["caso", "parceria"],
+      "O contrato de honorários do caso com o cliente. No sistema, é um documento do caso, do tipo “Contrato de honorários”. Pode ser gerado por modelo e enviado para assinatura eletrônica pela aba Documentos. Fica com o escritório, nunca com o parceiro.",
+    veja: ["caso", "parceria", "gerar-contrato", "assinatura-eletronica"],
   },
 
   {
@@ -715,11 +715,11 @@ export const TERMOS: Array<Termo> = [
   {
     id: "email-inss",
     termo: "E-mail do INSS",
-    sinonimos: ["Gmail", "caixa do INSS"],
+    sinonimos: ["Gmail", "caixa do INSS", "caixas do INSS"],
     categoria: "automacoes",
     publico: "interno",
     definicao:
-      "A caixa Gmail conectada em Configurações → Integrações recebe as comunicações do MEU INSS. Cada e-mail é lido, casado com o cliente (pelo nome, pelo CPF ou pelo número do requerimento) e vira andamento — e tarefa, quando há prazo. O que não casa vira uma tarefa de revisão, para não se perder. Cada escritório conecta a sua caixa, e a rotina só enxerga os casos dele.",
+      "As caixas Gmail conectadas em Configurações → Integrações recebem as comunicações do MEU INSS — o escritório pode conectar várias. Cada e-mail é lido, casado com o cliente (pelo nome, pelo CPF ou pelo número do requerimento) e vira andamento — e tarefa, quando há prazo. O que não casa vira uma tarefa de revisão, para não se perder. Quem gerencia integrações conecta e desconecta as caixas; uma caixa que a rotina não consegue ler fica marcada para reconexão, sem derrubar as outras. Cada escritório só enxerga as próprias caixas e os próprios casos.",
     veja: ["andamento", "tarefa"],
   },
   {
@@ -780,6 +780,36 @@ export const TERMOS: Array<Termo> = [
     definicao:
       "Um aviso automático que o sistema envia a um endereço externo quando algo acontece — novo andamento, documento, tarefa — para outro sistema reagir, com cada envio assinado para o destino conferir a origem. Hoje a aba Webhooks mostra “Em breve”: a entrega era feita pelo n8n, que saiu das rotinas do sistema, e volta quando for refeita por function.",
     veja: ["admin"],
+  },
+  {
+    id: "zapsign",
+    termo: "ZapSign (assinatura eletrônica)",
+    sinonimos: ["assinatura", "contrato para assinar"],
+    categoria: "automacoes",
+    publico: "interno",
+    definicao:
+      "O serviço de assinatura eletrônica. Cada escritório cadastra a própria conta em Configurações → Integrações (o token da API fica cifrado no servidor), escolhe produção ou sandbox e gera o segredo do webhook de entrada. É por ele que o sistema envia um documento para assinar, acompanha o andamento e traz de volta o PDF assinado. Uma conta por escritório — o mesmo token em dois é recusado. O que a tela mostra ela só lê: quem fala com o ZapSign é sempre o servidor.",
+    veja: ["assinatura-eletronica", "gerar-contrato", "webhook", "documento"],
+  },
+  {
+    id: "assinatura-eletronica",
+    termo: "Assinatura de documento",
+    sinonimos: ["documento em assinatura", "assinar contrato"],
+    categoria: "automacoes",
+    publico: "interno",
+    definicao:
+      "Um documento enviado para assinar pelo ZapSign, acompanhado na aba Documentos do caso: quem assina, em que etapa está (enviado, em curso, assinado, recusado) e o PDF quando pronto. Enviar abre a tarefa “Acompanhar assinatura”; ao assinar, ela se conclui e abre “Contrato assinado — dar prosseguimento”. Documento criado direto no ZapSign também aparece aqui: o sistema reconhece o cliente pelo CPF do signatário e, se não achar, abre só a tarefa pedindo o cadastro. Enviar é de quem envia documentos; a tela só lê a assinatura.",
+    veja: ["zapsign", "gerar-contrato", "documento", "tarefa"],
+  },
+  {
+    id: "gerar-contrato",
+    termo: "Gerar contrato",
+    sinonimos: ["contrato por modelo", "gerar contrato de honorários"],
+    categoria: "automacoes",
+    publico: "interno",
+    definicao:
+      "Na aba Documentos do caso, “Gerar contrato” monta o contrato a partir de um modelo da conta do ZapSign, sem redigitar: a qualificação do cliente, o benefício do caso, o parceiro e a data vêm preenchidos do cadastro, e o percentual de honorários traz o padrão e o máximo do próprio modelo. “Conferir o contrato” mostra a prévia antes de enviar, sem criar nada no ZapSign. Ao enviar, segue o mesmo caminho da assinatura.",
+    veja: ["contrato", "assinatura-eletronica", "zapsign", "documento"],
   },
   {
     id: "a-enviar",

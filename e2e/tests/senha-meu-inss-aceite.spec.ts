@@ -13,7 +13,7 @@ import { test, expect } from "@playwright/test";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { ENV } from "../env";
 import { adminClient, cpfValido } from "../supabase-admin";
-import { escritorioPadrao, limpezaLocal } from "../rbac";
+import { escritorioPadrao, escritorioCanario, clienteComo, contaDoCanario, limpezaLocal } from "../rbac";
 import { TERMOS_VERSAO } from "../../supabase/functions/_shared/termos";
 
 const admin = adminClient();
@@ -104,5 +104,49 @@ test.describe.serial("senha do Meu INSS: parceiro só com aceite e vínculo ativ
     // restaurado: volta a ler
     const sb2 = await comoParceiro();
     expect((await sb2.rpc("get_senha_meu_inss", { p_cliente_id: CLIENTE })).data).toBe(SENHA_INSS);
+  });
+});
+
+// A LEITURA do interno cobra a mesma régua da escrita (senha_inss:ler). Antes,
+// `get_senha_meu_inss`/`tem_senha_meu_inss` davam `tipo = interno` como bastante
+// e só o `set` conferia a permissão: a tela escondia a senha de quem não a tem
+// (ex.: financeiro), mas a RPC direta entregava a credencial do portal. Usa as
+// contas do seed do Canário — financeiro (sem a permissão) × admin (com).
+test.describe.serial("senha do Meu INSS: a leitura do interno cobra senha_inss:ler", () => {
+  let ESC_C: string;
+  let CLI_C: string | null = null;
+  let CASO_C: string | null = null;
+
+  test.beforeAll(async () => {
+    test.skip(!ENV.local, "usa as contas do seed do Canário — só no banco local");
+    ESC_C = await escritorioCanario();
+    const { data: cli, error: eC } = await admin.from("clientes").insert({ escritorio_id: ESC_C, nome: "[E2E] Cliente senha interno", cpf: cpfValido() }).select("id").single();
+    if (eC) throw new Error(`cliente: ${eC.message}`);
+    CLI_C = cli.id;
+    const { data: caso, error: eCa } = await admin.from("casos").insert({ escritorio_id: ESC_C, cliente_id: CLI_C, fase: "analise", tipo_beneficio: "aposentadoria_idade" }).select("id").single();
+    if (eCa) throw new Error(`caso: ${eCa.message}`);
+    CASO_C = caso.id;
+    // grava a senha como admin do Canário (tem senha_inss:ler)
+    const adm = await clienteComo(contaDoCanario("admin"), ESC_C);
+    const g = await adm.rpc("set_senha_meu_inss", { p_cliente_id: CLI_C, p_senha: SENHA_INSS });
+    if (g.error) throw new Error(`seed senha (admin): ${g.error.message}`);
+  });
+
+  test.afterAll(limpezaLocal(async () => {
+    if (CLI_C) await admin.from("acessos_senha_inss").delete().eq("cliente_id", CLI_C);
+    if (CASO_C) await admin.from("casos").delete().eq("id", CASO_C);
+    if (CLI_C) await admin.from("clientes").delete().eq("id", CLI_C);
+  }));
+
+  test("interno SEM senha_inss:ler (financeiro) não lê pela RPC — antes a tela era o único freio", async () => {
+    const fin = await clienteComo(contaDoCanario("financeiro"), ESC_C);
+    expect((await fin.rpc("get_senha_meu_inss", { p_cliente_id: CLI_C })).error, "financeiro não lê").toBeTruthy();
+    expect((await fin.rpc("tem_senha_meu_inss", { p_cliente_id: CLI_C })).data ?? null, "financeiro não vê que existe").toBeNull();
+  });
+
+  test("interno COM senha_inss:ler (admin) lê normalmente", async () => {
+    const adm = await clienteComo(contaDoCanario("admin"), ESC_C);
+    expect((await adm.rpc("get_senha_meu_inss", { p_cliente_id: CLI_C })).data).toBe(SENHA_INSS);
+    expect((await adm.rpc("tem_senha_meu_inss", { p_cliente_id: CLI_C })).data).toBe(true);
   });
 });
