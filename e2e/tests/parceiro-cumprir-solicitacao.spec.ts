@@ -33,7 +33,7 @@ test.beforeAll(async () => {
   if (!parceira) throw new Error(`parceira de teste não encontrada: ${ENV.parceiroEmail}`);
 
   const sufixo = `Solicitação ${Date.now()}`;
-  nomeCliente = `[E2E] ${sufixo}`;
+  nomeCliente = `[E2E] ${sufixo}`.toUpperCase(); // caixa alta: é como o banco grava
   ({ casoId } = await seedClienteCaso(admin, { sufixo, parceiroId: parceira.id }));
   solicId = await seedSolicitacao(admin, casoId, "comprovante_residencia");
 });

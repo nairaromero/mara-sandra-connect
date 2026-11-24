@@ -141,6 +141,8 @@ export const FUNCTION: Record<string, Exigencia> = {
   "ia-analise": { permissao: "ia:usar" },
   "extrair-dados-cliente": { permissao: "ia:usar" },
   "excluir-parceiro": { permissao: "parceiros:excluir" },
+  // resumo periódico para parceiros: config, escolha por parceiro, prévia e teste
+  "resumo-parceiros": { permissao: "parceiros:gerenciar" },
   // classe inversa (24/09): antes pediam só "ser interna"
   "ia-assistant": { permissao: "ia:usar" },
   // `ia-config` fica de fora de propósito: o cofre de IA exige `ia:usar`

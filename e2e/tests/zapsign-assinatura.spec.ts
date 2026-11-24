@@ -479,7 +479,7 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
     expect(r.status, r.texto.slice(0, 200)).toBe(200);
     expect([r.json.adotado, r.json.cliente_novo, r.json.caso_novo]).toEqual([true, true, true]);
     const [cliente] = await clientesDeTeste();
-    expect([cliente.nome, cliente.cpf, cliente.email]).toEqual(["E2E ZapSign Cliente Novo", CPF_ADOTADO, "novo.e2e@exemplo.com.br"]);
+    expect([cliente.nome, cliente.cpf, cliente.email]).toEqual(["E2E ZAPSIGN CLIENTE NOVO", CPF_ADOTADO, "novo.e2e@exemplo.com.br"]);
     const { data: casos, error: eCasos } = await admin.from("casos").select("id, tipo_beneficio, responsavel_id, escritorio_id").eq("cliente_id", cliente.id);
     if (eCasos) throw new Error(eCasos.message);
     expect(casos).toHaveLength(1);
@@ -508,7 +508,7 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
     expect([r2.json.adotado, r2.json.cliente_novo, r2.json.caso_novo], r2.texto.slice(0, 200)).toEqual([true, false, false]);
     const depois = await clientesDeTeste();
     expect(depois).toHaveLength(1);
-    expect(depois[0].nome, "cliente que já existe não é sobrescrito").toBe("E2E ZapSign Cliente Novo");
+    expect(depois[0].nome, "cliente que já existe não é sobrescrito").toBe("E2E ZAPSIGN CLIENTE NOVO"); // o banco grava em caixa alta
     const { data: linha2 } = await admin.from("assinaturas").select("caso_id").eq("zapsign_doc_token", doModelo).single();
     expect(linha2?.caso_id).toBe(casos![0].id);
 
