@@ -144,6 +144,9 @@ o sistema em produção. Quando chegar, vale o seguinte:
 - **Legalmail e TI por escritório** (RBAC 13): credencial em `escritorio_integracoes` (cifrada), lida só pelas
   functions via `_shared/integracoes.ts` (`integracaoDoEscritorio`); sem ela → 412 `integracao_nao_configurada`.
   Na tela, `useIntegracoesEscritorio().tem("legalmail")` (RPC `minhas_integracoes`) decide se o botão aparece.
+  A leitura tem tempo limite de 10 s e duas novas tentativas (2 s, 5 s) antes de dar `erro` (#548); com erro e
+  sem lista, a aba Documentos do caso avisa "Não consegui verificar as integrações" com "Tentar de novo" — antes
+  os botões do ZapSign sumiam sem aviso. Prova: `e2e/tests/integracoes-consulta-resiliente.spec.ts` (só lê).
   Nunca voltar a ler `LEGALMAIL_TOKEN`/`TI_TOKEN` direto: só o escritório padrão cai nesse legado, via o helper.
 - **Caixas de e-mail do INSS** (desde 2026-11-17, `migration_gmail_inss_varias_caixas`): o escritório pode
   conectar VÁRIAS. Em `usuario_gmail_oauth` a linha é a caixa (pk `id`, única por escritório + e-mail;
