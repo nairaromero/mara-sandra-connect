@@ -10,7 +10,16 @@ import type { ParagrafoDoContrato } from "@shared/modelo-contrato";
 
 export { EM_CURSO, formatoAssinavel, type CampoDoModelo, type ModeloZapsign, type Signatario, type StatusAssinatura } from "@shared/assinatura";
 
-/** A linha de `assinaturas` como a tela lê (as colunas de `COLUNAS_ASSINATURA`). */
+/**
+ * Um signatário como a TELA o vê (#545): a view `assinaturas_tela` esconde o
+ * `sign_url` cru — a credencial de assinatura — e devolve no lugar `tem_link`,
+ * que diz se há um link vivo para copiar. O link em si vem sob demanda, no
+ * clique, por `buscarLinkDeAssinatura` (RPC `assinatura_sign_url`, com escopo e
+ * trilha).
+ */
+export type SignatarioTela = Omit<Signatario, "sign_url"> & { tem_link: boolean };
+
+/** A linha de `assinaturas` como a tela lê (a view `assinaturas_tela`, colunas de `COLUNAS_ASSINATURA`). */
 export interface Assinatura {
   id: string;
   documento_id: string | null;
@@ -18,12 +27,28 @@ export interface Assinatura {
   nome: string;
   sandbox: boolean;
   status: StatusAssinatura;
-  signatarios: Array<Signatario>;
+  signatarios: Array<SignatarioTela>;
   created_at: string;
   assinado_em: string | null;
 }
 
 export const COLUNAS_ASSINATURA = "id, documento_id, documento_assinado_id, nome, sandbox, status, signatarios, created_at, assinado_em";
+
+/**
+ * O link de assinatura (sign_url) de um signatário — a URL portadora que É a
+ * credencial para assinar. Não vem na lista (a view esconde): é buscado sob
+ * demanda, no "Copiar link", pela RPC `assinatura_sign_url`, que confere escopo
+ * (quem gerencia ou o dono do caso) e registra a leitura na trilha. `null`
+ * quando não há mais link.
+ */
+export async function buscarLinkDeAssinatura(assinaturaId: string, signatarioToken: string): Promise<string | null> {
+  const { data, error } = await supabase.rpc("assinatura_sign_url", {
+    p_assinatura_id: assinaturaId,
+    p_signatario_token: signatarioToken,
+  });
+  if (error) throw new Error(error.message);
+  return (data as string | null) ?? null;
+}
 
 /** Chama a function do ZapSign; o erro sai com a frase que a function devolveu. */
 async function invocar<T>(body: Record<string, unknown>): Promise<T> {

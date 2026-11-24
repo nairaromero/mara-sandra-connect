@@ -219,12 +219,13 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
     // trilha
     const trilha = await ultimaLinhaDaTrilha(ESC2, "assinatura.enviada");
     expect(trilha?.recurso_id).toBe(assinaturaId);
-    // a tela lê pela RLS: interno vê, parceiro não
-    const { data: visto, error: eVisto } = await adv.sb.from("assinaturas").select("id").eq("id", assinaturaId);
+    // a tela lê pela VIEW `assinaturas_tela` (#545): interno vê, parceiro não.
+    // A tabela `assinaturas` em si está fechada para a tela (nem leitura).
+    const { data: visto, error: eVisto } = await adv.sb.from("assinaturas_tela").select("id").eq("id", assinaturaId);
     expect(eVisto).toBeNull();
     expect(visto).toHaveLength(1);
     const par = await sessaoComo(contaDoCanario("parceiro"), ESC2);
-    const { data: doParceiro, error: eParceiro } = await par.sb.from("assinaturas").select("id").eq("id", assinaturaId);
+    const { data: doParceiro, error: eParceiro } = await par.sb.from("assinaturas_tela").select("id").eq("id", assinaturaId);
     expect(eParceiro, "a leitura do parceiro não falha: volta vazia").toBeNull();
     expect(doParceiro).toHaveLength(0);
     // escrita direta pela API REST é negada
@@ -234,6 +235,61 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
     const repetido = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, corpo);
     expect(repetido.status).toBe(409);
     expect(repetido.json?.code).toBe("ja_em_assinatura");
+  });
+
+  test("o sign_url sai da leitura ampla e só vem pela RPC, com escopo e trilha (#545)", async () => {
+    test.skip(!mockVivo || !assinaturaId, "depende do envio");
+    const adv = await sessaoComo(contaDoCanario("advogado"), ESC2);
+
+    // A tela lê a VIEW: a linha aparece, mas sem o `sign_url` cru — só `tem_link`.
+    const { data: naTela, error: eTela } = await adv.sb.from("assinaturas_tela").select("id, signatarios").eq("id", assinaturaId).single();
+    expect(eTela).toBeNull();
+    const sigs = naTela!.signatarios as Array<{ token: string; papel: string; status: string; tem_link: boolean; sign_url?: string }>;
+    expect(sigs.every((s) => s.sign_url === undefined), "o sign_url não vem na view").toBe(true);
+    const cli = sigs.find((s) => s.papel === "cliente")!;
+    expect(cli.tem_link, "o cliente pendente tem link para copiar").toBe(true);
+
+    // a própria coluna `signatarios` da TABELA (onde mora o sign_url cru) não é
+    // legível pela API REST — nem para quem gerencia: o único caminho é a RPC.
+    const cru = await adv.sb.from("assinaturas").select("signatarios").eq("id", assinaturaId);
+    expect(cru.error, "a coluna signatarios é inalcançável pela tela").not.toBeNull();
+    // mas ler o id (o que `exigirRecurso` faz) segue valendo
+    const soId = await adv.sb.from("assinaturas").select("id").eq("id", assinaturaId);
+    expect([soId.error, soId.data?.length]).toEqual([null, 1]);
+
+    // O link vem pela RPC, para quem gerencia (documentos:enviar), e deixa trilha.
+    const { data: link, error: eLink } = await adv.sb.rpc("assinatura_sign_url", { p_assinatura_id: assinaturaId, p_signatario_token: cli.token });
+    expect(eLink, eLink?.message).toBeNull();
+    expect(String(link)).toContain("/verificar/");
+    const trilha = await ultimaLinhaDaTrilha(ESC2, "assinatura.link_copiado");
+    expect(trilha?.recurso_id).toBe(assinaturaId);
+    expect((trilha?.detalhes as { signatario?: string })?.signatario).toBe(cli.token);
+
+    // Interno sem documentos:enviar e sem ser dono do caso (financeiro): vê a linha, NÃO o link.
+    const fin = await sessaoComo(contaDoCanario("financeiro"), ESC2);
+    const { data: finVe } = await fin.sb.from("assinaturas_tela").select("id").eq("id", assinaturaId);
+    expect(finVe, "financeiro é interno: vê o envelope").toHaveLength(1);
+    const finLink = await fin.sb.rpc("assinatura_sign_url", { p_assinatura_id: assinaturaId, p_signatario_token: cli.token });
+    expect(finLink.error, "mas o link lhe é recusado").not.toBeNull();
+    expect(finLink.error?.code).toBe("42501");
+
+    // Parceiro não é interno: nem a linha, nem o link.
+    const par = await sessaoComo(contaDoCanario("parceiro"), ESC2);
+    const { data: parVe } = await par.sb.from("assinaturas_tela").select("id").eq("id", assinaturaId);
+    expect(parVe).toHaveLength(0);
+    expect((await par.sb.rpc("assinatura_sign_url", { p_assinatura_id: assinaturaId, p_signatario_token: cli.token })).error).not.toBeNull();
+
+    // Ramo "dono do caso": o responsável alcança o link mesmo sem documentos:enviar.
+    const { data: caso } = await admin.from("casos").select("responsavel_id").eq("id", casoId).single();
+    const finId = await idDoCanario("financeiro");
+    expect((await admin.from("casos").update({ responsavel_id: finId }).eq("id", casoId)).error).toBeNull();
+    try {
+      const comoDono = await fin.sb.rpc("assinatura_sign_url", { p_assinatura_id: assinaturaId, p_signatario_token: cli.token });
+      expect(comoDono.error, "dono do caso alcança mesmo sem a permissão").toBeNull();
+      expect(String(comoDono.data)).toContain("/verificar/");
+    } finally {
+      await admin.from("casos").update({ responsavel_id: caso!.responsavel_id }).eq("id", casoId);
+    }
   });
 
   test("webhook: exige o segredo do escritório, ignora o que o corpo diz e grava o PDF assinado uma vez só", async () => {
@@ -287,7 +343,7 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
     expect(reenvio.json?.code).toBe("ja_assinado");
     // o escritório padrão não enxerga nada disso
     const e2e = await sessaoComo(contaPadrao("interno"), ESC1);
-    const { data: deFora, error: eFora } = await e2e.sb.from("assinaturas").select("id").eq("id", assinaturaId);
+    const { data: deFora, error: eFora } = await e2e.sb.from("assinaturas_tela").select("id").eq("id", assinaturaId);
     expect(eFora).toBeNull();
     expect(deFora).toHaveLength(0);
     // "Atualizar" pela function: de outro escritório é 404; id que não é uuid é 400; do dono, devolve a linha
