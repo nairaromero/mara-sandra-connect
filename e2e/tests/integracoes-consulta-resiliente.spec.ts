@@ -1,4 +1,4 @@
-// #544: a página só mostra "Gerar contrato" / "Enviar para assinatura" depois
+// #548: a página só mostra "Gerar contrato" / "Enviar para assinatura" depois
 // de saber que o escritório tem o ZapSign (RPC minhas_integracoes). Uma falha
 // passageira ou uma resposta presa escondia os botões até recarregar a página,
 // sem aviso. Agora: tempo limite de 10 s, duas novas tentativas (2 s e 5 s) e,

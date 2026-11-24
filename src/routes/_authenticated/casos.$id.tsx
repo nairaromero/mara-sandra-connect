@@ -5140,8 +5140,14 @@ function TabDocumentos(props: TabDocumentosProps) {
                   Importar arquivos
                 </Button>
               )}
-              {/* a leitura das integrações falhou (já depois das novas tentativas): diz, em vez de sumir com os botões (#544) */}
-              {isInterno && podeChamar("zapsign-enviar") && integracoesDoc.lista === null && integracoesDoc.erro && (
+              {/* enquanto tenta de novo (após uma falha), avisa em vez de deixar o botão sumido e mudo (#548) */}
+              {isInterno && podeChamar("zapsign-enviar") && integracoesDoc.lista === null && integracoesDoc.verificando && (
+                <span className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs text-amber-900" data-integracoes-verificando>
+                  Verificando as integrações do escritório…
+                </span>
+              )}
+              {/* a leitura das integrações falhou (já depois das novas tentativas): diz, em vez de sumir com os botões (#548) */}
+              {isInterno && podeChamar("zapsign-enviar") && integracoesDoc.lista === null && integracoesDoc.erro && !integracoesDoc.verificando && (
                 <span className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs text-amber-900" data-integracoes-erro>
                   Não consegui verificar as integrações do escritório.
                   <button type="button" className="font-medium underline" onClick={integracoesDoc.recarregar} data-integracoes-tentar>
