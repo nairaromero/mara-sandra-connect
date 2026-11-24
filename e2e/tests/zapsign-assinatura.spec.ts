@@ -219,12 +219,13 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
     // trilha
     const trilha = await ultimaLinhaDaTrilha(ESC2, "assinatura.enviada");
     expect(trilha?.recurso_id).toBe(assinaturaId);
-    // a tela lê pela RLS: interno vê, parceiro não
-    const { data: visto, error: eVisto } = await adv.sb.from("assinaturas").select("id").eq("id", assinaturaId);
+    // a tela lê pela VIEW `assinaturas_tela` (#545): interno vê, parceiro não.
+    // A tabela `assinaturas` em si está fechada para a tela (nem leitura).
+    const { data: visto, error: eVisto } = await adv.sb.from("assinaturas_tela").select("id").eq("id", assinaturaId);
     expect(eVisto).toBeNull();
     expect(visto).toHaveLength(1);
     const par = await sessaoComo(contaDoCanario("parceiro"), ESC2);
-    const { data: doParceiro, error: eParceiro } = await par.sb.from("assinaturas").select("id").eq("id", assinaturaId);
+    const { data: doParceiro, error: eParceiro } = await par.sb.from("assinaturas_tela").select("id").eq("id", assinaturaId);
     expect(eParceiro, "a leitura do parceiro não falha: volta vazia").toBeNull();
     expect(doParceiro).toHaveLength(0);
     // escrita direta pela API REST é negada
@@ -234,6 +235,61 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
     const repetido = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, corpo);
     expect(repetido.status).toBe(409);
     expect(repetido.json?.code).toBe("ja_em_assinatura");
+  });
+
+  test("o sign_url sai da leitura ampla e só vem pela RPC, com escopo e trilha (#545)", async () => {
+    test.skip(!mockVivo || !assinaturaId, "depende do envio");
+    const adv = await sessaoComo(contaDoCanario("advogado"), ESC2);
+
+    // A tela lê a VIEW: a linha aparece, mas sem o `sign_url` cru — só `tem_link`.
+    const { data: naTela, error: eTela } = await adv.sb.from("assinaturas_tela").select("id, signatarios").eq("id", assinaturaId).single();
+    expect(eTela).toBeNull();
+    const sigs = naTela!.signatarios as Array<{ token: string; papel: string; status: string; tem_link: boolean; sign_url?: string }>;
+    expect(sigs.every((s) => s.sign_url === undefined), "o sign_url não vem na view").toBe(true);
+    const cli = sigs.find((s) => s.papel === "cliente")!;
+    expect(cli.tem_link, "o cliente pendente tem link para copiar").toBe(true);
+
+    // a própria coluna `signatarios` da TABELA (onde mora o sign_url cru) não é
+    // legível pela API REST — nem para quem gerencia: o único caminho é a RPC.
+    const cru = await adv.sb.from("assinaturas").select("signatarios").eq("id", assinaturaId);
+    expect(cru.error, "a coluna signatarios é inalcançável pela tela").not.toBeNull();
+    // mas ler o id (o que `exigirRecurso` faz) segue valendo
+    const soId = await adv.sb.from("assinaturas").select("id").eq("id", assinaturaId);
+    expect([soId.error, soId.data?.length]).toEqual([null, 1]);
+
+    // O link vem pela RPC, para quem gerencia (documentos:enviar), e deixa trilha.
+    const { data: link, error: eLink } = await adv.sb.rpc("assinatura_sign_url", { p_assinatura_id: assinaturaId, p_signatario_token: cli.token });
+    expect(eLink, eLink?.message).toBeNull();
+    expect(String(link)).toContain("/verificar/");
+    const trilha = await ultimaLinhaDaTrilha(ESC2, "assinatura.link_copiado");
+    expect(trilha?.recurso_id).toBe(assinaturaId);
+    expect((trilha?.detalhes as { signatario?: string })?.signatario).toBe(cli.token);
+
+    // Interno sem documentos:enviar e sem ser dono do caso (financeiro): vê a linha, NÃO o link.
+    const fin = await sessaoComo(contaDoCanario("financeiro"), ESC2);
+    const { data: finVe } = await fin.sb.from("assinaturas_tela").select("id").eq("id", assinaturaId);
+    expect(finVe, "financeiro é interno: vê o envelope").toHaveLength(1);
+    const finLink = await fin.sb.rpc("assinatura_sign_url", { p_assinatura_id: assinaturaId, p_signatario_token: cli.token });
+    expect(finLink.error, "mas o link lhe é recusado").not.toBeNull();
+    expect(finLink.error?.code).toBe("42501");
+
+    // Parceiro não é interno: nem a linha, nem o link.
+    const par = await sessaoComo(contaDoCanario("parceiro"), ESC2);
+    const { data: parVe } = await par.sb.from("assinaturas_tela").select("id").eq("id", assinaturaId);
+    expect(parVe).toHaveLength(0);
+    expect((await par.sb.rpc("assinatura_sign_url", { p_assinatura_id: assinaturaId, p_signatario_token: cli.token })).error).not.toBeNull();
+
+    // Ramo "dono do caso": o responsável alcança o link mesmo sem documentos:enviar.
+    const { data: caso } = await admin.from("casos").select("responsavel_id").eq("id", casoId).single();
+    const finId = await idDoCanario("financeiro");
+    expect((await admin.from("casos").update({ responsavel_id: finId }).eq("id", casoId)).error).toBeNull();
+    try {
+      const comoDono = await fin.sb.rpc("assinatura_sign_url", { p_assinatura_id: assinaturaId, p_signatario_token: cli.token });
+      expect(comoDono.error, "dono do caso alcança mesmo sem a permissão").toBeNull();
+      expect(String(comoDono.data)).toContain("/verificar/");
+    } finally {
+      await admin.from("casos").update({ responsavel_id: caso!.responsavel_id }).eq("id", casoId);
+    }
   });
 
   test("webhook: exige o segredo do escritório, ignora o que o corpo diz e grava o PDF assinado uma vez só", async () => {
@@ -287,7 +343,7 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
     expect(reenvio.json?.code).toBe("ja_assinado");
     // o escritório padrão não enxerga nada disso
     const e2e = await sessaoComo(contaPadrao("interno"), ESC1);
-    const { data: deFora, error: eFora } = await e2e.sb.from("assinaturas").select("id").eq("id", assinaturaId);
+    const { data: deFora, error: eFora } = await e2e.sb.from("assinaturas_tela").select("id").eq("id", assinaturaId);
     expect(eFora).toBeNull();
     expect(deFora).toHaveLength(0);
     // "Atualizar" pela function: de outro escritório é 404; id que não é uuid é 400; do dono, devolve a linha
@@ -479,7 +535,7 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
     expect(r.status, r.texto.slice(0, 200)).toBe(200);
     expect([r.json.adotado, r.json.cliente_novo, r.json.caso_novo]).toEqual([true, true, true]);
     const [cliente] = await clientesDeTeste();
-    expect([cliente.nome, cliente.cpf, cliente.email]).toEqual(["E2E ZapSign Cliente Novo", CPF_ADOTADO, "novo.e2e@exemplo.com.br"]);
+    expect([cliente.nome, cliente.cpf, cliente.email]).toEqual(["E2E ZAPSIGN CLIENTE NOVO", CPF_ADOTADO, "novo.e2e@exemplo.com.br"]);
     const { data: casos, error: eCasos } = await admin.from("casos").select("id, tipo_beneficio, responsavel_id, escritorio_id").eq("cliente_id", cliente.id);
     if (eCasos) throw new Error(eCasos.message);
     expect(casos).toHaveLength(1);
@@ -508,7 +564,7 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
     expect([r2.json.adotado, r2.json.cliente_novo, r2.json.caso_novo], r2.texto.slice(0, 200)).toEqual([true, false, false]);
     const depois = await clientesDeTeste();
     expect(depois).toHaveLength(1);
-    expect(depois[0].nome, "cliente que já existe não é sobrescrito").toBe("E2E ZapSign Cliente Novo");
+    expect(depois[0].nome, "cliente que já existe não é sobrescrito").toBe("E2E ZAPSIGN CLIENTE NOVO"); // o banco grava em caixa alta
     const { data: linha2 } = await admin.from("assinaturas").select("caso_id").eq("zapsign_doc_token", doModelo).single();
     expect(linha2?.caso_id).toBe(casos![0].id);
 
@@ -553,6 +609,9 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
     expect(campos["NOME DA MÃE"].sugestao, "nome da mãe NÃO é o nome do cliente").toBe("");
     expect([campos["VALOR DOS HONORÁRIOS"].sugestao, campos["VALOR DOS HONORÁRIOS"].obrigatorio]).toEqual(["", true]);
     expect(campos["CPF"].variavel).toBe("{{CPF}}");
+    // nome e CPF de quem assina são do cadastro: fixos (a tela não mostra, o servidor envia o cadastro)
+    const fixos = campos as unknown as Record<string, { fixo: boolean }>;
+    expect([fixos["NOME COMPLETO"].fixo, fixos["CPF"].fixo, fixos["NOME DA MÃE"].fixo]).toEqual([true, true, false]);
     expect((await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "modelo", caso_id: casoId, modelo_token: "nao-existe" })).status).toBe(404);
   });
 
@@ -581,6 +640,11 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
     const la = lado.find((d) => d.token === ass.zapsign_doc_token)!;
     expect([la.external_id, la.template_id, la.signers[0].send_automatic_email]).toEqual([ass.id, "modelo-03", true]);
     expect(la.answers.map((x) => x.variable).sort()).toEqual(["CPF", "NOME COMPLETO", "VALOR DOS HONORÁRIOS"]);
+    // o que a tela mandou no nome e no CPF não vale: foi o cadastro do cliente
+    const { data: doCad } = await admin.from("casos").select("clientes(nome, cpf)").eq("id", casoId).single();
+    const cad = (doCad as unknown as { clientes: { nome: string; cpf: string } }).clientes;
+    const foiAo = Object.fromEntries(la.answers.map((x) => [x.variable, x.value]));
+    expect([foiAo["NOME COMPLETO"], foiAo["CPF"].replace(/\D/g, "")]).toEqual([cad.nome, cad.cpf]);
     expect((await tarefasDaAssinatura(ass.id)).map((t) => `${t.status} ${t.titulo}`)).toEqual([`a_fazer Acompanhar assinatura: ${MODELO}`]);
     // o aviso de criação do próprio envio não vira "documento criado direto no ZapSign"
     expect((await avisar(segredoWebhook, { event_type: "doc_created", token: ass.zapsign_doc_token })).json.status).toBe("enviado");
@@ -656,8 +720,16 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
       // passo 2: campos do modelo já com o cadastro; obrigatório vazio segura o envio
       await expect(dlg.locator("[data-campos-modelo]")).toBeVisible();
       await expect(dlg.getByRole("heading", { name: "Contrato de honorários - Pensão por morte" })).toBeVisible();
-      await expect(dlg.getByLabel(/NOME COMPLETO/)).toHaveValue(doCaso.clientes.nome);
-      await expect(dlg.getByLabel(/^CPF/)).toHaveValue(/^\d{3}\.\d{3}\.\d{3}-\d{2}$/);
+      // nome e CPF de quem assina não são perguntados: aparecem só no "Quem assina", vindos do cadastro
+      await expect(dlg.locator('[data-campo="{{NOME COMPLETO}}"]')).toHaveCount(0);
+      await expect(dlg.locator('[data-campo="{{CPF}}"]')).toHaveCount(0);
+      // no bloco do contratante: nome e CPF do cadastro, travados; o endereço do modelo também mora lá
+      await expect(dlg.locator("#contratante-nome")).toHaveValue(doCaso.clientes.nome);
+      await expect(dlg.locator("#contratante-nome")).toHaveAttribute("readonly", "");
+      await expect(dlg.locator("#contratante-cpf")).toHaveValue(/^\d{3}\.\d{3}\.\d{3}-\d{2}$/);
+      await expect(dlg.locator("#contratante-cpf")).toHaveAttribute("readonly", "");
+      await expect(dlg.locator('[data-campo="{{ENDEREÇO}}"]')).toHaveCount(0);
+      await expect(dlg.locator("[data-endereco] #end-rua")).toBeVisible();
       await expect(dlg.getByLabel(/NOME DA MÃE/)).toHaveValue("");
       await expect(dlg.getByRole("button", { name: "Enviar para assinatura" })).toBeDisabled();
       // WhatsApp: país com o Brasil por padrão e máscara de DDD; fora do Brasil, só os dígitos
@@ -677,6 +749,18 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
       await expect(dlg.locator("[data-contagem-modelos]")).toHaveText("1 de 23 modelos");
       await dlg.getByRole("button", { name: "Cancelar" }).click();
       await expect(dlg).toHaveCount(0);
+      // reabrir: a lista guardada aparece na hora, sem ir ao ZapSign (menos de 1 minuto)
+      const listas: string[] = [];
+      page.on("request", (r) => {
+        if (r.url().includes("/functions/v1/zapsign-enviar") && (r.postData() ?? "").includes('"modelos"')) listas.push(r.url());
+      });
+      await page.locator("[data-gerar-contrato]").click();
+      await expect(dlg.locator("[data-contagem-modelos]")).toHaveText("23 modelos");
+      expect(listas, "a lista veio do cache").toHaveLength(0);
+      // "Atualizar" vai ao ZapSign na hora
+      await dlg.locator("[data-atualizar-modelos]").click();
+      await expect.poll(() => listas.length).toBe(1);
+      await dlg.getByRole("button", { name: "Cancelar" }).click();
     } finally {
       await ctx.close();
     }

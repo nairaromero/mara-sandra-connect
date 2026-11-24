@@ -9,7 +9,7 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, Copy, FileSignature, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
-import { chamarZapsign, EM_CURSO, type Assinatura, type Signatario, type StatusAssinatura } from "@/lib/assinaturas";
+import { buscarLinkDeAssinatura, chamarZapsign, EM_CURSO, type Assinatura, type Signatario, type StatusAssinatura } from "@/lib/assinaturas";
 import { copiarTexto } from "@/lib/copiar";
 import { dataHoraBR } from "@/lib/fuso";
 import { useAuth } from "@/hooks/use-auth";
@@ -60,8 +60,14 @@ export function PainelAssinaturas(props: {
    * interno; o botão só aparece para quem a function atende.
    */
   podeAtualizar: boolean;
+  /**
+   * "Copiar link" entrega o `sign_url` pela RPC `assinatura_sign_url` (#545),
+   * restrita a quem gerencia assinaturas (`documentos:enviar`) ou ao dono do
+   * caso, e auditada. O botão só aparece para quem a RPC atende.
+   */
+  podeCopiarLink: boolean;
 }) {
-  const { lista, erro, onMudou, podeAtualizar } = props;
+  const { lista, erro, onMudou, podeAtualizar, podeCopiarLink } = props;
   // um conjunto, não um id só: "Atualizar" em dois envios seguidos não reabilita o botão do que ainda está consultando
   const [atualizando, setAtualizando] = useState<ReadonlySet<string>>(new Set());
 
@@ -83,8 +89,19 @@ export function PainelAssinaturas(props: {
     }
   }
 
-  function copiar(link: string) {
-    void copiarTexto(link, "Link de assinatura copiado.");
+  // O link não vem na lista (a view o esconde): busca sob demanda pela RPC, que
+  // confere escopo e audita a leitura, e só então copia.
+  async function copiarLink(assinaturaId: string, token: string) {
+    try {
+      const link = await buscarLinkDeAssinatura(assinaturaId, token);
+      if (!link) {
+        toast.error("O link de assinatura não está mais disponível.");
+        return;
+      }
+      await copiarTexto(link, "Link de assinatura copiado.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    }
   }
 
   if (erro) return <p className="text-sm text-red-700">Não consegui ler as assinaturas deste caso: {erro}</p>;
@@ -131,8 +148,8 @@ export function PainelAssinaturas(props: {
                         {s.assinado_em && ` em ${dataHoraBR(s.assinado_em)}`}
                       </span>
                     </span>
-                    {s.status !== "assinou" && s.sign_url && EM_CURSO.includes(a.status) && (
-                      <Button size="sm" variant="ghost" className="h-7" onClick={() => copiar(s.sign_url)}>
+                    {s.status !== "assinou" && s.tem_link && EM_CURSO.includes(a.status) && podeCopiarLink && (
+                      <Button size="sm" variant="ghost" className="h-7" onClick={() => void copiarLink(a.id, s.token)}>
                         <Copy className="mr-1 h-3 w-3" /> Copiar link
                       </Button>
                     )}

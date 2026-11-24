@@ -97,6 +97,7 @@ node scripts/msc-sql.mjs --local --file planning/sql-migrations/migration_x.sql
 - Toda alteração via migration em `planning/sql-migrations/migration_*.sql`.
 - Apply: `node scripts/msc-sql.mjs --local --file <arq>` (cópia local primeiro), depois `--staging`, depois sem a flag (produção).
 - Migrations devem ser idempotentes quando possível.
+- **Nome do cliente é sempre CAIXA ALTA** (desde 23/11, `migration_clientes_nome_caixa_alta`): quem grava é o gatilho `trg_clientes_nome_caixa_alta` em `clientes` (vale para todo caminho — tela, parceiro, importação, ZapSign, functions); a tela só mostra o campo com `uppercase`. Spec que cria cliente e depois procura pelo nome compara com o nome em caixa alta. Prova: `e2e/tests/clientes-nome-caixa-alta.spec.ts`.
 - **Registro de migrations (desde 2026-09-11):** o `--file` grava toda `migration_*.sql` que roda sem erro em `ops.migrations_aplicadas` do banco-alvo. É esse registro — não inferência pelo `pg_proc` — que responde "já rodou em produção?", e o workflow do board depende dele. O que foi aplicado antes de 2026-09-11 não está lá.
   - Aplicou por outro caminho (SQL editor, antes do registro)? `node scripts/msc-sql.mjs [--staging] --registrar <arq>` — grava sem executar.
   - Saída **3** = a migration rodou mas não registrou; a mensagem traz o comando exato pra consertar.
@@ -143,6 +144,9 @@ o sistema em produção. Quando chegar, vale o seguinte:
 - **Legalmail e TI por escritório** (RBAC 13): credencial em `escritorio_integracoes` (cifrada), lida só pelas
   functions via `_shared/integracoes.ts` (`integracaoDoEscritorio`); sem ela → 412 `integracao_nao_configurada`.
   Na tela, `useIntegracoesEscritorio().tem("legalmail")` (RPC `minhas_integracoes`) decide se o botão aparece.
+  A leitura tem tempo limite de 10 s e duas novas tentativas (2 s, 5 s) antes de dar `erro` (#548); com erro e
+  sem lista, a aba Documentos do caso avisa "Não consegui verificar as integrações" com "Tentar de novo" — antes
+  os botões do ZapSign sumiam sem aviso. Prova: `e2e/tests/integracoes-consulta-resiliente.spec.ts` (só lê).
   Nunca voltar a ler `LEGALMAIL_TOKEN`/`TI_TOKEN` direto: só o escritório padrão cai nesse legado, via o helper.
 - **Caixas de e-mail do INSS** (desde 2026-11-17, `migration_gmail_inss_varias_caixas`): o escritório pode
   conectar VÁRIAS. Em `usuario_gmail_oauth` a linha é a caixa (pk `id`, única por escritório + e-mail;
@@ -284,9 +288,31 @@ o sistema em produção. Quando chegar, vale o seguinte:
   De onde veio cada valor (`origem`: cadastro, caso, hoje,
   modelo) também sai do módulo — a tela não lê nome de campo para decidir nada (a régua acusa). O servidor
   só busca benefícios e parceiro para ABRIR os campos (`modelo`); o envio usa o que a tela devolveu.
+  Quem assina (#540): nome, CPF e endereço do cliente são `dado` do campo (decidido no módulo, nunca
+  pelo nome na tela) e moram num bloco só, "Contratante". Nome e CPF são `fixo` quando o cadastro tem:
+  travados na tela e o SERVIDOR envia o do cadastro, seja o que for que a tela mande; sem CPF no cadastro,
+  só ele abre para digitar. O endereço vem do cadastro separado (`partesDoEndereco`), é corrigível só
+  para aquele contrato e volta numa linha por `enderecoDe` (país só quando não é o Brasil). Nome de campo
+  sem rótulo ("NOME_ASSINANTE") é lido com o "_" como espaço (`palavrasDe`) — os modelos de produção vêm assim.
+  Cache dos modelos na TELA (#542, `src/lib/assinaturas-cache.ts`, instância `cacheModelos`): lista aparece
+  na hora e, com mais de 1 min, é conferida com o ZapSign em segundo plano (botão "Atualizar" força); o texto
+  de cada modelo vale 30 min, no máximo 10, e sai antes se a lista mostra o modelo alterado lá (`atualizado`
+  = `last_update_at`). Ao escolher o modelo o texto já é buscado em segundo plano: "Conferir" não espera.
+  Chave = pessoa + escritório; só memória da aba; pedido em andamento é reaproveitado. Os CAMPOS preenchidos
+  com o cliente não entram no cache (dependem do caso). Régua: `e2e/unit/assinaturas-cache.test.ts`.
   Quem é da equipe interna de um escritório (ZapSign e e-mails do INSS) é
   `equipeInterna` de `_shared/equipe.ts` — pelo vínculo, nunca por `usuarios.tipo`.
   Provas: `e2e/tests/zapsign-assinatura.spec.ts` e a régua `e2e/unit/zapsign-fonte-unica.test.ts`.
+  Resumo periódico para parceiros (23/11, pedido da Naira e da Mara): `/parceiros?tab=resumo`.
+  Por ESCRITÓRIO (`resumo_parceiros_config`: ligado, dia, hora de Brasília, blocos, se parceiro
+  sem escolha recebe) e por PARCEIRO (`resumo_parceiros_preferencia`: `sempre`/`nunca`; sem linha =
+  segue o padrão). Regras e e-mail num módulo puro, `_shared/resumo-parceiros.ts`
+  (`@shared/resumo-parceiros`: `SECOES_RESUMO`, `recebeResumo`, `estaNaHora`, `montarEmailResumo`);
+  bloco novo = uma entrada lá + a consulta em `CONSULTAS` da function + o check do SQL. A tela e o
+  cron (`msc-resumo-parceiros`, de hora em hora; manda só o escritório cujo dia/hora chegou) passam
+  pela function `resumo-parceiros` (`parceiros:gerenciar` ou assinatura de sistema). Um envio por
+  parceiro e dia (`resumo_parceiros_envios`, unique); parceiro sem aceite ou com vínculo inativo é
+  pulado. Régua `e2e/unit/resumo-parceiros.test.ts`; prova `e2e/tests/resumo-parceiros.spec.ts`.
   Etiquetas (#514): a fonte é uma só — `etiquetas` + `clientes_etiquetas`. O JSON
   legado `clientes.tags` não tem escritor (não voltar a gravá-lo: o espelhador que
   o sincronizava apagou etiquetas da tela em 09/11) e rotina de sistema aplica

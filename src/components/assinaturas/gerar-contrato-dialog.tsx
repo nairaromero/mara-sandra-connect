@@ -14,11 +14,12 @@
 //      qualquer coisa ir ao ZapSign.
 // Quem escreve é a function `zapsign-enviar`; daqui em diante o fluxo é o mesmo
 // do envio de um arquivo (tarefas, painel de assinaturas, PDF assinado).
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Eye, FileSignature, Folder, Loader2, Search, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, Eye, FileSignature, Folder, Loader2, Lock, RefreshCw, Search, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { chamarZapsign, detalharModeloZapsign, listarModelosZapsign, textoDoModeloZapsign, type CampoDoModelo, type ModeloZapsign } from "@/lib/assinaturas";
-import { ESTADOS_CIVIS, faixaDoCampo, NACIONALIDADES, type OrigemDoValor, type ParagrafoDoContrato, type PartesDaQualificacao, partesDoCadastro, previaDoContrato, PROFISSOES, qualificacaoDe, respostasDoModelo } from "@shared/modelo-contrato";
+import { cacheModelos, chamarZapsign, detalharModeloZapsign, type CampoDoModelo, type ModeloZapsign } from "@/lib/assinaturas";
+import { useAuth } from "@/hooks/use-auth";
+import { cpfComPontos, enderecoDe, ESTADOS_CIVIS, faixaDoCampo, NACIONALIDADES, type OrigemDoValor, type ParagrafoDoContrato, type PartesDaQualificacao, type PartesDoEndereco, partesDoEndereco, previaDoContrato, PROFISSOES, qualificacaoDe, respostasDoModelo } from "@shared/modelo-contrato";
 import { filtrarModelos, modelosSugeridos, porPasta } from "@/lib/assinaturas-modelos";
 import { TIPOS_DOCUMENTO_OPTIONS } from "@/lib/documentos/tipos";
 import { Badge } from "@/components/ui/badge";
@@ -67,26 +68,47 @@ export function GerarContratoDialog(props: {
   // já estava preenchendo (ou abria sozinha um diálogo fechado e reaberto).
   const pedidoDeModelo = useRef(0);
 
-  // Cada abertura começa na lista, lida de novo (o modelo criado agora no ZapSign já aparece).
+  // O cache é da pessoa no escritório ativo: trocar de conta ou de escritório começa vazio.
+  const { usuario, escritorio } = useAuth();
+  const chaveCache = `${usuario?.id ?? ""}:${escritorio?.escritorio_id ?? ""}`;
+  const [atualizandoLista, setAtualizandoLista] = useState(false);
+
+  /** Confere a lista com o ZapSign. Com lista na tela, é em segundo plano: erro não apaga o que já se vê. */
+  const atualizarLista = useCallback(
+    (mostrandoGuardada: boolean, vivo: () => boolean = () => true) => {
+      setAtualizandoLista(true);
+      cacheModelos.atualizarLista(chaveCache).then(
+        (lista) => vivo() && setModelos(lista),
+        (e: unknown) => {
+          if (!vivo()) return;
+          const frase = e instanceof Error ? e.message : String(e);
+          if (mostrandoGuardada) toast.error(`Não consegui atualizar a lista de modelos: ${frase}`);
+          else setErro(frase);
+        },
+      ).finally(() => vivo() && setAtualizandoLista(false));
+    },
+    [chaveCache],
+  );
+
+  // Cada abertura começa na lista. A guardada aparece na hora; com mais de um minuto,
+  // é conferida com o ZapSign em segundo plano (o modelo criado agora lá aparece).
   useEffect(() => {
     pedidoDeModelo.current++; // abrir ou fechar descarta o modelo que ainda estava chegando
     if (!aberto) return;
     let vivo = true;
-    setModelos(null);
     setErro(null);
     setBusca("");
     setDetalhe(null);
     setTexto(null);
     setConferindo(false);
     setAbrindo(null);
-    listarModelosZapsign().then(
-      (lista) => vivo && setModelos(lista),
-      (e: unknown) => vivo && setErro(e instanceof Error ? e.message : String(e)),
-    );
+    const guardada = cacheModelos.listaGuardada(chaveCache);
+    setModelos(guardada?.modelos ?? null);
+    if (!guardada || guardada.velha) atualizarLista(!!guardada, () => vivo);
     return () => {
       vivo = false;
     };
-  }, [aberto]);
+  }, [aberto, chaveCache, atualizarLista]);
 
   const achados = useMemo(() => filtrarModelos(modelos ?? [], busca), [modelos, busca]);
   // com busca digitada a lista já é curta: a sugestão só aparece na lista inteira
@@ -106,6 +128,8 @@ export function GerarContratoDialog(props: {
       setTexto(null);
       setConferindo(false);
       setDetalhe(d);
+      // o texto do contrato já vem vindo enquanto a pessoa preenche: "Conferir" não espera
+      cacheModelos.texto(chaveCache, m.token, casoId).catch(() => undefined);
     } catch (e) {
       if (pedido === pedidoDeModelo.current) toast.error(e instanceof Error ? e.message : String(e));
     } finally {
@@ -145,7 +169,7 @@ export function GerarContratoDialog(props: {
     const pedido = pedidoDeModelo.current;
     setMontando(true);
     try {
-      const lido = await textoDoModeloZapsign(casoId, detalhe.modelo.token);
+      const lido = await cacheModelos.texto(chaveCache, detalhe.modelo.token, casoId);
       if (pedido !== pedidoDeModelo.current) return;
       setTexto(lido);
       setConferindo(true);
@@ -163,8 +187,13 @@ export function GerarContratoDialog(props: {
   const valorDe = (variavel: string) => valores.get(variavel) ?? "";
   // o contrato montado com os MESMOS valores que vão ao ZapSign (null = preenchendo)
   const previa = useMemo(() => (conferindo && texto ? previaDoContrato(texto, conta.respostas) : null), [conferindo, texto, conta]);
-  // o que o sistema escreve sozinho (o extenso, o benefício repetido) não vira campo
-  const visiveis = detalhe ? detalhe.campos.filter((c) => !c.extensoDe && !c.copiaDe) : [];
+  // o que o sistema escreve sozinho (o extenso, o benefício repetido, o nome e o CPF
+  // do cadastro) não vira campo; sem o dado no cadastro, o servidor manda `fixo: false`
+  // e os dados de quem assina (nome, CPF, endereço, qualificação) moram no bloco do contratante
+  const visiveis = detalhe ? detalhe.campos.filter((c) => !c.extensoDe && !c.copiaDe && !c.fixo && !c.dado && c.especie !== "qualificacao") : [];
+  const temContratante = !!detalhe?.campos.some((c) => c.dado || c.especie === "qualificacao");
+  // o bloco do contratante escreve vários campos de uma vez (frase, CPF digitado, endereço)
+  const escrever = useCallback((valores: Record<string, string>) => setRespostas((r) => ({ ...r, ...valores })), []);
   // campo → o campo que o sistema escreve a partir dele (ex.: o percentual por extenso)
   const extensoDe = useMemo(() => new Map((detalhe?.campos ?? []).filter((c) => c.extensoDe).map((c) => [c.extensoDe!, c.variavel])), [detalhe]);
 
@@ -204,9 +233,23 @@ export function GerarContratoDialog(props: {
             )}
             {modelos !== null && (
               <>
-                <p className="text-xs text-muted-foreground" data-contagem-modelos>
-                  {busca.trim() ? `${achados.length} de ${modelos.length} modelos` : `${modelos.length} ${modelos.length === 1 ? "modelo" : "modelos"}`}
-                </p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs text-muted-foreground" data-contagem-modelos>
+                    {busca.trim() ? `${achados.length} de ${modelos.length} modelos` : `${modelos.length} ${modelos.length === 1 ? "modelo" : "modelos"}`}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs text-muted-foreground"
+                    onClick={() => atualizarLista(true)}
+                    disabled={atualizandoLista}
+                    data-atualizar-modelos
+                  >
+                    <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${atualizandoLista ? "animate-spin" : ""}`} />
+                    {atualizandoLista ? "Conferindo no ZapSign…" : "Atualizar"}
+                  </Button>
+                </div>
                 <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
                   {modelos.length === 0 && (
                     <p className="py-6 text-center text-sm text-muted-foreground">
@@ -241,15 +284,15 @@ export function GerarContratoDialog(props: {
           {previa && <PreviaDoContrato paragrafos={previa} />}
           {/* Na prévia os campos só somem da vista: desmontar apagaria o que foi escolhido nas listas (estado civil, profissão). */}
           <div className={previa ? "hidden" : "min-h-0 flex-1 space-y-4 overflow-y-auto pr-1"} data-campos-modelo>
+            {temContratante && <BlocoContratante key={detalhe.modelo.token} campos={detalhe.campos} cliente={detalhe.cliente} escrever={escrever} />}
             {visiveis.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Este modelo não tem campo para preencher.</p>
+              !temContratante && <p className="text-sm text-muted-foreground">Este modelo não tem campo para preencher.</p>
             ) : (
               <div className="grid gap-3 sm:grid-cols-2">
                 {visiveis.map((c) => (
                   <CampoDoContrato
                     key={`${detalhe.modelo.token}:${c.variavel}`}
                     campo={c}
-                    cliente={detalhe.cliente}
                     valor={respostas[c.variavel] ?? ""}
                     onChange={(v) => setRespostas((r) => ({ ...r, [c.variavel]: v }))}
                     extenso={extensoDe.has(c.variavel) ? valorDe(extensoDe.get(c.variavel)!) : null}
@@ -259,7 +302,8 @@ export function GerarContratoDialog(props: {
               </div>
             )}
             <div className="space-y-2">
-              <p className="text-sm font-medium">Quem assina: {detalhe.cliente.nome}</p>
+              {/* com o bloco do contratante, nome e CPF já estão lá em cima: aqui é só para onde vai o link */}
+              <p className="text-sm font-medium">{temContratante ? "Para onde vai o link de assinatura" : `Quem assina: ${detalhe.cliente.nome}`}</p>
               <p className="text-xs text-muted-foreground">
                 Em branco, vale o e-mail e o WhatsApp do cadastro. Preencha só para mandar a outro contato desta vez.
               </p>
@@ -371,7 +415,6 @@ function ListaDeModelos(props: {
  */
 function CampoDoContrato(props: {
   campo: CampoDoModelo;
-  cliente: { nome: string; cpf: string; endereco: string };
   valor: string;
   onChange: (v: string) => void;
   /** como o sistema escreve este valor por extenso; null = o modelo não pede extenso */
@@ -380,7 +423,6 @@ function CampoDoContrato(props: {
   valorFinal: string;
 }) {
   const { campo: c, valor, onChange, extenso, valorFinal } = props;
-  if (c.especie === "qualificacao") return <CampoQualificacao campo={c} cliente={props.cliente} valor={valor} onChange={onChange} />;
   const numero = c.tipo !== "texto";
   // de onde veio o valor que já está no campo — quem diz é o servidor (`origem`), não o nome do campo
   const origem = valor && valor === c.sugestao ? ROTULO_DA_ORIGEM[c.origem] : "";
@@ -472,57 +514,123 @@ function EscolhaOuTexto(props: { id?: string; opcoes: ReadonlyArray<string>; val
 }
 
 /**
- * A qualificação do contratante sem digitar a frase: nome, CPF e endereço vêm
- * do cadastro; nacionalidade, estado civil e profissão se escolhem em lista. O
- * sistema escreve a frase (`qualificacaoDe`) e mostra como vai ao contrato.
+ * Quem assina, num bloco só. Nome e CPF são os do cadastro e não se alteram aqui
+ * (o CPF só se digita quando o cadastro não tem). O endereço vem do cadastro em
+ * partes pequenas e pode ser corrigido para ESTE contrato. Nacionalidade, estado
+ * civil, profissão e RG completam a qualificação, quando o modelo a pede. O
+ * sistema escreve a frase (`qualificacaoDe`) e o endereço (`enderecoDe`) e põe
+ * cada um nos campos do modelo que os pedem.
  */
-function CampoQualificacao(props: { campo: CampoDoModelo; cliente: { nome: string; cpf: string; endereco: string }; valor: string; onChange: (v: string) => void }) {
-  const { campo: c, cliente, valor, onChange } = props;
-  // as MESMAS partes de que o servidor montou a frase que já está em `valor`
-  const [p, setP] = useState<PartesDaQualificacao>(() => partesDoCadastro(cliente));
-  const mudar = (parte: Partial<PartesDaQualificacao>) => {
-    const novo = { ...p, ...parte };
-    setP(novo);
-    onChange(qualificacaoDe(novo));
-  };
-  const id = `campo-${c.variavel}`;
+function BlocoContratante(props: {
+  campos: ReadonlyArray<CampoDoModelo>;
+  cliente: { nome: string; cpf: string; endereco: string };
+  escrever: (valores: Record<string, string>) => void;
+}) {
+  const { campos, cliente, escrever } = props;
+  const temQualificacao = campos.some((c) => c.especie === "qualificacao");
+  const [q, setQ] = useState({ nacionalidade: NACIONALIDADES[0] as string, estadoCivil: "", profissao: "", rg: "" });
+  const [end, setEnd] = useState<PartesDoEndereco>(() => partesDoEndereco(cliente.endereco));
+  const [cpfDigitado, setCpfDigitado] = useState("");
+  const cpf = cliente.cpf || cpfDigitado;
+  const endereco = enderecoDe(end);
+  const frase = qualificacaoDe({ nome: cliente.nome, ...q, cpf, endereco } satisfies PartesDaQualificacao);
+
+  // cada mudança vai para os campos do modelo que pedem aquele dado
+  useEffect(() => {
+    const valores: Record<string, string> = {};
+    for (const c of campos) {
+      if (c.especie === "qualificacao") valores[c.variavel] = frase;
+      else if (c.dado === "endereco") valores[c.variavel] = endereco;
+      else if (c.dado === "cpf" && !c.fixo) valores[c.variavel] = cpf ? cpfComPontos(cpf) : "";
+    }
+    escrever(valores);
+  }, [campos, frase, endereco, cpf, escrever]);
+
+  const mudarEnd = (parte: Partial<PartesDoEndereco>) => setEnd((e) => ({ ...e, ...parte }));
+  const pequeno = "h-8 text-sm";
   return (
-    <fieldset className="space-y-2 rounded-md border p-3 sm:col-span-2" data-campo={c.variavel} data-qualificacao>
-      <legend className="px-1 text-sm font-medium">
-        {c.rotulo}
-        {c.obrigatorio && <span className="text-red-600"> *</span>}
-      </legend>
-      <div className="grid gap-3 sm:grid-cols-3">
-        <div className="space-y-1" data-parte="nacionalidade">
-          <Label htmlFor={`${id}-nac`}>Nacionalidade</Label>
-          <EscolhaOuTexto id={`${id}-nac`} rotulo="Nacionalidade" opcoes={NACIONALIDADES} value={p.nacionalidade} onChange={(v) => mudar({ nacionalidade: v })} />
+    <fieldset className="space-y-3 rounded-md border p-3" data-qualificacao>
+      <legend className="px-1 text-sm font-medium">Contratante (quem assina)</legend>
+      <div className="grid gap-2 sm:grid-cols-12" data-quem-assina>
+        <CampoTravado className="sm:col-span-8" id="contratante-nome" rotulo="Nome" valor={cliente.nome} />
+        {cliente.cpf ? (
+          <CampoTravado className="sm:col-span-4" id="contratante-cpf" rotulo="CPF" valor={cpfComPontos(cliente.cpf)} />
+        ) : (
+          <div className="space-y-1 sm:col-span-4" data-parte="cpf">
+            <Label htmlFor="contratante-cpf" className="text-xs">
+              CPF <span className="font-normal text-amber-700">sem CPF no cadastro</span>
+            </Label>
+            <Input id="contratante-cpf" className={pequeno} inputMode="numeric" placeholder="000.000.000-00" value={cpfDigitado} onChange={(e) => setCpfDigitado(e.target.value)} />
+          </div>
+        )}
+      </div>
+      {temQualificacao && (
+        <div className="grid gap-2 sm:grid-cols-12">
+          <div className="space-y-1 sm:col-span-4" data-parte="nacionalidade">
+            <Label htmlFor="contratante-nac" className="text-xs">Nacionalidade</Label>
+            <EscolhaOuTexto id="contratante-nac" rotulo="Nacionalidade" opcoes={NACIONALIDADES} value={q.nacionalidade} onChange={(v) => setQ((x) => ({ ...x, nacionalidade: v }))} />
+          </div>
+          <div className="space-y-1 sm:col-span-3" data-parte="estado-civil">
+            <Label htmlFor="contratante-civil" className="text-xs">Estado civil</Label>
+            <EscolhaOuTexto id="contratante-civil" rotulo="Estado civil" opcoes={ESTADOS_CIVIS} value={q.estadoCivil} onChange={(v) => setQ((x) => ({ ...x, estadoCivil: v }))} />
+          </div>
+          <div className="space-y-1 sm:col-span-3" data-parte="profissao">
+            <Label htmlFor="contratante-prof" className="text-xs">Profissão</Label>
+            <EscolhaOuTexto id="contratante-prof" rotulo="Profissão" opcoes={PROFISSOES} value={q.profissao} onChange={(v) => setQ((x) => ({ ...x, profissao: v }))} />
+          </div>
+          <div className="space-y-1 sm:col-span-2">
+            <Label htmlFor="contratante-rg" className="text-xs">RG</Label>
+            <Input id="contratante-rg" className={pequeno} value={q.rg} onChange={(e) => setQ((x) => ({ ...x, rg: e.target.value }))} placeholder="opcional" />
+          </div>
         </div>
-        <div className="space-y-1" data-parte="estado-civil">
-          <Label htmlFor={`${id}-civil`}>Estado civil</Label>
-          <EscolhaOuTexto id={`${id}-civil`} rotulo="Estado civil" opcoes={ESTADOS_CIVIS} value={p.estadoCivil} onChange={(v) => mudar({ estadoCivil: v })} />
-        </div>
-        <div className="space-y-1" data-parte="profissao">
-          <Label htmlFor={`${id}-prof`}>Profissão</Label>
-          <EscolhaOuTexto id={`${id}-prof`} rotulo="Profissão" opcoes={PROFISSOES} value={p.profissao} onChange={(v) => mudar({ profissao: v })} />
+      )}
+      <div className="space-y-1.5" data-endereco>
+        <p className="text-xs font-medium">
+          Endereço{" "}
+          <span className="font-normal text-muted-foreground">
+            {cliente.endereco ? "do cadastro · pode corrigir aqui, vale só para este contrato" : "sem endereço no cadastro"}
+          </span>
+        </p>
+        <div className="grid gap-2 sm:grid-cols-12">
+          <PedacoDoEndereco className="sm:col-span-6" id="end-rua" rotulo="Rua" valor={end.rua} onChange={(v) => mudarEnd({ rua: v })} />
+          <PedacoDoEndereco className="sm:col-span-2" id="end-numero" rotulo="Nº" valor={end.numero} onChange={(v) => mudarEnd({ numero: v })} />
+          <PedacoDoEndereco className="sm:col-span-4" id="end-bairro" rotulo="Bairro" valor={end.bairro} onChange={(v) => mudarEnd({ bairro: v })} />
+          <PedacoDoEndereco className="sm:col-span-5" id="end-cidade" rotulo="Cidade" valor={end.cidade} onChange={(v) => mudarEnd({ cidade: v })} />
+          <PedacoDoEndereco className="sm:col-span-2" id="end-uf" rotulo="UF" valor={end.uf} onChange={(v) => mudarEnd({ uf: v.toUpperCase().slice(0, 2) })} />
+          <PedacoDoEndereco className="sm:col-span-3" id="end-cep" rotulo="CEP" valor={end.cep} onChange={(v) => mudarEnd({ cep: v })} inputMode="numeric" />
+          <PedacoDoEndereco className="sm:col-span-2" id="end-pais" rotulo="País" valor={end.pais} onChange={(v) => mudarEnd({ pais: v })} />
         </div>
       </div>
-      <div className="grid gap-3 sm:grid-cols-3">
-        <div className="space-y-1">
-          <Label htmlFor={`${id}-rg`}>RG</Label>
-          <Input id={`${id}-rg`} value={p.rg} onChange={(e) => mudar({ rg: e.target.value })} placeholder="opcional" />
-        </div>
-        <div className="space-y-1 sm:col-span-2">
-          <Label htmlFor={`${id}-end`}>
-            Endereço
-            {p.endereco && p.endereco === cliente.endereco && <span className="ml-2 text-xs font-normal text-muted-foreground">do cadastro</span>}
-          </Label>
-          <Input id={`${id}-end`} value={p.endereco} onChange={(e) => mudar({ endereco: e.target.value })} placeholder="sem endereço no cadastro" />
-        </div>
-      </div>
-      <p className="text-xs text-muted-foreground" data-qualificacao-texto>
-        No contrato: <span className="font-medium text-foreground">{valor || "—"}</span>
-      </p>
+      {temQualificacao && (
+        <p className="text-sm leading-relaxed text-muted-foreground" data-qualificacao-texto>
+          No contrato: <span className="font-medium text-foreground">{frase || "—"}</span>
+        </p>
+      )}
     </fieldset>
+  );
+}
+
+/** Dado do cadastro que o contrato usa como está: aparece, mas não se altera aqui. */
+function CampoTravado(props: { id: string; rotulo: string; valor: string; className?: string }) {
+  return (
+    <div className={`space-y-1 ${props.className ?? ""}`}>
+      <Label htmlFor={props.id} className="text-xs">
+        {props.rotulo} <span className="font-normal text-muted-foreground">do cadastro</span>
+      </Label>
+      <div className="relative">
+        <Input id={props.id} className="h-8 cursor-default bg-muted/60 pr-8 text-sm" value={props.valor} readOnly aria-readonly title="Vem do cadastro do cliente. Para mudar, altere o cadastro." />
+        <Lock className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+      </div>
+    </div>
+  );
+}
+
+function PedacoDoEndereco(props: { id: string; rotulo: string; valor: string; onChange: (v: string) => void; className?: string; inputMode?: "numeric" }) {
+  return (
+    <div className={`space-y-1 ${props.className ?? ""}`}>
+      <Label htmlFor={props.id} className="text-xs text-muted-foreground">{props.rotulo}</Label>
+      <Input id={props.id} className="h-8 text-sm" inputMode={props.inputMode} value={props.valor} onChange={(e) => props.onChange(e.target.value)} />
+    </div>
   );
 }
 

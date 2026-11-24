@@ -121,6 +121,10 @@ export const RPC: Record<string, Exigencia> = {
   aplicar_template: { permissao: "tarefas:gerenciar" },
   vincular_publicacao_dje: { permissao: "casos:editar" },
   set_senha_meu_inss: { permissao: "senha_inss:ler" },
+  // o link de assinatura do ZapSign sob demanda (#545): a mesma régua do envio
+  // (`documentos:enviar`) — ou o dono do caso, que a RPC também aceita mas a
+  // tela não precisa espelhar (quem é dono já costuma ter a permissão).
+  assinatura_sign_url: { permissao: "documentos:enviar" },
   // relógio de prazos (#397): escopo `atribuidos` só na tarefa de quem pede;
   // decidir_prorrogacao é do admin (is_admin), sem permissão a espelhar.
   pedir_prorrogacao: { permissao: "tarefas:gerenciar" },
@@ -141,6 +145,8 @@ export const FUNCTION: Record<string, Exigencia> = {
   "ia-analise": { permissao: "ia:usar" },
   "extrair-dados-cliente": { permissao: "ia:usar" },
   "excluir-parceiro": { permissao: "parceiros:excluir" },
+  // resumo periódico para parceiros: config, escolha por parceiro, prévia e teste
+  "resumo-parceiros": { permissao: "parceiros:gerenciar" },
   // classe inversa (24/09): antes pediam só "ser interna"
   "ia-assistant": { permissao: "ia:usar" },
   // `ia-config` fica de fora de propósito: o cofre de IA exige `ia:usar`

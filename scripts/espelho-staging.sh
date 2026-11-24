@@ -69,7 +69,10 @@ EXCLUIR=(escritorio_integracoes acessos_suporte ia_integracoes ia_tokens ia_acoe
   avisos_aceite_pendente
   # #517 — envios ao ZapSign: a linha guarda o link de assinatura REAL do
   # cliente; não sai de produção.
-  assinaturas)
+  assinaturas
+  # resumo para parceiros: a escolha por parceiro e os envios apontam para
+  # usuários (o truncate de usuarios as levaria); no staging começam vazias.
+  resumo_parceiros_preferencia resumo_parceiros_envios)
 # Tabela NOVA com RLS precisa de uma decisão aqui (EXCLUIR/PRESERVAR) ou da
 # policy espelho_leitura_select em produção (aí ela é copiada). Sem isso o
 # espelho aborta — e o `rbac-conferir-exigencias` (produção) acusa antes.
@@ -86,7 +89,9 @@ EXCLUIR=(escritorio_integracoes acessos_suporte ia_integracoes ia_tokens ia_acoe
 # preservar (o truncate de usuarios cascateia neles): ficam em EXCLUIR e o
 # passo 6/6 reaplica as migrations (backfill de membros do escritório padrão)
 # e o seed do Canário/QG.
-PRESERVAR=(app_config escritorios papeis permissoes papel_permissoes escritorio_config)
+# resumo_parceiros_config: ligar/desligar o resumo é do ambiente (o staging
+# testa sem herdar a escolha de produção). Só tem FK para escritorios (PRESERVAR).
+PRESERVAR=(app_config escritorios papeis permissoes papel_permissoes escritorio_config resumo_parceiros_config)
 
 # Array SQL a partir dos nomes acima (fixos neste script, sem entrada externa).
 sql_array() { local s="" t; for t in "$@"; do s+="${s:+, }'$t'"; done; echo "array[$s]::text[]"; }
@@ -176,6 +181,34 @@ echo "==> 3/4 restore no staging…"
 # postgres gerenciado não permite DISABLE TRIGGER ALL de pg_restore.
 { echo "set session_replication_role = replica;"; cat "$DUMP"; } |
   psql "$STG_URL" -q -v ON_ERROR_STOP=1 -o /dev/null
+
+# (h) Pós-restore: toda tabela de EXCLUIR tem de estar VAZIA no staging (#546).
+#     É a asserção POSITIVA que fecha o buraco do opt-out. A trava (b) só cobre
+#     tabela COM RLS (exige a policy do espelho ou classificação); uma tabela
+#     sensível NOVA que nasça SEM RLS, ou que ganhe a policy espelho_leitura_select,
+#     e que ninguém lembre de pôr em EXCLUIR, entraria no dump e seria restaurada
+#     aqui — vazamento silencioso. A checagem é guiada pelo PRÓPRIO array EXCLUIR:
+#     tirar uma tabela da checagem é tirá-la de EXCLUIR (logo, da exclusão do
+#     dump — mudança barulhenta). A régua e2e/unit/espelho-excluir-vazias.test.ts
+#     prova isso lendo este script como texto.
+#     Roda AGORA, logo após o restore e ANTES de qualquer repopulação legítima:
+#     a chave de IA só volta para escritorio_integracoes no passo 6
+#     (espelho-reconstruir-acesso.sql) e os seeds reescrevem usuarios/membros/
+#     aceites_termos nos passos 5 e 6 — conferir depois deles daria falso-ok.
+#     Abortar faz o run falhar e o passo "Avisa que o espelho falhou" do workflow
+#     abre o card (a mesma rotina das outras abortagens, sem reinventar nada).
+echo "==> 3c/6 conferindo que as tabelas de EXCLUIR ficaram VAZIAS no staging…"
+excluir_com_linhas="$(psql "$STG_URL" -tAX -v ON_ERROR_STOP=1 -c "
+  do \$\$ declare tbl text; cnt bigint; begin
+    create temp table _excluir_contagem(tabela text, linhas bigint) on commit drop;
+    foreach tbl in array $(sql_array "${EXCLUIR[@]}") loop
+      if to_regclass('public.' || tbl) is null then continue; end if;
+      execute format('select count(*) from public.%I', tbl) into cnt;
+      if cnt > 0 then insert into _excluir_contagem(tabela, linhas) values (tbl, cnt); end if;
+    end loop;
+  end \$\$;
+  select coalesce(string_agg(tabela || ' (' || linhas || ' linha(s))', ', ' order by tabela), '') from _excluir_contagem")"
+[ -z "$excluir_com_linhas" ] || { echo "ABORTANDO: tabela(s) de EXCLUIR com dados no staging após o restore: $excluir_com_linhas. É dado sensível de produção vazando para o staging — alguém deu a policy espelho_leitura_select (ou tirou a RLS) de uma tabela sensível sem pô-la em EXCLUIR, ou uma repopulação entrou antes desta checagem. Investigar antes do próximo espelho."; exit 1; }
 
 # (f) Escritório: os dados de produção apontam para o id do escritório de
 #     PRODUÇÃO; o staging preserva os seus. Sem a troca, a anonimização falha

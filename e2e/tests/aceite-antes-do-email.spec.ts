@@ -18,7 +18,8 @@ import { TERMOS_VERSAO } from "../../supabase/functions/_shared/termos";
 const admin = adminClient();
 const MOCK = "http://localhost:8787";
 const EMAIL = "e2e+semaceite@marasandraconnect.com";
-const CLIENTE = "[E2E aceite] Cliente Sigiloso";
+// o banco grava o nome do cliente em caixa alta (migration_clientes_nome_caixa_alta)
+const CLIENTE = "[E2E ACEITE] CLIENTE SIGILOSO";
 const TITULO = "[E2E aceite] Perícia designada";
 
 interface EmailMock { to: string | string[]; subject: string; html: string; text?: string; recebido_em: string }
@@ -99,7 +100,7 @@ test.describe.serial("parceiro sem aceite dos termos (#249)", () => {
     expect(recebidos).toHaveLength(1);
     const corpo = `${recebidos[0].subject}\n${recebidos[0].html}\n${recebidos[0].text ?? ""}`;
     expect(corpo).toMatch(/assine os termos/i);
-    for (const segredo of ["Cliente Sigiloso", "Perícia designada", "só quem assinou"]) {
+    for (const segredo of ["CLIENTE SIGILOSO", "Perícia designada", "só quem assinou"]) {
       expect(corpo, `o aviso não pode levar "${segredo}"`).not.toContain(segredo);
     }
   });
@@ -137,6 +138,6 @@ test.describe.serial("parceiro sem aceite dos termos (#249)", () => {
     expect(r.json?.aviso_sem_aceite).toBeUndefined();
     const recebidos = await emailsPara(EMAIL);
     expect(recebidos).toHaveLength(2);
-    expect(`${recebidos[1].subject}\n${recebidos[1].html}`).toContain("Cliente Sigiloso");
+    expect(`${recebidos[1].subject}\n${recebidos[1].html}`).toContain("CLIENTE SIGILOSO");
   });
 });

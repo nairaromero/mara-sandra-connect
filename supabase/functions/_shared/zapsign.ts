@@ -195,12 +195,12 @@ export async function listarModelos(integ: Integracao): Promise<ModeloZapsign[]>
   for (let pagina = 1; pagina <= MODELOS_MAX_PAGINAS; pagina++) {
     const r = (await chamar(integ, `/api/v1/templates/?page=${pagina}`)) as {
       next?: string | null;
-      results?: Array<{ token?: string; name?: string; active?: boolean; template_type?: string; folder_path?: string }>;
+      results?: Array<{ token?: string; name?: string; active?: boolean; template_type?: string; folder_path?: string; last_update_at?: string }>;
     };
     for (const m of r.results ?? []) {
       // só DOCX gera documento por `models/create-doc` (o de PDF é preenchido na tela do ZapSign)
       if (!m.token || m.active === false || (m.template_type && m.template_type !== "docx")) continue;
-      modelos.push({ token: m.token, nome: String(m.name ?? "Modelo sem nome"), pasta: String(m.folder_path || "/") });
+      modelos.push({ token: m.token, nome: String(m.name ?? "Modelo sem nome"), pasta: String(m.folder_path || "/"), atualizado: String(m.last_update_at ?? "") });
     }
     if (!r.next) break;
   }

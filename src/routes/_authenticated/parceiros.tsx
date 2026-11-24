@@ -35,6 +35,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ResumoParceiros } from "@/components/parceiros/resumo-parceiros";
 import {
   Table,
   TableBody,
@@ -77,7 +78,7 @@ import { buscarPaginado } from "@/lib/supabase-paginado";
 import { nomeDoEscritorio } from "@/lib/marca-escritorio";
 
 export const Route = createFileRoute("/_authenticated/parceiros")({
-  // Aba ativa na URL (?tab=convites|armazenamento) pra deep-link e
+  // Aba ativa na URL (?tab=convites|armazenamento|resumo) pra deep-link e
   // voltar/avancar — mesmo padrao do ?caso= em /conversas.
   validateSearch: (s: Record<string, unknown>): { tab?: string } => ({
     tab: typeof s.tab === "string" ? s.tab : undefined,
@@ -237,7 +238,7 @@ function ParceirosPage() {
   // ---- Abas ----
   // A aba vem da URL; valor desconhecido cai em "ativos" (a lista principal).
   const search = Route.useSearch();
-  const tab = search.tab === "convites" || search.tab === "armazenamento" ? search.tab : "ativos";
+  const tab = search.tab === "convites" || search.tab === "armazenamento" || search.tab === "resumo" ? search.tab : "ativos";
   function irParaAba(v: string) {
     navigate({
       to: "/parceiros",
@@ -825,6 +826,10 @@ function ParceirosPage() {
               <HardDrive className="h-4 w-4" />
               <span>Armazenamento</span>
             </TabsTrigger>
+            <TabsTrigger value="resumo" className="flex items-center gap-1.5 shrink-0">
+              <Mail className="h-4 w-4" />
+              <span>Resumo semanal</span>
+            </TabsTrigger>
           </TabsList>
 
           {/* Parceiros aguardando aceite (sem onboarded_em) */}
@@ -1283,6 +1288,11 @@ function ParceirosPage() {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* Resumo periódico por e-mail: config do escritório + escolha por parceiro */}
+          <TabsContent value="resumo">
+            {tab === "resumo" && <ResumoParceiros />}
           </TabsContent>
         </Tabs>
 

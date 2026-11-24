@@ -11,7 +11,8 @@ import { adminClient, cleanupE2E, cpfValido, MARCADOR } from "../supabase-admin"
 test.use({ storageState: STORAGE_INTERNO });
 
 const admin = adminClient();
-const nomeCliente = `${MARCADOR} Import Interno ${Date.now()}`;
+// caixa alta: é como o banco grava o nome do cliente
+const nomeCliente = `${MARCADOR} Import Interno ${Date.now()}`.toUpperCase();
 
 test.afterAll(async () => {
   await cleanupE2E(admin);

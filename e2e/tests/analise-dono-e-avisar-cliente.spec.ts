@@ -90,7 +90,7 @@ test("perícia em caso sem parceiro vira tarefa de avisar o cliente", async () =
 });
 
 test("responsável escolhido no formulário manda por cima do dono padrão", async ({ page }) => {
-  const nome = `[E2E] Form Parceiro ${Date.now()}`;
+  const nome = `[E2E] FORM PARCEIRO ${Date.now()}`; // caixa alta: é como o banco grava
   await page.goto("/casos/novo");
 
   await page.getByLabel("Nome completo *").fill(nome);

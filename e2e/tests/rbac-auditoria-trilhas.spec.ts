@@ -179,7 +179,7 @@ test.describe.serial("trilha de quem mudou acesso e de quem apagou", () => {
 
     const l = await ultimaLinhaDaTrilha(ESC, "cliente.excluido");
     expect(l, "a exclusão irreversível tem de deixar linha").not.toBeNull();
-    expect(l!.detalhes.nome).toContain(MARCA);
+    expect(l!.detalhes.nome).toContain(MARCA.toUpperCase()); // o banco grava o nome em caixa alta
     expect(l!.detalhes.casos, "os dois casos contados").toBe(2);
     // e o cliente foi mesmo
     expect((await admin.from("clientes").select("id").eq("id", cliente)).data ?? []).toHaveLength(0);
