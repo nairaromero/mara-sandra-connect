@@ -25,6 +25,7 @@ import { useDestaque } from "@/lib/destaque/destaque-context";
 import { formatarBR } from "@/lib/fuso";
 import { proximoDiaUtil } from "@/lib/agenda/helpers";
 import { lerLista } from "@/lib/leitura";
+import { ehPericiaJudicial } from "@/lib/tarefas/pericia";
 
 const DIAS_ATE_PRIMEIRA_CONFERENCIA = 10;
 
@@ -49,6 +50,8 @@ export function ComparecimentoPericia({
   const { marcar: marcarDestaque } = useDestaque();
 
   const meta = (tarefa.metadata ?? {}) as { pericia_em?: string };
+  // Perícia judicial espera um LAUDO, não um resultado do INSS.
+  const judicial = ehPericiaJudicial(tarefa);
   const cliente = tarefa.caso?.cliente?.nome ?? "o cliente";
 
   async function registrar(compareceu: boolean) {
@@ -128,13 +131,17 @@ export function ComparecimentoPericia({
               tipo: "contato_cliente",
               status: "a_fazer",
               prioridade: 2,
-              titulo: `Conferir resultado da perícia - ${cliente}`,
-              descricao:
-                "Conferir se o resultado da perícia saiu. Se ainda não saiu, use o botão para reagendar a próxima conferência em 10 dias.",
+              titulo: judicial
+                ? `Conferir laudo da perícia judicial - ${cliente}`
+                : `Conferir resultado da perícia - ${cliente}`,
+              descricao: judicial
+                ? "Conferir se o laudo saiu nos autos. Se ainda não saiu, use o botão para reagendar a próxima conferência em 10 dias."
+                : "Conferir se o resultado da perícia saiu. Se ainda não saiu, use o botão para reagendar a próxima conferência em 10 dias.",
               due_at: due.toISOString(),
               origem: "pericia_acompanhamento",
               metadata: {
                 acompanhamento_pericia: true,
+                ...(judicial ? { pericia_judicial: true } : {}),
                 ...(meta.pericia_em ? { pericia_em: meta.pericia_em } : {}),
                 criado_por_comparecimento: tarefa.id,
               },

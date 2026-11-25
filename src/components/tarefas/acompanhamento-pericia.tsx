@@ -12,6 +12,12 @@
 //  - "Resultado saiu" → encerra a tarefa e cria andamento VISÍVEL ao parceiro,
 //    que é a notícia que ele espera.
 //
+// Perícia JUDICIAL (`ehPericiaJudicial`) não tem deferido/indeferido: o que sai
+// é um LAUDO (favorável, parcial ou desfavorável) e o processo segue até a
+// sentença. Os botões mudam, o andamento fala em laudo e a corrente seguinte é
+// a de analisar o laudo — nunca a do Concedido (caso apontado pela Mara em
+// 25/11/2026: o "deferido" lançou benefício concedido num processo judicial).
+//
 // O escalonamento (ouvidoria 30d / peticionar 60d / ajuizar 90d) NÃO mora
 // aqui: é um job diário no banco. Se ninguém clicar em nada, o alerta nasce
 // do mesmo jeito — é a diferença entre um lembrete e um controle de prazo.
@@ -28,6 +34,12 @@ import { useDestaque } from "@/lib/destaque/destaque-context";
 import { formatarBR } from "@/lib/fuso";
 import { useAuth } from "@/hooks/use-auth";
 import { aplicarTemplateProgramatico } from "@/lib/tarefas/aplicador";
+import {
+  andamentoDoLaudo,
+  ehPericiaJudicial,
+  TEMPLATE_LAUDO_JUDICIAL,
+  type LaudoPericia,
+} from "@/lib/tarefas/pericia";
 
 const DIAS_ENTRE_CHECAGENS = 10;
 
@@ -58,7 +70,10 @@ export function AcompanhamentoPericia({
     ? Math.floor((Date.now() - periciaEm.getTime()) / 86400_000)
     : null;
 
-  const [agindo, setAgindo] = useState<"sem" | "deferido" | "indeferido" | null>(null);
+  const judicial = ehPericiaJudicial(tarefa);
+  const [agindo, setAgindo] = useState<"sem" | "deferido" | "indeferido" | LaudoPericia | null>(
+    null,
+  );
   const { usuario } = useAuth();
   const { marcar: marcarDestaque } = useDestaque();
 
@@ -98,9 +113,17 @@ export function AcompanhamentoPericia({
   // saiu=true SEMPRE vem com o desfecho: deferido aplica o template Concedido,
   // indeferido aplica o Indeferido — o resultado emenda na próxima corrente
   // (pedido da Naira, 2026-09-01).
-  async function registrar(saiu: boolean, desfecho?: "deferido" | "indeferido") {
+  //
+  // Na perícia judicial o que vem é `laudo`, nunca `desfecho`: os dois caminhos
+  // não se cruzam, e é isso que impede o Concedido de nascer de um laudo.
+  async function registrar(
+    saiu: boolean,
+    desfecho?: "deferido" | "indeferido",
+    laudo?: LaudoPericia,
+  ) {
     if (agindo) return;
-    setAgindo(saiu ? (desfecho ?? "deferido") : "sem");
+    if (saiu && judicial !== !!laudo) return;
+    setAgindo(saiu ? (laudo ?? desfecho ?? "deferido") : "sem");
     try {
       const agora = new Date();
       let semVinculo = false;
@@ -121,12 +144,18 @@ export function AcompanhamentoPericia({
             processo_admin_id: vinculo.processo_admin_id,
             processo_judicial_id: vinculo.processo_judicial_id,
             origem: "interno",
-            titulo: saiu
-              ? `Resultado da perícia — ${desfecho === "indeferido" ? "INDEFERIDO" : "DEFERIDO"} (${fmt(agora)})`
-              : `Conferência: resultado da perícia ainda não saiu — ${fmt(agora)}`,
-            descricao: saiu
-              ? "Resultado da perícia saiu; acompanhamento encerrado."
-              : `Conferido em ${fmt(agora)}. Próxima conferência em ${DIAS_ENTRE_CHECAGENS} dias.`,
+            titulo: laudo
+              ? andamentoDoLaudo(laudo, fmt(agora)).titulo
+              : saiu
+                ? `Resultado da perícia — ${desfecho === "indeferido" ? "INDEFERIDO" : "DEFERIDO"} (${fmt(agora)})`
+                : judicial
+                  ? `Conferência: laudo da perícia judicial ainda não saiu — ${fmt(agora)}`
+                  : `Conferência: resultado da perícia ainda não saiu — ${fmt(agora)}`,
+            descricao: laudo
+              ? andamentoDoLaudo(laudo, fmt(agora)).descricao
+              : saiu
+                ? "Resultado da perícia saiu; acompanhamento encerrado."
+                : `Conferido em ${fmt(agora)}. Próxima conferência em ${DIAS_ENTRE_CHECAGENS} dias.`,
             data_evento: agora.toISOString(),
             // Só a notícia boa vai pro parceiro. As conferências sem novidade
             // são ruído pra quem está do lado de fora.
@@ -135,6 +164,7 @@ export function AcompanhamentoPericia({
               acompanhamento_pericia: true,
               resultado_saiu: saiu,
               tarefa_id: tarefa.id,
+              ...(laudo ? { laudo_pericia_judicial: laudo } : {}),
             },
           })
           .select("id")
@@ -162,16 +192,25 @@ export function AcompanhamentoPericia({
             ...(tarefa.metadata ?? {}),
             checagens: [...checagens, agora.toISOString()],
             ...(saiu ? { resultado_em: agora.toISOString() } : {}),
+            ...(laudo ? { laudo_pericia_judicial: laudo } : {}),
           },
         })
         .eq("id", tarefa.id);
       if (errT) throw errT;
 
-      // Desfecho emenda no template certo (Concedido / Indeferido).
-      if (saiu && desfecho && tarefa.caso_id) {
+      // Desfecho emenda no template certo (Concedido / Indeferido); laudo
+      // judicial emenda na análise do laudo.
+      const proximo = laudo
+        ? TEMPLATE_LAUDO_JUDICIAL
+        : desfecho === "indeferido"
+          ? "indeferido"
+          : desfecho === "deferido"
+            ? "concedido"
+            : null;
+      if (saiu && proximo && tarefa.caso_id) {
         try {
           await aplicarTemplateProgramatico({
-            nomeTemplate: desfecho === "indeferido" ? "indeferido" : "concedido",
+            nomeTemplate: proximo,
             casoId: tarefa.caso_id,
             clienteNome: tarefa.caso?.cliente?.nome ?? "cliente",
             responsavelId: tarefa.responsavel_id,
@@ -183,19 +222,23 @@ export function AcompanhamentoPericia({
           toast.warning("Resultado registrado, mas o template de sequência falhou", {
             description:
               ((e as { message?: string }).message ?? "") +
-              " — aplique o template " +
-              (desfecho === "indeferido" ? "Indeferido" : "Concedido") +
-              " à mão.",
+              (laudo
+                ? " — abra à mão a tarefa de analisar o laudo."
+                : " — aplique o template " +
+                  (desfecho === "indeferido" ? "Indeferido" : "Concedido") +
+                  " à mão."),
           });
         }
       }
 
       toast.success(
-        saiu
-          ? desfecho === "indeferido"
-            ? "Indeferido registrado — análise do indeferimento aberta."
-            : "Deferimento registrado — análise e implantação abertas."
-          : `Conferência registrada. Próxima em ${DIAS_ENTRE_CHECAGENS} dias.`,
+        laudo
+          ? "Laudo registrado — análise do laudo aberta. O processo segue até a sentença."
+          : saiu
+            ? desfecho === "indeferido"
+              ? "Indeferido registrado — análise do indeferimento aberta."
+              : "Deferimento registrado — análise e implantação abertas."
+            : `Conferência registrada. Próxima em ${DIAS_ENTRE_CHECAGENS} dias.`,
         // Sem vínculo, o andamento não entra no card do processo — dizer onde
         // ele foi parar evita a leitura de que o clique não fez nada.
         semVinculo
@@ -225,7 +268,9 @@ export function AcompanhamentoPericia({
       {!compacto && (
         <div className="flex items-center gap-2">
           <Stethoscope className="h-4 w-4 text-[var(--gold)]" />
-          <span className="font-medium">Resultado da perícia</span>
+          <span className="font-medium">
+            {judicial ? "Laudo da perícia judicial" : "Resultado da perícia"}
+          </span>
           {diasDesde !== null && (
             <Badge variant="outline" className="font-normal">
               {diasDesde}d desde a perícia
@@ -242,7 +287,7 @@ export function AcompanhamentoPericia({
       {tarefa.status === "feito" ? (
         <p className="text-xs text-muted-foreground flex items-center gap-1">
           <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-          Resultado registrado.
+          {judicial ? "Laudo registrado." : "Resultado registrado."}
         </p>
       ) : (
         <>
@@ -258,39 +303,67 @@ export function AcompanhamentoPericia({
               ) : (
                 <Clock className="h-3.5 w-3.5 mr-1" />
               )}
-              Ainda sem resultado
+              {judicial ? "Ainda sem laudo" : "Ainda sem resultado"}
             </Button>
-            <Button
-              size="sm"
-              disabled={agindo !== null}
-              onClick={() => registrar(true, "deferido")}
-            >
-              {agindo === "deferido" ? (
-                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-              ) : (
-                <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-              )}
-              Saiu — deferido
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={agindo !== null}
-              onClick={() => registrar(true, "indeferido")}
-            >
-              {agindo === "indeferido" ? (
-                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-              ) : (
-                <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-              )}
-              Saiu — indeferido
-            </Button>
+            {judicial
+              ? (
+                  [
+                    ["favoravel", "Laudo favorável"],
+                    ["parcial", "Parcialmente favorável"],
+                    ["desfavoravel", "Laudo desfavorável"],
+                  ] as const
+                ).map(([laudo, rotulo]) => (
+                  <Button
+                    key={laudo}
+                    size="sm"
+                    variant={laudo === "favoravel" ? "default" : "outline"}
+                    disabled={agindo !== null}
+                    onClick={() => registrar(true, undefined, laudo)}
+                  >
+                    {agindo === laudo ? (
+                      <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                    )}
+                    {rotulo}
+                  </Button>
+                ))
+              : (
+                  [
+                    ["deferido", "Saiu — deferido"],
+                    ["indeferido", "Saiu — indeferido"],
+                  ] as const
+                ).map(([desfecho, rotulo]) => (
+                  <Button
+                    key={desfecho}
+                    size="sm"
+                    variant={desfecho === "deferido" ? "default" : "outline"}
+                    disabled={agindo !== null}
+                    onClick={() => registrar(true, desfecho)}
+                  >
+                    {agindo === desfecho ? (
+                      <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                    )}
+                    {rotulo}
+                  </Button>
+                ))}
           </div>
           {!compacto && (
             <p className="text-xs text-muted-foreground">
-              Sem resultado, a conferência volta em {DIAS_ENTRE_CHECAGENS} dias.
-              Aos 30, 60 e 90 dias da perícia nascem sozinhos os alertas de
-              ouvidoria, peticionamento e ajuizamento.
+              {judicial ? (
+                <>
+                  Sem laudo, a conferência volta em {DIAS_ENTRE_CHECAGENS} dias. O laudo não é a
+                  decisão: ao registrar, abre a análise do laudo e o processo segue até a sentença.
+                </>
+              ) : (
+                <>
+                  Sem resultado, a conferência volta em {DIAS_ENTRE_CHECAGENS} dias. Aos 30, 60 e 90
+                  dias da perícia nascem sozinhos os alertas de ouvidoria, peticionamento e
+                  ajuizamento.
+                </>
+              )}
             </p>
           )}
         </>
