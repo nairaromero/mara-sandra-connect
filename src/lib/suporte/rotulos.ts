@@ -46,6 +46,8 @@ export const ROTULO_ACAO: Record<string, string> = {
   "integracao.caixa_conectada": "Conectou uma caixa de e-mail do INSS",
   "integracao.caixa_desconectada": "Desconectou uma caixa de e-mail do INSS",
   "assinatura.enviada": "Enviou um documento para assinatura",
+  "assinatura.cancelada": "Cancelou um envio para assinatura (no ZapSign também)",
+  "assinatura.excluida": "Excluiu um envio para assinatura do sistema",
   "assinatura.link_copiado": "Copiou o link de assinatura de um signatário",
 };
 

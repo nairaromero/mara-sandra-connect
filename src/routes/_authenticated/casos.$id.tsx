@@ -5182,6 +5182,11 @@ function TabDocumentos(props: TabDocumentosProps) {
                 erro={assinaturas.erro}
                 podeAtualizar={podeAssinar}
                 podeCopiarLink={isInterno && podeChamar("assinatura_sign_url")}
+                podeExcluir={podeAssinar && podeEscrever("documentos", "excluir")}
+                onExcluido={() => {
+                  assinaturas.recarregar();
+                  onChange(); // o PDF assinado e as tarefas podem ter saído junto
+                }}
                 onMudou={(a) => {
                   assinaturas.recarregar();
                   // o PDF assinado acabou de entrar nos documentos do caso

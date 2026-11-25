@@ -367,6 +367,29 @@ export async function abrirTarefaAcompanhar(sb: SupabaseClient, linha: LinhaAssi
 }
 
 /** Todos assinaram: conclui o acompanhamento e abre o passo seguinte. */
+/** Envio cancelado: a tarefa de acompanhar a assinatura não tem mais o que acompanhar. */
+async function tarefaDoCancelado(sb: SupabaseClient, linha: LinhaAssinatura): Promise<void> {
+  const { error } = await sb.from("tarefas")
+    .update({ status: "cancelado", completed_at: new Date().toISOString() })
+    .eq("origem", ORIGEM_TAREFA).eq("origem_ref", `acompanhar:${linha.id}`).eq("status", "a_fazer");
+  if (error) console.warn(`[zapsign] encerrando a tarefa de acompanhar ${linha.id}: ${error.message}`);
+}
+
+/**
+ * Exclui o documento no ZapSign (o link de assinatura para de funcionar). Lá a
+ * exclusão é só uma marca (`deleted`); o status da nossa linha vem depois, pela
+ * leitura de sempre (`sincronizarAssinatura`). Documento criado já contou no plano.
+ */
+export async function excluirNoZapsign(integ: Integracao, docToken: string): Promise<void> {
+  try {
+    await chamar(integ, `/api/v1/docs/${encodeURIComponent(docToken)}/`, { method: "DELETE" });
+  } catch (e) {
+    // resposta sem corpo JSON com status de sucesso: excluiu do mesmo jeito
+    if (e instanceof ErroZapsign && e.http >= 200 && e.http < 300) return;
+    throw e;
+  }
+}
+
 async function tarefasDoAssinado(sb: SupabaseClient, linha: LinhaAssinatura): Promise<void> {
   const { error } = await sb.from("tarefas")
     .update({ status: "feito", completed_at: new Date().toISOString() })
@@ -647,7 +670,9 @@ export async function sincronizarAssinatura(sb: SupabaseClient, integ: Integraca
 
   if (situacao !== "todos_assinaram") {
     // nunca por cima de `gravando`/`assinado`: quem está gravando o PDF manda
-    return (await gravarSe(["enviado", "aberto", "recusado", "cancelado"], { status: situacao, signatarios })) ?? (await ler());
+    const atual = (await gravarSe(["enviado", "aberto", "recusado", "cancelado"], { status: situacao, signatarios })) ?? (await ler());
+    if (atual.status === "cancelado") await tarefaDoCancelado(sb, atual); // sem efeito se já encerrada
+    return atual;
   }
 
   // Trava: só quem conseguir passar a linha para `gravando` baixa o PDF. A

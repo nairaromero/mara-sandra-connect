@@ -259,6 +259,12 @@ o sistema em produção. Quando chegar, vale o seguinte:
   "link-opened"/"abriu-link") e os dois valem; o webhook só para de reenviar com 200; erro do ZapSign
   vira frase em `fraseDoErroZapsign` (401 token, 403 ambiente, 402 plano, 429 limite). O simulador
   local repete as NOSSAS suposições: o que a doc não diz só o sandbox do ZapSign responde.
+  Cancelar e excluir envio (#550, `zapsign-enviar`, pede `documentos:excluir` além de `documentos:enviar`):
+  "cancelar" só em `enviado`/`aberto` — exclui no ZapSign (`excluirNoZapsign`), o status vem da leitura de
+  sempre e a tarefa de acompanhar fecha como `cancelado` (vale também para o aviso `doc_deleted`); "excluir"
+  só o encerrado (assinado/recusado/cancelado) e o PDF assinado e as tarefas só saem se pedidos, com a sessão
+  de quem clicou (`quem.rls`: `excluir_tarefa_com_motivo` e o DELETE em `documentos` registram a pessoa nas
+  trilhas); `auditar` grava `assinatura.cancelada`/`assinatura.excluida` antes de apagar.
   Contrato a partir de MODELO da conta do ZapSign (#522): "Gerar contrato" na aba
   Documentos do caso lista todos os modelos (`listarModelos`, todas as páginas, só DOCX
   ativo), com busca, sugeridos pelo tipo de benefício e pastas (funções puras em
