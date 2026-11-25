@@ -342,6 +342,12 @@ o sistema em produção. Quando chegar, vale o seguinte:
   e lista da function). A checagem do link (porta contra SSRF em CADA salto) é
   `_shared/checar-link.ts`. Nas specs, chamada como o SISTEMA (cron/pg_net) é
   `chamarComoSistema` de `e2e/rbac.ts`.
+  Perícia do INSS × perícia JUDICIAL (25/11): `ehPericiaJudicial` em `src/lib/tarefas/pericia.ts`
+  é a única decisão de "qual das duas é" (o SQL repete em `private.eh_pericia_judicial`). No INSS o
+  resultado é o desfecho (deferido → template Concedido); no judicial sai um LAUDO (favorável,
+  parcial, desfavorável), o andamento fala em laudo e a corrente é `laudo_pericia_judicial`
+  (analisar e manifestar) — nunca o Concedido, e sem os alertas de ouvidoria/mora dos 30/60/90
+  dias. Régua: `e2e/unit/pericia-judicial.test.ts`; prova: `e2e/tests/pericia-judicial-laudo.spec.ts`.
 - **Quem muda ACESSO audita** (desde 2026-09-27, `migration_rbac_25`/`26`; desenho em
   planning/AUDITABILIDADE.md): papel, permissão, status do vínculo, titularidade e staff
   chamam `private.auditar` com o antes e o depois; apagar cliente, documento ou andamento
