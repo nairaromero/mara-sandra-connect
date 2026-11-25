@@ -98,3 +98,19 @@ export const cacheModelos = criarCacheModelos({
   buscarLista: listarModelosZapsign,
   buscarTexto: (modeloToken, casoId) => textoDoModeloZapsign(casoId, modeloToken),
 });
+
+/**
+ * Envio ainda aguardando assinatura: exclui no ZapSign (o link para de
+ * funcionar) e a linha vira "cancelado". Pede `documentos:excluir`.
+ */
+export function cancelarEnvioZapsign(assinaturaId: string) {
+  return chamarZapsign({ action: "cancelar", assinatura_id: assinaturaId });
+}
+
+/**
+ * Envio encerrado (assinado, recusado, cancelado) sai do sistema. O PDF
+ * assinado e as tarefas criadas por ele só saem se pedidos. Pede `documentos:excluir`.
+ */
+export async function excluirEnvioZapsign(assinaturaId: string, opcoes: { apagarPdf: boolean; apagarTarefas: boolean }): Promise<void> {
+  await invocar<{ excluida: string }>({ action: "excluir", assinatura_id: assinaturaId, apagar_pdf: opcoes.apagarPdf, apagar_tarefas: opcoes.apagarTarefas });
+}

@@ -400,6 +400,65 @@ test.describe.serial("ZapSign: enviar do caso e receber o assinado", () => {
     expect((ptLinha?.signatarios as Array<{ status: string }>)[0].status).toBe("abriu");
   });
 
+  test("cancelar e excluir envio (#550): cancela no ZapSign e fecha a tarefa; excluir só o encerrado; PDF e tarefas só se pedidos, com a trilha de quem", async () => {
+    test.skip(!mockVivo || !assinaturaId, "depende do envio");
+    const adv = await sessaoComo(contaDoCanario("advogado"), ESC2);
+    const corpo = { action: "enviar", documento_id: docId, cliente: { email: "cliente.e2e@exemplo.com.br" } };
+    const enviar = async () => {
+      const r = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, corpo);
+      expect(r.status, r.texto.slice(0, 160)).toBe(200);
+      return r.json?.assinatura as { id: string; zapsign_doc_token: string };
+    };
+    const docsLa = async () => (await (await fetch(`${MOCK}/zapsign/_docs`)).json()) as Array<{ token: string; deleted?: boolean }>;
+
+    // 1) em curso: quem não exclui documento é barrado; excluir sem cancelar antes é recusado
+    const envio = await enviar();
+    const fin = await sessaoComo(contaDoCanario("financeiro"), ESC2);
+    expect((await chamarFuncao("zapsign-enviar", fin.jwt, ESC2, { action: "cancelar", assinatura_id: envio.id })).status).toBe(403);
+    const cedo = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "excluir", assinatura_id: envio.id });
+    expect([cedo.status, cedo.json?.code]).toEqual([409, "em_curso"]);
+
+    // 2) cancelar: exclui no ZapSign, a linha vira cancelado e a tarefa de acompanhar fecha
+    const cancelado = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "cancelar", assinatura_id: envio.id });
+    expect(cancelado.status, cancelado.texto.slice(0, 160)).toBe(200);
+    expect((cancelado.json?.assinatura as { status: string }).status).toBe("cancelado");
+    expect((await docsLa()).find((d) => d.token === envio.zapsign_doc_token)?.deleted).toBe(true);
+    expect((await tarefasDaAssinatura(envio.id)).map((t) => t.status)).toEqual(["cancelado"]);
+    expect((await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "cancelar", assinatura_id: envio.id })).status, "cancelar de novo").toBe(409);
+
+    // 3) excluir o cancelado, com as tarefas: a tarefa sai com o motivo na trilha
+    const tarefaId = (await admin.from("tarefas").select("id").eq("origem", "zapsign_assinatura").eq("origem_ref", `acompanhar:${envio.id}`).single()).data!.id;
+    const fora = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "excluir", assinatura_id: envio.id, apagar_tarefas: true });
+    expect(fora.status, fora.texto.slice(0, 160)).toBe(200);
+    expect((await admin.from("assinaturas").select("id").eq("id", envio.id)).data).toHaveLength(0);
+    const { data: tarefaLog } = await admin.from("tarefas_excluidas").select("excluida_por, motivo").eq("tarefa_id", tarefaId).single();
+    expect([tarefaLog!.excluida_por, String(tarefaLog!.motivo)]).toEqual([adv.id, expect.stringContaining("Envio do ZapSign excluído")]);
+    const { data: trilha } = await admin.from("auditoria").select("acao, ator_id").eq("recurso_id", envio.id).order("created_at");
+    expect((trilha ?? []).map((l) => l.acao)).toEqual(["assinatura.enviada", "assinatura.cancelada", "assinatura.excluida"]);
+
+    // 4) assinado: excluir SEM marcar nada deixa o PDF e as tarefas no caso
+    const assinado1 = await enviar();
+    await fetch(`${MOCK}/zapsign/_assinar/${assinado1.zapsign_doc_token}?quem=todos`, { method: "POST" });
+    expect((await avisar(segredoWebhook, { event_type: "doc_signed", token: assinado1.zapsign_doc_token })).json.status).toBe("assinado");
+    const pdf1 = (await admin.from("assinaturas").select("documento_assinado_id").eq("id", assinado1.id).single()).data!.documento_assinado_id;
+    expect((await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "excluir", assinatura_id: assinado1.id })).status).toBe(200);
+    expect((await admin.from("documentos").select("id").eq("id", pdf1)).data, "o PDF assinado continua no caso").toHaveLength(1);
+    expect(await tarefasDaAssinatura(assinado1.id), "as tarefas continuam").toHaveLength(2);
+
+    // 5) assinado: marcando o PDF, ele sai — e a trilha de documentos registra quem
+    const assinado2 = await enviar();
+    await fetch(`${MOCK}/zapsign/_assinar/${assinado2.zapsign_doc_token}?quem=todos`, { method: "POST" });
+    expect((await avisar(segredoWebhook, { event_type: "doc_signed", token: assinado2.zapsign_doc_token })).json.status).toBe("assinado");
+    const pdf2 = (await admin.from("assinaturas").select("documento_assinado_id").eq("id", assinado2.id).single()).data!.documento_assinado_id;
+    const comPdf = await chamarFuncao("zapsign-enviar", adv.jwt, ESC2, { action: "excluir", assinatura_id: assinado2.id, apagar_pdf: true, apagar_tarefas: true });
+    expect(comPdf.status, comPdf.texto.slice(0, 160)).toBe(200);
+    expect((await admin.from("documentos").select("id").eq("id", pdf2)).data).toHaveLength(0);
+    expect((await admin.from("documentos_excluidos").select("excluido_por").eq("documento_id", pdf2).single()).data!.excluido_por).toBe(adv.id);
+    expect(await tarefasDaAssinatura(assinado2.id)).toHaveLength(0);
+    // o PDF do passo 4 sai de cena para os testes de tela
+    await admin.from("documentos").delete().eq("id", pdf1);
+  });
+
   test("documento que não está na conta ligada (404, ou envio de outro ambiente) NÃO vira cancelado nem libera envio em dobro", async () => {
     test.skip(!mockVivo || !assinaturaId, "depende do envio");
     const adv = await sessaoComo(contaDoCanario("advogado"), ESC2);

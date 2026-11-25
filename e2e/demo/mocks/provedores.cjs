@@ -454,6 +454,14 @@ button{background:#1a73e8;color:#fff;border:0;border-radius:6px;padding:10px 26p
         if (String(c.name).includes("[sem resposta]")) return json(res, { detail: "erro interno (simulado)" }, 500);
         return json(res, visivel(d));
       }
+      // excluir documento (#550): como no ZapSign, é só uma marca — a leitura continua respondendo, com deleted
+      if ((m = p.match(/^\/zapsign\/api\/v1\/docs\/([^/]+)\/$/)) && req.method === "DELETE") {
+        const d = docs.get(decodeURIComponent(m[1]));
+        if (!d) return json(res, { detail: "Not found." }, 404);
+        d.deleted = true;
+        d.last_update_at = new Date().toISOString();
+        return json(res, { message: "Documento excluído com sucesso." });
+      }
       if ((m = p.match(/^\/zapsign\/api\/v1\/docs\/([^/]+)\/$/)) && req.method === "GET") {
         const d = docs.get(decodeURIComponent(m[1]));
         return d ? json(res, visivel(d)) : json(res, { detail: "Not found." }, 404);

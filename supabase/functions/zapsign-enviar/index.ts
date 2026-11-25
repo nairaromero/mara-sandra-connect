@@ -18,6 +18,13 @@
 //                  cria o documento no ZapSign a partir do MODELO preenchido.
 //   sincronizar    { assinatura_id }
 //                  lê o ZapSign agora; se todos assinaram, grava o PDF no caso.
+//   cancelar       { assinatura_id }   (pede também `documentos:excluir`)
+//                  envio ainda não assinado: exclui no ZapSign (o link para de
+//                  funcionar), a linha vira "cancelado" e a tarefa de acompanhar fecha.
+//   excluir        { assinatura_id, apagar_pdf?, apagar_tarefas? }   (`documentos:excluir`)
+//                  envio já encerrado (assinado, recusado, cancelado) sai do sistema;
+//                  o PDF assinado e as tarefas dele só saem se pedidos, com a sessão
+//                  de quem clicou (a trilha de exclusão registra a pessoa).
 //
 // O envio conta na cota do plano do ZapSign no momento em que é criado — a tela
 // confirma antes de chamar.
@@ -33,7 +40,7 @@ import { telefoneDe } from "../_shared/telefone.ts";
 import { TIPOS_DOCUMENTO } from "../_shared/tipos-documento.ts";
 import {
   abrirTarefaAcompanhar, COLUNAS_ASSINATURA, criarDocumento, criarDocumentoDeModelo, detalharModelo, DocumentoForaDaConta, ehSandbox, ehUuid, envioAceito,
-  ErroZapsign, fraseDoErroZapsign, type LinhaAssinatura, listarModelos, type NovoSignatario, sincronizarAssinatura, textoDoModelo, ZAPSIGN_MAX_BYTES,
+  ErroZapsign, excluirNoZapsign, fraseDoErroZapsign, type LinhaAssinatura, listarModelos, type NovoSignatario, sincronizarAssinatura, textoDoModelo, ZAPSIGN_MAX_BYTES,
 } from "../_shared/zapsign.ts";
 
 /** A chamada ao ZapSign tem teto de 45s; `enviando` além disto não tem dono. */
@@ -67,7 +74,7 @@ serve(async (req) => {
 
   let body: {
     action?: string; documento_id?: string; assinatura_id?: string; caso_id?: string; modelo_token?: string;
-    respostas?: Record<string, unknown>; tipo_documento?: string;
+    respostas?: Record<string, unknown>; tipo_documento?: string; apagar_pdf?: boolean; apagar_tarefas?: boolean;
     cliente?: { email?: string; telefone?: string }; segundo?: { nome?: string; email?: string };
   };
   try {
@@ -104,6 +111,77 @@ serve(async (req) => {
       const http = e instanceof ErroZapsign ? e.http : 0;
       return jsonResponse({ error: fraseDoErroZapsign(http, "Não consegui consultar o ZapSign agora. Tente de novo em instantes.") }, 502);
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // cancelar (em curso) e excluir (encerrado) — #550
+  // -------------------------------------------------------------------------
+  if (body.action === "cancelar" || body.action === "excluir") {
+    if (!quem.perfil.permissoes.includes("documentos:excluir")) {
+      return jsonResponse({ error: "Sem permissão para excluir documentos neste escritório." }, 403);
+    }
+    const id = body.assinatura_id;
+    if (!ehUuid(id)) return jsonResponse({ error: "assinatura_id inválido" }, 400);
+    const semAcesso = await exigirRecurso(quem, "assinaturas", id);
+    if (semAcesso) return semAcesso;
+    const { data: lida, error } = await sb.from("assinaturas").select(COLUNAS_ASSINATURA).eq("id", id).maybeSingle();
+    if (error) return falhaInterna("lendo assinatura", error);
+    if (!lida) return jsonResponse({ error: "assinatura não encontrada" }, 404);
+    const linha = lida as unknown as LinhaAssinatura;
+    const resumo = { nome: linha.nome, status: linha.status, caso_id: linha.caso_id, zapsign_doc_token: linha.zapsign_doc_token, sandbox: linha.sandbox };
+
+    if (body.action === "cancelar") {
+      if (!["enviado", "aberto"].includes(linha.status)) {
+        return jsonResponse({ error: linha.status === "enviando" || linha.status === "gravando" ? "O ZapSign ainda está respondendo sobre este envio. Tente de novo em instantes." : "Só dá para cancelar um envio que ainda aguarda assinatura." }, 409);
+      }
+      const integ = await integracaoDoEscritorio(quem.admin, escritorioId, "zapsign");
+      if (!integ) return semIntegracao("zapsign", corsHeaders);
+      try {
+        if (linha.sandbox !== ehSandbox(integ)) throw new DocumentoForaDaConta();
+        await excluirNoZapsign(integ, linha.zapsign_doc_token!);
+        const atual = await sincronizarAssinatura(sb, integ, linha);
+        await auditar(quem, { acao: "assinatura.cancelada", recurso: "assinaturas", recurso_id: id, detalhes: { antes: resumo, depois: { status: atual.status } } });
+        return jsonResponse({ ok: true, assinatura: atual });
+      } catch (e) {
+        console.error("[zapsign-enviar] cancelar:", String((e as Error)?.message ?? e));
+        if (e instanceof DocumentoForaDaConta || (e instanceof ErroZapsign && e.http === 404)) {
+          return jsonResponse({ error: "Este documento não está na conta do ZapSign ligada agora (a integração mudou de ambiente ou de conta). Cancele direto no ZapSign.", code: "documento_fora_da_conta" }, 409);
+        }
+        const http = e instanceof ErroZapsign ? e.http : 0;
+        return jsonResponse({ error: fraseDoErroZapsign(http, "Não consegui cancelar no ZapSign agora. Tente de novo em instantes.") }, 502);
+      }
+    }
+
+    // excluir: só o que já terminou; o que está em curso precisa ser cancelado antes
+    if (!["assinado", "recusado", "cancelado"].includes(linha.status)) {
+      return jsonResponse({ error: "Este envio ainda aguarda assinatura: cancele antes de excluir.", code: "em_curso" }, 409);
+    }
+    const motivo = `Envio do ZapSign excluído do sistema: ${linha.nome}`.slice(0, 500);
+    if (body.apagar_tarefas) {
+      const { data: tarefas, error: eT } = await sb.from("tarefas").select("id").eq("origem", "zapsign_assinatura").like("origem_ref", `%:${id}`);
+      if (eT) return falhaInterna("lendo as tarefas do envio", eT);
+      for (const t of tarefas ?? []) {
+        // com a sessão da pessoa: a RPC confere a permissão e grava motivo e autoria na trilha
+        const { error: eX } = await quem.rls.rpc("excluir_tarefa_com_motivo", { p_id: t.id, p_motivo: motivo });
+        if (eX) return jsonResponse({ error: `Não consegui excluir a tarefa deste envio: ${eX.message}. Nada mais foi apagado.` }, 409);
+      }
+    }
+    if (body.apagar_pdf && linha.documento_assinado_id) {
+      const { data: doc, error: eD } = await quem.rls.from("documentos").select("id, storage_path").eq("id", linha.documento_assinado_id).maybeSingle();
+      if (eD) return falhaInterna("lendo o PDF assinado", eD);
+      if (doc) {
+        // a linha primeiro (a trilha `documentos_excluidos` registra quem); o arquivo depois, como na tela
+        const { error: eDel } = await quem.rls.from("documentos").delete().eq("id", doc.id);
+        if (eDel) return jsonResponse({ error: `Não consegui excluir o PDF assinado: ${eDel.message}.` }, 409);
+        const { error: eArq } = await quem.rls.storage.from("documentos").remove([doc.storage_path]);
+        if (eArq) console.warn(`[zapsign-enviar] arquivo do PDF assinado ${doc.id} ficou no storage: ${eArq.message}`);
+      }
+    }
+    // a trilha antes de apagar: depois não há mais o que descrever
+    await auditar(quem, { acao: "assinatura.excluida", recurso: "assinaturas", recurso_id: id, detalhes: { antes: resumo, apagou_pdf: !!body.apagar_pdf, apagou_tarefas: !!body.apagar_tarefas } });
+    const { error: eApagar } = await sb.from("assinaturas").delete().eq("id", id);
+    if (eApagar) return falhaInterna("excluindo o envio", eApagar);
+    return jsonResponse({ ok: true, excluida: id });
   }
 
   const ACOES = ["enviar", "modelos", "modelo", "texto_modelo", "enviar_modelo"];

@@ -43,7 +43,9 @@ export type AcaoAuditada =
   | "integracao.testar"
   | "integracao.token"
   | "integracao.caixa_conectada"
-  | "assinatura.enviada";
+  | "assinatura.enviada"
+  | "assinatura.cancelada"
+  | "assinatura.excluida";
 
 export interface EntradaAuditoria {
   acao: AcaoAuditada;
