@@ -52,7 +52,7 @@ export function ComparecimentoPericia({
   const { marcar: marcarDestaque } = useDestaque();
   const { usuario } = useAuth();
 
-  const meta = (tarefa.metadata ?? {}) as { pericia_em?: string };
+  const meta = (tarefa.metadata ?? {}) as { pericia_em?: string; evento_id?: string };
   // Perícia judicial espera um LAUDO, não um resultado do INSS.
   const judicial = ehPericiaJudicial(tarefa);
   const cliente = tarefa.caso?.cliente?.nome ?? "o cliente";
@@ -106,6 +106,7 @@ export function ComparecimentoPericia({
             processoAdminId: tarefa.processo_admin_id,
             processoJudicialId: tarefa.processo_judicial_id,
             periciaEm: meta.pericia_em ?? null,
+            eventoId: meta.evento_id ?? null,
             usuarioId: usuario?.id ?? null,
           });
         } catch (e) {
@@ -164,6 +165,7 @@ export function ComparecimentoPericia({
               metadata: {
                 acompanhamento_pericia: true,
                 ...(judicial ? { pericia_judicial: true } : {}),
+                ...(meta.evento_id ? { evento_id: meta.evento_id } : {}),
                 ...(meta.pericia_em ? { pericia_em: meta.pericia_em } : {}),
                 criado_por_comparecimento: tarefa.id,
               },

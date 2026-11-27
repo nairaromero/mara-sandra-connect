@@ -376,6 +376,13 @@ o sistema em produção. Quando chegar, vale o seguinte:
   — usada pelo relógio do indeferimento, pelo fatal padrão da exigência do INSS (30 dias) e pelo teto
   da Análise de Deferimento. Prazo judicial pela publicação segue em dias úteis (`fatalPorDiasUteis`).
   Não somar dias a `hoje` à mão para prazo legal. Régua: `e2e/unit/prazos-contagem.test.ts`.
+  Tarefa ancorada num compromisso (27/11): a tarefa criada junto com a perícia guarda o evento
+  (`metadata.evento_id`), a data (`pericia_em`) e o offset (`ancora_offset_dias`). Remarcou o evento
+  pela agenda → `reancorarTarefasDoEvento` (`src/lib/agenda/queries.ts`) leva as tarefas abertas junto,
+  refazendo o prazo com a MESMA conta da criação (`calcularDueAtRelativo`); tarefa antiga, sem esses
+  campos, casa pela data anterior do evento e busca o offset no item do template. É o `evento_id` que
+  deixa o "Compareceu" encerrar a perícia certa quando há mais de uma no processo. Quem cria tarefa a
+  partir de evento grava os três campos. Prova: `e2e/tests/pericia-remarcada-tarefas.spec.ts`.
 - **Quem muda ACESSO audita** (desde 2026-09-27, `migration_rbac_25`/`26`; desenho em
   planning/AUDITABILIDADE.md): papel, permissão, status do vínculo, titularidade e staff
   chamam `private.auditar` com o antes e o depois; apagar cliente, documento ou andamento

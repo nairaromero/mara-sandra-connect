@@ -1,7 +1,12 @@
 // Queries da agenda (CRUD de eventos + listagens).
 
 import { lerLista } from "@/lib/leitura";
-import { eventoDaPericia } from "@/lib/agenda/helpers";
+import {
+  eventoDaPericia,
+  prazoAposRemarcar,
+  tarefaEhDoEvento,
+  type AncoraDaTarefa,
+} from "@/lib/agenda/helpers";
 import { supabase } from "@/lib/supabase";
 import { comoLocalBR, deLocalBR } from "@/lib/fuso";
 import type {
@@ -177,6 +182,8 @@ export async function concluirPericiaDaTarefa(input: {
   processoAdminId: string | null;
   processoJudicialId: string | null;
   periciaEm: string | null;
+  /** O evento que a tarefa aponta (`metadata.evento_id`), quando ela guarda. */
+  eventoId?: string | null;
   usuarioId: string | null;
 }): Promise<boolean> {
   let q = supabase
@@ -195,8 +202,95 @@ export async function concluirPericiaDaTarefa(input: {
     q,
     "perícias abertas na agenda deste processo",
   );
-  const alvo = eventoDaPericia(abertas, input.periciaEm);
+  const alvo = eventoDaPericia(abertas, input.periciaEm, input.eventoId);
   if (!alvo) return false;
   await marcarConclusaoEvento(alvo.id, true, input.usuarioId);
   return true;
+}
+
+/**
+ * O compromisso foi REMARCADO: as tarefas abertas que o acompanham vão junto.
+ * Cada uma passa a guardar a data nova (`pericia_em`) e o evento (`evento_id`)
+ * — é isso que deixa o "Compareceu" achar a perícia certa depois — e o prazo
+ * das ancoradas na agenda é refeito pela mesma conta da criação.
+ * Tarefa antiga, sem o offset gravado, busca o offset no item do template.
+ * Devolve quantas tarefas tiveram o PRAZO alterado.
+ */
+export async function reancorarTarefasDoEvento(input: {
+  eventoId: string;
+  casoId: string;
+  startAntes: string;
+  startDepois: string;
+}): Promise<number> {
+  if (new Date(input.startAntes).getTime() === new Date(input.startDepois).getTime()) return 0;
+
+  type Linha = { id: string; due_at: string | null; metadata: Record<string, unknown> | null };
+  const abertas = await lerLista<Linha>(
+    supabase
+      .from("tarefas")
+      .select("id, due_at, metadata")
+      .eq("caso_id", input.casoId)
+      .in("status", ["a_fazer", "fazendo"])
+      .not("metadata->>pericia_em", "is", null),
+    "tarefas abertas ancoradas neste compromisso",
+  );
+  const doEvento = abertas.filter((t) =>
+    tarefaEhDoEvento((t.metadata ?? {}) as AncoraDaTarefa, input.eventoId, input.startAntes),
+  );
+  if (doEvento.length === 0) return 0;
+
+  // Offset de tarefa antiga: no item do template de onde ela veio.
+  const nomes = [
+    ...new Set(
+      doEvento
+        .filter((t) => typeof (t.metadata as AncoraDaTarefa)?.ancora_offset_dias !== "number")
+        .map((t) => (t.metadata as { template_aplicado?: string })?.template_aplicado)
+        .filter((n): n is string => !!n),
+    ),
+  ];
+  type Item = { destino?: string; offset_dias?: number; meta?: Record<string, unknown> };
+  const itensDe = new Map<string, Item[]>();
+  if (nomes.length > 0) {
+    const tpls = await lerLista<{ nome: string; itens: Item[] }>(
+      supabase.from("tarefa_templates").select("nome, itens").in("nome", nomes),
+      "templates das tarefas ancoradas",
+    );
+    for (const t of tpls) itensDe.set(t.nome, t.itens ?? []);
+  }
+  const offsetDe = (meta: Record<string, unknown>): number | undefined => {
+    if (typeof meta.ancora_offset_dias === "number") return meta.ancora_offset_dias;
+    const itens = itensDe.get(String(meta.template_aplicado ?? "")) ?? [];
+    const porIndice =
+      typeof meta.template_item_index === "number" ? itens[meta.template_item_index] : undefined;
+    // Sem índice (tarefa criada pela agenda): o item que tem a mesma marca.
+    const item =
+      porIndice ??
+      itens.find((i) => Object.entries(i.meta ?? {}).some(([k, v]) => v === true && meta[k] === true));
+    return item?.offset_dias;
+  };
+
+  let mudaram = 0;
+  for (const t of doEvento) {
+    const meta = (t.metadata ?? {}) as Record<string, unknown>;
+    const novoPrazo = prazoAposRemarcar(
+      meta as AncoraDaTarefa,
+      t.due_at,
+      offsetDe(meta),
+      input.startDepois,
+    );
+    const { error } = await supabase
+      .from("tarefas")
+      .update({
+        ...(novoPrazo ? { due_at: novoPrazo } : {}),
+        metadata: {
+          ...meta,
+          pericia_em: new Date(input.startDepois).toISOString(),
+          evento_id: input.eventoId,
+        },
+      })
+      .eq("id", t.id);
+    if (error) throw error;
+    if (novoPrazo) mudaram++;
+  }
+  return mudaram;
 }

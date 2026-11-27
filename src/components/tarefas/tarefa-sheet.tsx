@@ -1069,6 +1069,8 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
 
         // ============== MAIN ==============
         let agendaStart: Date | null = null;
+        // O compromisso criado pelo template: vai gravado nas tarefas dele.
+        let eventoIdCriado: string | null = null;
         if (agendaItem) {
           // Form values criam o agenda_evento.
           if (!dueDate) {
@@ -1133,6 +1135,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
             ...(enviaAviso ? { metadata: { aviso_direto: true } } : {}),
           });
           marcarDestaque(novoEvento.id);
+          eventoIdCriado = novoEvento.id;
 
           if (enviaAviso && casoId) {
             try {
@@ -1375,6 +1378,12 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
                 template_item_index: i,
                 aplicado_manualmente: true,
                 ancora_prazo: ancora,
+                // O compromisso que ancorou a tarefa e o offset dela: é o que
+                // deixa a tarefa acompanhar se a perícia for remarcada.
+                ...(eventoIdCriado ? { evento_id: eventoIdCriado } : {}),
+                ...(typeof item.offset_dias === "number"
+                  ? { ancora_offset_dias: item.offset_dias }
+                  : {}),
                 // Data da perícia gravada NA TAREFA, não só no evento da
                 // agenda. O escalonamento (ouvidoria 30d / peticionar 60d /
                 // ajuizar 90d) conta daqui — se dependesse do evento, bastava
