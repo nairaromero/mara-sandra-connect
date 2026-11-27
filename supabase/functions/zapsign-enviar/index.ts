@@ -34,7 +34,7 @@ import { escopado, exigirRecurso, exigirUsuario } from "../_shared/auth.ts";
 import { auditar } from "../_shared/auditoria.ts";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { integracaoDoEscritorio, semIntegracao } from "../_shared/integracoes.ts";
-import { EM_CURSO, formatoAssinavel } from "../_shared/assinatura.ts";
+import { CANCELAVEL, EM_CURSO, ENCERRADO, formatoAssinavel } from "../_shared/assinatura.ts";
 import { respostasDoModelo } from "../_shared/modelo-contrato.ts";
 import { telefoneDe } from "../_shared/telefone.ts";
 import { TIPOS_DOCUMENTO } from "../_shared/tipos-documento.ts";
@@ -84,21 +84,31 @@ serve(async (req) => {
   }
   const sb = escopado(quem.admin, escritorioId);
 
-  // -------------------------------------------------------------------------
-  // sincronizar
-  // -------------------------------------------------------------------------
-  if (body.action === "sincronizar") {
+  /**
+   * O envio de `assinatura_id`, lido no escopo do escritório depois de conferir o
+   * acesso — a mesma porta para sincronizar, cancelar e excluir. `Response` = recusa.
+   */
+  const lerEnvio = async (): Promise<LinhaAssinatura | Response> => {
     const id = body.assinatura_id;
     if (!ehUuid(id)) return jsonResponse({ error: "assinatura_id inválido" }, 400);
     const semAcesso = await exigirRecurso(quem, "assinaturas", id);
     if (semAcesso) return semAcesso;
+    const { data, error } = await sb.from("assinaturas").select(COLUNAS_ASSINATURA).eq("id", id).maybeSingle();
+    if (error) return falhaInterna("lendo assinatura", error);
+    if (!data) return jsonResponse({ error: "assinatura não encontrada" }, 404);
+    return data as unknown as LinhaAssinatura;
+  };
+
+  // -------------------------------------------------------------------------
+  // sincronizar
+  // -------------------------------------------------------------------------
+  if (body.action === "sincronizar") {
+    const linha = await lerEnvio();
+    if (linha instanceof Response) return linha;
     const integ = await integracaoDoEscritorio(quem.admin, escritorioId, "zapsign");
     if (!integ) return semIntegracao("zapsign", corsHeaders);
-    const { data: linha, error } = await sb.from("assinaturas").select(COLUNAS_ASSINATURA).eq("id", id).maybeSingle();
-    if (error) return falhaInterna("lendo assinatura", error);
-    if (!linha) return jsonResponse({ error: "assinatura não encontrada" }, 404);
     try {
-      const atual = await sincronizarAssinatura(sb, integ, linha as unknown as LinhaAssinatura);
+      const atual = await sincronizarAssinatura(sb, integ, linha);
       return jsonResponse({ ok: true, assinatura: atual });
     } catch (e) {
       console.error("[zapsign-enviar] sincronizar:", String((e as Error)?.message ?? e));
@@ -120,18 +130,13 @@ serve(async (req) => {
     if (!quem.perfil.permissoes.includes("documentos:excluir")) {
       return jsonResponse({ error: "Sem permissão para excluir documentos neste escritório." }, 403);
     }
-    const id = body.assinatura_id;
-    if (!ehUuid(id)) return jsonResponse({ error: "assinatura_id inválido" }, 400);
-    const semAcesso = await exigirRecurso(quem, "assinaturas", id);
-    if (semAcesso) return semAcesso;
-    const { data: lida, error } = await sb.from("assinaturas").select(COLUNAS_ASSINATURA).eq("id", id).maybeSingle();
-    if (error) return falhaInterna("lendo assinatura", error);
-    if (!lida) return jsonResponse({ error: "assinatura não encontrada" }, 404);
-    const linha = lida as unknown as LinhaAssinatura;
+    const linha = await lerEnvio();
+    if (linha instanceof Response) return linha;
+    const id = linha.id;
     const resumo = { nome: linha.nome, status: linha.status, caso_id: linha.caso_id, zapsign_doc_token: linha.zapsign_doc_token, sandbox: linha.sandbox };
 
     if (body.action === "cancelar") {
-      if (!["enviado", "aberto"].includes(linha.status)) {
+      if (!CANCELAVEL.includes(linha.status)) {
         return jsonResponse({ error: linha.status === "enviando" || linha.status === "gravando" ? "O ZapSign ainda está respondendo sobre este envio. Tente de novo em instantes." : "Só dá para cancelar um envio que ainda aguarda assinatura." }, 409);
       }
       const integ = await integracaoDoEscritorio(quem.admin, escritorioId, "zapsign");
@@ -139,8 +144,9 @@ serve(async (req) => {
       try {
         if (linha.sandbox !== ehSandbox(integ)) throw new DocumentoForaDaConta();
         await excluirNoZapsign(integ, linha.zapsign_doc_token!);
+        // excluiu lá: a trilha já, mesmo que a leitura seguinte falhe (o "Atualizar" depois a acerta)
+        await auditar(quem, { acao: "assinatura.cancelada", recurso: "assinaturas", recurso_id: id, detalhes: { antes: resumo } });
         const atual = await sincronizarAssinatura(sb, integ, linha);
-        await auditar(quem, { acao: "assinatura.cancelada", recurso: "assinaturas", recurso_id: id, detalhes: { antes: resumo, depois: { status: atual.status } } });
         return jsonResponse({ ok: true, assinatura: atual });
       } catch (e) {
         console.error("[zapsign-enviar] cancelar:", String((e as Error)?.message ?? e));
@@ -153,7 +159,7 @@ serve(async (req) => {
     }
 
     // excluir: só o que já terminou; o que está em curso precisa ser cancelado antes
-    if (!["assinado", "recusado", "cancelado"].includes(linha.status)) {
+    if (!ENCERRADO.includes(linha.status)) {
       return jsonResponse({ error: "Este envio ainda aguarda assinatura: cancele antes de excluir.", code: "em_curso" }, 409);
     }
     const motivo = `Envio do ZapSign excluído do sistema: ${linha.nome}`.slice(0, 500);

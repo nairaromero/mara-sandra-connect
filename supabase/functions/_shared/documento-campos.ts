@@ -10,6 +10,12 @@
  * justamente o erro mais caro aqui: CPF errado cria cliente duplicado e
  * quebra a busca no INSS.
  */
+/** CPF como se escreve: 529.982.247-25. O que não tem 11 dígitos volta como veio. */
+export function cpfComPontos(cpf: string): string {
+  const d = cpf.replace(/\D/g, "");
+  return d.length === 11 ? `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}` : cpf.trim();
+}
+
 export function cpfValido(cpf: string): boolean {
   if (!/^\d{11}$/.test(cpf)) return false;
   // 111.111.111-11 e afins passam na conta dos digitos mas nao existem.

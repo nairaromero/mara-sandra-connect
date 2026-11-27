@@ -8,6 +8,7 @@
 // Import: ver importar-clientes-excel-dialog.tsx
 // =============================================================================
 
+import { cpfComPontos } from "@shared/documento-campos";
 import * as XLSX from "xlsx";
 import { supabase } from "@/lib/supabase";
 import { dataBR, diaDoEventoBR, hojeChaveBR } from "@/lib/fuso";
@@ -59,16 +60,6 @@ export const EXCEL_COLUNAS = [
 export type ExcelColuna = (typeof EXCEL_COLUNAS)[number];
 
 export type LinhaImport = Partial<Record<ExcelColuna, string>>;
-
-function onlyDigits(s: string | null | undefined): string {
-  return (s || "").replace(/\D/g, "");
-}
-
-function formatCpfBr(cpf: string | null | undefined): string {
-  const d = onlyDigits(cpf);
-  if (d.length !== 11) return cpf || "";
-  return d.slice(0, 3) + "." + d.slice(3, 6) + "." + d.slice(6, 9) + "-" + d.slice(9);
-}
 
 function formatDateBr(iso: string | null | undefined): string {
   if (!iso) return "";
@@ -204,7 +195,7 @@ export async function exportarClientesExcel(clienteIds: Set<string>): Promise<vo
       const ult = ultimoAndPorCaso.get(c.id);
       return {
         Nome: cli.nome || "",
-        CPF: formatCpfBr(cli.cpf),
+        CPF: (cli.cpf ? cpfComPontos(cli.cpf) : ""),
         Nascimento: formatDateBr(cli.data_nascimento),
         Telefone: cli.telefone || "",
         Email: cli.email || "",

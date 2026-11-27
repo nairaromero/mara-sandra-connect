@@ -29,9 +29,9 @@ export interface IntegracaoStatus {
 /** Leitura mais velha que isto é refeita quando um componente novo aparece. */
 const VALIDADE_MS = 30_000;
 /** Uma consulta presa não segura a tela: passou disto, conta como falha e tenta de novo. */
-export const TEMPO_LIMITE_MS = 10_000;
+const TEMPO_LIMITE_MS = 10_000;
 /** Espera antes de cada nova tentativa; acabou a lista, a falha aparece (`erro`). */
-export const ESPERAS_MS = [2_000, 5_000];
+const ESPERAS_MS = [2_000, 5_000];
 
 const estado = {
   escritorioId: null as string | null,
