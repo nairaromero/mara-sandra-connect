@@ -22,6 +22,7 @@ import {
   seedClienteCaso,
   seedSolicitacao,
 } from "../supabase-admin";
+import { diaUtilAFrente } from "../datas";
 
 // id do parceiro de teste (uma vez).
 let _parceiraId: string | null = null;
@@ -61,6 +62,10 @@ const PDF_FAKE = Buffer.from(
   "%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF",
 );
 
+// Prazo curto em DIA ÚTIL: o banco não deixa prazo em sábado/domingo, então
+// "daqui a 2 dias" numa quinta ou sexta vira o primeiro dia útil depois.
+const PRAZO_CURTO = diaUtilAFrente(2);
+
 function diasAFrenteISO(dias: number): string {
   return new Date(Date.now() + dias * 86400_000).toISOString();
 }
@@ -92,7 +97,7 @@ test.beforeAll(async () => {
     parceiroId: parceira.id,
   }));
   solicAvulsaId = await seedSolicitacao(admin, casoAnaliseId, "cnis", {
-    prazoAt: diasAFrenteISO(2),
+    prazoAt: PRAZO_CURTO.iso,
     solicitadoPor: interno.id as string,
   });
 
@@ -144,7 +149,9 @@ test("kanban mostra as 3 colunas com solicitações, exigência e audiência", a
 
   // Card da solicitação avulsa: cliente + "Enviar até" (prazo em 2 dias).
   await expect(cardAnalise).toBeVisible();
-  await expect(cardAnalise.getByText(/Enviar até .* em 2 dias/)).toBeVisible();
+  await expect(
+    cardAnalise.getByText(new RegExp(`Enviar até .* em ${PRAZO_CURTO.dias} dias`)),
+  ).toBeVisible();
   await expect(cardAnalise.getByText("Novo")).toBeVisible();
   // Quem da equipe pediu (#299) — o parceiro lê o nome de um interno pela RLS.
   await expect(cardAnalise.getByText("Solicitado por")).toBeVisible();

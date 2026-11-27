@@ -6,6 +6,11 @@
 import { supabase } from "@/lib/supabase";
 import { chaveDiaBR, dataBR, hojeChaveBR, instanteBR } from "@/lib/fuso";
 import { lerUm } from "@/lib/leitura";
+import { fatalEmDiasCorridos, recuaFimDeSemana, somarDias } from "@shared/prazos";
+
+// As contas puras de prazo moram em @shared/prazos (a tela e as functions
+// dividem); saem por aqui para quem já importava deste módulo.
+export { baseDaContagem, fatalEmDiasCorridos, recuaFimDeSemana, somarDias } from "@shared/prazos";
 import { buscarPaginado } from "@/lib/supabase-paginado";
 
 export type RelogioTipo = "judicial" | "recurso";
@@ -90,17 +95,14 @@ export function diasEntre(a: string, b: string): number {
   return Math.round((Date.UTC(yb, mb - 1, db) - Date.UTC(ya, ma - 1, da)) / 86_400_000);
 }
 
-export function somarDias(dia: string, n: number): string {
-  const [y, m, d] = dia.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
-}
 
 /**
  * Datas do relógio judicial a partir do indeferimento (espelha
- * private.relogio_dias + public.relogio_etapas: fim de semana recua pra sexta).
+ * private.relogio_dias + public.relogio_etapas): a contagem começa no próximo
+ * dia útil depois do indeferimento, e fim de semana recua pra sexta.
  */
 export function relogioEtapasPrevistas(origem: string) {
-  const d = (n: number) => recuaFimDeSemana(somarDias(origem, n));
+  const d = (n: number) => recuaFimDeSemana(fatalEmDiasCorridos(origem, n));
   return { analise: d(10), montagem: d(20), revisao: d(25), protocolo: d(30), limite: d(40) };
 }
 
@@ -110,11 +112,32 @@ export function venceNoDia(dia: string): string {
   return instanteBR(y, m, d, 18, 0).toISOString();
 }
 
-/** Sábado/domingo recuam para a sexta (espelha private.recua_fim_de_semana). */
-export function recuaFimDeSemana(dia: string): string {
-  const [y, m, d] = dia.split("-").map(Number);
-  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-  return dow === 6 ? somarDias(dia, -1) : dow === 0 ? somarDias(dia, -2) : dia;
+
+/**
+ * Prazo não cai em sábado nem domingo (Naira, 27/11/2026). Espelho de
+ * `private.prazo_fora_do_fim_de_semana`, que é quem garante na gravação — este
+ * aqui só deixa o formulário avisar a pessoa antes de salvar.
+ *  - sábado/domingo recuam para a sexta, mesmo horário;
+ *  - se essa sexta já passou (o prazo nasceu no fim de semana, ou na sexta
+ *    depois do horário), vai para a segunda;
+ *  - prazo travado (`nuncaAdia`) é sempre sexta.
+ */
+export function prazoForaDoFimDeSemana(prazoIso: string, agora: Date, nuncaAdia: boolean): string {
+  const dia = chaveDiaBR(prazoIso);
+  const sexta = recuaFimDeSemana(dia);
+  if (sexta === dia) return prazoIso;
+  const DIA = 86400_000; // Brasília não tem horário de verão: dia = 24h
+  const recuo = (Date.parse(`${dia}T00:00:00Z`) - Date.parse(`${sexta}T00:00:00Z`)) / DIA;
+  const naSexta = new Date(new Date(prazoIso).getTime() - recuo * DIA);
+  if (nuncaAdia || naSexta.getTime() >= agora.getTime()) return naSexta.toISOString();
+  return new Date(naSexta.getTime() + 3 * DIA).toISOString();
+}
+
+/** A mesma regra para prazo de DIA inteiro ("aaaa-mm-dd"), para os textos da tela. */
+export function diaForaDoFimDeSemana(dia: string, hoje: string): string {
+  const sexta = recuaFimDeSemana(dia);
+  if (sexta === dia || sexta >= hoje) return sexta;
+  return somarDias(sexta, 3);
 }
 
 /** Até onde a pessoa (não admin) pode levar a data sem pedir à Mara. */

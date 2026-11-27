@@ -126,6 +126,9 @@ import {
   relogioDoProcesso,
   mensagemTrava,
   recuaFimDeSemana,
+  prazoForaDoFimDeSemana,
+  diaForaDoFimDeSemana,
+  fatalEmDiasCorridos,
   relogioEtapasPrevistas,
   somarDias,
   relogioDaTarefa,
@@ -511,7 +514,8 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   // INSS já vem com hoje + 30, editável se o INSS der menos.
   useEffect(() => {
     if (editando) return;
-    setPrazoFatal(fatalPadraoDias ? somarDias(hojeChaveBR(), fatalPadraoDias) : "");
+    // Conta do próximo dia útil: exigência que chega na sexta começa na segunda.
+    setPrazoFatal(fatalPadraoDias ? fatalEmDiasCorridos(hojeChaveBR(), fatalPadraoDias) : "");
     setPrazoDias("");
     setPrazoDiasCustom("");
   }, [editando, templateSelecionado, fatalPadraoDias]);
@@ -774,6 +778,12 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   /** O que o form mostra no lugar do campo Data quando a data é automática. */
   function textoDataAutomatica(): string {
     const amanha = somarDias(hojeChaveBR(), 1);
+    // "Vence amanhã" — menos quando amanhã é fim de semana (o banco não deixa).
+    const vence = diaForaDoFimDeSemana(amanha, hojeChaveBR());
+    const venceJanela =
+      "Vence " +
+      (vence === amanha ? "amanhã" : vence === hojeChaveBR() ? "hoje" : "segunda") +
+      " (" + dataBR(vence) + ")";
     if (soAndamentosSel) return "Este template só registra andamento no caso — não cria tarefa.";
     if (metaMainSel.analise_indeferimento === true) {
       if (!dataIndeferimento) {
@@ -788,15 +798,15 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
     }
     if (metaMainSel.analise_deferimento === true) {
       return (
-        "Vence amanhã (" + dataBR(amanha) + "). Pode ser adiada até " +
-        dataBR(recuaFimDeSemana(somarDias(hojeChaveBR(), 10))) +
+        venceJanela + ". Pode ser adiada até " +
+        dataBR(recuaFimDeSemana(fatalEmDiasCorridos(hojeChaveBR(), 10))) +
         "; depois, decida: está tudo certo ou entrar com revisão."
       );
     }
     if (metaMainSel.aguardando_exigencia === true) {
       const teto = prazoFatal ? recuaFimDeSemana(somarDias(prazoFatal, -3)) : null;
       return (
-        "Vence amanhã (" + dataBR(amanha) + "). Pode ser adiada até " +
+        venceJanela + ". Pode ser adiada até " +
         (teto ? dataBR(teto) : "3 dias antes do fatal") +
         " — o prazo do parceiro. Depois, decida se pede dilação."
       );
@@ -885,7 +895,20 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
     }
     setSalvando(true);
     try {
-      const due_at = dueCalculado;
+      // Prazo não cai em fim de semana. Quem garante é o banco (gatilho em
+      // tarefas); aqui a pessoa fica sabendo que a data mudou.
+      const metaAtual = (tarefa?.metadata ?? {}) as Record<string, unknown>;
+      const due_at =
+        dueCalculado && tipo !== "pericia"
+          ? prazoForaDoFimDeSemana(
+              dueCalculado,
+              new Date(),
+              metaAtual.prazo_fatal === true || "teto_em" in metaAtual || "relogio_id" in metaAtual,
+            )
+          : dueCalculado;
+      if (due_at && dueCalculado && due_at !== dueCalculado) {
+        toast.info(`O prazo caía no fim de semana: ficou para ${dataBR(due_at)}.`);
+      }
       const proc = parseProcesso();
       if (editando && tarefa) {
         if (statusEfetivo === "feito" && tarefa.status !== "feito") {
