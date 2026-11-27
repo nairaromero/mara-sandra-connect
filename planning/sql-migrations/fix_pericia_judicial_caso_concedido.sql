@@ -1,6 +1,6 @@
 -- Correção de DADOS de um caso (não é migration; não entra no registro).
 --
--- Caso d6866bea… (processo 5000196-67.2026.4.03.6105). Em 24/11/2026 15:56 o
+-- Um caso judicial (id abaixo). Em 24/11/2026 15:56 o
 -- botão "Saiu — deferido" da tarefa "Conferir laudo da perícia judicial" lançou
 -- benefício concedido num processo judicial que só teve um laudo juntado.
 -- O botão foi corrigido na migration_pericia_judicial_laudo; aqui se desfaz o
