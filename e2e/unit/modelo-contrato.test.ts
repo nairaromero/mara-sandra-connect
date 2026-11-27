@@ -6,8 +6,9 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { deflateRawSync, inflateRawSync } from "node:zlib";
+import { cpfComPontos } from "../../supabase/functions/_shared/documento-campos";
 import {
-  beneficioNaFrase, camposDoModelo, cpfComPontos, enderecoDe, extensoDoValor, faixaDoCampo, partesDoEndereco, normalizarValor, numeroPorExtenso, paragrafosDoDocx, partesDoCadastro, previaDoContrato, qualificacaoDe, regrasDaAjuda, respostasDoModelo,
+  beneficioNaFrase, camposDoModelo, enderecoDe, extensoDoValor, faixaDoCampo, partesDoEndereco, normalizarValor, numeroPorExtenso, paragrafosDoDocx, partesDoCadastro, previaDoContrato, qualificacaoDe, regrasDaAjuda, respostasDoModelo,
 } from "../../supabase/functions/_shared/modelo-contrato";
 
 const RAIZ = join(import.meta.dir, "../..");
@@ -166,6 +167,8 @@ describe("nome e CPF de quem assina: o cadastro manda (#540)", () => {
     expect(c.NOME_ASSINANTE.fixo).toBe(true);
     expect(respostasDoModelo(Object.values(c), {}).erros[0]).toContain("CPF_ASSINANTE");
     expect(respostasDoModelo(Object.values(c), { "{{CPF_ASSINANTE}}": "169.676.468-85", "{{DATA_ASSINATURA}}": "x" }).erros).toEqual([]);
+    // digitado errado não passa: nem na tela nem no servidor (a mesma conta)
+    expect(respostasDoModelo(Object.values(c), { "{{CPF_ASSINANTE}}": "123.456.789-00", "{{DATA_ASSINATURA}}": "x" }).erros).toEqual(["CPF_ASSINANTE: CPF inválido."]);
   });
   test("o servidor envia o cadastro no campo fixo, seja o que for que a tela mande", () => {
     const c = Object.values(doModelo({ nome: "Adauto Floripes", cpf: "16967646885" }));
@@ -310,8 +313,15 @@ describe("prévia do contrato", () => {
 
 describe("régua: uma conta só para os campos do modelo", () => {
   const ler = (caminho: string) => readFileSync(join(RAIZ, caminho), "utf8");
-  test("o módulo é puro (a tela e a function importam o mesmo arquivo)", () => {
-    expect(ler("supabase/functions/_shared/modelo-contrato.ts")).not.toMatch(/^\s*import\s/m);
+  test("o módulo é puro (a tela e a function importam o mesmo arquivo): só importa o CPF, de documento-campos", () => {
+    const imports = ler("supabase/functions/_shared/modelo-contrato.ts").match(/^\s*import\s.*$/gm) ?? [];
+    expect(imports.every((l) => l.includes('"./documento-campos.ts"'))).toBe(true);
+    expect(ler("supabase/functions/_shared/documento-campos.ts")).not.toMatch(/^\s*import\s/m);
+  });
+  test("validar e formatar CPF só em documento-campos: ninguém refaz a conta", () => {
+    const arquivos = ["src/routes/_authenticated/casos.novo.tsx", "src/lib/clientes-excel.ts", "supabase/functions/_shared/modelo-contrato.ts", "supabase/functions/_shared/zapsign.ts", "src/components/assinaturas/gerar-contrato-dialog.tsx"];
+    const copias = arquivos.filter((f) => /\(10 - i\)|\(11 - i\)|slice\(0, 3\)[^\n]*slice\(3, 6\)|function (isValidCPF|formatCpfBr|cpfComPontos|cpfValido)\b/.test(ler(f)));
+    expect(copias).toEqual([]);
   });
   test("a function e a tela decidem o valor dos campos por `respostasDoModelo`, e o ZapSign lê os campos por `camposDoModelo`", () => {
     expect(ler("supabase/functions/zapsign-enviar/index.ts")).toContain("respostasDoModelo(campos, dadas)");

@@ -9,7 +9,7 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, Copy, FileSignature, Loader2, RefreshCw, Trash2, XCircle } from "lucide-react";
 import { toast } from "sonner";
-import { buscarLinkDeAssinatura, cancelarEnvioZapsign, chamarZapsign, EM_CURSO, excluirEnvioZapsign, type Assinatura, type Signatario, type StatusAssinatura } from "@/lib/assinaturas";
+import { buscarLinkDeAssinatura, CANCELAVEL, cancelarEnvioZapsign, chamarZapsign, EM_CURSO, ENCERRADO, excluirEnvioZapsign, type Assinatura, type Signatario, type StatusAssinatura } from "@/lib/assinaturas";
 import { copiarTexto } from "@/lib/copiar";
 import { dataHoraBR } from "@/lib/fuso";
 import { useAuth } from "@/hooks/use-auth";
@@ -145,12 +145,12 @@ export function PainelAssinaturas(props: {
                     Atualizar
                   </Button>
                 )}
-                {podeExcluir && (a.status === "enviado" || a.status === "aberto") && (
+                {podeExcluir && CANCELAVEL.includes(a.status) && (
                   <Button size="sm" variant="ghost" className="text-red-700 hover:text-red-800" onClick={() => setConfirmando({ assinatura: a, acao: "cancelar" })} data-cancelar-envio>
                     <XCircle className="mr-1.5 h-4 w-4" /> Cancelar envio
                   </Button>
                 )}
-                {podeExcluir && !EM_CURSO.includes(a.status) && (
+                {podeExcluir && ENCERRADO.includes(a.status) && (
                   <Button size="icon" variant="ghost" className="h-8 w-8 text-red-700 hover:text-red-800" title="Excluir este envio do sistema" aria-label="Excluir este envio do sistema" onClick={() => setConfirmando({ assinatura: a, acao: "excluir" })} data-excluir-envio>
                     <Trash2 className="h-4 w-4" />
                   </Button>

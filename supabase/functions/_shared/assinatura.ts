@@ -14,6 +14,10 @@ export type StatusAssinatura = (typeof STATUS_ASSINATURA)[number];
 
 /** Envios que ainda dependem de alguém assinar (ou do PDF chegar): um por documento. */
 export const EM_CURSO: ReadonlyArray<StatusAssinatura> = ["enviando", "enviado", "aberto", "gravando"];
+/** Em curso e ainda nas mãos do cliente: dá para cancelar no ZapSign (#550). */
+export const CANCELAVEL: ReadonlyArray<StatusAssinatura> = ["enviado", "aberto"];
+/** Terminado: dá para excluir do sistema — o que não está em curso. */
+export const ENCERRADO: ReadonlyArray<StatusAssinatura> = STATUS_ASSINATURA.filter((s) => !EM_CURSO.includes(s));
 
 export type StatusSignatario = "pendente" | "abriu" | "assinou";
 

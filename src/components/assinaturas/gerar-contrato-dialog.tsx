@@ -19,7 +19,8 @@ import { ArrowLeft, Eye, FileSignature, Folder, Loader2, Lock, RefreshCw, Search
 import { toast } from "sonner";
 import { cacheModelos, chamarZapsign, detalharModeloZapsign, type CampoDoModelo, type ModeloZapsign } from "@/lib/assinaturas";
 import { useAuth } from "@/hooks/use-auth";
-import { cpfComPontos, enderecoDe, ESTADOS_CIVIS, faixaDoCampo, NACIONALIDADES, type OrigemDoValor, type ParagrafoDoContrato, type PartesDaQualificacao, type PartesDoEndereco, partesDoEndereco, previaDoContrato, PROFISSOES, qualificacaoDe, respostasDoModelo } from "@shared/modelo-contrato";
+import { cpfComPontos } from "@shared/documento-campos";
+import { enderecoDe, ESTADOS_CIVIS, faixaDoCampo, NACIONALIDADES, type OrigemDoValor, type ParagrafoDoContrato, type PartesDaQualificacao, type PartesDoEndereco, partesDoEndereco, previaDoContrato, PROFISSOES, qualificacaoDe, respostasDoModelo } from "@shared/modelo-contrato";
 import { filtrarModelos, modelosSugeridos, porPasta } from "@/lib/assinaturas-modelos";
 import { TIPOS_DOCUMENTO_OPTIONS } from "@/lib/documentos/tipos";
 import { Badge } from "@/components/ui/badge";

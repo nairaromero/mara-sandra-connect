@@ -1,6 +1,6 @@
 // Contrato a partir de um MODELO do ZapSign: as regras dos campos e a prévia.
 //
-// Módulo PURO (não importa nada): a tela usa por `@shared/modelo-contrato` e a
+// Módulo PURO (só importa `documento-campos.ts`, puro também — o CPF mora lá): a tela usa por `@shared/modelo-contrato` e a
 // function `zapsign-enviar` por `../_shared/modelo-contrato.ts`. É o ÚNICO
 // lugar que decide:
 //   - o que o texto de ajuda do campo no ZapSign diz ao sistema
@@ -15,6 +15,8 @@
 //   - o texto do contrato já preenchido: o servidor lê o DOCX do modelo UMA vez
 //     (`paragrafosDoDocx`) e a tela preenche (`previaDoContrato`) com os mesmos
 //     valores de `respostasDoModelo` — conferir de novo não vai mais ao ZapSign.
+
+import { cpfComPontos, cpfValido } from "./documento-campos.ts";
 
 /** Como o ZapSign descreve um campo do modelo (`inputs` de GET /templates/{token}/). */
 export interface EntradaDoModelo {
@@ -129,11 +131,6 @@ export interface PartesDaQualificacao {
   endereco: string;
 }
 
-/** CPF como o contrato escreve: 529.982.247-25. O que não tem 11 dígitos volta como veio. */
-export function cpfComPontos(cpf: string): string {
-  const d = cpf.replace(/\D/g, "");
-  return d.length === 11 ? `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}` : cpf.trim();
-}
 
 /** As partes da qualificação que o cadastro já responde; o resto a pessoa escolhe nas listas. */
 export function partesDoCadastro(cliente: DadosDoCliente = {}): PartesDaQualificacao {
@@ -511,6 +508,11 @@ export function respostasDoModelo(
         faltando.push(c.rotulo);
         comErro.add(c.variavel);
       }
+      continue;
+    }
+    // CPF digitado (o cadastro não tinha): tem de ser um CPF de verdade
+    if (c.dado === "cpf" && !cpfValido(valor.replace(/\D/g, ""))) {
+      acusar(`${c.rotulo}: CPF inválido.`);
       continue;
     }
     if (c.tipo === "texto") continue;

@@ -8,7 +8,7 @@ import { criarCacheModelos } from "@/lib/assinaturas-cache";
 import type { CampoDoModelo, ModeloZapsign, Signatario, StatusAssinatura } from "@shared/assinatura";
 import type { ParagrafoDoContrato } from "@shared/modelo-contrato";
 
-export { EM_CURSO, formatoAssinavel, type CampoDoModelo, type ModeloZapsign, type Signatario, type StatusAssinatura } from "@shared/assinatura";
+export { CANCELAVEL, EM_CURSO, ENCERRADO, formatoAssinavel, type CampoDoModelo, type ModeloZapsign, type Signatario, type StatusAssinatura } from "@shared/assinatura";
 
 /**
  * Um signatário como a TELA o vê (#545): a view `assinaturas_tela` esconde o
