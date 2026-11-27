@@ -1,4 +1,5 @@
-// Exibição de telefone no padrão brasileiro: (DD) 9XXXX-XXXX / (DD) XXXX-XXXX.
+// Exibição de telefone: no Brasil (DD) 9XXXX-XXXX / (DD) XXXX-XXXX; fora, o
+// código do país na frente ("+1 (212) 555-0100", "+34 613761609").
 //
 // O banco guarda o número como veio (em geral só dígitos, ex.: "17997227424");
 // nas telas isso aparecia cru. `formatarTelefone` é só de EXIBIÇÃO — não altera
@@ -6,20 +7,28 @@
 // (uma só: antes cada tela tinha a sua `maskTelefone`), e o telefone com país
 // (`<TelefoneComPais>`) usa `PAISES_TELEFONE`, `separarTelefone` e
 // `telefoneParaEnvio`. Número de fora do Brasil é guardado como "+34 613761609".
-//
-// Aceita DDI 55 na frente (13 dígitos) e descarta. Qualquer outra coisa que
-// não seja 10 ou 11 dígitos volta como está (não inventa formato pra número
-// estrangeiro, ramal, etc.).
 import { DDI_BRASIL, lerTelefone, PAISES_TELEFONE, telefoneDe } from "@shared/telefone";
 
+/**
+ * O telefone como a pessoa lê. O país vem de `lerTelefone`, a mesma leitura do
+ * campo, do link do WhatsApp e do ZapSign — até 24/11/2026 esta função jogava
+ * o "+" fora e "+1 2125550100" (Estados Unidos) aparecia "(12) 12555-0100".
+ * O que não tem leitura ou não fecha a conta (código de país desconhecido,
+ * ramal, número brasileiro incompleto) volta como está guardado.
+ */
 export function formatarTelefone(v: string | null | undefined): string {
   if (!v) return "";
-  let d = v.replace(/\D/g, "");
-  if (d.length === 13 && d.startsWith("55")) d = d.slice(2);
-  if (d.length === 12 && d.startsWith("55")) d = d.slice(2);
-  if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
-  if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
-  return v;
+  const lido = lerTelefone(v);
+  if (!lido || !lido.numero) return v;
+  const d = lido.numero;
+  if (lido.ddi === DDI_BRASIL) {
+    if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+    if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+    return v;
+  }
+  // Estados Unidos e Canadá têm formato fixo; nos outros países não se inventa máscara
+  if (lido.ddi === "1" && d.length === 10) return `+1 (${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+  return `+${lido.ddi} ${d}`;
 }
 
 /**
