@@ -135,12 +135,18 @@ export function calcularDueAtRelativo(
   return new Date(Date.now() + offsetDias * 86400_000).toISOString();
 }
 
-/** Qual evento é o da perícia que a tarefa acompanha: o da mesma data; sem
- *  data que case, o único aberto. Com mais de um e nenhum na data, nenhum. */
-export function eventoDaPericia<E extends { start_at: string }>(
+/** Qual evento é o da perícia que a tarefa acompanha: o que a tarefa aponta
+ *  (`evento_id`); senão o da mesma data; sem data que case, o único aberto.
+ *  Com mais de um e nenhum na data, nenhum. */
+export function eventoDaPericia<E extends { id?: string; start_at: string }>(
   abertas: E[],
   periciaEm: string | null,
+  eventoId?: string | null,
 ): E | null {
+  if (eventoId) {
+    const apontado = abertas.find((e) => e.id === eventoId);
+    if (apontado) return apontado;
+  }
   if (periciaEm) {
     const alvo = new Date(periciaEm).getTime();
     const mesma = abertas.find((e) => new Date(e.start_at).getTime() === alvo);
@@ -156,4 +162,45 @@ export function eventoAtivo(
   agora: number,
 ): boolean {
   return !e.concluido_em && new Date(e.end_at).getTime() >= agora;
+}
+
+/** O que a tarefa guarda sobre o compromisso que a ancorou. */
+export interface AncoraDaTarefa {
+  evento_id?: string;
+  pericia_em?: string;
+  ancora_prazo?: string;
+  ancora_offset_dias?: number;
+  checagens?: unknown[];
+}
+
+/** A tarefa acompanha ESTE evento? Pelo `evento_id`; tarefa antiga (sem ele),
+ *  pela data que guardou — a do evento ANTES de ser remarcado. */
+export function tarefaEhDoEvento(
+  meta: AncoraDaTarefa,
+  eventoId: string,
+  startAntes: string,
+): boolean {
+  if (meta.evento_id) return meta.evento_id === eventoId;
+  if (!meta.pericia_em) return false;
+  return new Date(meta.pericia_em).getTime() === new Date(startAntes).getTime();
+}
+
+/**
+ * Prazo da tarefa depois que o compromisso foi remarcado: a MESMA conta da
+ * criação (`calcularDueAtRelativo`), com a data nova. Devolve `undefined`
+ * quando o prazo não deve mudar: tarefa que não é ancorada na agenda, sem
+ * offset conhecido, sem prazo, ou conferência que já entrou no ciclo de
+ * "ainda sem resultado" (o prazo dela passou a ser o da próxima conferência).
+ */
+export function prazoAposRemarcar(
+  meta: AncoraDaTarefa,
+  dueAtual: string | null,
+  offsetDias: number | undefined,
+  startDepois: string,
+): string | undefined {
+  const ancora = meta.ancora_prazo;
+  if (ancora !== "agenda" && ancora !== "sexta_antes_agenda") return undefined;
+  if (!dueAtual || typeof offsetDias !== "number") return undefined;
+  if ((meta.checagens?.length ?? 0) > 0) return undefined;
+  return calcularDueAtRelativo(ancora, new Date(startDepois), offsetDias) ?? undefined;
 }

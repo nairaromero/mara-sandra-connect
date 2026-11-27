@@ -44,6 +44,7 @@ import {
   criarEvento,
   excluirEvento,
   marcarConclusaoEvento,
+  reancorarTarefasDoEvento,
 } from "@/lib/agenda/queries";
 import { type AgendaEventoComJoins, type AgendaTipo, TIPO_LABEL } from "@/lib/agenda/types";
 import {
@@ -584,7 +585,29 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
             processo_judicial_id: proc.processo_judicial_id,
           },
         });
-        toast.success("Evento atualizado.");
+        // Remarcou: as tarefas que acompanham o compromisso vão junto. Não
+        // desfaz a edição se falhar — a pessoa fica sabendo e ajusta à mão.
+        let acompanharam = 0;
+        if (evento.caso_id && casoId === evento.caso_id) {
+          try {
+            acompanharam = await reancorarTarefasDoEvento({
+              eventoId: evento.id,
+              casoId: evento.caso_id,
+              startAntes: evento.start_at,
+              startDepois: startIso,
+            });
+          } catch (e) {
+            console.error("reancorar tarefas do evento:", e);
+            toast.warning("Evento atualizado, mas as tarefas dele ficaram com a data antiga", {
+              description: (e as { message?: string }).message ?? "",
+            });
+          }
+        }
+        toast.success(
+          acompanharam === 0
+            ? "Evento atualizado."
+            : `Evento atualizado. ${acompanharam} tarefa${acompanharam === 1 ? " acompanhou" : "s acompanharam"} a nova data.`,
+        );
       } else {
         // Comprovante de outra pessoa pendente de decisão: não deixa salvar.
         if (comprovanteDivergente) {
@@ -753,6 +776,12 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
                 template_aplicado: tpl.nome,
                 aplicado_via: "agenda_sheet",
                 ancora_prazo: ancora,
+                // O compromisso que ancorou a tarefa e o offset dela: é o que
+                // deixa a tarefa acompanhar se a perícia for remarcada.
+                evento_id: novoEvento.id,
+                ...(typeof item.offset_dias === "number"
+                  ? { ancora_offset_dias: item.offset_dias }
+                  : {}),
                 // Data do evento que ancorou a tarefa. O acompanhamento de
                 // pericia conta os 30/60/90 dias do escalonamento a partir
                 // daqui — sem isso o job diario nao teria referencia.
