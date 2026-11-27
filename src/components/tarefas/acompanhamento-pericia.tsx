@@ -24,7 +24,7 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { CheckCircle2, Clock, Loader2, Stethoscope } from "lucide-react";
+import { CheckCircle2, Clock, Loader2, Newspaper, Stethoscope } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -34,14 +34,28 @@ import { useDestaque } from "@/lib/destaque/destaque-context";
 import { formatarBR } from "@/lib/fuso";
 import { useAuth } from "@/hooks/use-auth";
 import { aplicarTemplateProgramatico } from "@/lib/tarefas/aplicador";
+import { lerLista } from "@/lib/leitura";
 import {
   andamentoDoLaudo,
   ehPericiaJudicial,
+  META_ANALISE_LAUDO,
+  META_LAUDO_PUBLICADO_EM,
   TEMPLATE_LAUDO_JUDICIAL,
   type LaudoPericia,
 } from "@/lib/tarefas/pericia";
 
 const DIAS_ENTRE_CHECAGENS = 10;
+
+type Desfecho = "deferido" | "indeferido";
+type Acao =
+  | { tipo: "sem" }
+  | { tipo: "desfecho"; desfecho: Desfecho }
+  | { tipo: "laudo"; laudo: LaudoPericia };
+
+const TEMPLATE_DO_DESFECHO: Record<Desfecho, string> = {
+  deferido: "concedido",
+  indeferido: "indeferido",
+};
 
 interface Props {
   tarefa: TarefaComJoins;
@@ -63,7 +77,11 @@ export function AcompanhamentoPericia({
   const meta = (tarefa.metadata ?? {}) as {
     pericia_em?: string;
     checagens?: string[];
+    [META_LAUDO_PUBLICADO_EM]?: string;
   };
+  const laudoPublicadoEm = meta[META_LAUDO_PUBLICADO_EM]
+    ? new Date(meta[META_LAUDO_PUBLICADO_EM] as string)
+    : null;
   const checagens = meta.checagens ?? [];
   const periciaEm = meta.pericia_em ? new Date(meta.pericia_em) : null;
   const diasDesde = periciaEm
@@ -71,9 +89,7 @@ export function AcompanhamentoPericia({
     : null;
 
   const judicial = ehPericiaJudicial(tarefa);
-  const [agindo, setAgindo] = useState<"sem" | "deferido" | "indeferido" | LaudoPericia | null>(
-    null,
-  );
+  const [agindo, setAgindo] = useState<"sem" | Desfecho | LaudoPericia | null>(null);
   const { usuario } = useAuth();
   const { marcar: marcarDestaque } = useDestaque();
 
@@ -94,38 +110,54 @@ export function AcompanhamentoPericia({
       };
     }
 
-    const [adm, jud] = await Promise.all([
-      supabase.from("processos_admin").select("id").eq("caso_id", tarefa.caso_id!),
-      supabase.from("processos_judiciais").select("id").eq("caso_id", tarefa.caso_id!),
+    // Pelo túnel de leitura: consulta que falha não pode virar "caso sem
+    // processo" — o andamento iria para "Andamentos Gerais" sem ninguém saber.
+    const [admIds, judIds] = await Promise.all([
+      lerLista<{ id: string }>(
+        supabase.from("processos_admin").select("id").eq("caso_id", tarefa.caso_id!),
+        "requerimentos do caso",
+      ),
+      lerLista<{ id: string }>(
+        supabase.from("processos_judiciais").select("id").eq("caso_id", tarefa.caso_id!),
+        "processos judiciais do caso",
+      ),
     ]);
-    const admIds = adm.data ?? [];
-    const judIds = jud.data ?? [];
 
     if (admIds.length === 1 && judIds.length === 0) {
-      return { processo_admin_id: admIds[0].id as string, processo_judicial_id: null };
+      return { processo_admin_id: admIds[0].id, processo_judicial_id: null };
     }
     if (judIds.length === 1 && admIds.length === 0) {
-      return { processo_admin_id: null, processo_judicial_id: judIds[0].id as string };
+      return { processo_admin_id: null, processo_judicial_id: judIds[0].id };
     }
     return { processo_admin_id: null, processo_judicial_id: null };
   }
 
-  // saiu=true SEMPRE vem com o desfecho: deferido aplica o template Concedido,
-  // indeferido aplica o Indeferido — o resultado emenda na próxima corrente
-  // (pedido da Naira, 2026-09-01).
-  //
-  // Na perícia judicial o que vem é `laudo`, nunca `desfecho`: os dois caminhos
-  // não se cruzam, e é isso que impede o Concedido de nascer de um laudo.
-  async function registrar(
-    saiu: boolean,
-    desfecho?: "deferido" | "indeferido",
-    laudo?: LaudoPericia,
-  ) {
+  // O que o clique registra. Desfecho (INSS) emenda no template Concedido ou
+  // Indeferido (pedido da Naira, 2026-09-01); laudo (judicial) emenda na
+  // análise do laudo. Um clique é uma coisa OU outra — é o tipo que impede o
+  // Concedido de nascer de um laudo.
+  async function registrar(acao: Acao) {
     if (agindo) return;
+    const saiu = acao.tipo !== "sem";
+    const laudo = acao.tipo === "laudo" ? acao.laudo : undefined;
+    const desfecho = acao.tipo === "desfecho" ? acao.desfecho : undefined;
+    // Botão de um mundo na perícia do outro: não registra.
     if (saiu && judicial !== !!laudo) return;
-    setAgindo(saiu ? (laudo ?? desfecho ?? "deferido") : "sem");
+    setAgindo(laudo ?? desfecho ?? "sem");
     try {
       const agora = new Date();
+      const dia = fmt(agora);
+      const texto = laudo
+        ? andamentoDoLaudo(laudo, dia)
+        : desfecho
+          ? {
+              titulo: `Resultado da perícia — ${desfecho === "indeferido" ? "INDEFERIDO" : "DEFERIDO"} (${dia})`,
+              descricao: "Resultado da perícia saiu; acompanhamento encerrado.",
+            }
+          : {
+              titulo: `Conferência: ${judicial ? "laudo da perícia judicial" : "resultado da perícia"} ainda não saiu — ${dia}`,
+              descricao: `Conferido em ${dia}. Próxima conferência em ${DIAS_ENTRE_CHECAGENS} dias.`,
+            };
       let semVinculo = false;
       // O processo desta perícia: vai no andamento E na corrente seguinte
       // (Concedido/Indeferido), que é deste processo e de nenhum outro (#397).
@@ -144,18 +176,8 @@ export function AcompanhamentoPericia({
             processo_admin_id: vinculo.processo_admin_id,
             processo_judicial_id: vinculo.processo_judicial_id,
             origem: "interno",
-            titulo: laudo
-              ? andamentoDoLaudo(laudo, fmt(agora)).titulo
-              : saiu
-                ? `Resultado da perícia — ${desfecho === "indeferido" ? "INDEFERIDO" : "DEFERIDO"} (${fmt(agora)})`
-                : judicial
-                  ? `Conferência: laudo da perícia judicial ainda não saiu — ${fmt(agora)}`
-                  : `Conferência: resultado da perícia ainda não saiu — ${fmt(agora)}`,
-            descricao: laudo
-              ? andamentoDoLaudo(laudo, fmt(agora)).descricao
-              : saiu
-                ? "Resultado da perícia saiu; acompanhamento encerrado."
-                : `Conferido em ${fmt(agora)}. Próxima conferência em ${DIAS_ENTRE_CHECAGENS} dias.`,
+            titulo: texto.titulo,
+            descricao: texto.descricao,
             data_evento: agora.toISOString(),
             // Só a notícia boa vai pro parceiro. As conferências sem novidade
             // são ruído pra quem está do lado de fora.
@@ -202,12 +224,28 @@ export function AcompanhamentoPericia({
       // judicial emenda na análise do laudo.
       const proximo = laudo
         ? TEMPLATE_LAUDO_JUDICIAL
-        : desfecho === "indeferido"
-          ? "indeferido"
-          : desfecho === "deferido"
-            ? "concedido"
-            : null;
-      if (saiu && proximo && tarefa.caso_id) {
+        : desfecho
+          ? TEMPLATE_DO_DESFECHO[desfecho]
+          : null;
+      // Uma análise por laudo: se a publicação do tribunal (ou um laudo
+      // anterior) já abriu a análise neste processo, não nasce outra.
+      let analiseJaAberta = false;
+      if (laudo && tarefa.caso_id && vinculo.processo_judicial_id) {
+        const abertas = await lerLista<{ id: string }>(
+          supabase
+            .from("tarefas")
+            .select("id")
+            .eq("caso_id", tarefa.caso_id)
+            .eq("processo_judicial_id", vinculo.processo_judicial_id)
+            .in("status", ["a_fazer", "fazendo"])
+            .eq(`metadata->>${META_ANALISE_LAUDO}`, "true")
+            .limit(1),
+          "análise de laudo aberta neste processo",
+        );
+        analiseJaAberta = abertas.length > 0;
+      }
+
+      if (proximo && tarefa.caso_id && !analiseJaAberta) {
         try {
           await aplicarTemplateProgramatico({
             nomeTemplate: proximo,
@@ -219,7 +257,7 @@ export function AcompanhamentoPericia({
             processoJudicialId: vinculo.processo_judicial_id,
           });
         } catch (e) {
-          toast.warning("Resultado registrado, mas o template de sequência falhou", {
+          toast.warning(`${laudo ? "Laudo" : "Resultado"} registrado, mas a sequência não abriu`, {
             description:
               ((e as { message?: string }).message ?? "") +
               (laudo
@@ -233,7 +271,9 @@ export function AcompanhamentoPericia({
 
       toast.success(
         laudo
-          ? "Laudo registrado — análise do laudo aberta. O processo segue até a sentença."
+          ? analiseJaAberta
+            ? "Laudo registrado — a análise do laudo já está aberta neste processo."
+            : "Laudo registrado — análise do laudo aberta. O processo segue até a sentença."
           : saiu
             ? desfecho === "indeferido"
               ? "Indeferido registrado — análise do indeferimento aberta."
@@ -284,6 +324,13 @@ export function AcompanhamentoPericia({
         </div>
       )}
 
+      {judicial && laudoPublicadoEm && tarefa.status !== "feito" && (
+        <p className="text-xs flex items-center gap-1 text-amber-800 dark:text-amber-300">
+          <Newspaper className="h-3.5 w-3.5 shrink-0" />
+          Chegou publicação sobre o laudo em {fmt(laudoPublicadoEm)} — leia o laudo e registre.
+        </p>
+      )}
+
       {tarefa.status === "feito" ? (
         <p className="text-xs text-muted-foreground flex items-center gap-1">
           <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
@@ -296,7 +343,7 @@ export function AcompanhamentoPericia({
               size="sm"
               variant="outline"
               disabled={agindo !== null}
-              onClick={() => registrar(false)}
+              onClick={() => registrar({ tipo: "sem" })}
             >
               {agindo === "sem" ? (
                 <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
@@ -318,7 +365,7 @@ export function AcompanhamentoPericia({
                     size="sm"
                     variant={laudo === "favoravel" ? "default" : "outline"}
                     disabled={agindo !== null}
-                    onClick={() => registrar(true, undefined, laudo)}
+                    onClick={() => registrar({ tipo: "laudo", laudo })}
                   >
                     {agindo === laudo ? (
                       <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
@@ -339,7 +386,7 @@ export function AcompanhamentoPericia({
                     size="sm"
                     variant={desfecho === "deferido" ? "default" : "outline"}
                     disabled={agindo !== null}
-                    onClick={() => registrar(true, desfecho)}
+                    onClick={() => registrar({ tipo: "desfecho", desfecho })}
                   >
                     {agindo === desfecho ? (
                       <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />

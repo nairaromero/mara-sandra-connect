@@ -343,11 +343,16 @@ o sistema em produção. Quando chegar, vale o seguinte:
   `_shared/checar-link.ts`. Nas specs, chamada como o SISTEMA (cron/pg_net) é
   `chamarComoSistema` de `e2e/rbac.ts`.
   Perícia do INSS × perícia JUDICIAL (25/11): `ehPericiaJudicial` em `src/lib/tarefas/pericia.ts`
-  é a única decisão de "qual das duas é" (o SQL repete em `private.eh_pericia_judicial`). No INSS o
+  é a única decisão de "qual das duas é" (o SQL repete em `private.eh_pericia_judicial`): vale o
+  PROCESSO a que a tarefa está ligada — em processo judicial é judicial, mesmo com o template do INSS. No INSS o
   resultado é o desfecho (deferido → template Concedido); no judicial sai um LAUDO (favorável,
   parcial, desfavorável), o andamento fala em laudo e a corrente é `laudo_pericia_judicial`
   (analisar e manifestar) — nunca o Concedido, e sem os alertas de ouvidoria/mora dos 30/60/90
-  dias. Régua: `e2e/unit/pericia-judicial.test.ts`; prova: `e2e/tests/pericia-judicial-laudo.spec.ts`.
+  dias. Publicação que manda manifestar sobre o laudo (`private.publicacao_fala_do_laudo`, o único
+  lugar que lê esse texto) AVISA a conferência aberta do processo e traz o prazo para hoje, mas não
+  conclui nem classifica: a publicação não diz o resultado do laudo. Uma análise por laudo — a
+  marca `analise_laudo_pericia` (`META_ANALISE_LAUDO`) é a mesma no template do botão e na tarefa
+  que a publicação abre; quem chega depois entra na que já existe. Régua: `e2e/unit/pericia-judicial.test.ts`; prova: `e2e/tests/pericia-judicial-laudo.spec.ts`.
 - **Quem muda ACESSO audita** (desde 2026-09-27, `migration_rbac_25`/`26`; desenho em
   planning/AUDITABILIDADE.md): papel, permissão, status do vínculo, titularidade e staff
   chamam `private.auditar` com o antes e o depois; apagar cliente, documento ou andamento

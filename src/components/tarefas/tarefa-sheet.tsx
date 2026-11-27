@@ -113,6 +113,7 @@ import { chaveDiaBR, dataHoraBR, horaBR, hojeChaveBR } from "@/lib/fuso"
 import { useDestaque } from "@/lib/destaque/destaque-context";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
+import { periciaEhJudicial } from "@/lib/tarefas/pericia";
 import { usePodeAcao } from "@/components/acao-protegida";
 import {
   ETAPA_LABEL,
@@ -515,7 +516,10 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   useEffect(() => {
     if (!avisoAplicavel || avisoEditado || !ctxCaso) return;
     const natureza: "admin" | "judicial" =
-      templateSelecionado === "pericia_judicial" || ehTokenJudicial(processoToken)
+      periciaEhJudicial({
+        emProcessoJudicial: ehTokenJudicial(processoToken),
+        template: templateSelecionado,
+      })
         ? "judicial"
         : "admin";
     let cancelado = false;
