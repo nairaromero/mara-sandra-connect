@@ -181,10 +181,11 @@ export async function concluirPericiaDaTarefa(input: {
   casoId: string;
   processoAdminId: string | null;
   processoJudicialId: string | null;
+  /** A tarefa de comparecimento que está sendo respondida. */
+  tarefaId: string;
   periciaEm: string | null;
   /** O evento que a tarefa aponta (`metadata.evento_id`), quando ela guarda. */
   eventoId?: string | null;
-  usuarioId: string | null;
 }): Promise<boolean> {
   let q = supabase
     .from("agenda_eventos")
@@ -204,8 +205,15 @@ export async function concluirPericiaDaTarefa(input: {
   );
   const alvo = eventoDaPericia(abertas, input.periciaEm, input.eventoId);
   if (!alvo) return false;
-  await marcarConclusaoEvento(alvo.id, true, input.usuarioId);
-  return true;
+  // Pela função do banco, não por update direto: a perícia pode estar no nome
+  // de outra pessoa, e quem tem alcance "atribuídos" não a alteraria — o banco
+  // recusa em silêncio. Encerrar a perícia é consequência de responder a tarefa.
+  const { data, error } = await supabase.rpc("concluir_pericia_da_tarefa", {
+    p_tarefa_id: input.tarefaId,
+    p_evento_id: alvo.id,
+  });
+  if (error) throw error;
+  return data === true;
 }
 
 /**
@@ -278,17 +286,13 @@ export async function reancorarTarefasDoEvento(input: {
       offsetDe(meta),
       input.startDepois,
     );
-    const { error } = await supabase
-      .from("tarefas")
-      .update({
-        ...(novoPrazo ? { due_at: novoPrazo } : {}),
-        metadata: {
-          ...meta,
-          pericia_em: new Date(input.startDepois).toISOString(),
-          evento_id: input.eventoId,
-        },
-      })
-      .eq("id", t.id);
+    // Pela função do banco: a tarefa pode ser de outra pessoa (mesma razão de
+    // concluirPericiaDaTarefa). Ela grava a data nova do compromisso e o evento.
+    const { error } = await supabase.rpc("reancorar_tarefa_do_evento", {
+      p_evento_id: input.eventoId,
+      p_tarefa_id: t.id,
+      p_due_at: novoPrazo ?? null,
+    });
     if (error) throw error;
     if (novoPrazo) mudaram++;
   }
