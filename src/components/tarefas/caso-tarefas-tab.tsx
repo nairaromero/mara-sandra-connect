@@ -16,6 +16,7 @@ import { AgendaSheet } from "@/components/agenda/agenda-sheet";
 import { listarTarefas } from "@/lib/tarefas/queries";
 import { STATUS_LABEL, type TarefaComJoins, type TarefaStatus } from "@/lib/tarefas/types";
 import { listarAgenda } from "@/lib/agenda/queries";
+import { eventoAtivo } from "@/lib/agenda/helpers";
 import { type AgendaEventoComJoins, tipoBadge } from "@/lib/agenda/types";
 import { DESTAQUE_CLASSE_GLOBAL, useDestaqueAtivo } from "@/lib/destaque/destaque-context";
 import { formatarBR, horaBR } from "@/lib/fuso";
@@ -98,16 +99,18 @@ export function CasoTarefasTab({ casoId, onChange }: Props) {
     if (t) setSheetModo({ kind: "editar", tarefa: t });
   }
 
-  // Separa eventos em futuros (Ativos) e passados (Arquivados).
+  // Separa eventos em Ativos (por acontecer) e Arquivados (já passados ou
+  // dados por realizados — a perícia sai daqui quando a equipe responde se o
+  // cliente compareceu).
   const agora = Date.now();
   const eventosFuturos = useMemo(
-    () => eventos.filter((e) => new Date(e.end_at).getTime() >= agora),
+    () => eventos.filter((e) => eventoAtivo(e, agora)),
     [eventos, agora],
   );
   const eventosPassados = useMemo(
     () =>
       eventos
-        .filter((e) => new Date(e.end_at).getTime() < agora)
+        .filter((e) => !eventoAtivo(e, agora))
         .sort((a, b) => new Date(b.start_at).getTime() - new Date(a.start_at).getTime()),
     [eventos, agora],
   );

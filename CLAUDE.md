@@ -353,6 +353,13 @@ o sistema em produção. Quando chegar, vale o seguinte:
   conclui nem classifica: a publicação não diz o resultado do laudo. Uma análise por laudo — a
   marca `analise_laudo_pericia` (`META_ANALISE_LAUDO`) é a mesma no template do botão e na tarefa
   que a publicação abre; quem chega depois entra na que já existe. Régua: `e2e/unit/pericia-judicial.test.ts`; prova: `e2e/tests/pericia-judicial-laudo.spec.ts`.
+  Template × processo (27/11): `tarefa_templates.natureza` (`admin`, `judicial` ou nulo = qualquer)
+  é a fonte de em qual processo o template cabe; `templateCabeNoProcesso` (`src/lib/tarefas/types.ts`)
+  é a única regra, nos formulários de tarefa e de agenda — quem manda é o processo escolhido, e a
+  tela não decide pelo nome do template. Template novo: preencher a `natureza` na migration.
+  Perícia se conclui pela tarefa dela (#332): responder o comparecimento dá o agendamento por
+  realizado (`concluirPericiaDaTarefa`, `src/lib/agenda/queries.ts`) e ele sai dos Ativos do caso
+  (`eventoAtivo`). Provas: `template-natureza-processo.spec.ts`, `pericia-compareceu-sai-da-agenda.spec.ts`.
 - **Quem muda ACESSO audita** (desde 2026-09-27, `migration_rbac_25`/`26`; desenho em
   planning/AUDITABILIDADE.md): papel, permissão, status do vínculo, titularidade e staff
   chamam `private.auditar` com o antes e o depois; apagar cliente, documento ou andamento

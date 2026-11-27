@@ -50,6 +50,13 @@ export function tokenDaFrente(natureza: string, id: string): string {
   return `${natureza}:${id}`;
 }
 
+/** De que natureza é a frente escolhida; null = sem processo (ou ninguém escolheu). */
+export function naturezaDoToken(token: string): "admin" | "judicial" | null {
+  if (token.startsWith(PREFIXO_JUDICIAL)) return "judicial";
+  if (token.startsWith(PREFIXO_ADMIN)) return "admin";
+  return null;
+}
+
 export function ehTokenJudicial(token: string): boolean {
   return token.startsWith(PREFIXO_JUDICIAL);
 }

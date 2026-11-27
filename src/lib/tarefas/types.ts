@@ -121,6 +121,25 @@ export interface TarefaTemplateRow {
   itens: TarefaTemplateItem[];
   ativo: boolean;
   oculto_na_ui?: boolean;
+  /** Em que processo o template cabe; nulo = em qualquer um. */
+  natureza?: "admin" | "judicial" | null;
+}
+
+export const ROTULO_NATUREZA: Record<"admin" | "judicial", string> = {
+  admin: "administrativo",
+  judicial: "judicial",
+};
+
+/**
+ * O template cabe no processo escolhido? Quem manda é o processo: template de
+ * uma natureza não entra em processo da outra (Naira, 27/11/2026). Sem processo
+ * escolhido, ou template sem natureza, cabe.
+ */
+export function templateCabeNoProcesso(
+  t: Pick<TarefaTemplateRow, "natureza">,
+  naturezaDoProcesso: "admin" | "judicial" | null,
+): boolean {
+  return !t.natureza || !naturezaDoProcesso || t.natureza === naturezaDoProcesso;
 }
 
 export function templateTemAgenda(t: TarefaTemplateRow): boolean {

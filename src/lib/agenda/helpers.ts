@@ -134,3 +134,26 @@ export function calcularDueAtRelativo(
   if (typeof offsetDias !== "number") return null;
   return new Date(Date.now() + offsetDias * 86400_000).toISOString();
 }
+
+/** Qual evento é o da perícia que a tarefa acompanha: o da mesma data; sem
+ *  data que case, o único aberto. Com mais de um e nenhum na data, nenhum. */
+export function eventoDaPericia<E extends { start_at: string }>(
+  abertas: E[],
+  periciaEm: string | null,
+): E | null {
+  if (periciaEm) {
+    const alvo = new Date(periciaEm).getTime();
+    const mesma = abertas.find((e) => new Date(e.start_at).getTime() === alvo);
+    if (mesma) return mesma;
+  }
+  return abertas.length === 1 ? abertas[0] : null;
+}
+
+/** Evento que ainda está por acontecer: nem dado por realizado, nem já passado.
+ *  É o que a aba Atividades do caso mostra em "Ativos". */
+export function eventoAtivo(
+  e: { end_at: string; concluido_em: string | null },
+  agora: number,
+): boolean {
+  return !e.concluido_em && new Date(e.end_at).getTime() >= agora;
+}
