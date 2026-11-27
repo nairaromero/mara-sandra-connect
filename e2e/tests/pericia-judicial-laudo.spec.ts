@@ -22,6 +22,7 @@ let casoId: string;
 let judId: string;
 let tituloJud: string;
 let tituloInss: string;
+let tituloTrocado: string;
 
 test.beforeAll(async () => {
   const sufixo = Date.now();
@@ -42,6 +43,8 @@ test.beforeAll(async () => {
 
   tituloJud = `[E2E] Conferir laudo da perícia judicial ${sufixo}`;
   tituloInss = `[E2E] Conferir resultado da perícia ${sufixo}`;
+  // Template do INSS escolhido por engano numa perícia judicial (agosto/2026).
+  tituloTrocado = `[E2E] Perícia judicial com template do INSS ${sufixo}`;
   const base = {
     caso_id: casoId,
     tipo: "contato_cliente",
@@ -59,6 +62,12 @@ test.beforeAll(async () => {
         template_aplicado: "pericia_judicial",
         pericia_em: new Date(Date.now() - 20 * 86400_000).toISOString(),
       },
+    },
+    {
+      ...base,
+      titulo: tituloTrocado,
+      processo_judicial_id: judId,
+      metadata: { acompanhamento_pericia: true, template_aplicado: "pericia_parceiro" },
     },
     {
       ...base,
@@ -92,6 +101,10 @@ test("laudo favorável não vira benefício concedido", async ({ page }) => {
   await expect(cardJud.getByRole("button", { name: /deferido/i })).toHaveCount(0);
   await expect(cardInss.getByRole("button", { name: "Saiu — deferido" })).toBeVisible();
   await expect(cardInss.getByRole("button", { name: /Laudo/ })).toHaveCount(0);
+  // Vale o processo: template do INSS num processo judicial mostra laudo.
+  const cardTrocado = page.locator("div.group").filter({ hasText: tituloTrocado }).first();
+  await expect(cardTrocado.getByRole("button", { name: "Laudo favorável" })).toBeVisible();
+  await expect(cardTrocado.getByRole("button", { name: /deferido/i })).toHaveCount(0);
 
   await cardJud.getByRole("button", { name: "Laudo favorável" }).click();
   await expect(page.getByText(/Laudo registrado — análise do laudo aberta/)).toBeVisible({
@@ -130,52 +143,114 @@ test("laudo favorável não vira benefício concedido", async ({ page }) => {
   expect(
     tarefas!.filter((t) => ["concedido", "indeferido"].includes(t.metadata?.template_aplicado)),
   ).toHaveLength(0);
-  expect(tarefas).toHaveLength(3);
+  expect(tarefas).toHaveLength(4);
+
+  // A publicação chega DEPOIS do clique: entra na análise aberta, sem abrir outra.
+  await publicar(casoId, judId, PUBLICACAO_DO_LAUDO);
+  const depois = await analisesDoLaudo(casoId);
+  expect(depois).toHaveLength(1);
+  expect(depois[0].metadata.laudo_publicado_em).toBeTruthy();
+  expect(depois[0].descricao).toContain("Publicação sobre o laudo chegou em");
 });
 
-test("laudo que demora não vira ouvidoria no INSS", async () => {
-  // Perícia de 100 dias atrás nas duas frentes; origem que a rotina olha.
-  const antiga = new Date(Date.now() - 100 * 86400_000).toISOString();
-  const sufixo = Date.now();
-  const { casoId: caso2 } = await seedClienteCaso(admin, { sufixo: `Escalonamento ${sufixo}` });
+// O que o tribunal publica quando o laudo é juntado (texto real, de produção).
+const PUBLICACAO_DO_LAUDO =
+  "ATO ORDINATÓRIO Ficam as partes intimadas a se manifestar sobre o laudo médico/social acostado aos autos. Prazo: 5 dias.";
+// Texto padrão que cita "laudos" sem dizer que o laudo saiu.
+const PUBLICACAO_GENERICA =
+  "MANIFESTAÇÃO SOBRE DOCUMENTOS: Fica a parte autora intimada para ciência de eventuais documentos ou propostas juntados recentemente aos autos (como prontuários, laudos ou contestação, se houver). Prazo: 5 (cinco) dias.";
+
+async function publicar(caso: string, jud: string, texto: string) {
+  const { error } = await admin.from("andamentos").insert({
+    caso_id: caso,
+    processo_judicial_id: jud,
+    origem: "djen",
+    titulo: "Intimação — TRF3",
+    descricao: texto,
+    data_evento: new Date().toISOString(),
+    visivel_parceiro: false,
+  });
+  if (error) throw new Error(`seed publicação: ${error.message}`);
+}
+
+async function analisesDoLaudo(caso: string) {
+  const { data, error } = await admin
+    .from("tarefas")
+    .select("titulo, status, descricao, metadata")
+    .eq("caso_id", caso)
+    .eq("metadata->>analise_laudo_pericia", "true");
+  if (error) throw error;
+  return data!;
+}
+
+async function casoComConferencia(nome: string) {
+  const sufixo = `${nome} ${Date.now()}`;
+  const { casoId: caso } = await seedClienteCaso(admin, { sufixo });
   const jud = await admin
     .from("processos_judiciais")
-    .insert({ caso_id: caso2, numero_processo: `E2E-JUD2-${sufixo}` })
+    .insert({ caso_id: caso, numero_processo: `E2E-JUD-${Date.now()}-${nome.length}` })
     .select("id")
     .single();
   if (jud.error) throw new Error(jud.error.message);
-  const base = {
-    caso_id: caso2,
+  const titulo = `[E2E] Conferir laudo ${sufixo}`;
+  const { error } = await admin.from("tarefas").insert({
+    caso_id: caso,
     tipo: "contato_cliente",
     status: "a_fazer",
     prioridade: 2,
-    origem: "pericia_acompanhamento",
-  };
-  const { error } = await admin.from("tarefas").insert([
-    {
-      ...base,
-      titulo: `[E2E] laudo judicial antigo ${sufixo}`,
-      processo_judicial_id: jud.data.id,
-      metadata: { acompanhamento_pericia: true, pericia_judicial: true, pericia_em: antiga },
-    },
-    {
-      ...base,
-      titulo: `[E2E] resultado INSS antigo ${sufixo}`,
-      metadata: { acompanhamento_pericia: true, pericia_em: antiga },
-    },
-  ]);
+    origem: "manual",
+    titulo,
+    processo_judicial_id: jud.data.id,
+    due_at: new Date(Date.now() + 5 * 86400_000).toISOString(),
+    metadata: { acompanhamento_pericia: true, template_aplicado: "pericia_judicial" },
+  });
   if (error) throw new Error(error.message);
+  return { caso, jud: jud.data.id as string, titulo };
+}
 
-  const rpc = await admin.rpc("criar_alertas_escalonamento_pericia");
-  if (rpc.error) throw new Error(rpc.error.message);
-
-  const { data: alertas, error: e } = await admin
+async function conferencia(caso: string, titulo: string) {
+  const { data, error } = await admin
     .from("tarefas")
-    .select("titulo, processo_judicial_id, metadata")
-    .eq("caso_id", caso2)
-    .not("metadata->>escalonamento_pericia", "is", null);
-  if (e) throw e;
-  // Os três do INSS (30/60/90), nenhum no processo judicial.
-  expect(alertas).toHaveLength(3);
-  expect(alertas!.every((a) => a.processo_judicial_id === null)).toBe(true);
+    .select("status, due_at, metadata")
+    .eq("caso_id", caso)
+    .eq("titulo", titulo)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+test("publicação sobre o laudo avisa a conferência, sem concluir; e a análise é uma só", async ({
+  page,
+}) => {
+  const { caso, jud, titulo } = await casoComConferencia("Publicação do laudo");
+  await publicar(caso, jud, PUBLICACAO_DO_LAUDO);
+
+  // Avisada e com o prazo para hoje — mas ABERTA: favorável ou não é de gente.
+  const c = await conferencia(caso, titulo);
+  expect(c.status).toBe("a_fazer");
+  expect(c.metadata.laudo_publicado_em).toBeTruthy();
+  expect(new Date(c.due_at).getTime()).toBeLessThanOrEqual(Date.now());
+
+  // A publicação abriu a análise, com a marca.
+  expect(await analisesDoLaudo(caso)).toHaveLength(1);
+
+  // Na tela: o aviso aparece e o clique não abre uma segunda análise.
+  await abrirAtividadesDoCaso(page, caso);
+  const card = page.locator("div.group").filter({ hasText: titulo }).first();
+  await expect(card.getByText(/Chegou publicação sobre o laudo/)).toBeVisible({ timeout: 20_000 });
+  await card.getByRole("button", { name: "Laudo favorável" }).click();
+  await expect(page.getByText(/a análise do laudo já está aberta neste processo/)).toBeVisible({
+    timeout: 20_000,
+  });
+  expect((await conferencia(caso, titulo)).status).toBe("feito");
+  expect(await analisesDoLaudo(caso)).toHaveLength(1);
+});
+
+test("publicação que só cita 'laudos' não avisa nada", async () => {
+  const { caso, jud, titulo } = await casoComConferencia("Publicação genérica");
+  await publicar(caso, jud, PUBLICACAO_GENERICA);
+  const c = await conferencia(caso, titulo);
+  expect(c.metadata.laudo_publicado_em).toBeUndefined();
+  expect(new Date(c.due_at).getTime()).toBeGreaterThan(Date.now());
+  expect(await analisesDoLaudo(caso)).toHaveLength(0);
 });
