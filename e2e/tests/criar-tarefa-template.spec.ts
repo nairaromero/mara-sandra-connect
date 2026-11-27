@@ -8,7 +8,7 @@ import { test, expect } from "@playwright/test";
 import { STORAGE_INTERNO } from "../auth.setup";
 import { adminClient, cleanupE2E, seedClienteCaso } from "../supabase-admin";
 import { abrirNovaTarefaNoCaso } from "../tarefas";
-import { diaBR, diaDoInstanteBR, recua } from "../datas";
+import { diaBR, diaDoInstanteBR, prazoDe, recua } from "../datas";
 
 test.use({ storageState: STORAGE_INTERNO });
 
@@ -101,8 +101,8 @@ test("template indeferido cria 2 tarefas, ambas com responsável", async ({ page
   expect(relogio).toMatchObject({
     origem_em: indeferidoEm,
     origem_estimada: false,
-    planejado_em: recua(diaBR(-12 + 30)),
-    limite_em: recua(diaBR(-12 + 40)),
+    planejado_em: recua(prazoDe(diaBR(-12), 30)),
+    limite_em: recua(prazoDe(diaBR(-12), 40)),
   });
   const { data: analise } = await admin
     .from("tarefas")
@@ -110,7 +110,7 @@ test("template indeferido cria 2 tarefas, ambas com responsável", async ({ page
     .eq("caso_id", casoId)
     .like("titulo", "Analise de Indeferimento%")
     .single();
-  expect(diaDoInstanteBR(analise!.due_at as string)).toBe(recua(diaBR(-12 + 10)));
+  expect(diaDoInstanteBR(analise!.due_at as string)).toBe(recua(prazoDe(diaBR(-12), 10)));
 });
 
 // O "Concedido" tem uma tarefa cujo prazo sai de um GATILHO do banco

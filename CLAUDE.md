@@ -360,6 +360,22 @@ o sistema em produção. Quando chegar, vale o seguinte:
   Perícia se conclui pela tarefa dela (#332): responder o comparecimento dá o agendamento por
   realizado (`concluirPericiaDaTarefa`, `src/lib/agenda/queries.ts`) e ele sai dos Ativos do caso
   (`eventoAtivo`). Provas: `template-natureza-processo.spec.ts`, `pericia-compareceu-sai-da-agenda.spec.ts`.
+  Prazo não cai em fim de semana (27/11): quem garante é o banco, na gravação —
+  `private.prazo_fora_do_fim_de_semana`, pelo gatilho `zz_prazo_fora_do_fds` em `tarefas.due_at` e em `solicitacoes_documento.prazo_at`
+  (o `zz_` é de propósito: roda depois dos gatilhos que DEFINEM o prazo na criação). Sábado/domingo recuam para
+  a sexta no mesmo horário; se a sexta já passou (prazo nascido no fim de semana), vai para a segunda;
+  prazo travado (fatal, teto ou relógio) só vai para a segunda se ela couber no teto. Fora: tarefa `tipo = 'pericia'` (data de
+  compromisso), tarefa encerrada e a agenda. NÃO acrescentar conta de dia útil em ponto novo que grava
+  prazo — o gatilho já cobre; `prazoForaDoFimDeSemana` (`src/lib/tarefas/relogio.ts`) é só o espelho
+  para o formulário avisar. Sem calendário de feriados. Régua: `e2e/unit/prazo-fora-do-fim-de-semana.test.ts`.
+  Contagem de prazo (27/11, regra do escritório para judicial e administrativo): a publicação ou o
+  andamento do INSS chega num dia e o prazo começa a contar no PRÓXIMO DIA ÚTIL (veio na sexta, o
+  dia 1 é a segunda); o sistema trabalha com o fatal menos 1; terminou em sábado/domingo, volta para a
+  sexta. A conta mora em `supabase/functions/_shared/prazos.ts` (`@shared/prazos`: `baseDaContagem`,
+  `fatalEmDiasCorridos`, `recuaFimDeSemana`, `somarDias`) e o SQL repete em `private.base_da_contagem`
+  — usada pelo relógio do indeferimento, pelo fatal padrão da exigência do INSS (30 dias) e pelo teto
+  da Análise de Deferimento. Prazo judicial pela publicação segue em dias úteis (`fatalPorDiasUteis`).
+  Não somar dias a `hoje` à mão para prazo legal. Régua: `e2e/unit/prazos-contagem.test.ts`.
 - **Quem muda ACESSO audita** (desde 2026-09-27, `migration_rbac_25`/`26`; desenho em
   planning/AUDITABILIDADE.md): papel, permissão, status do vínculo, titularidade e staff
   chamam `private.auditar` com o antes e o depois; apagar cliente, documento ou andamento

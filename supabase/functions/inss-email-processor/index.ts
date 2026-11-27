@@ -48,6 +48,7 @@ import { escopado, escritorioDoSistema, exigirUsuarioOuSistema, fetchT } from ".
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 import { decryptSecret } from "../_shared/crypto.ts";
 import { equipeInterna } from "../_shared/equipe.ts";
+import { baseDaContagem, fatalEmDiasCorridos } from "../_shared/prazos.ts";
 import { chatWith, type Credencial } from "../_shared/ia-providers.ts";
 import { abrirCredencial, carregarIntegracao, type IntegracaoIA, registroDeUso } from "../_shared/ia-integracao.ts";
 import { ehProcurador, lerProcuradorEscolhido, lerProcuradoresCadastrados, nomesDeProcurador } from "../_shared/inss-procurador.ts";
@@ -1055,11 +1056,20 @@ async function processarMensagem(
     ? new Date(msg.date ? new Date(msg.date).getTime() : Date.now())
         .toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" })
     : null;
-  // Exigência INSS: fatal = hoje + 30 (o mesmo do item FATAL). Vai no metadata
+  // A contagem começa no PRÓXIMO DIA ÚTIL depois do andamento do INSS (regra do
+  // escritório, _shared/prazos.ts): e-mail de sexta conta da segunda. `folga` é
+  // quantos dias isso acrescenta (0, 1 ou 2) aos prazos contados do e-mail.
+  const diaDoEmail = new Date(dataDoEmail).toLocaleDateString("en-CA", {
+    timeZone: "America/Sao_Paulo",
+  });
+  const folga = Math.round(
+    (Date.parse(`${baseDaContagem(diaDoEmail)}T00:00:00Z`) - Date.parse(`${diaDoEmail}T00:00:00Z`)) /
+      86400_000,
+  );
+  // Exigência INSS: fatal = 30 dias (o mesmo do item FATAL). Vai no metadata
   // para o "Aguardando documentos" ganhar o teto fatal − 3 no banco (#397).
   const prazoFatalEm = templateFinal === "exigencia"
-    ? new Date(Date.now() + 30 * 86400_000)
-        .toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" })
+    ? fatalEmDiasCorridos(diaDoEmail, 30)
     : null;
   if (templateFinal === "indeferido" && match.processo_admin_id && campos.nb) {
     const { error: errNb } = await sb
@@ -1149,7 +1159,7 @@ async function processarMensagem(
           // o prazo conta da data do E-MAIL (#315) — se a fila atrasa, o prazo
           // do parceiro continua sendo o que o INSS considera — e o requerimento
           // casado pelo protocolo decide a coluna do kanban do parceiro (#357).
-          prazo_at: prazoParceiroBrasiliaISO(27, dataDoEmail),
+          prazo_at: prazoParceiroBrasiliaISO(27 + folga, dataDoEmail),
           processo_admin_id: match.processo_admin_id,
         });
       if (errSolic) {
@@ -1170,8 +1180,11 @@ async function processarMensagem(
     } else if (typeof item.offset_dias === "number") {
       // #315: era Date.now() — prazo contado do processamento. Agora conta do
       // dia da decisão, que é o que o INSS considera.
+      // Offset 0 é "hoje"; de 1 em diante é prazo, e prazo conta do próximo
+      // dia útil (a `folga`).
       dueAt = new Date(
-        new Date(dataDoEmail).getTime() + item.offset_dias * 86400_000,
+        new Date(dataDoEmail).getTime() +
+          (item.offset_dias + (item.offset_dias >= 1 ? folga : 0)) * 86400_000,
       ).toISOString();
     }
 

@@ -17,7 +17,7 @@ import { cursorVisivel } from "../cursor";
 import { ENV } from "../env";
 import { adminClient, cleanupE2E, seedClienteCaso } from "../supabase-admin";
 import { abrirNovaTarefaNoCaso, abrirTarefaNoCaso } from "../tarefas";
-import { dataBR, diaBR, diaDoInstanteBR, recua } from "../datas";
+import { dataBR, diaBR, diaDoInstanteBR, foraDoFds, prazoDe, recua } from "../datas";
 
 test.use({ storageState: STORAGE_INTERNO });
 test.describe.configure({ mode: "serial" });
@@ -63,14 +63,15 @@ test("formulário: a Data some onde o sistema calcula", async ({ page }) => {
   // Concedido: vence amanhã, vai até o 10º dia.
   await escolher(/^Concedido/);
   await expect(page.getByTestId("data-automatica")).toContainText(
-    `Vence amanhã (${dataBR(diaBR(1))}). Pode ser adiada até ${dataBR(recua(diaBR(10)))}`,
+    // "amanhã", menos quando amanhã é fim de semana: prazo não cai em sábado/domingo.
+    `(${dataBR(foraDoFds(diaBR(1)))}). Pode ser adiada até ${dataBR(recua(prazoDe(diaBR(0), 10)))}`,
   );
 
   // Exigência INSS: fatal já vem hoje + 30; o Aguardando vai até fatal − 3.
   await escolher(/^Exigência INSS/);
-  await expect(page.locator("#t-prazo-fatal-inss")).toHaveValue(diaBR(30));
+  await expect(page.locator("#t-prazo-fatal-inss")).toHaveValue(prazoDe(diaBR(0), 30));
   await expect(page.getByTestId("data-automatica")).toContainText(
-    `Pode ser adiada até ${dataBR(recua(diaBR(27)))}`,
+    `Pode ser adiada até ${dataBR(recua(prazoDe(diaBR(0), 27)))}`,
   );
   await expect(page.locator("#t-due")).toHaveCount(0);
 
@@ -143,8 +144,8 @@ test("análise do deferimento: entrar com revisão abre a corrente do requerimen
     .select("id, due_at, metadata")
     .single();
   if (error) throw new Error(error.message);
-  expect(diaDoInstanteBR(an!.due_at as string)).toBe(diaBR(1));
-  expect((an!.metadata as { teto_em: string }).teto_em).toBe(recua(diaBR(10)));
+  expect(diaDoInstanteBR(an!.due_at as string)).toBe(foraDoFds(diaBR(1)));
+  expect((an!.metadata as { teto_em: string }).teto_em).toBe(recua(prazoDe(diaBR(0), 10)));
 
   await abrirTarefaNoCaso(page, casoId, titulo);
   await page.getByRole("dialog").getByRole("button", { name: "Entrar com revisão" }).click();
