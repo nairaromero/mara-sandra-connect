@@ -43,9 +43,15 @@ import {
   buscarEventoMesmoDia,
   criarEvento,
   excluirEvento,
+  marcarConclusaoEvento,
 } from "@/lib/agenda/queries";
 import { type AgendaEventoComJoins, type AgendaTipo, TIPO_LABEL } from "@/lib/agenda/types";
-import { ehTokenJudicial, processoDoToken, tokenDoProcesso } from "@/lib/processos/token";
+import {
+  ehTokenJudicial,
+  naturezaDoToken,
+  processoDoToken,
+  tokenDoProcesso,
+} from "@/lib/processos/token";
 import { calcularDueAtRelativo } from "@/lib/agenda/helpers";
 import {
   comoLocalBR,
@@ -78,6 +84,8 @@ import {
 import { AvisoParceiroEvento } from "@/components/agenda/aviso-parceiro-evento";
 import {
   templateTemAgenda,
+  templateCabeNoProcesso,
+  ROTULO_NATUREZA,
   type ProcessoDoCasoOpcao,
   type TarefaTemplateRow,
   type TarefaTipo,
@@ -335,11 +343,29 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
   // Com caso, oferece os templates de cliente; sem caso, só os que não
   // dependem de um (ausência). Assim a ausência é alcançável mesmo com
   // "Sem cliente" — antes o seletor inteiro sumia.
+  const naturezaProcesso = naturezaDoToken(processoToken);
   const templatesVisiveis = useMemo(() => {
     const temSemCaso = (t: TarefaTemplateRow) =>
       t.itens.some((i) => i.destino === "agenda" && i.sem_caso);
-    return templates.filter((t) => (casoId ? !temSemCaso(t) : temSemCaso(t)));
-  }, [templates, casoId]);
+    // E só os que cabem no processo escolhido: template de uma natureza não
+    // entra em processo da outra (quem manda é o processo).
+    return templates.filter(
+      (t) =>
+        (casoId ? !temSemCaso(t) : temSemCaso(t)) &&
+        templateCabeNoProcesso(t, naturezaProcesso),
+    );
+  }, [templates, casoId, naturezaProcesso]);
+
+  // Trocou o processo e o template escolhido não cabe mais: sai, com aviso.
+  useEffect(() => {
+    if (!templateSelecionado) return;
+    const t = templates.find((x) => x.nome === templateSelecionado);
+    if (!t || templateCabeNoProcesso(t, naturezaProcesso)) return;
+    setTemplateSelecionado("");
+    toast.info(
+      `O template "${t.rotulo ?? t.nome}" não cabe em processo ${ROTULO_NATUREZA[naturezaProcesso!]}.`,
+    );
+  }, [naturezaProcesso, templateSelecionado, templates]);
 
   useEffect(() => {
     if (!aberto) return;
@@ -432,14 +458,16 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
     // escolhidos na mão — senão marcar "Interno" viraria "Ausência" em
     // qualquer evento interno.
     if (!casoId) return;
-    const doTipo = templates.filter((t) =>
+    // Entre os que cabem no processo escolhido: com o processo judicial
+    // marcado, "Perícia" já cai no template judicial (e vice-versa).
+    const doTipo = templatesVisiveis.filter((t) =>
       t.itens.some((i) => i.destino === "agenda" && i.tipo === tipo && !i.sem_caso),
     );
     // 2+ templates pro mesmo tipo = ambiguo; deixa a pessoa escolher.
     if (doTipo.length !== 1) return;
     if (templateSelecionado === doTipo[0].nome) return;
     setTemplateSelecionado(doTipo[0].nome);
-  }, [tipo, templates, editando]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tipo, templatesVisiveis, editando]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Selecionar template (modo criar): popula tipo/titulo/descricao do item
   // destino=agenda; usa duracao_min do template pra calcular end_at.
@@ -761,14 +789,7 @@ export function AgendaSheet({ modo, onClose, onSaved }: Props) {
     const marcando = !evento.concluido_em;
     setConcluindo(true);
     try {
-      const { error } = await supabase
-        .from("agenda_eventos")
-        .update({
-          concluido_em: marcando ? new Date().toISOString() : null,
-          concluido_por: marcando ? (usuario?.id ?? null) : null,
-        })
-        .eq("id", evento.id);
-      if (error) throw error;
+      await marcarConclusaoEvento(evento.id, marcando, usuario?.id ?? null);
       toast.success(marcando ? "Evento concluído." : "Evento reaberto.");
       onSaved();
       onClose();

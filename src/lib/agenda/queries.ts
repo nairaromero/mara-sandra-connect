@@ -1,5 +1,7 @@
 // Queries da agenda (CRUD de eventos + listagens).
 
+import { lerLista } from "@/lib/leitura";
+import { eventoDaPericia } from "@/lib/agenda/helpers";
 import { supabase } from "@/lib/supabase";
 import { comoLocalBR, deLocalBR } from "@/lib/fuso";
 import type {
@@ -144,4 +146,57 @@ export async function atualizarEvento(input: AtualizarEventoInput): Promise<Agen
 export async function excluirEvento(id: string): Promise<void> {
   const { error } = await supabase.from("agenda_eventos").delete().eq("id", id);
   if (error) throw error;
+}
+
+/** Dá o evento por realizado (ou reabre). Não apaga nem move: grava quem e quando. */
+export async function marcarConclusaoEvento(
+  id: string,
+  concluir: boolean,
+  usuarioId: string | null,
+): Promise<void> {
+  const { error } = await supabase
+    .from("agenda_eventos")
+    .update({
+      concluido_em: concluir ? new Date().toISOString() : null,
+      concluido_por: concluir ? usuarioId : null,
+    })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+/**
+ * Perícia se conclui pela TAREFA dela (#332): quando a equipe responde se o
+ * cliente compareceu, o agendamento daquela perícia está encerrado e sai dos
+ * ativos do caso. Acha o evento pelo processo da tarefa e pela data que a
+ * tarefa guarda (`pericia_em`); sem data que case, só conclui se houver UMA
+ * perícia aberta naquele processo — com duas, não chuta.
+ * Devolve se concluiu algum.
+ */
+export async function concluirPericiaDaTarefa(input: {
+  casoId: string;
+  processoAdminId: string | null;
+  processoJudicialId: string | null;
+  periciaEm: string | null;
+  usuarioId: string | null;
+}): Promise<boolean> {
+  let q = supabase
+    .from("agenda_eventos")
+    .select("id, start_at")
+    .eq("caso_id", input.casoId)
+    .eq("tipo", "pericia")
+    .is("concluido_em", null);
+  q = input.processoAdminId
+    ? q.eq("processo_admin_id", input.processoAdminId)
+    : q.is("processo_admin_id", null);
+  q = input.processoJudicialId
+    ? q.eq("processo_judicial_id", input.processoJudicialId)
+    : q.is("processo_judicial_id", null);
+  const abertas = await lerLista<{ id: string; start_at: string }>(
+    q,
+    "perícias abertas na agenda deste processo",
+  );
+  const alvo = eventoDaPericia(abertas, input.periciaEm);
+  if (!alvo) return false;
+  await marcarConclusaoEvento(alvo.id, true, input.usuarioId);
+  return true;
 }

@@ -2,7 +2,7 @@
 // (Minhas hoje) e na tab Tarefas do caso. "Aplicar template" só aparece
 // quando há caso selecionado.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Loader2, Trash2, ExternalLink, AlarmClock } from "lucide-react";
@@ -51,6 +51,8 @@ import {
   STATUS_ORDEM,
   TIPO_LABEL,
   templateTemAgenda,
+  templateCabeNoProcesso,
+  ROTULO_NATUREZA,
   type ProcessoDoCasoOpcao,
   type TarefaComJoins,
   type TarefaStatus,
@@ -61,6 +63,7 @@ import { buscarEventoMesmoDia, criarEvento } from "@/lib/agenda/queries";
 import {
   SEM_PROCESSO,
   ehTokenJudicial,
+  naturezaDoToken,
   processoDoToken,
   tokenDoProcesso,
   type ProcessoDoItem,
@@ -410,6 +413,24 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
 
   // Templates em que a data da tarefa principal é AUTOMÁTICA (#397): o campo
   // Data some e o form mostra a data que o sistema vai usar.
+  // Template só cabe no processo da natureza dele: quem manda é o processo.
+  const naturezaProcesso = naturezaDoToken(processoToken);
+  const templatesDoProcesso = useMemo(
+    () => templates.filter((t) => templateCabeNoProcesso(t, naturezaProcesso)),
+    [templates, naturezaProcesso],
+  );
+  const templatesFora = templates.length - templatesDoProcesso.length;
+  // Trocou o processo e o template escolhido não cabe mais: sai, com aviso.
+  useEffect(() => {
+    if (!templateSelecionado) return;
+    const t = templates.find((x) => x.nome === templateSelecionado);
+    if (!t || templateCabeNoProcesso(t, naturezaProcesso)) return;
+    setTemplateSelecionado("");
+    toast.info(
+      `O template "${t.rotulo ?? t.nome}" não cabe em processo ${ROTULO_NATUREZA[naturezaProcesso!]}.`,
+    );
+  }, [naturezaProcesso, templateSelecionado, templates]);
+
   const tplSel = templateSelecionado
     ? templates.find((t) => t.nome === templateSelecionado) ?? null
     : null;
@@ -1624,7 +1645,7 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
     // O item mostra o resumo do template em cinza; a BUSCA procura no
     // `label`, que é texto puro — procurar dentro de JSX não funciona, e
     // rótulo que some da busca é item que a pessoa não acha.
-    ...templates.map((t) => {
+    ...templatesDoProcesso.map((t) => {
       const tarefasN = t.itens.filter((i) => !i.destino || i.destino === "tarefa").length;
       const andamentosN = t.itens.filter((i) => i.destino === "andamento").length;
       const solicN = t.itens.filter((i) => i.destino === "solicitacao_documento").length;
@@ -1648,6 +1669,12 @@ export function TarefaSheet({ modo, onClose, onSaved, onConcluida }: Props) {
   ]}
   placeholder="Escolha um template"
 />
+              {templatesFora > 0 && naturezaProcesso && (
+                <p className="text-xs text-muted-foreground">
+                  {templatesFora === 1 ? "1 template não aparece" : `${templatesFora} templates não aparecem`}{" "}
+                  porque o processo escolhido é {ROTULO_NATUREZA[naturezaProcesso]}.
+                </p>
+              )}
               <p className="text-xs text-muted-foreground">
                 {templateSelecionado ? (
                   templateAgenda ? (

@@ -24,6 +24,8 @@ import { excluirTarefaComMotivo } from "@/lib/tarefas/queries";
 import { useDestaque } from "@/lib/destaque/destaque-context";
 import { formatarBR } from "@/lib/fuso";
 import { proximoDiaUtil } from "@/lib/agenda/helpers";
+import { concluirPericiaDaTarefa } from "@/lib/agenda/queries";
+import { useAuth } from "@/hooks/use-auth";
 import { lerLista } from "@/lib/leitura";
 import { ehPericiaJudicial } from "@/lib/tarefas/pericia";
 
@@ -48,6 +50,7 @@ export function ComparecimentoPericia({
 }: Props) {
   const [agindo, setAgindo] = useState<"sim" | "nao" | null>(null);
   const { marcar: marcarDestaque } = useDestaque();
+  const { usuario } = useAuth();
 
   const meta = (tarefa.metadata ?? {}) as { pericia_em?: string };
   // Perícia judicial espera um LAUDO, não um resultado do INSS.
@@ -91,6 +94,25 @@ export function ComparecimentoPericia({
         supabase.functions
           .invoke("notify-novo-andamento", { body: { andamento_id: and.id } })
           .catch(() => {});
+      }
+
+      // 1b) A perícia aconteceu (ou não): o agendamento dela está encerrado
+      // e sai dos ativos do caso. Não derruba o registro: se não der para
+      // concluir, a pessoa fica sabendo e conclui pela agenda.
+      if (tarefa.caso_id) {
+        try {
+          await concluirPericiaDaTarefa({
+            casoId: tarefa.caso_id,
+            processoAdminId: tarefa.processo_admin_id,
+            processoJudicialId: tarefa.processo_judicial_id,
+            periciaEm: meta.pericia_em ?? null,
+            usuarioId: usuario?.id ?? null,
+          });
+        } catch (e) {
+          toast.warning("Comparecimento registrado, mas a perícia continua na agenda", {
+            description: (e as { message?: string }).message ?? "",
+          });
+        }
       }
 
       // 2) Consequência.
