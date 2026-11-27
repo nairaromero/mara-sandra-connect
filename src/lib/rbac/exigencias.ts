@@ -132,6 +132,11 @@ export const RPC: Record<string, Exigencia> = {
   // regra de escopo da policy de tarefas; o checklist é de quem mexe nos
   // tipos de benefício (mesma aba); quem faz cada etapa, de quem configura.
   concluir_organizacao_documentos: { permissao: "tarefas:gerenciar" },
+  // perícia (27/11): a consequência alcança a linha ligada mesmo de outra
+  // pessoa — a permissão é conferida na linha de ORIGEM (a tarefa respondida;
+  // o compromisso remarcado), com a regra de escopo da policy dela.
+  concluir_pericia_da_tarefa: { permissao: "tarefas:gerenciar" },
+  reancorar_tarefa_do_evento: { permissao: "agenda:gerenciar" },
   escritorio_definir_checklist: { permissao: "templates:gerenciar" },
   escritorio_definir_responsaveis: { permissao: "escritorio:configurar" },
   escritorio_definir_dados_legais: { permissao: "escritorio:configurar" },

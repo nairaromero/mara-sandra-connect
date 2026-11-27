@@ -88,8 +88,8 @@ export const TERMOS: Array<Termo> = [
     categoria: "papeis",
     publico: "interno",
     definicao:
-      "Até onde uma permissão alcança. “Todos” é tudo do escritório; “atribuídos” é só o que está no nome da pessoa (as tarefas e compromissos do assistente); “indicados” é só os casos que a pessoa indicou (o parceiro); “próprios” é só o que é dela (os repasses do parceiro). Em tarefas e agenda o administrador pode mudar o alcance de uma pessoa entre “todos” e “só os atribuídos”, sem trocar o papel dela.",
-    veja: ["permissao"],
+      "Até onde uma permissão alcança. “Todos” é tudo do escritório; “atribuídos” é só o que está no nome da pessoa (as tarefas e compromissos do assistente); “indicados” é só os casos que a pessoa indicou (o parceiro); “próprios” é só o que é dela (os repasses do parceiro). Em tarefas e agenda o administrador pode mudar o alcance de uma pessoa entre “todos” e “só os atribuídos”, sem trocar o papel dela. O alcance vale para o que a pessoa altera de propósito; a consequência de uma ação permitida acompanha mesmo em linha de outra pessoa — responder o comparecimento de uma tarefa sua encerra a perícia na agenda, e remarcar uma perícia sua leva as tarefas dela junto.",
+    veja: ["permissao", "pericia"],
   },
   {
     id: "ajuste-de-permissao",
@@ -383,8 +383,8 @@ export const TERMOS: Array<Termo> = [
     termo: "Exigência",
     categoria: "casos",
     definicao:
-      "O pedido do INSS ou da Justiça para complementar o processo, com prazo. No sistema vira, a partir de um template, as solicitações de documento e uma tarefa de prazo, para ninguém perder a data.",
-    veja: ["solicitacao-documento", "tarefa", "template-tarefa", "janela-prazo"],
+      "O pedido do INSS ou da Justiça para complementar o processo, com prazo. No sistema vira, a partir de um template, as solicitações de documento e uma tarefa de prazo, para ninguém perder a data. Na exigência do INSS os 30 dias seguem a contagem de prazo do escritório: começam no próximo dia útil depois do andamento.",
+    veja: ["solicitacao-documento", "tarefa", "template-tarefa", "janela-prazo", "contagem-prazo"],
   },
   {
     id: "relogio-prazo",
@@ -392,8 +392,8 @@ export const TERMOS: Array<Termo> = [
     sinonimos: ["contagem do indeferimento", "relógio do caso"],
     categoria: "casos",
     definicao:
-      "A contagem que nasce quando um requerimento é indeferido e fixa as datas de cada etapa a partir dali: análise do indeferimento, montagem e revisão da inicial, protocolo e, quando cabe, o recurso ordinário. As datas não são chute nem combinação — saem da data do indeferimento, e por isso todo mundo vê a mesma. Cada processo tem o SEU relógio: dois requerimentos indeferidos no mesmo caso correm separados, e um não atrasa o outro.",
-    veja: ["janela-prazo", "prorrogacao", "reta-final", "tarefa", "montagem"],
+      "A contagem que nasce quando um requerimento é indeferido e fixa as datas de cada etapa a partir dali: análise do indeferimento, montagem e revisão da inicial, protocolo e, quando cabe, o recurso ordinário. As datas não são chute nem combinação — saem da data do indeferimento, pela contagem de prazo do escritório, e por isso todo mundo vê a mesma. Cada processo tem o SEU relógio: dois requerimentos indeferidos no mesmo caso correm separados, e um não atrasa o outro.",
+    veja: ["contagem-prazo", "janela-prazo", "prorrogacao", "reta-final", "tarefa", "montagem"],
     publico: "interno",
   },
   {
@@ -421,7 +421,17 @@ export const TERMOS: Array<Termo> = [
     categoria: "casos",
     definicao:
       "O intervalo em que uma espera ainda é normal — por exemplo, aguardar documentos de uma exigência, ou a análise de um deferimento. Dentro da janela o sistema só acompanha; passou dela, ele pede uma decisão de quem cuida do caso, em vez de deixar a tarefa envelhecendo sem ninguém reparar.",
-    veja: ["relogio-prazo", "exigencia", "tarefa"],
+    veja: ["relogio-prazo", "contagem-prazo", "exigencia", "tarefa"],
+    publico: "interno",
+  },
+  {
+    id: "contagem-prazo",
+    termo: "Contagem de prazo",
+    sinonimos: ["início do prazo", "fatal menos 1", "prazo no fim de semana", "dia útil"],
+    categoria: "casos",
+    definicao:
+      "A regra do escritório para prazo judicial e administrativo. A publicação ou o andamento do INSS chega num dia e o prazo começa a contar no próximo dia útil — veio na sexta, o primeiro dia é a segunda. O sistema trabalha com o fatal menos um dia. E nenhum prazo cai em sábado ou domingo: o que terminaria no fim de semana volta para a sexta; se essa sexta já passou, vai para a segunda. Vale para tarefas e para o prazo do parceiro nos pedidos de documento, por qualquer caminho que o prazo nasça. Perícia e agenda ficam de fora: ali a data é a do compromisso. O sistema não conhece feriados — esses, quem cuida do caso confere.",
+    veja: ["relogio-prazo", "janela-prazo", "exigencia", "tarefa"],
     publico: "interno",
   },
   {
@@ -440,7 +450,7 @@ export const TERMOS: Array<Termo> = [
     categoria: "casos",
     publico: "interno",
     definicao:
-      "Um conjunto de tarefas, solicitações de documento e, às vezes, um compromisso na agenda, que se aplica a um caso de uma vez (atalho “Template” na tarefa) para padronizar rotinas como exigência, pós-protocolo ou perícia; alguns só registram um andamento. Cada escritório tem os seus, copiados do catálogo quando ele foi criado; quem pode editar o caso aplica.",
+      "Um conjunto de tarefas, solicitações de documento e, às vezes, um compromisso na agenda, que se aplica a um caso de uma vez (atalho “Template” na tarefa) para padronizar rotinas como exigência, pós-protocolo ou perícia; alguns só registram um andamento. Cada escritório tem os seus, copiados do catálogo quando ele foi criado; quem pode editar o caso aplica. Alguns templates só cabem num tipo de processo: com um processo judicial escolhido, os do INSS saem da lista, e com um requerimento saem os judiciais (Perícia INSS × Perícia Judicial, Exigência INSS × Exigência Judicial). Os demais aparecem sempre.",
     veja: ["tarefa", "exigencia", "catalogo-escritorio"],
   },
   {
@@ -449,7 +459,7 @@ export const TERMOS: Array<Termo> = [
     sinonimos: ["compromisso", "audiência"],
     categoria: "casos",
     definicao:
-      "Os compromissos do escritório: perícias, audiências, guichê OAB, atendimentos, reuniões e compromissos internos. Toda perícia agendada entra aqui sozinha; as tarefas sobre ela (acompanhar, contatar) ficam em Tarefas. O parceiro vê só as perícias e audiências dos casos dele, e o assistente só edita os compromissos atribuídos a ele. Datas sempre no horário de Brasília.",
+      "Os compromissos do escritório: perícias, audiências, guichê OAB, atendimentos, reuniões e compromissos internos. Toda perícia agendada entra aqui sozinha; as tarefas sobre ela (acompanhar, contatar) ficam em Tarefas. Compromisso dado por realizado sai dos ativos do caso e fica em Arquivados. O parceiro vê só as perícias e audiências dos casos dele, e o assistente só edita os compromissos atribuídos a ele. Datas sempre no horário de Brasília.",
     veja: ["pericia", "tarefa"],
   },
   {
@@ -458,8 +468,18 @@ export const TERMOS: Array<Termo> = [
     sinonimos: ["perícia médica", "perícia do INSS", "perícia judicial"],
     categoria: "casos",
     definicao:
-      "O exame do INSS ou da Justiça, com data e local. Toda perícia agendada entra na agenda sozinha e gera tarefas de lembrete e acompanhamento. O aviso ao parceiro é revisado no próprio agendamento ou vira a tarefa “Enviar aviso ao parceiro”.",
-    veja: ["agenda", "tarefa"],
+      "O exame do INSS ou da Justiça, com data e local. Toda perícia agendada entra na agenda sozinha e gera tarefas de lembrete e acompanhamento. O aviso ao parceiro é revisado no próprio agendamento ou vira a tarefa “Enviar aviso ao parceiro”. Remarcou a perícia na agenda, as tarefas dela vão junto para a nova data. Responder se o cliente compareceu encerra o agendamento, que sai dos ativos do caso — mesmo quando o compromisso está no nome de outra pessoa da equipe, porque é consequência da resposta. O que vem depois depende de onde a perícia corre: no INSS o resultado é o desfecho (deferido ou indeferido); na Justiça sai um laudo, e o processo segue.",
+    veja: ["agenda", "tarefa", "laudo-pericia-judicial"],
+  },
+  {
+    id: "laudo-pericia-judicial",
+    termo: "Laudo da perícia judicial",
+    sinonimos: ["laudo pericial", "laudo favorável", "laudo desfavorável", "conferir laudo"],
+    categoria: "casos",
+    definicao:
+      "O que o perito junta ao processo depois da perícia judicial. Diferente da perícia do INSS, o laudo não é a decisão: favorável, parcialmente favorável ou desfavorável, o processo segue até a sentença. Por isso a tarefa “Conferir laudo da perícia judicial” registra o laudo e abre a análise dele — nunca as tarefas de benefício concedido. Perícia ligada a processo judicial é sempre tratada assim, qualquer que seja o template usado. Quando o tribunal publica a intimação para manifestar sobre o laudo, o sistema avisa na tarefa de conferência e traz o prazo dela para hoje, mas não conclui nem classifica: a publicação não diz o resultado, e ler o laudo é de quem cuida do caso. A análise do laudo é uma só por laudo, venha da publicação ou do registro na tarefa.",
+    veja: ["pericia", "tarefa", "contagem-prazo"],
+    publico: "interno",
   },
   {
     id: "processo",

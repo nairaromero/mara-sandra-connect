@@ -25,7 +25,6 @@ import { useDestaque } from "@/lib/destaque/destaque-context";
 import { formatarBR } from "@/lib/fuso";
 import { proximoDiaUtil } from "@/lib/agenda/helpers";
 import { concluirPericiaDaTarefa } from "@/lib/agenda/queries";
-import { useAuth } from "@/hooks/use-auth";
 import { lerLista } from "@/lib/leitura";
 import { ehPericiaJudicial } from "@/lib/tarefas/pericia";
 
@@ -50,7 +49,6 @@ export function ComparecimentoPericia({
 }: Props) {
   const [agindo, setAgindo] = useState<"sim" | "nao" | null>(null);
   const { marcar: marcarDestaque } = useDestaque();
-  const { usuario } = useAuth();
 
   const meta = (tarefa.metadata ?? {}) as { pericia_em?: string; evento_id?: string };
   // Perícia judicial espera um LAUDO, não um resultado do INSS.
@@ -102,12 +100,12 @@ export function ComparecimentoPericia({
       if (tarefa.caso_id) {
         try {
           await concluirPericiaDaTarefa({
+            tarefaId: tarefa.id,
             casoId: tarefa.caso_id,
             processoAdminId: tarefa.processo_admin_id,
             processoJudicialId: tarefa.processo_judicial_id,
             periciaEm: meta.pericia_em ?? null,
             eventoId: meta.evento_id ?? null,
-            usuarioId: usuario?.id ?? null,
           });
         } catch (e) {
           toast.warning("Comparecimento registrado, mas a perícia continua na agenda", {

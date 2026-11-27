@@ -229,7 +229,9 @@ test("publicação sobre o laudo avisa a conferência, sem concluir; e a anális
   const c = await conferencia(caso, titulo);
   expect(c.status).toBe("a_fazer");
   expect(c.metadata.laudo_publicado_em).toBeTruthy();
-  expect(new Date(c.due_at).getTime()).toBeLessThanOrEqual(Date.now());
+  // "Hoje": o prazo é o `now()` do BANCO, cujo relógio pode estar alguns
+  // milissegundos à frente do desta máquina — daí a folga de um minuto.
+  expect(new Date(c.due_at).getTime()).toBeLessThanOrEqual(Date.now() + 60_000);
 
   // A publicação abriu a análise, com a marca.
   expect(await analisesDoLaudo(caso)).toHaveLength(1);

@@ -383,6 +383,13 @@ o sistema em produção. Quando chegar, vale o seguinte:
   campos, casa pela data anterior do evento e busca o offset no item do template. É o `evento_id` que
   deixa o "Compareceu" encerrar a perícia certa quando há mais de uma no processo. Quem cria tarefa a
   partir de evento grava os três campos. Prova: `e2e/tests/pericia-remarcada-tarefas.spec.ts`.
+  Consequência × escopo (27/11): update direto em linha que pode ser de OUTRA pessoa falha em
+  silêncio para quem tem alcance `atribuidos` (zero linhas, sem erro — a tela segue como se tivesse
+  feito). Consequência automática de uma ação permitida vai por função `SECURITY DEFINER` que confere
+  a permissão na linha de ORIGEM e limita o que alcança: `concluir_pericia_da_tarefa` (responder o
+  comparecimento encerra a perícia) e `reancorar_tarefa_do_evento` (remarcar leva as tarefas). Ao
+  escrever em tabela com escopo a partir de outra ação, não usar `.update()` direto.
+  Prova: `e2e/tests/pericia-consequencias-escopo.spec.ts` (conta de assistente).
 - **Quem muda ACESSO audita** (desde 2026-09-27, `migration_rbac_25`/`26`; desenho em
   planning/AUDITABILIDADE.md): papel, permissão, status do vínculo, titularidade e staff
   chamam `private.auditar` com o antes e o depois; apagar cliente, documento ou andamento
